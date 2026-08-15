@@ -47,6 +47,7 @@ async function flushMicrotasks(): Promise<void> {
 afterEach(() => {
   for (const cleanup of reactHarness.cleanups.splice(0).reverse()) cleanup();
   transportHarness.openTransport.mockReset();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -70,7 +71,7 @@ describe('push-to-talk attempt lifecycle', () => {
     expect(onAttemptStart).toHaveBeenCalledOnce();
   });
 
-  it('prepares one reusable transport before the shortcut is held', async () => {
+  it('opens one microphone-backed transport per shortcut hold and closes it after transcription', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
     const audioTrack = {
@@ -135,8 +136,7 @@ describe('push-to-talk attempt lifecycle', () => {
     });
     await flushMicrotasks();
 
-    expect(transportHarness.openTransport).toHaveBeenCalledOnce();
-    expect(transportHarness.openTransport).toHaveBeenCalledWith();
+    expect(transportHarness.openTransport).not.toHaveBeenCalled();
     expect(getUserMedia).not.toHaveBeenCalled();
 
     fakeWindow.dispatchEvent(
@@ -157,7 +157,8 @@ describe('push-to-talk attempt lifecycle', () => {
 
     expect(getUserMedia).toHaveBeenCalledOnce();
     expect(transportHarness.openTransport).toHaveBeenCalledOnce();
-    expect(sender.replaceTrack).toHaveBeenCalledWith(audioTrack);
+    expect(transportHarness.openTransport).toHaveBeenCalledWith({ audioTrack });
+    expect(sender.replaceTrack).not.toHaveBeenCalledWith(audioTrack);
 
     await vi.advanceTimersByTimeAsync(300);
     fakeWindow.dispatchEvent(
@@ -183,7 +184,94 @@ describe('push-to-talk attempt lifecycle', () => {
 
     expect(onTranscriptSubmit).toHaveBeenCalledWith('send the transcript');
     expect(transportHarness.openTransport).toHaveBeenCalledOnce();
-    expect(channel.close).not.toHaveBeenCalled();
+    expect(channel.close).toHaveBeenCalledOnce();
+    expect(connection.close).toHaveBeenCalledOnce();
+  });
+
+  it('logs the connection phase when the shortcut is released before listening', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const consoleInfo = vi
+      .spyOn(console, 'info')
+      .mockImplementation(() => undefined);
+    const audioTrack = {
+      enabled: true,
+      muted: false,
+      readyState: 'live',
+      stop: vi.fn(),
+    } as unknown as MediaStreamTrack;
+    const stream = {
+      getAudioTracks: () => [audioTrack],
+      getTracks: () => [audioTrack],
+    } as unknown as MediaStream;
+    const channel = Object.assign(new EventTarget(), {
+      close: vi.fn(),
+      readyState: 'open' as RTCDataChannelState,
+      send: vi.fn(),
+    }) as unknown as RTCDataChannel;
+    const connection = Object.assign(new EventTarget(), {
+      close: vi.fn(),
+      connectionState: 'connected' as RTCPeerConnectionState,
+    }) as unknown as RTCPeerConnection;
+    const sender = {
+      getStats: vi.fn(),
+      replaceTrack: vi.fn(async () => undefined),
+    } as unknown as RTCRtpSender;
+    const transport = { channel, connection, sender };
+    let resolveTransport: (value: typeof transport) => void = () => undefined;
+    transportHarness.openTransport.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveTransport = resolve;
+        }),
+    );
+    const fakeWindow = Object.assign(new EventTarget(), {
+      tro: { reportVoiceDiagnostic: vi.fn(async () => undefined) },
+    });
+
+    vi.stubGlobal('navigator', {
+      mediaDevices: { getUserMedia: vi.fn(async () => stream) },
+      platform: 'MacIntel',
+      userAgent: 'Mozilla/5.0 (Macintosh)',
+    });
+    vi.stubGlobal('window', fakeWindow);
+
+    usePushToTalk({
+      onAttemptStart: vi.fn(),
+      onError: vi.fn(),
+      onTranscriptChange: vi.fn(),
+      onTranscriptSubmit: vi.fn(),
+    });
+    fakeWindow.dispatchEvent(
+      Object.assign(new Event('keydown'), {
+        code: 'MetaLeft',
+        key: 'Meta',
+        repeat: false,
+      }),
+    );
+    fakeWindow.dispatchEvent(
+      Object.assign(new Event('keydown'), {
+        code: 'ControlLeft',
+        key: 'Control',
+        repeat: false,
+      }),
+    );
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(600);
+
+    fakeWindow.dispatchEvent(
+      Object.assign(new Event('keyup'), {
+        code: 'ControlLeft',
+        key: 'Control',
+      }),
+    );
+
+    expect(consoleInfo).toHaveBeenCalledWith(
+      '[voice:renderer] turn.release-before-listening {"attempt":1,"heldMs":600,"phase":"realtime_call"}',
+    );
+
+    resolveTransport(transport);
+    await flushMicrotasks();
   });
 
   it('does not clear UI state when the attempt is invalid', () => {
