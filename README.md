@@ -2,7 +2,7 @@
 
 TroCode is a cross-platform, general-purpose desktop agent foundation. It turns a user request into a typed, bounded goal before any tool or computer action is allowed.
 
-The desktop application uses Electron, React, TypeScript, and [CUA Driver](https://github.com/trycua/cua). The current foundation compiles and previews goals, enforces lifecycle transitions, evaluates proposed actions against capability and resource scopes, and initializes CUA only after an explicit user action.
+The desktop application uses Electron, React, TypeScript, and [CUA Driver](https://github.com/trycua/cua). The current foundation compiles and previews goals, enforces lifecycle transitions, evaluates proposed actions against capability and resource scopes, and automatically initializes CUA after operating-system permissions have been granted.
 
 ## Current status
 
@@ -13,7 +13,7 @@ Implemented:
 - `answer`, `guide`, `act`, and `mixed` interaction modes.
 - Typed task lifecycle with guarded transitions.
 - Capability, resource-scope, and approval policy evaluation.
-- Lazy CUA native runtime discovery and explicit permission onboarding.
+- Automatic CUA initialization after explicit first-run permission onboarding.
 - Platform-specific, focused-window push-to-talk voice transcription.
 - Goal preview and lifecycle activity UI.
 - Unit tests and cross-platform CI definition.
@@ -41,7 +41,7 @@ npm install
 npm start
 ```
 
-Choose **Connect computer** in the application when you are ready to grant desktop permissions. TroCode does not request those permissions during startup.
+Choose **Connect computer** once when you are ready to grant desktop permissions. Later launches connect automatically without showing another permission prompt.
 
 With the TroCode window focused, hold **Command + Control** on macOS or the
 physical **left Alt + left Control** keys on Windows. Release either key to

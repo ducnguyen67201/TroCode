@@ -38,7 +38,7 @@ The current deterministic router establishes the contract before model integrati
 
 ### CUA service
 
-The CUA package is imported lazily. Permission prompts occur only after a user chooses **Connect computer**. Shutdown first stops native admission, then destroys the UniFFI handle.
+The CUA package is imported during startup. TroCode initializes the driver automatically when operating-system permissions are already granted. Permission prompts occur only after a user chooses **Connect computer** for first-run onboarding. Shutdown first stops native admission, then destroys the UniFFI handle.
 
 Packaged builds keep a small CUA dependency island under
 `app.asar.unpacked/cua-runtime`. CUA resolves its platform-specific `.node` and

@@ -190,7 +190,8 @@ const createCompanionWindow = (): void => {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
+  await cuaService.connectIfPermitted();
   createWindow();
   createCompanionWindow();
 });

@@ -1,29 +1,11 @@
-import { z } from 'zod';
-
 import {
-  CapabilitySchema,
-  SensitiveActionSchema,
+  ProposedActionSchema,
   type GoalSpec,
+  type ProposedAction,
 } from '../../shared/contracts';
 
-export const ProposedActionSchema = z.object({
-  action: SensitiveActionSchema.or(
-    z.enum([
-      'answer',
-      'guide',
-      'observe_screen',
-      'open_url',
-      'click_element',
-      'type_text',
-      'read_file',
-    ]),
-  ),
-  capability: CapabilitySchema,
-  description: z.string().min(1),
-  target: z.string().optional(),
-});
-
-export type ProposedAction = z.infer<typeof ProposedActionSchema>;
+export { ProposedActionSchema };
+export type { ProposedAction };
 
 export interface PolicyDecision {
   status: 'allowed' | 'needs_approval' | 'denied';

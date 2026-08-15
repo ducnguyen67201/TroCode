@@ -42,6 +42,19 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown CUA initialization error.';
 }
 
+export function shouldAutoConnect(status: CuaStatus): boolean {
+  if (status.state !== 'disconnected') return false;
+
+  if (status.platform === 'darwin') {
+    return (
+      status.permissions?.accessibility === true &&
+      status.permissions.screenRecording === true
+    );
+  }
+
+  return status.platform === 'win32' || status.platform === 'linux';
+}
+
 export class CuaService {
   private cuaModule: CuaModule | null = null;
   private driver: Driver | null = null;
@@ -114,13 +127,28 @@ export class CuaService {
   }
 
   async connect(): Promise<CuaStatus> {
+    return this.initializeDriver(true);
+  }
+
+  async connectIfPermitted(): Promise<CuaStatus> {
+    const status = await this.getStatus();
+    if (!shouldAutoConnect(status)) return status;
+
+    return this.initializeDriver(false);
+  }
+
+  private async initializeDriver(
+    requestMissingPermissions: boolean,
+  ): Promise<CuaStatus> {
     const platform = getSupportedPlatform();
 
     try {
       const cua = await this.loadModule();
 
       if (platform === 'darwin') {
-        const permissions = cua.requestMacOsPermissions();
+        const permissions = requestMissingPermissions
+          ? cua.requestMacOsPermissions()
+          : cua.currentMacOsPermissionStatus();
         if (!permissions.accessibility || !permissions.screenRecording) {
           return {
             state: 'permission_required',
@@ -129,8 +157,10 @@ export class CuaService {
             permissions,
             summary: 'macOS permissions are not complete yet.',
             nextActions: [
-              'Enable TroCode under Accessibility and Screen Recording.',
-              'Restart the app after changing Screen Recording permission.',
+              requestMissingPermissions
+                ? 'Enable TroCode under Accessibility and Screen Recording.'
+                : 'Choose Connect computer to finish permission onboarding.',
+              'Restart TroCode after changing Screen Recording permission.',
             ],
           };
         }

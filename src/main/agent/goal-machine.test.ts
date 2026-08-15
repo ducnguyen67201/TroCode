@@ -13,6 +13,9 @@ function createIdleTask(): TaskSnapshot {
     request: 'Open YouTube',
     phase: 'idle',
     goal: null,
+    messages: [],
+    pendingInteraction: null,
+    progress: null,
     createdAt: timestamp,
     updatedAt: timestamp,
     lastEvent: null,
@@ -44,5 +47,19 @@ describe('goal lifecycle', () => {
     expect(canTransition('completed', 'planning')).toBe(false);
     expect(canTransition('failed', 'observing')).toBe(false);
     expect(canTransition('cancelled', 'acting')).toBe(false);
+  });
+
+  it('allows a running task to ask for input and always re-observe afterward', () => {
+    expect(canTransition('planning', 'awaiting_input')).toBe(true);
+    expect(canTransition('observing', 'awaiting_input')).toBe(true);
+    expect(canTransition('acting', 'awaiting_input')).toBe(true);
+    expect(canTransition('awaiting_input', 'observing')).toBe(true);
+    expect(canTransition('awaiting_input', 'acting')).toBe(false);
+  });
+
+  it('re-observes after an approval decision', () => {
+    expect(canTransition('observing', 'awaiting_approval')).toBe(true);
+    expect(canTransition('awaiting_approval', 'observing')).toBe(true);
+    expect(canTransition('awaiting_approval', 'acting')).toBe(false);
   });
 });
