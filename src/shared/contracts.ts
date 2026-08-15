@@ -330,6 +330,12 @@ export const CuaStatusSchema = z.object({
   nextActions: z.array(z.string()),
 });
 
+export const SystemPermissionSchema = z.enum([
+  'accessibility',
+  'microphone',
+  'screen_recording',
+]);
+
 export const VoiceStatusSchema = z.object({
   state: z.enum(['not_configured', 'ready', 'unavailable', 'error']),
   provider: z.literal('openai'),
@@ -400,6 +406,7 @@ export type RespondToInteractionRequest = z.infer<
 export type SensitiveAction = z.infer<typeof SensitiveActionSchema>;
 export type StartTaskRequest = z.infer<typeof StartTaskRequestSchema>;
 export type SteeringInstruction = z.infer<typeof SteeringInstructionSchema>;
+export type SystemPermission = z.infer<typeof SystemPermissionSchema>;
 export type SteerTaskRequest = z.infer<typeof SteerTaskRequestSchema>;
 export type SubmitTaskRequest = z.infer<typeof SubmitTaskRequestSchema>;
 export type TaskEvent = z.infer<typeof TaskEventSchema>;

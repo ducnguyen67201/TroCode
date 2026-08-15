@@ -7,6 +7,7 @@ import type {
   RespondToInteractionRequest,
   SteerTaskRequest,
   SubmitTaskRequest,
+  SystemPermission,
   TaskSnapshot,
   TaskUpdate,
   VoiceSession,
@@ -23,6 +24,7 @@ export const IPC_CHANNELS = {
   getComputerStatus: 'cua:status',
   getAuthStatus: 'auth:status',
   getVoiceStatus: 'voice:status',
+  openSystemPermissionSettings: 'system:open-permission-settings',
   respondToInteraction: 'task:respond',
   setCompanionState: 'companion:set-state',
   startTask: 'task:start',
@@ -43,6 +45,7 @@ export interface DesktopApi {
   getAuthStatus(): Promise<AuthStatus>;
   getVoiceStatus(): Promise<VoiceStatus>;
   onTaskUpdate(listener: (update: TaskUpdate) => void): () => void;
+  openSystemPermissionSettings(permission: SystemPermission): Promise<void>;
   respondToInteraction(
     request: RespondToInteractionRequest,
   ): Promise<TaskSnapshot>;
