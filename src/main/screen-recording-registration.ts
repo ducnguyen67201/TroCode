@@ -10,8 +10,25 @@ const START_AND_STOP_CAPTURE_SCRIPT = `
       audio: false,
       video: true,
     });
-    for (const track of stream.getTracks()) track.stop();
-    return true;
+    const video = document.createElement('video');
+    video.muted = true;
+    video.srcObject = stream;
+
+    try {
+      await video.play();
+      await new Promise((resolve) => {
+        if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
+          video.requestVideoFrameCallback(() => resolve(true));
+          return;
+        }
+
+        video.onloadeddata = () => resolve(true);
+      });
+      return true;
+    } finally {
+      video.srcObject = null;
+      for (const track of stream.getTracks()) track.stop();
+    }
   })()
 `;
 
