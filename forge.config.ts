@@ -127,6 +127,11 @@ const config: ForgeConfig = {
               js: './src/preload.ts',
             },
           },
+          {
+            html: './src/screen-recording-registration.html',
+            js: './src/screen-recording-registration-renderer.ts',
+            name: 'screen_recording',
+          },
         ],
       },
     }),

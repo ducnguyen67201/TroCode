@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react';
 
 import type {
   AuthUser,
@@ -12,6 +19,7 @@ import type {
 
 import { BrandMark } from './BrandMark';
 import { getCompanionState } from './companion-state';
+import { InsightsPage } from './InsightsPage';
 import {
   createPermissionChecklist,
   inspectMicrophonePermission,
@@ -25,6 +33,12 @@ import {
   pushToTalkShortcutName,
   type PushToTalkPlatform,
 } from './push-to-talk';
+import {
+  getCompanionErrorVisibility,
+  INITIAL_TRANSIENT_CURSOR_ERROR_STATE,
+  scheduleTransientCursorErrorDismissal,
+  transientCursorErrorReducer,
+} from './transient-cursor-error';
 import {
   usePushToTalk,
   type VoiceInputStatus,
@@ -61,6 +75,48 @@ const STEERABLE_PHASES = new Set([
   'paused',
   'blocked',
 ]);
+
+type ActiveView = 'agent' | 'insights';
+
+function appendUniqueEvent(
+  currentEvents: TaskEvent[],
+  event: TaskEvent,
+): TaskEvent[] {
+  return currentEvents.some(
+    (currentEvent) => currentEvent.eventId === event.eventId,
+  )
+    ? currentEvents
+    : [...currentEvents, event];
+}
+
+function NavigationIcon({
+  name,
+}: {
+  name: 'activity' | 'agent' | 'insights';
+}) {
+  if (name === 'agent') {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M12 3 4.5 7.2v9.6L12 21l7.5-4.2V7.2L12 3Z" />
+        <path d="M8.5 12h7M12 8.5v7" />
+      </svg>
+    );
+  }
+
+  if (name === 'insights') {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M4 12h4l2-6 4 12 2-6h4" />
+    </svg>
+  );
+}
 
 function formatLabel(value: string): string {
   return value.replaceAll('_', ' ');
@@ -374,9 +430,14 @@ export function App({
   isSigningOut: boolean;
   onSignOut: () => void;
 }) {
+  const [activeView, setActiveView] = useState<ActiveView>('agent');
   const [input, setInput] = useState('');
   const [snapshot, setSnapshot] = useState<TaskSnapshot | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
+  const [sessionEvents, setSessionEvents] = useState<TaskEvent[]>([]);
+  const [sessionSnapshots, setSessionSnapshots] = useState<
+    Record<string, TaskSnapshot>
+  >({});
   const [computerStatus, setComputerStatus] = useState<CuaStatus>(
     EMPTY_COMPUTER_STATUS,
   );
@@ -390,11 +451,50 @@ export function App({
   const [microphonePermission, setMicrophonePermission] =
     useState<PermissionState>('checking');
   const [permissionError, setPermissionError] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [transientCursorError, dispatchTransientCursorError] = useReducer(
+    transientCursorErrorReducer,
+    INITIAL_TRANSIENT_CURSOR_ERROR_STATE,
+  );
+  const error = transientCursorError.message;
   const activeTaskIdRef = useRef<string | null>(null);
   const isSendingRef = useRef(false);
   const permissionRefreshIdRef = useRef(0);
   const spokenInteractionIdRef = useRef<string | null>(null);
+
+  const clearError = useCallback(() => {
+    dispatchTransientCursorError({ type: 'cleared' });
+  }, []);
+
+  const reportError = useCallback((message: string) => {
+    dispatchTransientCursorError({ type: 'reported', message });
+  }, []);
+
+  const recordSnapshot = useCallback((nextSnapshot: TaskSnapshot | null) => {
+    setSnapshot(nextSnapshot);
+    if (!nextSnapshot) return;
+
+    setSessionSnapshots((currentSnapshots) => ({
+      ...currentSnapshots,
+      [nextSnapshot.taskId]: nextSnapshot,
+    }));
+    const lastEvent = nextSnapshot.lastEvent;
+    if (lastEvent) {
+      setSessionEvents((currentEvents) =>
+        appendUniqueEvent(currentEvents, lastEvent),
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!transientCursorError.visible) return;
+
+    return scheduleTransientCursorErrorDismissal(
+      transientCursorError.revision,
+      (revision) => {
+        dispatchTransientCursorError({ type: 'dismissed', revision });
+      },
+    );
+  }, [transientCursorError]);
 
   const refreshPermissions = useCallback(async () => {
     const refreshId = permissionRefreshIdRef.current + 1;
@@ -441,11 +541,9 @@ export function App({
       if (activeTaskId && activeTaskId !== update.snapshot.taskId) return;
 
       activeTaskIdRef.current = update.snapshot.taskId;
-      setSnapshot(update.snapshot);
+      recordSnapshot(update.snapshot);
       setEvents((currentEvents) =>
-        currentEvents.some((event) => event.eventId === update.event.eventId)
-          ? currentEvents
-          : [...currentEvents, update.event],
+        appendUniqueEvent(currentEvents, update.event),
       );
     });
 
@@ -455,7 +553,7 @@ export function App({
         setVoiceProviderStatus(status);
       })
       .catch((statusError: unknown) => {
-        setError(
+        reportError(
           statusError instanceof Error
             ? statusError.message
             : 'Could not inspect the OpenAI voice connection.',
@@ -465,7 +563,7 @@ export function App({
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [recordSnapshot, reportError]);
 
   useEffect(() => {
     const handleWindowFocus = (): void => {
@@ -546,7 +644,7 @@ export function App({
       }
 
       isSendingRef.current = true;
-      setError(null);
+      clearError();
       setIsSubmitting(true);
 
       try {
@@ -573,17 +671,17 @@ export function App({
           }
           activeTaskIdRef.current = null;
           setEvents([]);
-          setSnapshot(null);
+          recordSnapshot(null);
           nextSnapshot = await window.tro.submitTask({
             text: normalizedRequest,
           });
         }
 
         activeTaskIdRef.current = nextSnapshot.taskId;
-        setSnapshot(nextSnapshot);
+        recordSnapshot(nextSnapshot);
         setInput('');
       } catch (submitError) {
-        setError(
+        reportError(
           submitError instanceof Error
             ? submitError.message
             : 'The task could not accept that input.',
@@ -593,7 +691,16 @@ export function App({
         setIsSubmitting(false);
       }
     },
-    [input, isSteering, isSubmitting, pendingClarification, snapshot],
+    [
+      clearError,
+      input,
+      isSteering,
+      isSubmitting,
+      pendingClarification,
+      recordSnapshot,
+      reportError,
+      snapshot,
+    ],
   );
 
   const decideApproval = useCallback(
@@ -609,11 +716,11 @@ export function App({
 
       const approval = snapshot.pendingInteraction;
       isSendingRef.current = true;
-      setError(null);
+      clearError();
       setIsSubmitting(true);
 
       try {
-        setSnapshot(
+        recordSnapshot(
           await window.tro.decideApproval({
             taskId: snapshot.taskId,
             interactionId: approval.id,
@@ -623,7 +730,7 @@ export function App({
           }),
         );
       } catch (approvalError) {
-        setError(
+        reportError(
           approvalError instanceof Error
             ? approvalError.message
             : 'The approval decision could not be recorded.',
@@ -633,7 +740,7 @@ export function App({
         setIsSubmitting(false);
       }
     },
-    [isSubmitting, snapshot],
+    [clearError, isSubmitting, recordSnapshot, reportError, snapshot],
   );
 
   const resetTask = useCallback(async () => {
@@ -653,11 +760,11 @@ export function App({
 
       activeTaskIdRef.current = null;
       setInput('');
-      setSnapshot(null);
+      recordSnapshot(null);
       setEvents([]);
-      setError(null);
+      clearError();
     } catch (cancelError) {
-      setError(
+      reportError(
         cancelError instanceof Error
           ? cancelError.message
           : 'The current task could not be cancelled.',
@@ -666,7 +773,7 @@ export function App({
       isSendingRef.current = false;
       setIsSubmitting(false);
     }
-  }, [snapshot]);
+  }, [clearError, recordSnapshot, reportError, snapshot]);
 
   const { platform: voicePlatform, status: voiceStatus } = usePushToTalk({
     disabled:
@@ -675,16 +782,18 @@ export function App({
       pendingInteraction?.kind === 'approval',
     enabled:
       permissionSetupComplete && voiceProviderStatus.state === 'ready',
-    onError: setError,
+    onAttemptStart: clearError,
+    onError: reportError,
     onTranscriptChange: setInput,
     onTranscriptSubmit: (transcript) => void sendInput(transcript, 'voice'),
   });
   const companionState = getCompanionState({
-    hasError:
-      error !== null ||
-      snapshot?.phase === 'failed' ||
-      computerStatus.state === 'error' ||
-      voiceProviderStatus.state === 'error',
+    hasError: getCompanionErrorVisibility({
+      computerFailed: computerStatus.state === 'error',
+      taskFailed: snapshot?.phase === 'failed',
+      transientErrorVisible: transientCursorError.visible,
+      voiceProviderFailed: voiceProviderStatus.state === 'error',
+    }),
     isSending: isSubmitting,
     voiceStatus,
   });
@@ -772,12 +881,12 @@ export function App({
     }
 
     isSendingRef.current = true;
-    setError(null);
+    clearError();
     setIsSubmitting(true);
     try {
-      setSnapshot(await window.tro.startTask(snapshot.taskId));
+      recordSnapshot(await window.tro.startTask(snapshot.taskId));
     } catch (startError) {
-      setError(
+      reportError(
         startError instanceof Error
           ? startError.message
           : 'The task could not start.',
@@ -786,7 +895,7 @@ export function App({
       isSendingRef.current = false;
       setIsSubmitting(false);
     }
-  }, [snapshot]);
+  }, [clearError, recordSnapshot, reportError, snapshot]);
 
   if (!permissionSetupComplete) {
     return (
@@ -819,7 +928,10 @@ export function App({
         <button
           className="new-task-button"
           disabled={isSubmitting}
-          onClick={() => void resetTask()}
+          onClick={() => {
+            setActiveView('agent');
+            void resetTask();
+          }}
           type="button"
         >
           <span aria-hidden="true">＋</span>
@@ -828,14 +940,50 @@ export function App({
 
         <nav aria-label="Workspace">
           <span className="nav-label">Workspace</span>
-          <a aria-current="page" className="nav-item nav-item--active" href="#task">
-            <span aria-hidden="true">◇</span>
+          <button
+            aria-current={activeView === 'agent' ? 'page' : undefined}
+            className={`nav-item ${
+              activeView === 'agent' ? 'nav-item--active' : ''
+            }`}
+            onClick={() => setActiveView('agent')}
+            type="button"
+          >
+            <NavigationIcon name="agent" />
             Agent
-          </a>
-          <a className="nav-item" href="#activity">
-            <span aria-hidden="true">↗</span>
-            Activity
-          </a>
+          </button>
+          <button
+            aria-current={activeView === 'insights' ? 'page' : undefined}
+            className={`nav-item ${
+              activeView === 'insights' ? 'nav-item--active' : ''
+            }`}
+            onClick={() => setActiveView('insights')}
+            type="button"
+          >
+            <NavigationIcon name="insights" />
+            Insights
+          </button>
+        </nav>
+
+        <nav aria-label="Observe">
+          <span className="nav-label">Observe</span>
+          <button
+            className="nav-item"
+            onClick={() => {
+              setActiveView('agent');
+              window.setTimeout(
+                () =>
+                  document
+                    .getElementById('activity')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+                0,
+              );
+            }}
+            type="button"
+          >
+            <NavigationIcon name="activity" />
+            Live activity
+            <span className="nav-count">{events.length}</span>
+          </button>
         </nav>
 
         <div className="sidebar-footer">
@@ -847,11 +995,17 @@ export function App({
         </div>
       </aside>
 
-      <main className="workspace" id="task">
+      <main className="workspace">
         <header className="topbar">
           <div className="topbar-title">
-            <span className="topbar-kicker">General-purpose agent</span>
-            <strong>{taskPhase}</strong>
+            <span className="topbar-kicker">
+              {activeView === 'agent'
+                ? 'General-purpose agent'
+                : 'Private on-device summary'}
+            </span>
+            <strong>
+              {activeView === 'agent' ? taskPhase : 'Insights overview'}
+            </strong>
           </div>
           <div className="topbar-actions">
             <span className="prototype-pill">Foundation · v0.1</span>
@@ -872,7 +1026,13 @@ export function App({
           </div>
         </header>
 
-        <div className="content-grid">
+        {activeView === 'insights' ? (
+          <InsightsPage
+            events={sessionEvents}
+            tasks={Object.values(sessionSnapshots)}
+          />
+        ) : (
+        <div className="content-grid" id="task">
           <section className="task-column">
             <div className="hero-copy">
               <p className="eyebrow">Outcome first</p>
@@ -1003,6 +1163,7 @@ export function App({
             </section>
           </aside>
         </div>
+        )}
       </main>
     </div>
   );

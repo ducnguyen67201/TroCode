@@ -74,6 +74,7 @@ class FakePeerConnection extends EventTarget {
 describe('realtime voice transport', () => {
   it('preconnects an audio sender without attaching a microphone track', async () => {
     const connection = new FakePeerConnection();
+    const diagnosticLogger = vi.fn();
     const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
       expect(init).toMatchObject({
         body: 'test-offer-sdp',
@@ -89,6 +90,7 @@ describe('realtime voice transport', () => {
     const transport = await openRealtimeVoiceTransport(SESSION, {
       createPeerConnection: () =>
         connection as unknown as RTCPeerConnection,
+      diagnosticLogger,
       fetchImpl,
     });
 
@@ -101,6 +103,23 @@ describe('realtime voice transport', () => {
     ]);
     expect(connection.replaceTrack).not.toHaveBeenCalled();
     expect(isRealtimeVoiceTransportReady(transport)).toBe(true);
+    expect(diagnosticLogger.mock.calls.map(([event]) => event)).toEqual([
+      'transport.create',
+      'transport.offer-created',
+      'transport.local-description-set',
+      'transport.call-start',
+      'transport.call-response',
+      'transport.remote-description-set',
+      'transport.ready',
+    ]);
+    expect(diagnosticLogger).toHaveBeenCalledWith(
+      'transport.call-response',
+      {
+        answerLength: 15,
+        ok: true,
+        status: 200,
+      },
+    );
   });
 
   it('closes the prepared transport when OpenAI rejects the SDP offer', async () => {
@@ -118,6 +137,33 @@ describe('realtime voice transport', () => {
 
     expect(connection.connectionState).toBe('closed');
     expect(connection.channel.readyState).toBe('closed');
+  });
+
+  it('logs a sanitized renderer fetch failure before closing the transport', async () => {
+    const connection = new FakePeerConnection();
+    const diagnosticLogger = vi.fn();
+
+    await expect(
+      openRealtimeVoiceTransport(SESSION, {
+        createPeerConnection: () =>
+          connection as unknown as RTCPeerConnection,
+        diagnosticLogger,
+        fetchImpl: vi.fn<typeof fetch>(async () => {
+          throw new TypeError('Failed to fetch');
+        }),
+      }),
+    ).rejects.toThrow('Failed to fetch');
+
+    expect(diagnosticLogger).toHaveBeenLastCalledWith(
+      'transport.failed',
+      {
+        channelState: 'connecting',
+        connectionState: 'new',
+        errorMessage: 'Failed to fetch',
+        errorName: 'TypeError',
+      },
+    );
+    expect(connection.connectionState).toBe('closed');
   });
 
   it('closes an established transport explicitly', async () => {

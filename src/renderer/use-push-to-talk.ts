@@ -25,6 +25,7 @@ export type VoiceInputStatus =
 interface UsePushToTalkOptions {
   disabled?: boolean;
   enabled?: boolean;
+  onAttemptStart(): void;
   onError(message: string): void;
   onTranscriptChange(transcript: string): void;
   onTranscriptSubmit(transcript: string): void;
@@ -45,6 +46,38 @@ interface ActiveVoiceTurn {
 }
 
 const TRANSCRIPT_TIMEOUT_MS = 20_000;
+
+interface PushToTalkAttemptReadiness {
+  disabled: boolean;
+  enabled: boolean;
+  hasActiveTurn: boolean;
+  isChordHeld: boolean;
+  platform: PushToTalkPlatform;
+}
+
+export function beginPushToTalkAttemptIfValid(
+  {
+    disabled,
+    enabled,
+    hasActiveTurn,
+    isChordHeld,
+    platform,
+  }: PushToTalkAttemptReadiness,
+  onAttemptStart: () => void,
+): boolean {
+  if (
+    disabled ||
+    !enabled ||
+    platform === 'unsupported' ||
+    isChordHeld ||
+    hasActiveTurn
+  ) {
+    return false;
+  }
+
+  onAttemptStart();
+  return true;
+}
 
 function getPushToTalkPlatform(): PushToTalkPlatform {
   if (typeof navigator === 'undefined') return 'unsupported';
@@ -73,6 +106,7 @@ function voiceConnectionErrorMessage(error: unknown): string {
 export function usePushToTalk({
   disabled = false,
   enabled = true,
+  onAttemptStart,
   onError,
   onTranscriptChange,
   onTranscriptSubmit,
@@ -93,6 +127,7 @@ export function usePushToTalk({
   const chordHeldRef = useRef(false);
   const disabledRef = useRef(disabled);
   const enabledRef = useRef(enabled);
+  const onAttemptStartRef = useRef(onAttemptStart);
   const onErrorRef = useRef(onError);
   const onTranscriptChangeRef = useRef(onTranscriptChange);
   const onTranscriptSubmitRef = useRef(onTranscriptSubmit);
@@ -100,10 +135,18 @@ export function usePushToTalk({
   useEffect(() => {
     disabledRef.current = disabled;
     enabledRef.current = enabled;
+    onAttemptStartRef.current = onAttemptStart;
     onErrorRef.current = onError;
     onTranscriptChangeRef.current = onTranscriptChange;
     onTranscriptSubmitRef.current = onTranscriptSubmit;
-  }, [disabled, enabled, onError, onTranscriptChange, onTranscriptSubmit]);
+  }, [
+    disabled,
+    enabled,
+    onAttemptStart,
+    onError,
+    onTranscriptChange,
+    onTranscriptSubmit,
+  ]);
 
   const disposePreparedTransport = useCallback(() => {
     preparationAttemptRef.current += 1;
@@ -311,13 +354,16 @@ export function usePushToTalk({
   }, [stopVoice]);
 
   const beginListening = useCallback(async () => {
-    if (
-      disabledRef.current ||
-      !enabledRef.current ||
-      platform === 'unsupported' ||
-      chordHeldRef.current ||
-      activeTurnRef.current
-    ) {
+    if (!beginPushToTalkAttemptIfValid(
+      {
+        disabled: disabledRef.current,
+        enabled: enabledRef.current,
+        hasActiveTurn: activeTurnRef.current !== null,
+        isChordHeld: chordHeldRef.current,
+        platform,
+      },
+      () => onAttemptStartRef.current(),
+    )) {
       return;
     }
 

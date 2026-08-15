@@ -151,7 +151,11 @@ export function registerIpcHandlers(
       try {
         await services.requestScreenRecordingAccess();
         status = await services.cuaService.getStatus();
-      } catch {
+      } catch (error) {
+        console.warn(
+          'TroCode could not start its Screen Recording registration stream.',
+          error,
+        );
         // Opening the privacy pane is still useful if Chromium cannot enumerate
         // sources, for example after a previous denial.
       }

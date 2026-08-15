@@ -20,6 +20,7 @@ import {
 import { CuaService } from './main/cua/cua-service';
 import { registerIpcHandlers } from './main/ipc/register-ipc';
 import { registerScreenRecordingHost } from './main/screen-recording-registration';
+import { initializeSingleInstance } from './main/single-instance';
 import { systemPermissionSettingsUrl } from './main/system-permission-settings';
 import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-store';
 import { VoiceService } from './main/voice/voice-service';
@@ -43,6 +44,21 @@ if (require('electron-squirrel-startup')) {
 }
 
 app.setName('TroCode');
+
+const hasSingleInstanceLock = initializeSingleInstance(app, () => {
+  if (isShuttingDown) return;
+
+  const window = mainWindow;
+  if (window && !window.isDestroyed()) {
+    revealWindow(window);
+    return;
+  }
+
+  if (app.isReady()) {
+    createWindow();
+    createCompanionWindow();
+  }
+});
 
 const taskRuntime = new TaskRuntime();
 const oauthBrowserFlow = new LocalOAuthBrowserFlow({
@@ -298,6 +314,13 @@ const createWindow = (): void => {
     voiceService,
   });
 
+  if (!app.isPackaged) {
+    nextMainWindow.webContents.on('console-message', (details) => {
+      if (!details.message.startsWith('[voice:renderer]')) return;
+      console.info(details.message);
+    });
+  }
+
   nextMainWindow.once('ready-to-show', () => nextMainWindow.show());
 
   nextMainWindow.on('closed', () => {
@@ -438,55 +461,57 @@ const createCompanionWindow = (): void => {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-void app.whenReady().then(async () => {
-  configureDock();
-  analyticsService = new AnalyticsService({
-    appVersion: app.getVersion(),
-    architecture: process.arch,
-    environment:
-      process.env.POSTHOG_ENVIRONMENT?.trim() ||
-      (app.isPackaged ? 'production' : 'development'),
-    host: process.env.POSTHOG_HOST,
-    identityStore: new FileAnalyticsIdentityStore(
-      path.join(app.getPath('userData'), 'analytics-identity.json'),
-    ),
-    platform: process.platform,
-    projectToken: process.env.POSTHOG_PROJECT_TOKEN,
+if (hasSingleInstanceLock) {
+  void app.whenReady().then(async () => {
+    configureDock();
+    analyticsService = new AnalyticsService({
+      appVersion: app.getVersion(),
+      architecture: process.arch,
+      environment:
+        process.env.POSTHOG_ENVIRONMENT?.trim() ||
+        (app.isPackaged ? 'production' : 'development'),
+      host: process.env.POSTHOG_HOST,
+      identityStore: new FileAnalyticsIdentityStore(
+        path.join(app.getPath('userData'), 'analytics-identity.json'),
+      ),
+      platform: process.platform,
+      projectToken: process.env.POSTHOG_PROJECT_TOKEN,
+    });
+    taskRuntime.on('task-update', trackTaskAnalytics);
+
+    await Promise.all([
+      analyticsService.start(),
+      cuaService.connectIfPermitted(),
+    ]);
+    const authStatus = await authService.getStatus();
+    if (authStatus.user) await identifyAnalyticsUser(authStatus.user);
+    createWindow();
+    createCompanionWindow();
   });
-  taskRuntime.on('task-update', trackTaskAnalytics);
 
-  await Promise.all([
-    analyticsService.start(),
-    cuaService.connectIfPermitted(),
-  ]);
-  const authStatus = await authService.getStatus();
-  if (authStatus.user) await identifyAnalyticsUser(authStatus.user);
-  createWindow();
-  createCompanionWindow();
-});
+  app.on('window-all-closed', () => {
+    app.quit();
+  });
 
-app.on('window-all-closed', () => {
-  app.quit();
-});
+  app.on('activate', () => {
+    if (isShuttingDown) return;
+    // On OS X it's common to re-create a window in the app when the
+    // dock icon is clicked and there are no other windows open.
+    createWindow();
+    createCompanionWindow();
+  });
 
-app.on('activate', () => {
-  if (isShuttingDown) return;
-  // On OS X it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
-  createWindow();
-  createCompanionWindow();
-});
+  const exitDevelopmentProcess = (): void => {
+    beginShutdown();
+  };
 
-const exitDevelopmentProcess = (): void => {
-  beginShutdown();
-};
+  process.on('SIGTERM', exitDevelopmentProcess);
+  process.on('SIGINT', exitDevelopmentProcess);
 
-process.on('SIGTERM', exitDevelopmentProcess);
-process.on('SIGINT', exitDevelopmentProcess);
+  app.on('before-quit', (event) => {
+    if (isShuttingDown) return;
 
-app.on('before-quit', (event) => {
-  if (isShuttingDown) return;
-
-  event.preventDefault();
-  beginShutdown();
-});
+    event.preventDefault();
+    beginShutdown();
+  });
+}

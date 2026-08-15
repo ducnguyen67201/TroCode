@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const electronMock = vi.hoisted(() => {
+  Reflect.set(
+    globalThis,
+    'SCREEN_RECORDING_WEBPACK_ENTRY',
+    'file:///app/screen-recording/index.html',
+  );
   const screenSource = { id: 'screen:0:0' };
   const state: {
     displayMediaHandler?: (
@@ -12,19 +17,13 @@ const electronMock = vi.hoisted(() => {
       },
       callback: (streams: { video?: unknown }) => void,
     ) => void;
-    permissionHandler?: (
-      webContents: unknown,
-      permission: string,
-      callback: (allowed: boolean) => void,
-      details: { isMainFrame: boolean },
-    ) => void;
   } = {};
   const registrationSession = {
     setDisplayMediaRequestHandler: vi.fn((handler) => {
       state.displayMediaHandler = handler ?? undefined;
     }),
     setPermissionRequestHandler: vi.fn((handler) => {
-      state.permissionHandler = handler ?? undefined;
+      void handler;
     }),
   };
   const webContents: {
@@ -70,7 +69,6 @@ describe('registerScreenRecordingHost', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     electronMock.state.displayMediaHandler = undefined;
-    electronMock.state.permissionHandler = undefined;
     electronMock.registrationWindow.isDestroyed.mockReturnValue(false);
     electronMock.webContents.executeJavaScript.mockImplementation(
       async (_script: string, userGesture: boolean) => {
@@ -96,7 +94,7 @@ describe('registerScreenRecordingHost', () => {
     );
   });
 
-  it('starts and immediately stops capture in an isolated sandboxed renderer', async () => {
+  it('starts a bounded capture in an isolated sandboxed renderer', async () => {
     await expect(registerScreenRecordingHost()).resolves.toBeUndefined();
 
     expect(electronMock.BrowserWindow).toHaveBeenCalledWith(
@@ -114,7 +112,7 @@ describe('registerScreenRecordingHost', () => {
       ?.webPreferences?.partition;
     expect(partition).not.toMatch(/^persist:/);
     expect(electronMock.registrationWindow.loadURL).toHaveBeenCalledWith(
-      expect.stringMatching(/^data:text\/html/),
+      'file:///app/screen-recording/index.html',
     );
     expect(electronMock.webContents.executeJavaScript).toHaveBeenCalledWith(
       expect.stringContaining('navigator.mediaDevices.getDisplayMedia'),
@@ -124,38 +122,22 @@ describe('registerScreenRecordingHost', () => {
       expect.stringContaining('track.stop()'),
       true,
     );
+    expect(electronMock.webContents.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('video.srcObject = stream'),
+      true,
+    );
+    expect(electronMock.webContents.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('requestVideoFrameCallback'),
+      true,
+    );
     expect(electronMock.getSources).toHaveBeenCalledWith({
       fetchWindowIcons: false,
       thumbnailSize: { height: 0, width: 0 },
       types: ['screen'],
     });
-  });
-
-  it('grants display capture only to its own main frame', async () => {
-    await registerScreenRecordingHost();
-
-    const permissionHandler = electronMock.registrationSession
-      .setPermissionRequestHandler.mock.calls[0]?.[0];
-    expect(permissionHandler).toBeTypeOf('function');
-
-    const ownDecision = vi.fn();
-    permissionHandler(
-      electronMock.webContents,
-      'display-capture',
-      ownDecision,
-      { isMainFrame: true },
-    );
-    expect(ownDecision).toHaveBeenCalledWith(true);
-
-    for (const [contents, permission, details] of [
-      [{}, 'display-capture', { isMainFrame: true }],
-      [electronMock.webContents, 'media', { isMainFrame: true }],
-      [electronMock.webContents, 'display-capture', { isMainFrame: false }],
-    ] as const) {
-      const decision = vi.fn();
-      permissionHandler(contents, permission, decision, details);
-      expect(decision).toHaveBeenCalledWith(false);
-    }
+    expect(
+      electronMock.registrationSession.setPermissionRequestHandler,
+    ).not.toHaveBeenCalled();
   });
 
   it('rejects display-media requests outside the isolated main frame', async () => {
@@ -181,8 +163,8 @@ describe('registerScreenRecordingHost', () => {
       {
         audioRequested: false,
         frame: electronMock.webContents.mainFrame,
-        userGesture: false,
-        videoRequested: true,
+        userGesture: true,
+        videoRequested: false,
       },
     ]) {
       const callback = vi.fn();
@@ -202,9 +184,6 @@ describe('registerScreenRecordingHost', () => {
 
     expect(
       electronMock.registrationSession.setDisplayMediaRequestHandler,
-    ).toHaveBeenLastCalledWith(null);
-    expect(
-      electronMock.registrationSession.setPermissionRequestHandler,
     ).toHaveBeenLastCalledWith(null);
     expect(electronMock.registrationWindow.destroy).toHaveBeenCalledOnce();
   });

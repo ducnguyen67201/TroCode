@@ -81,8 +81,10 @@ describe('VoiceService', () => {
 
   it('does not store a rejected key', async () => {
     const { store, write } = memoryStore();
+    const diagnosticLogger = vi.fn();
     const service = new VoiceService({
       credentialStore: store,
+      diagnosticLogger,
       environmentApiKey: '',
       fetchImpl: vi.fn<typeof fetch>(async () =>
         new Response(
@@ -96,15 +98,25 @@ describe('VoiceService', () => {
       'Invalid API key.',
     );
     expect(write).not.toHaveBeenCalled();
+    expect(diagnosticLogger).toHaveBeenCalledWith(
+      'client-secret.response',
+      { ok: false, status: 401 },
+    );
+    expect(diagnosticLogger).toHaveBeenCalledWith(
+      'client-secret.rejected',
+      { status: 401 },
+    );
   });
 
   it('mints a short-lived transcription secret without exposing the API key', async () => {
     const { store } = memoryStore(TEST_API_KEY);
+    const diagnosticLogger = vi.fn();
     const fetchImpl = vi.fn<typeof fetch>(async () =>
       successfulSecretResponse(),
     );
     const service = new VoiceService({
       credentialStore: store,
+      diagnosticLogger,
       environmentApiKey: '',
       fetchImpl,
     });
@@ -120,5 +132,16 @@ describe('VoiceService', () => {
       Authorization: `Bearer ${TEST_API_KEY}`,
     });
     expect(request?.body).toContain('gpt-4o-mini-transcribe');
+    expect(diagnosticLogger.mock.calls.map(([event]) => event)).toEqual([
+      'session.create-start',
+      'credential.available',
+      'client-secret.request-start',
+      'client-secret.response',
+      'client-secret.ready',
+    ]);
+    expect(diagnosticLogger).toHaveBeenCalledWith(
+      'client-secret.response',
+      { ok: true, status: 200 },
+    );
   });
 });

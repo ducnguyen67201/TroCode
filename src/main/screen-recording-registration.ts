@@ -1,12 +1,9 @@
 import { BrowserWindow, desktopCapturer } from 'electron';
 import { randomUUID } from 'node:crypto';
 
+declare const SCREEN_RECORDING_WEBPACK_ENTRY: string;
+
 const CAPTURE_TIMEOUT_MS = 10_000;
-const REGISTRATION_PAGE =
-  'data:text/html;charset=utf-8,' +
-  encodeURIComponent(
-    '<!doctype html><meta charset="utf-8"><title>TroCode permission setup</title>',
-  );
 const START_AND_STOP_CAPTURE_SCRIPT = `
   (async () => {
     const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -54,22 +51,12 @@ export async function registerScreenRecordingHost(): Promise<void> {
   });
   const registrationSession = registrationWindow.webContents.session;
 
-  registrationSession.setPermissionRequestHandler(
-    (webContents, permission, callback, details) => {
-      callback(
-        webContents === registrationWindow.webContents &&
-          permission === 'display-capture' &&
-          details.isMainFrame,
-      );
-    },
-  );
   registrationSession.setDisplayMediaRequestHandler(
     async (request, callback) => {
       if (
         request.frame !== registrationWindow.webContents.mainFrame ||
         !request.videoRequested ||
-        request.audioRequested ||
-        !request.userGesture
+        request.audioRequested
       ) {
         callback({});
         return;
@@ -90,11 +77,10 @@ export async function registerScreenRecordingHost(): Promise<void> {
   );
 
   try {
-    await registrationWindow.loadURL(REGISTRATION_PAGE);
+    await registrationWindow.loadURL(SCREEN_RECORDING_WEBPACK_ENTRY);
     await runCaptureRequest(registrationWindow);
   } finally {
     registrationSession.setDisplayMediaRequestHandler(null);
-    registrationSession.setPermissionRequestHandler(null);
     if (!registrationWindow.isDestroyed()) registrationWindow.destroy();
   }
 }

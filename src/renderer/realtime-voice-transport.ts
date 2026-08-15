@@ -11,7 +11,43 @@ export interface RealtimeVoiceTransport {
 
 interface RealtimeVoiceTransportDependencies {
   createPeerConnection?: () => RTCPeerConnection;
+  diagnosticLogger?: VoiceDiagnosticLogger;
   fetchImpl?: typeof fetch;
+}
+
+type VoiceDiagnosticProperties = Record<
+  string,
+  string | number | boolean
+>;
+
+type VoiceDiagnosticLogger = (
+  event: string,
+  properties?: VoiceDiagnosticProperties,
+) => void;
+
+const SECRET_PATTERN = /\b(?:ek|sk)[-_][a-z0-9._-]+/gi;
+
+function defaultVoiceDiagnosticLogger(
+  event: string,
+  properties: VoiceDiagnosticProperties = {},
+): void {
+  const details =
+    Object.keys(properties).length > 0
+      ? ` ${JSON.stringify(properties)}`
+      : '';
+  console.info(`[voice:renderer] ${event}${details}`);
+}
+
+function diagnosticErrorProperties(
+  error: unknown,
+): VoiceDiagnosticProperties {
+  const name = error instanceof Error ? error.name : 'UnknownError';
+  const rawMessage =
+    error instanceof Error ? error.message : 'Unknown voice transport error.';
+  return {
+    errorMessage: rawMessage.replace(SECRET_PATTERN, '[redacted]').slice(0, 500),
+    errorName: name,
+  };
 }
 
 function waitForDataChannelOpen(channel: RTCDataChannel): Promise<void> {
@@ -72,6 +108,7 @@ export async function openRealtimeVoiceTransport(
   session: VoiceSession,
   {
     createPeerConnection = () => new RTCPeerConnection(),
+    diagnosticLogger = defaultVoiceDiagnosticLogger,
     fetchImpl = fetch,
   }: RealtimeVoiceTransportDependencies = {},
 ): Promise<RealtimeVoiceTransport> {
@@ -83,10 +120,19 @@ export async function openRealtimeVoiceTransport(
     direction: 'sendonly',
   }).sender;
   const transport = { channel, connection, sender };
+  diagnosticLogger('transport.create', {
+    expiresAt: session.expiresAt,
+    model: session.model,
+  });
 
   try {
     const offer = await connection.createOffer();
+    diagnosticLogger('transport.offer-created', {
+      sdpLength: offer.sdp?.length ?? 0,
+    });
     await connection.setLocalDescription(offer);
+    diagnosticLogger('transport.local-description-set');
+    diagnosticLogger('transport.call-start');
     const response = await fetchImpl(OPENAI_REALTIME_CALLS_URL, {
       method: 'POST',
       body: offer.sdp,
@@ -96,6 +142,11 @@ export async function openRealtimeVoiceTransport(
       },
     });
     const answerSdp = await response.text();
+    diagnosticLogger('transport.call-response', {
+      answerLength: answerSdp.length,
+      ok: response.ok,
+      status: response.status,
+    });
     if (!response.ok) {
       throw new Error('OpenAI rejected the realtime voice connection.');
     }
@@ -104,9 +155,19 @@ export async function openRealtimeVoiceTransport(
       type: 'answer',
       sdp: answerSdp,
     });
+    diagnosticLogger('transport.remote-description-set');
     await waitForDataChannelOpen(channel);
+    diagnosticLogger('transport.ready', {
+      channelState: channel.readyState,
+      connectionState: connection.connectionState,
+    });
     return transport;
   } catch (error) {
+    diagnosticLogger('transport.failed', {
+      ...diagnosticErrorProperties(error),
+      channelState: channel.readyState,
+      connectionState: connection.connectionState,
+    });
     closeRealtimeVoiceTransport(transport);
     throw error;
   }
