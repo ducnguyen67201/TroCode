@@ -15,7 +15,7 @@ export interface PermissionChecklist {
 }
 
 interface PermissionStatusLike {
-  state: PermissionState | PermissionStateValue;
+  state: 'denied' | 'granted' | 'prompt';
 }
 
 interface PermissionsLike {

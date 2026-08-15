@@ -94,16 +94,17 @@ describe('GoogleAuthService', () => {
     });
 
     expect(authorizationUrl).not.toBeNull();
-    expect(authorizationUrl?.origin).toBe('https://accounts.google.com');
-    expect(authorizationUrl?.searchParams.get('scope')).toBe(
+    const actualAuthorizationUrl = authorizationUrl as unknown as URL;
+    expect(actualAuthorizationUrl.origin).toBe('https://accounts.google.com');
+    expect(actualAuthorizationUrl.searchParams.get('scope')).toBe(
       'openid email profile',
     );
-    expect(authorizationUrl?.searchParams.get('code_challenge_method')).toBe(
+    expect(actualAuthorizationUrl.searchParams.get('code_challenge_method')).toBe(
       'S256',
     );
-    expect(authorizationUrl?.searchParams.get('code_challenge')).toBeTruthy();
-    expect(authorizationUrl?.searchParams.get('nonce')).toBeTruthy();
-    expect(authorizationUrl?.searchParams.get('access_type')).toBe('offline');
+    expect(actualAuthorizationUrl.searchParams.get('code_challenge')).toBeTruthy();
+    expect(actualAuthorizationUrl.searchParams.get('nonce')).toBeTruthy();
+    expect(actualAuthorizationUrl.searchParams.get('access_type')).toBe('offline');
 
     const request = fetchImpl.mock.calls[0]?.[1];
     const body = new URLSearchParams(String(request?.body));
@@ -113,7 +114,7 @@ describe('GoogleAuthService', () => {
       'signed-google-id-token',
       expect.objectContaining({
         clientId: 'desktop-client.apps.googleusercontent.com',
-        expectedNonce: authorizationUrl?.searchParams.get('nonce'),
+        expectedNonce: actualAuthorizationUrl.searchParams.get('nonce'),
       }),
     );
     expect(write).toHaveBeenCalledWith(
