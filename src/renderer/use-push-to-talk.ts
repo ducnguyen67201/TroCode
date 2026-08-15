@@ -10,8 +10,17 @@ import {
   isPushToTalkChord,
   parseRealtimeTranscriptionEvent,
   pushToTalkShortcutName,
+  realtimeTranscriptionErrorMessage,
   type PushToTalkPlatform,
 } from './push-to-talk';
+import {
+  closeRealtimeVoiceTransport,
+  logRealtimeVoiceDiagnostic,
+  openRealtimeVoiceTransport,
+  readOutboundAudioStats,
+  type OutboundAudioStats,
+  type RealtimeVoiceTransport,
+} from './realtime-voice-transport';
 
 export type VoiceInputStatus =
   | 'connecting'
@@ -29,6 +38,13 @@ export type VoiceConnectionStep =
   | 'realtime_call'
   | 'remote_description';
 
+type VoiceTurnPhase =
+  | 'idle'
+  | 'listening'
+  | 'microphone'
+  | 'processing'
+  | 'realtime_call';
+
 interface UsePushToTalkOptions {
   disabled?: boolean;
   enabled?: boolean;
@@ -45,15 +61,18 @@ interface PushToTalkState {
 }
 
 interface ActiveVoiceTurn {
-  channel: RTCDataChannel;
+  attempt: number;
+  audioCaptureStartedAt: number | null;
   committed: boolean;
-  connection: RTCPeerConnection;
+  outboundAudioAtStart: Promise<OutboundAudioStats | null>;
   resultTimer: ReturnType<typeof setTimeout> | null;
   stream: MediaStream;
   transcript: string;
+  transport: RealtimeVoiceTransport;
 }
 
-const CONNECTION_TIMEOUT_MS = 12_000;
+const AUDIO_COMMIT_FLUSH_MS = 150;
+const MINIMUM_AUDIO_CAPTURE_MS = 250;
 const TRANSCRIPT_TIMEOUT_MS = 20_000;
 
 interface PushToTalkAttemptReadiness {
@@ -106,51 +125,49 @@ export function handleVoiceShortcutEvent(
   if (event.action === 'released' && isListening) finishListening();
 }
 
+export function canCommitInputAudioBuffer(
+  audioCaptureStartedAt: number | null,
+  audioCaptureFinishedAt: number,
+): boolean {
+  return (
+    audioCaptureStartedAt !== null &&
+    audioCaptureFinishedAt - audioCaptureStartedAt >= MINIMUM_AUDIO_CAPTURE_MS
+  );
+}
+
+export function hasNewOutboundAudio(
+  start: OutboundAudioStats,
+  end: OutboundAudioStats,
+): boolean {
+  return end.bytesSent > start.bytesSent && end.packetsSent > start.packetsSent;
+}
+
+function voiceTurnDiagnostic(
+  event: string,
+  properties: Record<string, string | number | boolean> = {},
+): void {
+  logRealtimeVoiceDiagnostic(`turn.${event}`, properties);
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 function getPushToTalkPlatform(): PushToTalkPlatform {
   if (typeof navigator === 'undefined') return 'unsupported';
   return detectPushToTalkPlatform(navigator.platform, navigator.userAgent);
 }
 
+function stopMicrophone(turn: ActiveVoiceTurn): void {
+  for (const track of turn.stream.getTracks()) track.stop();
+  void turn.transport.sender.replaceTrack(null).catch(() => undefined);
+}
+
 function closeVoiceTurn(turn: ActiveVoiceTurn): void {
   if (turn.resultTimer) clearTimeout(turn.resultTimer);
   turn.resultTimer = null;
-  for (const track of turn.stream.getTracks()) track.stop();
-  if (turn.channel.readyState !== 'closed') turn.channel.close();
-  if (turn.connection.connectionState !== 'closed') turn.connection.close();
-}
-
-function waitForDataChannelOpen(channel: RTCDataChannel): Promise<void> {
-  if (channel.readyState === 'open') return Promise.resolve();
-
-  return new Promise((resolve, reject) => {
-    function cleanup(): void {
-      clearTimeout(timer);
-      channel.removeEventListener('open', handleOpen);
-      channel.removeEventListener('close', handleClose);
-      channel.removeEventListener('error', handleError);
-    }
-    function handleOpen(): void {
-      cleanup();
-      resolve();
-    }
-    function handleClose(): void {
-      cleanup();
-      reject(new Error('OpenAI closed the voice connection.'));
-    }
-    function handleError(): void {
-      cleanup();
-      reject(new Error('OpenAI voice could not establish a media connection.'));
-    }
-
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('OpenAI voice connection timed out.'));
-    }, CONNECTION_TIMEOUT_MS);
-
-    channel.addEventListener('open', handleOpen);
-    channel.addEventListener('close', handleClose);
-    channel.addEventListener('error', handleError);
-  });
+  stopMicrophone(turn);
+  closeRealtimeVoiceTransport(turn.transport);
 }
 
 export function voiceConnectionErrorMessage(error: unknown): string {
@@ -206,7 +223,9 @@ export function usePushToTalk({
     enabled && platform !== 'unsupported' ? 'idle' : 'unavailable',
   );
   const activeTurnRef = useRef<ActiveVoiceTurn | null>(null);
-  const attemptRef = useRef(0);
+  const attemptStartedAtRef = useRef<number | null>(null);
+  const voicePhaseRef = useRef<VoiceTurnPhase>('idle');
+  const voiceAttemptRef = useRef(0);
   const pressedCodesRef = useRef(new Set<string>());
   const chordHeldRef = useRef(false);
   const disabledRef = useRef(disabled);
@@ -232,14 +251,45 @@ export function usePushToTalk({
     onTranscriptSubmit,
   ]);
 
+  const failTurn = useCallback(
+    (turn: ActiveVoiceTurn, message: string): void => {
+      if (activeTurnRef.current !== turn) return;
+      voiceTurnDiagnostic('failed', {
+        attempt: turn.attempt,
+        message: message.slice(0, 300),
+      });
+      activeTurnRef.current = null;
+      chordHeldRef.current = false;
+      attemptStartedAtRef.current = null;
+      voicePhaseRef.current = 'idle';
+      closeVoiceTurn(turn);
+      setStatus(enabledRef.current ? 'idle' : 'unavailable');
+      onErrorRef.current(message);
+    },
+    [],
+  );
+
   const cancel = useCallback(() => {
-    attemptRef.current += 1;
+    voiceAttemptRef.current += 1;
     pressedCodesRef.current.clear();
     chordHeldRef.current = false;
+    attemptStartedAtRef.current = null;
+    voicePhaseRef.current = 'idle';
 
     const turn = activeTurnRef.current;
     activeTurnRef.current = null;
-    if (turn) closeVoiceTurn(turn);
+    if (turn) {
+      if (!turn.committed && turn.transport.channel.readyState === 'open') {
+        turn.transport.channel.send(
+          JSON.stringify({ type: 'input_audio_buffer.clear' }),
+        );
+        voiceTurnDiagnostic('buffer-cleared', {
+          attempt: turn.attempt,
+          reason: 'cancelled',
+        });
+      }
+      closeVoiceTurn(turn);
+    }
 
     setStatus(
       enabledRef.current && platform !== 'unsupported'
@@ -248,40 +298,47 @@ export function usePushToTalk({
     );
   }, [platform]);
 
-  const failTurn = useCallback(
-    (turn: ActiveVoiceTurn, message: string): void => {
-      if (activeTurnRef.current !== turn) return;
-      activeTurnRef.current = null;
-      chordHeldRef.current = false;
-      closeVoiceTurn(turn);
-      setStatus(enabledRef.current ? 'idle' : 'unavailable');
-      onErrorRef.current(message);
-    },
-    [],
-  );
+  const stopVoice = useCallback(() => {
+    voiceAttemptRef.current += 1;
+    pressedCodesRef.current.clear();
+    chordHeldRef.current = false;
+    attemptStartedAtRef.current = null;
+    voicePhaseRef.current = 'idle';
+
+    const turn = activeTurnRef.current;
+    activeTurnRef.current = null;
+    if (turn) closeVoiceTurn(turn);
+  }, []);
+
+  const shutdown = useCallback(() => {
+    stopVoice();
+    setStatus('unavailable');
+  }, [stopVoice]);
 
   const beginListening = useCallback(async () => {
-    if (
-      !beginPushToTalkAttemptIfValid(
-        {
-          disabled: disabledRef.current,
-          enabled: enabledRef.current,
-          hasActiveTurn: activeTurnRef.current !== null,
-          isChordHeld: chordHeldRef.current,
-          platform,
-        },
-        () => onAttemptStartRef.current(),
-      )
-    ) {
+    if (!beginPushToTalkAttemptIfValid(
+      {
+        disabled: disabledRef.current,
+        enabled: enabledRef.current,
+        hasActiveTurn: activeTurnRef.current !== null,
+        isChordHeld: chordHeldRef.current,
+        platform,
+      },
+      () => onAttemptStartRef.current(),
+    )) {
       return;
     }
 
     chordHeldRef.current = true;
-    const attempt = attemptRef.current + 1;
-    attemptRef.current = attempt;
+    const voiceAttempt = voiceAttemptRef.current + 1;
+    voiceAttemptRef.current = voiceAttempt;
+    attemptStartedAtRef.current = Date.now();
+    voicePhaseRef.current = 'microphone';
+    voiceTurnDiagnostic('started', { attempt: voiceAttempt, platform });
     setStatus('requesting_permission');
 
     let pendingStream: MediaStream | null = null;
+    let pendingTransport: RealtimeVoiceTransport | null = null;
     let pendingTurn: ActiveVoiceTurn | null = null;
     let connectionStep: VoiceConnectionStep = 'microphone';
 
@@ -294,31 +351,70 @@ export function usePushToTalk({
         },
       });
 
-      if (attemptRef.current !== attempt || !chordHeldRef.current) {
-        for (const track of pendingStream.getTracks()) track.stop();
+      const stream = pendingStream;
+      const audioTrack = stream.getAudioTracks()[0];
+      if (!audioTrack) {
+        throw new Error('No microphone audio track is available.');
+      }
+      voiceTurnDiagnostic('microphone-ready', {
+        attempt: voiceAttempt,
+        enabled: audioTrack.enabled,
+        muted: audioTrack.muted,
+        readyState: audioTrack.readyState,
+      });
+
+      if (voiceAttemptRef.current !== voiceAttempt || !chordHeldRef.current) {
+        for (const track of stream.getTracks()) track.stop();
         return;
       }
 
       setStatus('connecting');
-      connectionStep = 'peer_connection';
-      const connection = new RTCPeerConnection();
-      const channel = connection.createDataChannel('oai-events');
+      connectionStep = 'realtime_call';
+      voicePhaseRef.current = 'realtime_call';
+      const transport = await openRealtimeVoiceTransport({ audioTrack });
+      pendingTransport = transport;
+
+      if (voiceAttemptRef.current !== voiceAttempt || !chordHeldRef.current) {
+        closeRealtimeVoiceTransport(transport);
+        for (const track of stream.getTracks()) track.stop();
+        return;
+      }
+
+      const outboundAudioAtStart = readOutboundAudioStats(transport.sender)
+        .then((stats) => {
+          voiceTurnDiagnostic('outbound-baseline', {
+            attempt: voiceAttempt,
+            bytesSent: stats.bytesSent,
+            packetsSent: stats.packetsSent,
+          });
+          return stats;
+        })
+        .catch((error: unknown) => {
+          voiceTurnDiagnostic('outbound-stats-unavailable', {
+            attempt: voiceAttempt,
+            message: voiceConnectionErrorMessage(error).slice(0, 300),
+          });
+          return null;
+        });
+
+      // Register the turn synchronously after the data channel opens. Awaiting
+      // RTP stats here leaves a window where key-up sees no active turn and
+      // incorrectly reports that voice was not ready.
       const turn: ActiveVoiceTurn = {
-        channel,
+        attempt: voiceAttempt,
+        audioCaptureStartedAt: null,
         committed: false,
-        connection,
+        outboundAudioAtStart,
         resultTimer: null,
-        stream: pendingStream,
+        stream,
         transcript: '',
+        transport,
       };
       pendingTurn = turn;
       activeTurnRef.current = turn;
+      pendingTransport = null;
 
-      for (const track of pendingStream.getTracks()) {
-        connection.addTrack(track, pendingStream);
-      }
-
-      channel.addEventListener('message', (event) => {
+      transport.channel.addEventListener('message', (event) => {
         if (activeTurnRef.current !== turn || typeof event.data !== 'string') {
           return;
         }
@@ -333,14 +429,33 @@ export function usePushToTalk({
         }
 
         if (transcriptionEvent.type === 'error') {
-          failTurn(turn, transcriptionEvent.message);
+          voiceTurnDiagnostic('provider-error', {
+            attempt: turn.attempt,
+            code: transcriptionEvent.code ?? 'unknown',
+            message: transcriptionEvent.message.slice(0, 300),
+          });
+          failTurn(
+            turn,
+            realtimeTranscriptionErrorMessage(
+              transcriptionEvent.code,
+              transcriptionEvent.message,
+              platform,
+            ),
+          );
           return;
         }
 
         const transcript =
           transcriptionEvent.transcript || turn.transcript.trim();
         const shouldSubmit = turn.committed && transcript.length >= 2;
+        voiceTurnDiagnostic('transcript-completed', {
+          attempt: turn.attempt,
+          characters: transcript.length,
+          committed: turn.committed,
+        });
         activeTurnRef.current = null;
+        attemptStartedAtRef.current = null;
+        voicePhaseRef.current = 'idle';
         closeVoiceTurn(turn);
         setStatus(enabledRef.current ? 'idle' : 'unavailable');
 
@@ -354,53 +469,48 @@ export function usePushToTalk({
         }
       });
 
-      connection.addEventListener('connectionstatechange', () => {
-        if (connection.connectionState === 'failed') {
-          failTurn(turn, 'The OpenAI voice media connection failed.');
+      const reportTransportFailure = (): void => {
+        if (activeTurnRef.current !== turn) return;
+        voiceTurnDiagnostic('transport-failed', {
+          attempt: turn.attempt,
+          connectionState: transport.connection.connectionState,
+        });
+        failTurn(turn, 'The OpenAI voice media connection failed.');
+      };
+      transport.channel.addEventListener('close', reportTransportFailure);
+      transport.channel.addEventListener('error', reportTransportFailure);
+      transport.connection.addEventListener('connectionstatechange', () => {
+        if (transport.connection.connectionState === 'failed') {
+          reportTransportFailure();
         }
       });
 
-      const offer = await connection.createOffer();
-      await connection.setLocalDescription(offer);
-      connectionStep = 'realtime_call';
-      const { answerSdp } = await window.tro.createVoiceCall({
-        offerSdp: offer.sdp ?? '',
+      turn.audioCaptureStartedAt = Date.now();
+      voicePhaseRef.current = 'listening';
+      voiceTurnDiagnostic('listening', {
+        attempt: voiceAttempt,
       });
-
-      connectionStep = 'remote_description';
-      await connection.setRemoteDescription({
-        type: 'answer',
-        sdp: answerSdp,
-      });
-      connectionStep = 'data_channel';
-      await waitForDataChannelOpen(channel);
-
-      if (
-        attemptRef.current !== attempt ||
-        !chordHeldRef.current ||
-        activeTurnRef.current !== turn
-      ) {
-        if (activeTurnRef.current === turn) activeTurnRef.current = null;
-        closeVoiceTurn(turn);
-        return;
-      }
-
       setStatus('listening');
     } catch (error) {
-      const turnAlreadyHandled =
-        pendingTurn !== null && activeTurnRef.current !== pendingTurn;
-      if (turnAlreadyHandled) return;
-
       if (pendingTurn && activeTurnRef.current === pendingTurn) {
         activeTurnRef.current = null;
         closeVoiceTurn(pendingTurn);
-      } else if (pendingStream) {
-        for (const track of pendingStream.getTracks()) track.stop();
+      } else {
+        if (pendingTransport) closeRealtimeVoiceTransport(pendingTransport);
+        if (pendingStream) {
+          for (const track of pendingStream.getTracks()) track.stop();
+        }
       }
 
-      if (attemptRef.current !== attempt) return;
+      if (voiceAttemptRef.current !== voiceAttempt) return;
       chordHeldRef.current = false;
+      attemptStartedAtRef.current = null;
+      voicePhaseRef.current = 'idle';
       setStatus(enabledRef.current ? 'idle' : 'unavailable');
+      voiceTurnDiagnostic('connection-error', {
+        attempt: voiceAttempt,
+        message: voiceConnectionErrorMessage(error).slice(0, 300),
+      });
       logVoiceConnectionFailure(connectionStep, error);
       void window.tro
         .reportVoiceDiagnostic(
@@ -425,35 +535,156 @@ export function usePushToTalk({
 
   const finishListening = useCallback(() => {
     if (!chordHeldRef.current) return;
+    const releasedAt = Date.now();
+    const heldMs = Math.max(
+      0,
+      releasedAt - (attemptStartedAtRef.current ?? releasedAt),
+    );
+    const phase = voicePhaseRef.current;
     chordHeldRef.current = false;
 
     const turn = activeTurnRef.current;
-    if (!turn || turn.channel.readyState !== 'open') {
-      attemptRef.current += 1;
+    voiceTurnDiagnostic('release-requested', {
+      attempt: voiceAttemptRef.current,
+      hasActiveTurn: Boolean(turn),
+      heldMs,
+      phase,
+    });
+    if (!turn || turn.transport.channel.readyState !== 'open') {
+      voiceTurnDiagnostic('release-before-listening', {
+        attempt: voiceAttemptRef.current,
+        heldMs,
+        phase,
+      });
+      voiceAttemptRef.current += 1;
+      attemptStartedAtRef.current = null;
+      voicePhaseRef.current = 'idle';
       if (turn) {
         activeTurnRef.current = null;
         closeVoiceTurn(turn);
       }
       setStatus(enabledRef.current ? 'idle' : 'unavailable');
       onErrorRef.current(
-        'Voice was still connecting. Hold the shortcut until "Listening" appears, then speak.',
+        `Voice was still connecting when you released. Keep holding ${pushToTalkShortcutName(platform)} until “Listening…” appears, then speak and release.`,
       );
       return;
     }
 
-    turn.committed = true;
+    if (!canCommitInputAudioBuffer(turn.audioCaptureStartedAt, Date.now())) {
+      voiceAttemptRef.current += 1;
+      attemptStartedAtRef.current = null;
+      voicePhaseRef.current = 'idle';
+      activeTurnRef.current = null;
+      turn.transport.channel.send(
+        JSON.stringify({ type: 'input_audio_buffer.clear' }),
+      );
+      voiceTurnDiagnostic('buffer-cleared', {
+        attempt: turn.attempt,
+        captureMs: Math.max(0, Date.now() - (turn.audioCaptureStartedAt ?? Date.now())),
+        reason: 'capture-too-short',
+      });
+      closeVoiceTurn(turn);
+      setStatus(enabledRef.current ? 'idle' : 'unavailable');
+      onErrorRef.current(
+        `Voice input was too short. Hold ${pushToTalkShortcutName(platform)}, speak, then release.`,
+      );
+      return;
+    }
+
     setStatus('processing');
-    turn.channel.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
-    for (const track of turn.stream.getTracks()) track.stop();
-    turn.resultTimer = setTimeout(() => {
-      failTurn(turn, 'OpenAI voice did not return a transcript in time.');
-    }, TRANSCRIPT_TIMEOUT_MS);
-  }, [failTurn]);
+    voicePhaseRef.current = 'processing';
+    voiceTurnDiagnostic('finish-requested', {
+      attempt: turn.attempt,
+      captureMs: Math.max(0, Date.now() - (turn.audioCaptureStartedAt ?? Date.now())),
+      channelState: turn.transport.channel.readyState,
+      connectionState: turn.transport.connection.connectionState,
+    });
+
+    void (async () => {
+      const start = await turn.outboundAudioAtStart;
+      let outboundAudioAtEnd: OutboundAudioStats | null = null;
+      try {
+        outboundAudioAtEnd = await readOutboundAudioStats(
+          turn.transport.sender,
+        );
+      } catch (error) {
+        voiceTurnDiagnostic('outbound-stats-unavailable', {
+          attempt: turn.attempt,
+          message: voiceConnectionErrorMessage(error).slice(0, 300),
+        });
+      }
+
+      if (activeTurnRef.current !== turn) return;
+
+      const hasOutboundAudio =
+        start === null ||
+        outboundAudioAtEnd === null ||
+        hasNewOutboundAudio(start, outboundAudioAtEnd);
+      voiceTurnDiagnostic('outbound-audio', {
+        attempt: turn.attempt,
+        bytesSent:
+          start && outboundAudioAtEnd
+            ? outboundAudioAtEnd.bytesSent - start.bytesSent
+            : -1,
+        packetsSent:
+          start && outboundAudioAtEnd
+            ? outboundAudioAtEnd.packetsSent - start.packetsSent
+            : -1,
+        verified: hasOutboundAudio,
+      });
+
+      if (!hasOutboundAudio) {
+        activeTurnRef.current = null;
+        attemptStartedAtRef.current = null;
+        voicePhaseRef.current = 'idle';
+        turn.transport.channel.send(
+          JSON.stringify({ type: 'input_audio_buffer.clear' }),
+        );
+        voiceTurnDiagnostic('buffer-cleared', {
+          attempt: turn.attempt,
+          reason: 'no-outbound-audio',
+        });
+        closeVoiceTurn(turn);
+        setStatus(enabledRef.current ? 'idle' : 'unavailable');
+        onErrorRef.current(
+          `Microphone audio did not reach OpenAI. Hold ${pushToTalkShortcutName(platform)}, speak, then release.`,
+        );
+        return;
+      }
+
+      stopMicrophone(turn);
+      await delay(AUDIO_COMMIT_FLUSH_MS);
+      if (
+        activeTurnRef.current !== turn ||
+        turn.transport.channel.readyState !== 'open'
+      ) {
+        return;
+      }
+
+      turn.committed = true;
+      turn.transport.channel.send(
+        JSON.stringify({ type: 'input_audio_buffer.commit' }),
+      );
+      voiceTurnDiagnostic('buffer-committed', {
+        attempt: turn.attempt,
+        flushMs: AUDIO_COMMIT_FLUSH_MS,
+      });
+      turn.resultTimer = setTimeout(() => {
+        failTurn(turn, 'OpenAI voice did not return a transcript in time.');
+      }, TRANSCRIPT_TIMEOUT_MS);
+    })().catch((error: unknown) => {
+      voiceTurnDiagnostic('commit-error', {
+        attempt: turn.attempt,
+        message: voiceConnectionErrorMessage(error).slice(0, 300),
+      });
+      failTurn(turn, voiceConnectionErrorMessage(error));
+    });
+  }, [failTurn, platform]);
 
   useEffect(() => {
     enabledRef.current = enabled;
-    if (!enabled) cancel();
-  }, [cancel, enabled, platform]);
+    if (!enabled || platform === 'unsupported') stopVoice();
+  }, [enabled, platform, stopVoice]);
 
   useEffect(
     () => {
@@ -489,7 +720,10 @@ export function usePushToTalk({
 
     const handleKeyUp = (event: KeyboardEvent): void => {
       pressedCodes.delete(event.code);
-      if (!chordHeldRef.current || isPushToTalkChord(platform, pressedCodes)) {
+      if (
+        !chordHeldRef.current ||
+        isPushToTalkChord(platform, pressedCodes)
+      ) {
         return;
       }
       event.preventDefault();
@@ -510,16 +744,14 @@ export function usePushToTalk({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
-      cancel();
+      shutdown();
     };
-  }, [beginListening, cancel, finishListening, platform]);
+  }, [beginListening, cancel, finishListening, platform, shutdown]);
 
-  const visibleStatus =
-    !enabled || platform === 'unsupported'
-      ? 'unavailable'
-      : status === 'unavailable'
-        ? 'idle'
-        : status;
-
-  return { cancel, platform, status: visibleStatus };
+  return {
+    cancel,
+    platform,
+    status:
+      !enabled || platform === 'unsupported' ? 'unavailable' : status,
+  };
 }

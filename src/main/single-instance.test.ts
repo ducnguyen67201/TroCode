@@ -1,6 +1,11 @@
+import path from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
-import { initializeSingleInstance } from './single-instance';
+import {
+  initializeSingleInstance,
+  isolateDevelopmentInstance,
+} from './single-instance';
 
 function createAppMock(lockAcquired: boolean) {
   let secondInstanceHandler: (() => void) | undefined;
@@ -39,5 +44,36 @@ describe('initializeSingleInstance', () => {
 
     expect(app.quit).not.toHaveBeenCalled();
     expect(surfaceExistingInstance).toHaveBeenCalledOnce();
+  });
+});
+
+describe('isolateDevelopmentInstance', () => {
+  it('uses a separate user-data directory for development launches', () => {
+    const app = {
+      getName: vi.fn(() => 'TroCode'),
+      getPath: vi.fn(() => '/application-support'),
+      isPackaged: false,
+      setPath: vi.fn(),
+    };
+
+    isolateDevelopmentInstance(app);
+
+    expect(app.setPath).toHaveBeenCalledWith(
+      'userData',
+      path.join('/application-support', 'TroCode Development'),
+    );
+  });
+
+  it('keeps the packaged application user-data directory unchanged', () => {
+    const app = {
+      getName: vi.fn(() => 'TroCode'),
+      getPath: vi.fn(() => '/application-support'),
+      isPackaged: true,
+      setPath: vi.fn(),
+    };
+
+    isolateDevelopmentInstance(app);
+
+    expect(app.setPath).not.toHaveBeenCalled();
   });
 });

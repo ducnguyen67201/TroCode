@@ -1,6 +1,7 @@
 import { app, BrowserWindow, globalShortcut, screen, shell } from 'electron';
 import path from 'node:path';
 
+import type { DesktopCommand } from './main/agent/execution-contracts';
 import { TaskExecutionCoordinator } from './main/agent/execution-coordinator';
 import { GptRealtimePlanner } from './main/agent/realtime-planner';
 import { TaskRuntime } from './main/agent/task-runtime';
@@ -11,7 +12,7 @@ import { GoogleAuthService } from './main/auth/google-auth-service';
 import { LocalOAuthBrowserFlow } from './main/auth/local-oauth-browser-flow';
 import {
   getVirtualDisplayBounds,
-  placeCompanionInOverlay,
+  interpolateCompanionPosition,
   placeCompanionNearCursor,
   shouldUseCompanionOverlay,
   type Point,
@@ -20,7 +21,10 @@ import {
 import { CuaService } from './main/cua/cua-service';
 import { registerIpcHandlers } from './main/ipc/register-ipc';
 import { registerScreenRecordingHost } from './main/screen-recording-registration';
-import { initializeSingleInstance } from './main/single-instance';
+import {
+  initializeSingleInstance,
+  isolateDevelopmentInstance,
+} from './main/single-instance';
 import { systemPermissionSettingsUrl } from './main/system-permission-settings';
 import { registerGlobalVoiceShortcut } from './main/voice/global-voice-shortcut';
 import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-store';
@@ -45,6 +49,7 @@ if (require('electron-squirrel-startup')) {
 }
 
 app.setName('TroCode');
+isolateDevelopmentInstance(app);
 
 const hasSingleInstanceLock = initializeSingleInstance(app, () => {
   if (isShuttingDown) return;
@@ -90,17 +95,31 @@ const executionCoordinator = new TaskExecutionCoordinator({
     window.hide();
     await new Promise<void>((resolve) => setTimeout(resolve, 120));
   },
+  presentAction: presentCompanionAction,
 });
 const COMPANION_SIZE = { height: 44, width: 44 } as const;
 const COMPANION_GAP = 8;
+const COMPANION_GLIDE_DURATION_MS = 360;
 const COMPANION_FOLLOW_INTERVAL_MS = 16;
 const SHUTDOWN_GRACE_PERIOD_MS = 2_000;
+
+interface CompanionGlide {
+  abortListener: () => void;
+  from: Point;
+  reject: (error: Error) => void;
+  resolve: () => void;
+  signal: AbortSignal;
+  startedAt: number;
+  to: Point;
+}
 
 let mainWindow: BrowserWindow | null = null;
 let companionWindow: BrowserWindow | null = null;
 let analyticsService: AnalyticsService | null = null;
 let companionState: CompanionState = 'idle';
 let companionFollowTimer: ReturnType<typeof setInterval> | null = null;
+let companionGlide: CompanionGlide | null = null;
+let companionPinnedPosition: Point | null = null;
 let lastCompanionPosition: Point | null = null;
 let forcedExitTimer: ReturnType<typeof setTimeout> | null = null;
 let unregisterIpcHandlers: (() => void) | null = null;
@@ -110,6 +129,8 @@ let isShuttingDown = false;
 function stopCompanionFollowing(): void {
   if (companionFollowTimer) clearInterval(companionFollowTimer);
   companionFollowTimer = null;
+  cancelCompanionGlide(isShuttingDown ? createAbortError() : undefined);
+  companionPinnedPosition = null;
   lastCompanionPosition = null;
 }
 
@@ -154,6 +175,84 @@ function sendCompanionPosition(position: Point): void {
     IPC_CHANNELS.companionPositionChanged,
     position,
   );
+}
+
+function createAbortError(): Error {
+  const error = new Error('Companion movement was cancelled.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function settleCompanionGlide(error?: Error): void {
+  const glide = companionGlide;
+  if (!glide) return;
+
+  companionGlide = null;
+  glide.signal.removeEventListener('abort', glide.abortListener);
+  if (error) {
+    companionPinnedPosition = null;
+    glide.reject(error);
+    return;
+  }
+
+  companionPinnedPosition = glide.to;
+  glide.resolve();
+}
+
+function cancelCompanionGlide(error?: Error): void {
+  settleCompanionGlide(error);
+}
+
+function resetCompanionPresentation(): void {
+  cancelCompanionGlide();
+  companionPinnedPosition = null;
+  positionCompanion();
+}
+
+function pointerPositionForCommand(command: DesktopCommand): Point | null {
+  if (command.kind !== 'click' && command.kind !== 'scroll') return null;
+  return { x: command.x, y: command.y };
+}
+
+async function presentCompanionAction(
+  command: DesktopCommand,
+  signal: AbortSignal,
+): Promise<void> {
+  const pointerPosition = pointerPositionForCommand(command);
+  if (!pointerPosition || !companionWindow || companionWindow.isDestroyed()) {
+    return;
+  }
+  if (signal.aborted) throw createAbortError();
+
+  const display = screen.getDisplayNearestPoint(pointerPosition);
+  const to = placeCompanionNearCursor(
+    pointerPosition,
+    display.bounds,
+    COMPANION_SIZE,
+    COMPANION_GAP,
+  );
+  const from = getCurrentCompanionScreenPosition();
+  if (pointEqual(from, to)) {
+    companionPinnedPosition = to;
+    positionCompanion();
+    return;
+  }
+
+  cancelCompanionGlide();
+  await new Promise<void>((resolve, reject) => {
+    const abortListener = (): void => settleCompanionGlide(createAbortError());
+    companionGlide = {
+      abortListener,
+      from,
+      reject,
+      resolve,
+      signal,
+      startedAt: Date.now(),
+      to,
+    };
+    signal.addEventListener('abort', abortListener, { once: true });
+    positionCompanion();
+  });
 }
 
 async function identifyAnalyticsUser(user: AuthUser): Promise<void> {
@@ -209,6 +308,7 @@ function trackTaskAnalytics(value: unknown): void {
     mainWindow &&
     !mainWindow.isDestroyed()
   ) {
+    resetCompanionPresentation();
     revealWindow(mainWindow);
   }
 }
@@ -365,19 +465,38 @@ const createWindow = (): void => {
   if (!app.isPackaged) nextMainWindow.webContents.openDevTools({ mode: 'detach' });
 };
 
-const positionCompanion = (): void => {
-  if (!companionWindow || companionWindow.isDestroyed()) return;
+function getCurrentCompanionScreenPosition(): Point {
+  if (!companionWindow || companionWindow.isDestroyed()) {
+    return { x: 0, y: 0 };
+  }
+
+  if (!shouldUseCompanionOverlay(process.platform)) {
+    const [x = 0, y = 0] = companionWindow.getPosition();
+    return { x, y };
+  }
+
+  const overlayBounds = getCompanionOverlayBounds();
+  if (lastCompanionPosition) {
+    return {
+      x: overlayBounds.x + lastCompanionPosition.x,
+      y: overlayBounds.y + lastCompanionPosition.y,
+    };
+  }
 
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursor);
+  return placeCompanionNearCursor(
+    cursor,
+    display.bounds,
+    COMPANION_SIZE,
+    COMPANION_GAP,
+  );
+}
+
+function applyCompanionScreenPosition(position: Point): void {
+  if (!companionWindow || companionWindow.isDestroyed()) return;
 
   if (!shouldUseCompanionOverlay(process.platform)) {
-    const position = placeCompanionNearCursor(
-      cursor,
-      display.bounds,
-      COMPANION_SIZE,
-      COMPANION_GAP,
-    );
     const [currentX, currentY] = companionWindow.getPosition();
 
     if (currentX !== position.x || currentY !== position.y) {
@@ -392,17 +511,44 @@ const positionCompanion = (): void => {
   const currentBounds = companionWindow.getBounds();
   if (!boundsEqual(currentBounds, overlayBounds)) {
     companionWindow.setBounds(overlayBounds, false);
+    lastCompanionPosition = null;
   }
 
-  const position = placeCompanionInOverlay(
-    cursor,
-    overlayBounds,
-    COMPANION_SIZE,
-    COMPANION_GAP,
-    display.bounds,
+  sendCompanionPosition({
+    x: position.x - overlayBounds.x,
+    y: position.y - overlayBounds.y,
+  });
+}
+
+function positionCompanion(): void {
+  if (!companionWindow || companionWindow.isDestroyed()) return;
+
+  const glide = companionGlide;
+  if (glide) {
+    const progress =
+      (Date.now() - glide.startedAt) / COMPANION_GLIDE_DURATION_MS;
+    const position = interpolateCompanionPosition(glide.from, glide.to, progress);
+    applyCompanionScreenPosition(position);
+    if (progress >= 1) settleCompanionGlide();
+    return;
+  }
+
+  if (companionPinnedPosition) {
+    applyCompanionScreenPosition(companionPinnedPosition);
+    return;
+  }
+
+  const cursor = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursor);
+  applyCompanionScreenPosition(
+    placeCompanionNearCursor(
+      cursor,
+      display.bounds,
+      COMPANION_SIZE,
+      COMPANION_GAP,
+    ),
   );
-  sendCompanionPosition(position);
-};
+}
 
 const createCompanionWindow = (): void => {
   if (companionWindow && !companionWindow.isDestroyed()) return;

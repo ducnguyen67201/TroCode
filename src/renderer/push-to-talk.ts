@@ -23,7 +23,7 @@ export interface RecognitionTranscript {
 export type RealtimeTranscriptionEvent =
   | { type: 'completed'; transcript: string }
   | { type: 'delta'; delta: string }
-  | { type: 'error'; message: string };
+  | { type: 'error'; code: string | null; message: string };
 
 export function parseRealtimeTranscriptionEvent(
   rawEvent: string,
@@ -54,6 +54,13 @@ export function parseRealtimeTranscriptionEvent(
 
   if (event.type === 'error') {
     const error = event.error;
+    const code =
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      typeof error.code === 'string'
+        ? error.code
+        : null;
     const message =
       error &&
       typeof error === 'object' &&
@@ -61,7 +68,7 @@ export function parseRealtimeTranscriptionEvent(
       typeof error.message === 'string'
         ? error.message
         : 'OpenAI voice transcription stopped unexpectedly.';
-    return { type: 'error', message };
+    return { type: 'error', code, message };
   }
 
   return null;
@@ -107,6 +114,21 @@ export function globalPushToTalkShortcutName(
 ): string | null {
   if (platform === 'windows') return 'Ctrl + Alt + Space';
   return null;
+}
+
+export function realtimeTranscriptionErrorMessage(
+  code: string | null,
+  message: string,
+  platform: PushToTalkPlatform,
+): string {
+  if (
+    code === 'input_audio_buffer_commit_empty' ||
+    /input audio buffer.*(?:empty|too small)|buffer too small/i.test(message)
+  ) {
+    return `Microphone audio did not reach OpenAI. Hold ${pushToTalkShortcutName(platform)}, speak, then release.`;
+  }
+
+  return message;
 }
 
 export function readRecognitionTranscript(

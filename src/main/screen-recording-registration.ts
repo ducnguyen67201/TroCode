@@ -12,17 +12,26 @@ const START_AND_STOP_CAPTURE_SCRIPT = `
     });
     const video = document.createElement('video');
     video.muted = true;
+    video.playsInline = true;
     video.srcObject = stream;
 
     try {
       await video.play();
       await new Promise((resolve) => {
-        if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
-          video.requestVideoFrameCallback(() => resolve(true));
-          return;
+        let finished = false;
+        let fallbackTimer;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          clearTimeout(fallbackTimer);
+          resolve(undefined);
+        };
+        fallbackTimer = setTimeout(finish, 750);
+        if (typeof video.requestVideoFrameCallback === 'function') {
+          video.requestVideoFrameCallback(finish);
+        } else {
+          video.addEventListener('loadeddata', finish, { once: true });
         }
-
-        video.onloadeddata = () => resolve(true);
       });
       return true;
     } finally {

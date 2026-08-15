@@ -160,8 +160,8 @@ export function PermissionOnboarding({
         </div>
 
         <p className="permission-onboarding__note" role="status">
-          macOS will add TroCode to Screen Recording automatically. If System
-          Settings opens, enable TroCode there—there is no need to use the +
+          TroCode registers itself with macOS for Screen Recording. If System
+          Settings opens, switch on the TroCode row—you should not need the +
           button. Then return here and we’ll connect automatically. Screen
           Recording may require restarting TroCode once.
         </p>

@@ -7,9 +7,11 @@
    process.
 3. If Screen Recording is still disabled, the main process creates a hidden,
    sandboxed renderer with a unique in-memory session and makes one real
-   `getDisplayMedia` request. It immediately stops the returned tracks. The
-   temporary session accepts only a user-gesture video request from that exact
-   main frame; screen data never reaches the application renderer.
+   `getDisplayMedia` request. It attaches the stream to a muted video element,
+   waits for the first video frame or a 750 ms fallback, and stops the returned
+   tracks. The temporary session accepts only a video request from that exact
+   main frame, and the request is initiated as a user gesture. Screen data never
+   reaches the application renderer.
 4. TroCode rechecks CUA status after that registration attempt. If the grant is
    ready, it returns the refreshed status without opening System Settings.
 5. If Screen Recording is still missing, TroCode opens the matching System
@@ -65,28 +67,47 @@ Test Files 1 failed; Tests 4 failed
 
 ## GREEN
 
-The trusted `cua:connect` handler now performs native request first, asks
+The trusted `cua:connect` handler now performs the native request first, asks
 Electron's main-process capture stack to register the app when necessary,
 rechecks status, and then opens the screen-recording pane only when permission
 is still missing. The renderer's raw permission-settings IPC capability was
-removed. The registration stream is stopped immediately, and its temporary
-permission handlers and hidden window are removed in a `finally` block.
+removed. The registration stream is stopped after the first frame or bounded
+fallback, and its temporary permission handler and hidden window are removed in
+a `finally` block.
 
 ```text
 npm test -- src/renderer/permission-onboarding.test.ts src/main/ipc/register-ipc.test.ts src/main/app-identity.test.ts
 Test Files 3 passed; Tests 15 passed
 
 npm test -- src/main/screen-recording-registration.test.ts
-Test Files 1 passed; Tests 4 passed
+Test Files 1 passed; Tests 3 passed
 ```
+
+## Installed-artifact finding
+
+On 2026-08-15, the ad-hoc signed `/Applications/TroCode.app` successfully made
+the native request and the bounded Electron display-media request. macOS TCC
+attributed both to `/Applications/TroCode.app` with bundle identifier
+`com.trocode.desktop`, but did not create a visible Screen Recording row. The
+same machine's Codex computer-use host is a Developer ID-signed helper with a
+stable Team ID and does have a visible row. This validates the host-identity
+architecture while confirming that an ad-hoc package cannot close the release
+acceptance gate.
+
+Do not add a permission-only helper: the process that performs CUA capture must
+own the Screen Recording grant. TroCode currently hosts CUA in its Electron main
+process, so the distributable TroCode app itself must be consistently Developer
+ID signed. A helper becomes valid only if the capture/input runtime moves into
+that helper as well.
 
 ## Remaining release validation
 
 - Package on macOS and verify the main and helper bundle identifiers.
 - Sign every distributed build with the same Apple Developer ID and notarize it.
 - When no Developer ID is installed, packaging uses a valid ad-hoc signature for
-  local testing without hardened runtime. That fallback is not a substitute for
-  a Developer ID build, which keeps hardened runtime enabled.
+  local structural testing without hardened runtime. That fallback is not a
+  valid automatic-registration acceptance build. A Developer ID build keeps
+  hardened runtime enabled and supplies the stable code requirement TCC needs.
 - On a clean macOS account, exercise first grant, denial, re-enable, revocation,
   restart, and upgrade from an older signed version.
 - `npm start` uses Electron's development identity and is not an authoritative

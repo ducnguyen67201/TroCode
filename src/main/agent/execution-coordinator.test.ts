@@ -95,6 +95,17 @@ describe('task execution coordinator', () => {
   it('waits for exact approval and re-observes before one send click', async () => {
     const runtime = new TaskRuntime();
     const cua = new FakeCua();
+    const actionOrder: string[] = [];
+    const presentAction = vi.fn(async () => {
+      actionOrder.push('present');
+    });
+    cua.executeCommand.mockImplementation(async () => {
+      actionOrder.push('execute');
+      return {
+        status: 'confirmed',
+        summary: 'CUA confirmed the action.',
+      };
+    });
     const planner: DesktopPlanner = {
       start: vi.fn(async () => undefined),
       end: vi.fn(async () => undefined),
@@ -147,7 +158,12 @@ describe('task execution coordinator', () => {
           summary: 'Gmail shows the message was sent.',
         })),
     };
-    const coordinator = new TaskExecutionCoordinator({ runtime, cua, planner });
+    const coordinator = new TaskExecutionCoordinator({
+      runtime,
+      cua,
+      planner,
+      presentAction,
+    });
     const ready = runtime.submit({
       text: 'Open Gmail and send an email to me',
     });
@@ -157,6 +173,7 @@ describe('task execution coordinator', () => {
     const waiting = runtime.getSnapshot(ready.taskId);
     expect(waiting.phase, waiting.lastEvent?.summary).toBe('awaiting_approval');
     expect(cua.executeCommand).not.toHaveBeenCalled();
+    expect(presentAction).not.toHaveBeenCalled();
 
     const approval = waiting.pendingInteraction;
     if (approval?.kind !== 'approval') throw new Error('Expected approval.');
@@ -173,6 +190,11 @@ describe('task execution coordinator', () => {
     expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
     expect(cua.observe).toHaveBeenCalledTimes(3);
     expect(cua.executeCommand).toHaveBeenCalledOnce();
+    expect(presentAction).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'click', x: 812, y: 744 }),
+      expect.any(AbortSignal),
+    );
+    expect(actionOrder).toEqual(['present', 'execute']);
   });
 
   it('blocks visual actions when the compiled goal did not grant computer use', async () => {

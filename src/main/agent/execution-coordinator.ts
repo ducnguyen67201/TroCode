@@ -19,6 +19,10 @@ interface ExecutionCoordinatorOptions {
   openExternal?: (url: string) => Promise<void>;
   planner: DesktopPlanner;
   prepareDesktop?: () => Promise<void>;
+  presentAction?: (
+    command: DesktopCommand,
+    signal: AbortSignal,
+  ) => Promise<void>;
   runtime: TaskRuntime;
 }
 
@@ -82,6 +86,10 @@ export class TaskExecutionCoordinator {
 
   private readonly prepareDesktop: () => Promise<void>;
 
+  private readonly presentAction: NonNullable<
+    ExecutionCoordinatorOptions['presentAction']
+  >;
+
   private readonly runtime: TaskRuntime;
 
   constructor({
@@ -92,6 +100,7 @@ export class TaskExecutionCoordinator {
     },
     planner,
     prepareDesktop = async () => undefined,
+    presentAction = async () => undefined,
     runtime,
   }: ExecutionCoordinatorOptions) {
     this.cua = cua;
@@ -99,6 +108,7 @@ export class TaskExecutionCoordinator {
     this.openExternal = openExternal;
     this.planner = planner;
     this.prepareDesktop = prepareDesktop;
+    this.presentAction = presentAction;
     this.runtime = runtime;
   }
 
@@ -403,6 +413,8 @@ export class TaskExecutionCoordinator {
     command: DesktopCommand,
     signal: AbortSignal,
   ): Promise<DesktopActionOutcome> {
+    await this.presentAction(command, signal);
+
     if (command.kind === 'open_url') {
       await this.openExternal(command.url);
       return {
