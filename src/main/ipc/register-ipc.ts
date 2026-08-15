@@ -3,7 +3,9 @@ import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import {
   CompanionStateSchema,
   RecordVoiceTranscriptRequestSchema,
+  SystemPermissionSchema,
   TaskUpdateSchema,
+  VoiceDiagnosticSchema,
   type AuthUser,
   type CompanionState,
   type RecordVoiceTranscriptRequest,
@@ -63,13 +65,15 @@ export function registerIpcHandlers(
     IPC_CHANNELS.cancelTask,
     IPC_CHANNELS.configureVoice,
     IPC_CHANNELS.connectComputer,
-    IPC_CHANNELS.createVoiceSession,
+    IPC_CHANNELS.createVoiceCall,
     IPC_CHANNELS.decideApproval,
     IPC_CHANNELS.getComputerStatus,
     IPC_CHANNELS.getAuthStatus,
     IPC_CHANNELS.getVoiceStatus,
+    IPC_CHANNELS.openSystemPermissionSettings,
     IPC_CHANNELS.recordVoiceTranscript,
     IPC_CHANNELS.respondToInteraction,
+    IPC_CHANNELS.reportVoiceDiagnostic,
     IPC_CHANNELS.setCompanionState,
     IPC_CHANNELS.startTask,
     IPC_CHANNELS.signInWithGoogle,
@@ -169,6 +173,16 @@ export function registerIpcHandlers(
     return status;
   });
 
+  ipcMain.handle(
+    IPC_CHANNELS.openSystemPermissionSettings,
+    async (event, input: unknown) => {
+      await assertAuthorizedSender(event, mainWindow, services.authService);
+      await services.openSystemPermissionSettings(
+        SystemPermissionSchema.parse(input),
+      );
+    },
+  );
+
   ipcMain.handle(IPC_CHANNELS.getVoiceStatus, async (event) => {
     await assertAuthorizedSender(event, mainWindow, services.authService);
     return services.voiceService.getStatus();
@@ -179,11 +193,6 @@ export function registerIpcHandlers(
     return services.voiceService.configure(input);
   });
 
-  ipcMain.handle(IPC_CHANNELS.createVoiceSession, async (event) => {
-    await assertAuthorizedSender(event, mainWindow, services.authService);
-    return services.voiceService.createSession();
-  });
-
   ipcMain.handle(
     IPC_CHANNELS.recordVoiceTranscript,
     async (event, input: unknown) => {
@@ -192,6 +201,17 @@ export function registerIpcHandlers(
       await services.recordVoiceTranscript(request);
     },
   );
+
+  ipcMain.handle(IPC_CHANNELS.createVoiceCall, async (event, input: unknown) => {
+    await assertAuthorizedSender(event, mainWindow, services.authService);
+    return services.voiceService.createCall(input);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.reportVoiceDiagnostic, (event, input: unknown) => {
+    assertTrustedSender(event, mainWindow);
+    const diagnostic = VoiceDiagnosticSchema.parse(input);
+    console.error('[voice] OpenAI Realtime connection failed.', diagnostic);
+  });
 
   ipcMain.handle(IPC_CHANNELS.setCompanionState, (event, input: unknown) => {
     assertTrustedSender(event, mainWindow);

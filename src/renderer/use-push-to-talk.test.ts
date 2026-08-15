@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { VoiceSession } from '../shared/contracts';
-
 import {
   beginPushToTalkAttemptIfValid,
   canCommitInputAudioBuffer,
   hasNewOutboundAudio,
+  logVoiceConnectionFailure,
   usePushToTalk,
+  voiceConnectionErrorMessage,
 } from './use-push-to-talk';
 
 const reactHarness = vi.hoisted(() => ({
@@ -39,12 +39,6 @@ vi.mock('./realtime-voice-transport', async (importOriginal) => {
     openRealtimeVoiceTransport: transportHarness.openTransport,
   };
 });
-
-const SESSION: VoiceSession = {
-  clientSecret: 'ek_test_secret',
-  expiresAt: 2_000_000_000,
-  model: 'gpt-4o-mini-transcribe',
-};
 
 async function flushMicrotasks(): Promise<void> {
   for (let index = 0; index < 5; index += 1) await Promise.resolve();
@@ -119,11 +113,10 @@ describe('push-to-talk attempt lifecycle', () => {
       connectionState: 'connected' as RTCPeerConnectionState,
     }) as unknown as RTCPeerConnection;
     const transport = { channel, connection, sender };
-    const createVoiceSession = vi.fn(async () => SESSION);
     const getUserMedia = vi.fn(async () => stream);
     const onTranscriptSubmit = vi.fn();
     const fakeWindow = Object.assign(new EventTarget(), {
-      tro: { createVoiceSession },
+      tro: { reportVoiceDiagnostic: vi.fn(async () => undefined) },
     });
 
     vi.stubGlobal('navigator', {
@@ -142,9 +135,8 @@ describe('push-to-talk attempt lifecycle', () => {
     });
     await flushMicrotasks();
 
-    expect(createVoiceSession).toHaveBeenCalledOnce();
     expect(transportHarness.openTransport).toHaveBeenCalledOnce();
-    expect(transportHarness.openTransport).toHaveBeenCalledWith(SESSION);
+    expect(transportHarness.openTransport).toHaveBeenCalledWith();
     expect(getUserMedia).not.toHaveBeenCalled();
 
     fakeWindow.dispatchEvent(
@@ -234,5 +226,33 @@ describe('push-to-talk attempt lifecycle', () => {
         { bytesSent: 1_256, packetsSent: 12 },
       ),
     ).toBe(true);
+  });
+});
+
+describe('voice connection diagnostics', () => {
+  it('turns renderer fetch failures into an actionable voice message', () => {
+    expect(voiceConnectionErrorMessage(new TypeError('Failed to fetch'))).toBe(
+      'TroCode could not reach OpenAI voice. Check network access to api.openai.com and try again.',
+    );
+  });
+
+  it('logs the failed voice connection step without exposing secrets', () => {
+    const error = new TypeError('Failed to fetch');
+    const logger = {
+      error: vi.fn(),
+    };
+
+    logVoiceConnectionFailure('realtime_call', error, logger);
+
+    expect(logger.error).toHaveBeenCalledWith(
+      '[voice] OpenAI Realtime connection failed.',
+      {
+        error: {
+          message: 'Failed to fetch',
+          name: 'TypeError',
+        },
+        step: 'realtime_call',
+      },
+    );
   });
 });

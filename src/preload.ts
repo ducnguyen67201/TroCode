@@ -6,6 +6,7 @@ import {
   CancelTaskRequestSchema,
   CompanionStateSchema,
   ConfigureVoiceRequestSchema,
+  CreateVoiceCallRequestSchema,
   CuaStatusSchema,
   DecideApprovalRequestSchema,
   RecordVoiceTranscriptRequestSchema,
@@ -13,9 +14,11 @@ import {
   StartTaskRequestSchema,
   SteerTaskRequestSchema,
   SubmitTaskRequestSchema,
+  SystemPermissionSchema,
   TaskSnapshotSchema,
   TaskUpdateSchema,
-  VoiceSessionSchema,
+  VoiceCallAnswerSchema,
+  VoiceDiagnosticSchema,
   VoiceStatusSchema,
 } from './shared/contracts';
 import {
@@ -114,6 +117,14 @@ const desktopApi: DesktopApi = {
     return CuaStatusSchema.parse(response);
   },
 
+  async openSystemPermissionSettings(input) {
+    const permission = SystemPermissionSchema.parse(input);
+    await ipcRenderer.invoke(
+      IPC_CHANNELS.openSystemPermissionSettings,
+      permission,
+    );
+  },
+
   async getVoiceStatus() {
     const response: unknown = await ipcRenderer.invoke(
       IPC_CHANNELS.getVoiceStatus,
@@ -130,16 +141,23 @@ const desktopApi: DesktopApi = {
     return VoiceStatusSchema.parse(response);
   },
 
-  async createVoiceSession() {
-    const response: unknown = await ipcRenderer.invoke(
-      IPC_CHANNELS.createVoiceSession,
-    );
-    return VoiceSessionSchema.parse(response);
-  },
-
   async recordVoiceTranscript(input) {
     const request = RecordVoiceTranscriptRequestSchema.parse(input);
     await ipcRenderer.invoke(IPC_CHANNELS.recordVoiceTranscript, request);
+  },
+
+  async createVoiceCall(input) {
+    const request = CreateVoiceCallRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.createVoiceCall,
+      request,
+    );
+    return VoiceCallAnswerSchema.parse(response);
+  },
+
+  async reportVoiceDiagnostic(input) {
+    const diagnostic = VoiceDiagnosticSchema.parse(input);
+    await ipcRenderer.invoke(IPC_CHANNELS.reportVoiceDiagnostic, diagnostic);
   },
 
   async setCompanionState(input) {

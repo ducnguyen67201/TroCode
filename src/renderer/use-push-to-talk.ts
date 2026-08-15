@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { VoiceDiagnostic } from '../shared/contracts';
+
 import {
   detectPushToTalkPlatform,
   isPushToTalkChord,
@@ -25,6 +27,14 @@ export type VoiceInputStatus =
   | 'processing'
   | 'requesting_permission'
   | 'unavailable';
+
+export type VoiceConnectionStep =
+  | 'client_session'
+  | 'data_channel'
+  | 'microphone'
+  | 'peer_connection'
+  | 'realtime_call'
+  | 'remote_description';
 
 interface UsePushToTalkOptions {
   disabled?: boolean;
@@ -132,12 +142,44 @@ function releaseVoiceTurn(turn: ActiveVoiceTurn): void {
   stopMicrophone(turn);
 }
 
-function voiceConnectionErrorMessage(error: unknown): string {
+export function voiceConnectionErrorMessage(error: unknown): string {
   if (error instanceof DOMException && error.name === 'NotAllowedError') {
     return 'Microphone access is required for voice input.';
   }
+  if (error instanceof TypeError && error.message === 'Failed to fetch') {
+    return 'TroCode could not reach OpenAI voice. Check network access to api.openai.com and try again.';
+  }
   if (error instanceof Error && error.message) return error.message;
   return 'TroCode could not connect to OpenAI voice.';
+}
+
+export function createVoiceConnectionDiagnostic(
+  step: VoiceConnectionStep,
+  error: unknown,
+): VoiceDiagnostic {
+  return {
+    error:
+      error instanceof Error
+        ? {
+            message: error.message,
+            name: error.name,
+          }
+        : {
+            message: String(error),
+          },
+    step,
+  };
+}
+
+export function logVoiceConnectionFailure(
+  step: VoiceConnectionStep,
+  error: unknown,
+  logger: Pick<Console, 'error'> = console,
+): void {
+  logger.error(
+    '[voice] OpenAI Realtime connection failed.',
+    createVoiceConnectionDiagnostic(step, error),
+  );
 }
 
 export function usePushToTalk({
@@ -270,12 +312,7 @@ export function usePushToTalk({
     setStatus('connecting');
 
     const promise = (async () => {
-      const session = await window.tro.createVoiceSession();
-      if (preparationAttemptRef.current !== preparationAttempt) {
-        throw new Error('Voice connection was cancelled.');
-      }
-
-      const transport = await openRealtimeVoiceTransport(session);
+      const transport = await openRealtimeVoiceTransport();
       if (
         preparationAttemptRef.current !== preparationAttempt ||
         !enabledRef.current
@@ -442,6 +479,7 @@ export function usePushToTalk({
 
     let pendingStream: MediaStream | null = null;
     let pendingTurn: ActiveVoiceTurn | null = null;
+    let connectionStep: VoiceConnectionStep = 'microphone';
 
     try {
       const [streamResult, transportResult] = await Promise.allSettled([
@@ -456,7 +494,10 @@ export function usePushToTalk({
       ]);
       if (streamResult.status === 'rejected') throw streamResult.reason;
       pendingStream = streamResult.value;
-      if (transportResult.status === 'rejected') throw transportResult.reason;
+      if (transportResult.status === 'rejected') {
+        connectionStep = 'realtime_call';
+        throw transportResult.reason;
+      }
 
       const stream = streamResult.value;
       const transport = transportResult.value;
@@ -508,6 +549,7 @@ export function usePushToTalk({
       };
       pendingTurn = turn;
       activeTurnRef.current = turn;
+      connectionStep = 'peer_connection';
       await transport.sender.replaceTrack(audioTrack);
 
       if (
@@ -546,6 +588,24 @@ export function usePushToTalk({
         attempt: voiceAttempt,
         message: voiceConnectionErrorMessage(error).slice(0, 300),
       });
+      logVoiceConnectionFailure(connectionStep, error);
+      void window.tro
+        .reportVoiceDiagnostic(
+          createVoiceConnectionDiagnostic(connectionStep, error),
+        )
+        .catch((diagnosticError: unknown) => {
+          console.error('[voice] Failed to report voice diagnostic.', {
+            error:
+              diagnosticError instanceof Error
+                ? {
+                    message: diagnosticError.message,
+                    name: diagnosticError.name,
+                  }
+                : {
+                    message: String(diagnosticError),
+                  },
+          });
+        });
       onErrorRef.current(voiceConnectionErrorMessage(error));
     }
   }, [platform, prepareTransport]);

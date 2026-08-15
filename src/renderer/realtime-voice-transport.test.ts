@@ -1,19 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { VoiceSession } from '../shared/contracts';
-
 import {
   closeRealtimeVoiceTransport,
   isRealtimeVoiceTransportReady,
   openRealtimeVoiceTransport,
   readOutboundAudioStats,
 } from './realtime-voice-transport';
-
-const SESSION: VoiceSession = {
-  clientSecret: 'ek_test_secret',
-  expiresAt: 2_000_000_000,
-  model: 'gpt-4o-mini-transcribe',
-};
 
 class FakeDataChannel extends EventTarget {
   readyState: RTCDataChannelState = 'connecting';
@@ -84,23 +76,16 @@ describe('realtime voice transport', () => {
   it('preconnects an audio sender without attaching a microphone track', async () => {
     const connection = new FakePeerConnection();
     const diagnosticLogger = vi.fn();
-    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
-      expect(init).toMatchObject({
-        body: 'test-offer-sdp',
-        method: 'POST',
-        headers: {
-          Authorization: 'Bearer ek_test_secret',
-          'Content-Type': 'application/sdp',
-        },
-      });
-      return new Response('test-answer-sdp');
+    const createVoiceCall = vi.fn(async (request) => {
+      expect(request).toEqual({ offerSdp: 'test-offer-sdp' });
+      return { answerSdp: 'test-answer-sdp' };
     });
 
-    const transport = await openRealtimeVoiceTransport(SESSION, {
+    const transport = await openRealtimeVoiceTransport({
+      createVoiceCall,
       createPeerConnection: () =>
         connection as unknown as RTCPeerConnection,
       diagnosticLogger,
-      fetchImpl,
     });
 
     expect(connection.order).toEqual([
@@ -125,8 +110,6 @@ describe('realtime voice transport', () => {
       'transport.call-response',
       {
         answerLength: 15,
-        ok: true,
-        status: 200,
       },
     );
   });
@@ -136,12 +119,12 @@ describe('realtime voice transport', () => {
     const diagnosticLogger = vi.fn();
     const microphoneTrack = { kind: 'audio' } as MediaStreamTrack;
 
-    await openRealtimeVoiceTransport(SESSION, {
+    await openRealtimeVoiceTransport({
       audioTrack: microphoneTrack,
+      createVoiceCall: vi.fn(async () => ({ answerSdp: 'answer' })),
       createPeerConnection: () =>
         connection as unknown as RTCPeerConnection,
       diagnosticLogger,
-      fetchImpl: vi.fn<typeof fetch>(async () => new Response('answer')),
     });
 
     expect(connection.microphoneTrack).toBe(microphoneTrack);
@@ -154,8 +137,6 @@ describe('realtime voice transport', () => {
     ]);
     expect(diagnosticLogger).toHaveBeenCalledWith('transport.create', {
       audioTrackAttached: true,
-      expiresAt: SESSION.expiresAt,
-      model: SESSION.model,
     });
   });
 
@@ -191,16 +172,16 @@ describe('realtime voice transport', () => {
     });
   });
 
-  it('closes the prepared transport when OpenAI rejects the SDP offer', async () => {
+  it('closes the prepared transport when the main-process call fails', async () => {
     const connection = new FakePeerConnection();
 
     await expect(
-      openRealtimeVoiceTransport(SESSION, {
+      openRealtimeVoiceTransport({
+        createVoiceCall: vi.fn(async () => {
+          throw new Error('OpenAI rejected the realtime voice connection.');
+        }),
         createPeerConnection: () =>
           connection as unknown as RTCPeerConnection,
-        fetchImpl: vi.fn<typeof fetch>(async () =>
-          new Response('rejected', { status: 401 }),
-        ),
       }),
     ).rejects.toThrow('OpenAI rejected the realtime voice connection.');
 
@@ -208,18 +189,18 @@ describe('realtime voice transport', () => {
     expect(connection.channel.readyState).toBe('closed');
   });
 
-  it('logs a sanitized renderer fetch failure before closing the transport', async () => {
+  it('logs a sanitized main-process call failure before closing the transport', async () => {
     const connection = new FakePeerConnection();
     const diagnosticLogger = vi.fn();
 
     await expect(
-      openRealtimeVoiceTransport(SESSION, {
+      openRealtimeVoiceTransport({
+        createVoiceCall: vi.fn(async () => {
+          throw new TypeError('Failed to fetch');
+        }),
         createPeerConnection: () =>
           connection as unknown as RTCPeerConnection,
         diagnosticLogger,
-        fetchImpl: vi.fn<typeof fetch>(async () => {
-          throw new TypeError('Failed to fetch');
-        }),
       }),
     ).rejects.toThrow('Failed to fetch');
 
@@ -237,10 +218,10 @@ describe('realtime voice transport', () => {
 
   it('closes an established transport explicitly', async () => {
     const connection = new FakePeerConnection();
-    const transport = await openRealtimeVoiceTransport(SESSION, {
+    const transport = await openRealtimeVoiceTransport({
+      createVoiceCall: vi.fn(async () => ({ answerSdp: 'answer' })),
       createPeerConnection: () =>
         connection as unknown as RTCPeerConnection,
-      fetchImpl: vi.fn<typeof fetch>(async () => new Response('answer')),
     });
 
     closeRealtimeVoiceTransport(transport);

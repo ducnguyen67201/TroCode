@@ -1,6 +1,8 @@
-import type { VoiceSession } from '../shared/contracts';
+import type {
+  CreateVoiceCallRequest,
+  VoiceCallAnswer,
+} from '../shared/contracts';
 
-const OPENAI_REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 const CONNECTION_TIMEOUT_MS = 12_000;
 
 export interface RealtimeVoiceTransport {
@@ -16,9 +18,11 @@ export interface OutboundAudioStats {
 
 export interface RealtimeVoiceTransportDependencies {
   audioTrack?: MediaStreamTrack;
+  createVoiceCall?: (
+    request: CreateVoiceCallRequest,
+  ) => Promise<VoiceCallAnswer>;
   createPeerConnection?: () => RTCPeerConnection;
   diagnosticLogger?: VoiceDiagnosticLogger;
-  fetchImpl?: typeof fetch;
 }
 
 type VoiceDiagnosticProperties = Record<
@@ -128,12 +132,11 @@ export function isRealtimeVoiceTransportReady(
 }
 
 export async function openRealtimeVoiceTransport(
-  session: VoiceSession,
   {
     audioTrack,
+    createVoiceCall = (request) => window.tro.createVoiceCall(request),
     createPeerConnection = () => new RTCPeerConnection(),
     diagnosticLogger = logRealtimeVoiceDiagnostic,
-    fetchImpl = fetch,
   }: RealtimeVoiceTransportDependencies = {},
 ): Promise<RealtimeVoiceTransport> {
   const connection = createPeerConnection();
@@ -144,8 +147,6 @@ export async function openRealtimeVoiceTransport(
   const transport = { channel, connection, sender };
   diagnosticLogger('transport.create', {
     audioTrackAttached: Boolean(audioTrack),
-    expiresAt: session.expiresAt,
-    model: session.model,
   });
 
   try {
@@ -156,23 +157,12 @@ export async function openRealtimeVoiceTransport(
     await connection.setLocalDescription(offer);
     diagnosticLogger('transport.local-description-set');
     diagnosticLogger('transport.call-start');
-    const response = await fetchImpl(OPENAI_REALTIME_CALLS_URL, {
-      method: 'POST',
-      body: offer.sdp,
-      headers: {
-        Authorization: `Bearer ${session.clientSecret}`,
-        'Content-Type': 'application/sdp',
-      },
+    const { answerSdp } = await createVoiceCall({
+      offerSdp: offer.sdp ?? '',
     });
-    const answerSdp = await response.text();
     diagnosticLogger('transport.call-response', {
       answerLength: answerSdp.length,
-      ok: response.ok,
-      status: response.status,
     });
-    if (!response.ok) {
-      throw new Error('OpenAI rejected the realtime voice connection.');
-    }
 
     await connection.setRemoteDescription({
       type: 'answer',

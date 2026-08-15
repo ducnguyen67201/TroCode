@@ -41,7 +41,7 @@ describe('VoiceService', () => {
 
     await expect(service.getStatus()).resolves.toMatchObject({
       state: 'ready',
-      model: 'gpt-4o-mini-transcribe',
+      model: 'gpt-realtime-whisper',
       summary: 'OpenAI realtime transcription is configured.',
     });
     expect(read).not.toHaveBeenCalled();
@@ -57,7 +57,7 @@ describe('VoiceService', () => {
 
     await expect(service.getStatus()).resolves.toMatchObject({
       state: 'not_configured',
-      model: 'gpt-4o-mini-transcribe',
+      model: 'gpt-realtime-whisper',
     });
   });
 
@@ -108,7 +108,7 @@ describe('VoiceService', () => {
     );
   });
 
-  it('mints a short-lived transcription secret without exposing the API key', async () => {
+  it('validates realtime transcription access before saving the key', async () => {
     const { store } = memoryStore(TEST_API_KEY);
     const diagnosticLogger = vi.fn();
     const fetchImpl = vi.fn<typeof fetch>(async () =>
@@ -121,27 +121,133 @@ describe('VoiceService', () => {
       fetchImpl,
     });
 
-    await expect(service.createSession()).resolves.toEqual({
-      clientSecret: 'ek_test_secret',
-      expiresAt: 2_000_000_000,
-      model: 'gpt-4o-mini-transcribe',
+    await expect(service.configure({ apiKey: TEST_API_KEY })).resolves.toEqual({
+      state: 'ready',
+      provider: 'openai',
+      model: 'gpt-realtime-whisper',
+      summary: 'OpenAI realtime transcription is configured.',
     });
 
     const request = fetchImpl.mock.calls[0]?.[1];
     expect(request?.headers).toMatchObject({
       Authorization: `Bearer ${TEST_API_KEY}`,
     });
-    expect(request?.body).toContain('gpt-4o-mini-transcribe');
+    expect(request?.body).toContain('gpt-realtime-whisper');
     expect(diagnosticLogger.mock.calls.map(([event]) => event)).toEqual([
-      'session.create-start',
-      'credential.available',
+      'configure.start',
       'client-secret.request-start',
       'client-secret.response',
       'client-secret.ready',
+      'configure.ready',
     ]);
     expect(diagnosticLogger).toHaveBeenCalledWith(
       'client-secret.response',
       { ok: true, status: 200 },
+    );
+  });
+
+  it('creates the realtime call answer in the main process', async () => {
+    const { store } = memoryStore(TEST_API_KEY);
+    const diagnosticLogger = vi.fn();
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response('v=0\r\nanswer', { status: 200 }));
+    const service = new VoiceService({
+      credentialStore: store,
+      diagnosticLogger,
+      environmentApiKey: '',
+      fetchImpl,
+    });
+
+    await expect(
+      service.createCall({ offerSdp: 'v=0\r\noffer' }),
+    ).resolves.toEqual({
+      answerSdp: 'v=0\r\nanswer',
+    });
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      'https://api.openai.com/v1/realtime/calls',
+      expect.objectContaining({
+        headers: {
+          Authorization: `Bearer ${TEST_API_KEY}`,
+        },
+        method: 'POST',
+      }),
+    );
+    const request = fetchImpl.mock.calls[0]?.[1];
+    expect(request?.body).toBeInstanceOf(FormData);
+    const formData = request?.body as FormData;
+    expect(formData.get('sdp')).toBe('v=0\r\noffer');
+    expect(JSON.parse(String(formData.get('session')))).toEqual({
+      type: 'transcription',
+      audio: {
+        input: {
+          noise_reduction: { type: 'far_field' },
+          transcription: {
+            model: 'gpt-realtime-whisper',
+          },
+          turn_detection: null,
+        },
+      },
+    });
+    expect(diagnosticLogger.mock.calls.map(([event]) => event)).toEqual([
+      'call.create-start',
+      'credential.available',
+      'call.request-start',
+      'call.response',
+      'call.ready',
+    ]);
+  });
+
+  it('preserves the underlying realtime call transport failure cause', async () => {
+    const { store } = memoryStore(TEST_API_KEY);
+    const cause = new Error('connection reset');
+    Object.assign(cause, { code: 'ECONNRESET' });
+    const diagnosticLogger = vi.fn();
+    const logger = { error: vi.fn() };
+    const service = new VoiceService({
+      credentialStore: store,
+      diagnosticLogger,
+      environmentApiKey: '',
+      fetchImpl: vi
+        .fn<typeof fetch>()
+        .mockRejectedValueOnce(new TypeError('fetch failed', { cause })),
+      logger,
+    });
+
+    await expect(
+      service.createCall({ offerSdp: 'v=0\r\noffer' }),
+    ).rejects.toMatchObject({
+      cause: expect.objectContaining({
+        cause: expect.objectContaining({
+          code: 'ECONNRESET',
+          message: 'connection reset',
+        }),
+        message: 'fetch failed',
+        name: 'TypeError',
+      }),
+    });
+    expect(diagnosticLogger).toHaveBeenCalledWith(
+      'call.request-failed',
+      {
+        errorMessage: 'fetch failed',
+        errorName: 'TypeError',
+      },
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      '[voice] OpenAI Realtime call request failed.',
+      {
+        error: {
+          cause: {
+            code: 'ECONNRESET',
+            message: 'connection reset',
+            name: 'Error',
+          },
+          message: 'fetch failed',
+          name: 'TypeError',
+        },
+      },
     );
   });
 });
