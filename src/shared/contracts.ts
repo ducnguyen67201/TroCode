@@ -336,6 +336,37 @@ export const SystemPermissionSchema = z.enum([
   'screen_recording',
 ]);
 
+export const PrimaryLanguageSchema = z.enum([
+  'ar',
+  'de',
+  'en',
+  'es',
+  'fr',
+  'hi',
+  'id',
+  'it',
+  'ja',
+  'ko',
+  'ms',
+  'nl',
+  'pl',
+  'pt',
+  'ru',
+  'th',
+  'tr',
+  'uk',
+  'vi',
+  'zh',
+]);
+
+export const AppPreferencesSchema = z.object({
+  primaryLanguage: PrimaryLanguageSchema.nullable(),
+});
+
+export const UpdateAppPreferencesRequestSchema = z.object({
+  primaryLanguage: PrimaryLanguageSchema,
+});
+
 export const VoiceStatusSchema = z.object({
   state: z.enum(['not_configured', 'ready', 'unavailable', 'error']),
   provider: z.literal('openai'),
@@ -413,6 +444,7 @@ export const AuthStatusSchema = z.object({
 
 export type Capability = z.infer<typeof CapabilitySchema>;
 export type ActionApprovalGrant = z.infer<typeof ActionApprovalGrantSchema>;
+export type AppPreferences = z.infer<typeof AppPreferencesSchema>;
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
 export type AuthUser = z.infer<typeof AuthUserSchema>;
 export type CompanionPosition = z.infer<typeof CompanionPositionSchema>;
@@ -434,6 +466,7 @@ export type Domain = z.infer<typeof DomainSchema>;
 export type GoalSpec = z.infer<typeof GoalSpecSchema>;
 export type InteractionMode = z.infer<typeof InteractionModeSchema>;
 export type PendingInteraction = z.infer<typeof PendingInteractionSchema>;
+export type PrimaryLanguage = z.infer<typeof PrimaryLanguageSchema>;
 export type ProposedAction = z.infer<typeof ProposedActionSchema>;
 export type RecordVoiceTranscriptRequest = z.infer<
   typeof RecordVoiceTranscriptRequestSchema
@@ -452,6 +485,9 @@ export type TaskMessage = z.infer<typeof TaskMessageSchema>;
 export type TaskPhase = z.infer<typeof TaskPhaseSchema>;
 export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>;
 export type TaskUpdate = z.infer<typeof TaskUpdateSchema>;
+export type UpdateAppPreferencesRequest = z.infer<
+  typeof UpdateAppPreferencesRequestSchema
+>;
 export type VoiceCallAnswer = z.infer<typeof VoiceCallAnswerSchema>;
 export type VoiceDiagnostic = z.infer<typeof VoiceDiagnosticSchema>;
 export type VoiceShortcutEvent = z.infer<typeof VoiceShortcutEventSchema>;

@@ -6,8 +6,10 @@ import {
   VoiceCallAnswerSchema,
   VoiceStatusSchema,
   type VoiceCallAnswer,
+  type PrimaryLanguage,
   type VoiceStatus,
 } from '../../shared/contracts';
+import type { AppPreferencesService } from '../preferences/app-preferences-service';
 
 const OPENAI_REALTIME_CLIENT_SECRETS_URL =
   'https://api.openai.com/v1/realtime/client_secrets';
@@ -50,6 +52,7 @@ interface VoiceServiceOptions {
   environmentApiKey?: string;
   fetchImpl?: typeof fetch;
   logger?: Pick<Console, 'error'>;
+  preferencesService?: Pick<AppPreferencesService, 'getPrimaryLanguage'>;
 }
 
 const SECRET_PATTERN = /\b(?:ek|sk)[-_][a-z0-9._-]+/gi;
@@ -87,13 +90,16 @@ function readyStatus(): VoiceStatus {
   });
 }
 
-function transcriptionSessionConfig(): Record<string, unknown> {
+function transcriptionSessionConfig(
+  language: PrimaryLanguage,
+): Record<string, unknown> {
   return {
     type: 'transcription',
     audio: {
       input: {
         noise_reduction: { type: 'far_field' },
         transcription: {
+          language,
           model: VOICE_MODEL,
         },
         turn_detection: null,
@@ -157,18 +163,27 @@ export class VoiceService {
 
   private readonly logger: Pick<Console, 'error'>;
 
+  private readonly preferencesService: Pick<
+    AppPreferencesService,
+    'getPrimaryLanguage'
+  >;
+
   constructor({
     credentialStore,
     diagnosticLogger = defaultVoiceDiagnosticLogger,
     environmentApiKey = process.env.OPENAI_API_KEY,
     fetchImpl = fetch,
     logger = console,
+    preferencesService = {
+      getPrimaryLanguage: async () => 'en',
+    },
   }: VoiceServiceOptions) {
     this.credentialStore = credentialStore;
     this.diagnosticLogger = diagnosticLogger;
     this.environmentApiKey = environmentApiKey?.trim() || undefined;
     this.fetchImpl = fetchImpl;
     this.logger = logger;
+    this.preferencesService = preferencesService;
   }
 
   async getStatus(): Promise<VoiceStatus> {
@@ -207,7 +222,8 @@ export class VoiceService {
 
     // Validate model access before persisting the credential. The returned
     // short-lived secret is intentionally discarded.
-    await this.validateRealtimeAccess(apiKey);
+    const language = await this.preferencesService.getPrimaryLanguage();
+    await this.validateRealtimeAccess(apiKey, language);
     await this.credentialStore.write(apiKey);
     this.diagnosticLogger('configure.ready');
     return readyStatus();
@@ -224,7 +240,8 @@ export class VoiceService {
     }
 
     const { offerSdp } = CreateVoiceCallRequestSchema.parse(input);
-    return this.requestRealtimeCall(apiKey, offerSdp);
+    const language = await this.preferencesService.getPrimaryLanguage();
+    return this.requestRealtimeCall(apiKey, offerSdp, language);
   }
 
   private async readApiKey(): Promise<string | null> {
@@ -242,9 +259,13 @@ export class VoiceService {
     return storedApiKey;
   }
 
-  private async validateRealtimeAccess(apiKey: string): Promise<void> {
+  private async validateRealtimeAccess(
+    apiKey: string,
+    language: PrimaryLanguage,
+  ): Promise<void> {
     this.diagnosticLogger('client-secret.request-start', {
       model: VOICE_MODEL,
+      language,
       timeoutMs: REQUEST_TIMEOUT_MS,
     });
     let response: Response;
@@ -260,7 +281,7 @@ export class VoiceService {
             anchor: 'created_at',
             seconds: CLIENT_SECRET_TTL_SECONDS,
           },
-          session: transcriptionSessionConfig(),
+          session: transcriptionSessionConfig(language),
         }),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
@@ -309,14 +330,19 @@ export class VoiceService {
   private async requestRealtimeCall(
     apiKey: string,
     offerSdp: string,
+    language: PrimaryLanguage,
   ): Promise<VoiceCallAnswer> {
     this.diagnosticLogger('call.request-start', {
       model: VOICE_MODEL,
+      language,
       timeoutMs: REQUEST_TIMEOUT_MS,
     });
     const formData = new FormData();
     formData.set('sdp', offerSdp);
-    formData.set('session', JSON.stringify(transcriptionSessionConfig()));
+    formData.set(
+      'session',
+      JSON.stringify(transcriptionSessionConfig(language)),
+    );
 
     let response: Response;
     try {

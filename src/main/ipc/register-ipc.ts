@@ -5,6 +5,7 @@ import {
   RecordVoiceTranscriptRequestSchema,
   SystemPermissionSchema,
   TaskUpdateSchema,
+  UpdateAppPreferencesRequestSchema,
   VoiceDiagnosticSchema,
   type AuthUser,
   type CompanionState,
@@ -16,9 +17,11 @@ import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
 import type { TaskRuntime } from '../agent/task-runtime';
 import type { GoogleAuthService } from '../auth/google-auth-service';
 import type { CuaService } from '../cua/cua-service';
+import type { AppPreferencesService } from '../preferences/app-preferences-service';
 import type { VoiceService } from '../voice/voice-service';
 
 interface IpcServices {
+  appPreferencesService: AppPreferencesService;
   authService: GoogleAuthService;
   cuaService: CuaService;
   executionCoordinator: TaskExecutionCoordinator;
@@ -67,6 +70,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.connectComputer,
     IPC_CHANNELS.createVoiceCall,
     IPC_CHANNELS.decideApproval,
+    IPC_CHANNELS.getAppPreferences,
     IPC_CHANNELS.getComputerStatus,
     IPC_CHANNELS.getAuthStatus,
     IPC_CHANNELS.getVoiceStatus,
@@ -80,6 +84,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.signOutGoogle,
     IPC_CHANNELS.steerTask,
     IPC_CHANNELS.submitTask,
+    IPC_CHANNELS.updateAppPreferences,
   ];
 
   for (const channel of channels) ipcMain.removeHandler(channel);
@@ -103,6 +108,21 @@ export function registerIpcHandlers(
     await services.onAuthSignedOut?.();
     return status;
   });
+
+  ipcMain.handle(IPC_CHANNELS.getAppPreferences, async (event) => {
+    await assertAuthorizedSender(event, mainWindow, services.authService);
+    return services.appPreferencesService.get();
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.updateAppPreferences,
+    async (event, input: unknown) => {
+      await assertAuthorizedSender(event, mainWindow, services.authService);
+      return services.appPreferencesService.update(
+        UpdateAppPreferencesRequestSchema.parse(input),
+      );
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.submitTask, async (event, input: unknown) => {
     await assertAuthorizedSender(event, mainWindow, services.authService);

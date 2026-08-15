@@ -42,10 +42,12 @@ function setup(authenticated: boolean): {
   cuaGetStatus: ReturnType<typeof vi.fn>;
   callOrder: string[];
   createVoiceCall: ReturnType<typeof vi.fn>;
+  getAppPreferences: ReturnType<typeof vi.fn>;
   openSystemPermissionSettings: ReturnType<typeof vi.fn>;
   requestScreenRecordingAccess: ReturnType<typeof vi.fn>;
   recordVoiceTranscript: ReturnType<typeof vi.fn>;
   submit: ReturnType<typeof vi.fn>;
+  updateAppPreferences: ReturnType<typeof vi.fn>;
   unregister: () => void;
 } {
   electronMock.handlers.clear();
@@ -113,7 +115,13 @@ function setup(authenticated: boolean): {
     answerSdp: 'v=0\r\nanswer',
   }));
   const recordVoiceTranscript = vi.fn(async () => undefined);
+  const getAppPreferences = vi.fn(async () => ({ primaryLanguage: null }));
+  const updateAppPreferences = vi.fn(async (input: unknown) => input);
   const services = {
+    appPreferencesService: {
+      get: getAppPreferences,
+      update: updateAppPreferences,
+    },
     authService,
     cuaService: { connect: cuaConnect, getStatus: cuaGetStatus },
     executionCoordinator,
@@ -133,10 +141,12 @@ function setup(authenticated: boolean): {
     cuaGetStatus,
     event,
     executionCoordinator,
+    getAppPreferences,
     openSystemPermissionSettings,
     recordVoiceTranscript,
     requestScreenRecordingAccess,
     submit,
+    updateAppPreferences,
     unregister: registerIpcHandlers(mainWindow, services),
   };
 }
@@ -171,6 +181,42 @@ describe('registerIpcHandlers auth boundary', () => {
       taskId: 'task-id',
     });
     expect(submit).toHaveBeenCalledWith({ text: 'Open YouTube' });
+    unregister();
+  });
+
+  it('loads and updates persisted app preferences after authentication', async () => {
+    const {
+      event,
+      getAppPreferences,
+      unregister,
+      updateAppPreferences,
+    } = setup(true);
+
+    await expect(
+      electronMock.handlers.get(IPC_CHANNELS.getAppPreferences)?.(event),
+    ).resolves.toEqual({ primaryLanguage: null });
+    await expect(
+      electronMock.handlers
+        .get(IPC_CHANNELS.updateAppPreferences)
+        ?.(event, { primaryLanguage: 'vi' }),
+    ).resolves.toEqual({ primaryLanguage: 'vi' });
+
+    expect(getAppPreferences).toHaveBeenCalledOnce();
+    expect(updateAppPreferences).toHaveBeenCalledWith({
+      primaryLanguage: 'vi',
+    });
+    unregister();
+  });
+
+  it('rejects unsupported primary languages at the IPC boundary', async () => {
+    const { event, unregister, updateAppPreferences } = setup(true);
+
+    await expect(
+      electronMock.handlers
+        .get(IPC_CHANNELS.updateAppPreferences)
+        ?.(event, { primaryLanguage: 'xx' }),
+    ).rejects.toThrow();
+    expect(updateAppPreferences).not.toHaveBeenCalled();
     unregister();
   });
 
