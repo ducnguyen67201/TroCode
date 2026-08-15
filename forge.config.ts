@@ -15,6 +15,11 @@ import type {
   ForgePlatform,
 } from '@electron-forge/shared-types';
 
+import {
+  TROCODE_APP_BUNDLE_ID,
+  TROCODE_EXECUTABLE_NAME,
+  TROCODE_HELPER_BUNDLE_ID,
+} from './src/main/app-identity';
 import { mainConfig } from './webpack.main.config';
 import { rendererConfig } from './webpack.renderer.config';
 
@@ -25,6 +30,7 @@ const APP_ICON_BASENAME = path.resolve(
 );
 const APP_ICON_PNG = `${APP_ICON_BASENAME}.png`;
 const APP_ICON_ICO = `${APP_ICON_BASENAME}.ico`;
+const MACOS_SIGNING_IDENTITY = process.env.TROCODE_MACOS_SIGNING_IDENTITY?.trim();
 
 function nativeCuaPackage(platform: ForgePlatform, arch: ForgeArch): string {
   if (arch !== 'arm64' && arch !== 'x64') {
@@ -66,8 +72,21 @@ async function stageCuaRuntime(
 
 const config: ForgeConfig = {
   packagerConfig: {
+    appBundleId: TROCODE_APP_BUNDLE_ID,
+    executableName: TROCODE_EXECUTABLE_NAME,
     extraResource: APP_ICON_PNG,
+    helperBundleId: TROCODE_HELPER_BUNDLE_ID,
     icon: APP_ICON_BASENAME,
+    osxSign:
+      process.platform === 'darwin'
+        ? {
+            identity: MACOS_SIGNING_IDENTITY || '-',
+            identityValidation: Boolean(MACOS_SIGNING_IDENTITY),
+            optionsForFile: () => ({
+              hardenedRuntime: Boolean(MACOS_SIGNING_IDENTITY),
+            }),
+          }
+        : undefined,
     // The CUA ESM package locates its native runtime relative to import.meta.url.
     // Keep this complete dependency island outside ASAR so both the JavaScript
     // loader and native libraries resolve to real filesystem paths.

@@ -19,6 +19,7 @@ import {
 } from './main/companion/companion-position';
 import { CuaService } from './main/cua/cua-service';
 import { registerIpcHandlers } from './main/ipc/register-ipc';
+import { registerScreenRecordingHost } from './main/screen-recording-registration';
 import { systemPermissionSettingsUrl } from './main/system-permission-settings';
 import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-store';
 import { VoiceService } from './main/voice/voice-service';
@@ -288,6 +289,7 @@ const createWindow = (): void => {
       shell.openExternal(systemPermissionSettingsUrl(permission), {
         activate: true,
       }),
+    requestScreenRecordingAccess: registerScreenRecordingHost,
     taskRuntime,
     updateCompanionState,
     voiceService,

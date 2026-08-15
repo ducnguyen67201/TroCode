@@ -2,7 +2,6 @@ import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 
 import {
   CompanionStateSchema,
-  SystemPermissionSchema,
   TaskUpdateSchema,
   type AuthUser,
   type CompanionState,
@@ -24,6 +23,7 @@ interface IpcServices {
   openSystemPermissionSettings(
     permission: SystemPermission,
   ): Promise<unknown> | unknown;
+  requestScreenRecordingAccess(): Promise<unknown> | unknown;
   taskRuntime: TaskRuntime;
   updateCompanionState(state: CompanionState): void;
   voiceService: VoiceService;
@@ -63,7 +63,6 @@ export function registerIpcHandlers(
     IPC_CHANNELS.getComputerStatus,
     IPC_CHANNELS.getAuthStatus,
     IPC_CHANNELS.getVoiceStatus,
-    IPC_CHANNELS.openSystemPermissionSettings,
     IPC_CHANNELS.respondToInteraction,
     IPC_CHANNELS.setCompanionState,
     IPC_CHANNELS.startTask,
@@ -138,18 +137,27 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.connectComputer, async (event) => {
     await assertAuthorizedSender(event, mainWindow, services.authService);
-    return services.cuaService.connect();
+    let status = await services.cuaService.connect();
+    if (
+      status.platform === 'darwin' &&
+      status.permissions?.screenRecording === false
+    ) {
+      try {
+        await services.requestScreenRecordingAccess();
+        status = await services.cuaService.getStatus();
+      } catch {
+        // Opening the privacy pane is still useful if Chromium cannot enumerate
+        // sources, for example after a previous denial.
+      }
+      if (
+        status.platform === 'darwin' &&
+        status.permissions?.screenRecording === false
+      ) {
+        await services.openSystemPermissionSettings('screen_recording');
+      }
+    }
+    return status;
   });
-
-  ipcMain.handle(
-    IPC_CHANNELS.openSystemPermissionSettings,
-    async (event, input: unknown) => {
-      await assertAuthorizedSender(event, mainWindow, services.authService);
-      await services.openSystemPermissionSettings(
-        SystemPermissionSchema.parse(input),
-      );
-    },
-  );
 
   ipcMain.handle(IPC_CHANNELS.getVoiceStatus, async (event) => {
     await assertAuthorizedSender(event, mainWindow, services.authService);

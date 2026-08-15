@@ -12,7 +12,6 @@ import {
   StartTaskRequestSchema,
   SteerTaskRequestSchema,
   SubmitTaskRequestSchema,
-  SystemPermissionSchema,
   TaskSnapshotSchema,
   TaskUpdateSchema,
   VoiceSessionSchema,
@@ -112,14 +111,6 @@ const desktopApi: DesktopApi = {
       IPC_CHANNELS.connectComputer,
     );
     return CuaStatusSchema.parse(response);
-  },
-
-  async openSystemPermissionSettings(input) {
-    const permission = SystemPermissionSchema.parse(input);
-    await ipcRenderer.invoke(
-      IPC_CHANNELS.openSystemPermissionSettings,
-      permission,
-    );
   },
 
   async getVoiceStatus() {

@@ -30,7 +30,7 @@ Implemented:
 - Direct HTTPS navigation for allowed domains and exact, revalidated approval
   before consequential CUA actions such as Send.
 - Platform-specific, focused-window push-to-talk through OpenAI Realtime using
-  `gpt-realtime-whisper`.
+  `gpt-4o-mini-transcribe`.
 - Doppler-injected OpenAI voice setup; only short-lived Realtime session
   secrets cross into the renderer.
 - Privacy-safe PostHog product analytics for app activity and task funnels.
@@ -55,7 +55,7 @@ card before anything is dispatched.
 - Node.js 24 or newer.
 - npm 11 or newer.
 - macOS 13+ or a supported 64-bit Windows environment for CUA.
-- macOS development requires Accessibility and Screen Recording permissions for the Electron host.
+- macOS development requires Accessibility and Screen Recording permissions.
 
 ## Start locally
 
@@ -67,9 +67,26 @@ npm start
 On first launch, sign in with Google, then use the one-time permission screen to
 enable Microphone, Accessibility, and Screen Recording. TroCode moves into the
 workspace only after every required grant is ready. When macOS opens System
-Settings, return to TroCode and it will recheck automatically. Later launches
-reuse the saved Google session and connect CUA automatically while the operating
-system grants remain enabled.
+Settings, TroCode is already registered in the relevant permission list; enable
+it without locating the application manually or using the `+` button, then
+return to TroCode. The app rechecks automatically. Later launches reuse the
+saved Google session and connect CUA automatically while the operating-system
+grants remain enabled.
+
+The registration attempt stays in the trusted Electron main process. It asks
+macOS for a one-pixel screen thumbnail, discards it immediately, and does not
+expose captured images or source details to the renderer.
+
+For macOS permission testing, use the packaged `TroCode.app`. Raw `npm start`
+runs through Electron's development host, whose separate identity can appear as
+`Electron` in Privacy & Security and does not represent the shipped app's grant.
+The packaged application uses the stable bundle identifier
+`com.trocode.desktop`; production releases must keep that identifier and use a
+consistent Apple signing identity so macOS can preserve grants across updates.
+Local packages fall back to an ad-hoc signature so they remain launchable. Set
+`TROCODE_MACOS_SIGNING_IDENTITY` to the installed Developer ID Application
+certificate name for distributable macOS builds; those builds retain hardened
+runtime signing.
 
 ### Environment and Doppler
 

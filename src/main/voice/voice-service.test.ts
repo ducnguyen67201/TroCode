@@ -41,7 +41,8 @@ describe('VoiceService', () => {
 
     await expect(service.getStatus()).resolves.toMatchObject({
       state: 'ready',
-      model: 'gpt-realtime-whisper',
+      model: 'gpt-4o-mini-transcribe',
+      summary: 'OpenAI realtime transcription is configured.',
     });
     expect(read).not.toHaveBeenCalled();
   });
@@ -56,7 +57,7 @@ describe('VoiceService', () => {
 
     await expect(service.getStatus()).resolves.toMatchObject({
       state: 'not_configured',
-      model: 'gpt-realtime-whisper',
+      model: 'gpt-4o-mini-transcribe',
     });
   });
 
@@ -111,13 +112,13 @@ describe('VoiceService', () => {
     await expect(service.createSession()).resolves.toEqual({
       clientSecret: 'ek_test_secret',
       expiresAt: 2_000_000_000,
-      model: 'gpt-realtime-whisper',
+      model: 'gpt-4o-mini-transcribe',
     });
 
     const request = fetchImpl.mock.calls[0]?.[1];
     expect(request?.headers).toMatchObject({
       Authorization: `Bearer ${TEST_API_KEY}`,
     });
-    expect(request?.body).toContain('gpt-realtime-whisper');
+    expect(request?.body).toContain('gpt-4o-mini-transcribe');
   });
 });

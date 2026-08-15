@@ -68,8 +68,8 @@ body {
   text-align: left;
 }
 
-.auth-brand-mark,
-.auth-loading-mark {
+.brand-mark.auth-brand-mark,
+.brand-mark.auth-loading-mark {
   display: block;
   width: 58px;
   height: 58px;

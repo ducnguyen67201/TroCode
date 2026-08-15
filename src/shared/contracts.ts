@@ -339,7 +339,7 @@ export const SystemPermissionSchema = z.enum([
 export const VoiceStatusSchema = z.object({
   state: z.enum(['not_configured', 'ready', 'unavailable', 'error']),
   provider: z.literal('openai'),
-  model: z.literal('gpt-realtime-whisper'),
+  model: z.literal('gpt-4o-mini-transcribe'),
   summary: z.string().min(1),
 });
 
@@ -369,7 +369,7 @@ export const ConfigureVoiceRequestSchema = z.object({
 export const VoiceSessionSchema = z.object({
   clientSecret: z.string().min(1).max(2_048),
   expiresAt: z.number().int().positive(),
-  model: z.literal('gpt-realtime-whisper'),
+  model: z.literal('gpt-4o-mini-transcribe'),
 });
 
 export const AuthUserSchema = z.object({

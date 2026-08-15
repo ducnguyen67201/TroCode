@@ -22,6 +22,10 @@ interface PermissionsLike {
   query(descriptor: PermissionDescriptor): Promise<PermissionStatusLike>;
 }
 
+interface ScreenRecordingPermissionApi {
+  connectComputer(): Promise<CuaStatus>;
+}
+
 function cuaPermissionState(
   status: CuaStatus,
   permission: 'accessibility' | 'screenRecording',
@@ -102,6 +106,12 @@ export function permissionStateLabel(state: PermissionState): string {
     case 'unavailable':
       return 'Unavailable';
   }
+}
+
+export async function requestScreenRecordingPermission(
+  api: ScreenRecordingPermissionApi,
+): Promise<CuaStatus> {
+  return api.connectComputer();
 }
 
 export async function inspectMicrophonePermission(

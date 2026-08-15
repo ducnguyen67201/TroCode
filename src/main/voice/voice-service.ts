@@ -10,7 +10,7 @@ import {
 
 const OPENAI_REALTIME_CLIENT_SECRETS_URL =
   'https://api.openai.com/v1/realtime/client_secrets';
-const VOICE_MODEL = 'gpt-realtime-whisper' as const;
+const VOICE_MODEL = 'gpt-4o-mini-transcribe' as const;
 const CLIENT_SECRET_TTL_SECONDS = 60;
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -43,7 +43,7 @@ function readyStatus(): VoiceStatus {
     state: 'ready',
     provider: 'openai',
     model: VOICE_MODEL,
-    summary: 'OpenAI realtime transcription is connected.',
+    summary: 'OpenAI realtime transcription is configured.',
   });
 }
 

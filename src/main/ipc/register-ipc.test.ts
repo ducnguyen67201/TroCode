@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type { CuaStatus } from '../../shared/contracts';
 import { IPC_CHANNELS } from '../../shared/desktop-api';
 
 import { registerIpcHandlers } from './register-ipc';
@@ -37,7 +38,11 @@ function setup(authenticated: boolean): {
   executionCoordinator: {
     cancelActiveTasks: ReturnType<typeof vi.fn>;
   };
+  cuaConnect: ReturnType<typeof vi.fn>;
+  cuaGetStatus: ReturnType<typeof vi.fn>;
+  callOrder: string[];
   openSystemPermissionSettings: ReturnType<typeof vi.fn>;
+  requestScreenRecordingAccess: ReturnType<typeof vi.fn>;
   submit: ReturnType<typeof vi.fn>;
   unregister: () => void;
 } {
@@ -76,12 +81,38 @@ function setup(authenticated: boolean): {
   const executionCoordinator = {
     cancelActiveTasks: vi.fn(() => []),
   };
-  const openSystemPermissionSettings = vi.fn(async () => undefined);
+  const callOrder: string[] = [];
+  const permissionRequiredStatus: CuaStatus = {
+    state: 'permission_required',
+    available: false,
+    platform: 'darwin',
+    permissions: {
+      accessibility: true,
+      screenRecording: false,
+    },
+    summary: 'Screen Recording is required.',
+    nextActions: [],
+  };
+  const cuaConnect = vi.fn(async () => {
+    callOrder.push('request');
+    return permissionRequiredStatus;
+  });
+  const cuaGetStatus = vi.fn(async () => {
+    callOrder.push('recheck');
+    return permissionRequiredStatus;
+  });
+  const openSystemPermissionSettings = vi.fn(async () => {
+    callOrder.push('open-settings');
+  });
+  const requestScreenRecordingAccess = vi.fn(async () => {
+    callOrder.push('register-screen');
+  });
   const services = {
     authService,
-    cuaService: {},
+    cuaService: { connect: cuaConnect, getStatus: cuaGetStatus },
     executionCoordinator,
     openSystemPermissionSettings,
+    requestScreenRecordingAccess,
     taskRuntime,
     updateCompanionState: vi.fn(),
     voiceService: {},
@@ -89,9 +120,13 @@ function setup(authenticated: boolean): {
 
   return {
     authService,
+    callOrder,
+    cuaConnect,
+    cuaGetStatus,
     event,
     executionCoordinator,
     openSystemPermissionSettings,
+    requestScreenRecordingAccess,
     submit,
     unregister: registerIpcHandlers(mainWindow, services),
   };
@@ -142,16 +177,94 @@ describe('registerIpcHandlers auth boundary', () => {
     unregister();
   });
 
-  it('opens the requested macOS permission pane for authenticated users', async () => {
-    const { event, openSystemPermissionSettings, unregister } = setup(true);
-    const handler = electronMock.handlers.get(
-      IPC_CHANNELS.openSystemPermissionSettings,
-    );
+  it('requests native computer permission before opening the macOS fallback pane', async () => {
+    const {
+      callOrder,
+      cuaConnect,
+      cuaGetStatus,
+      event,
+      openSystemPermissionSettings,
+      requestScreenRecordingAccess,
+      unregister,
+    } = setup(true);
+    const handler = electronMock.handlers.get(IPC_CHANNELS.connectComputer);
 
-    await expect(handler?.(event, 'screen_recording')).resolves.toBeUndefined();
+    await expect(handler?.(event)).resolves.toMatchObject({
+      state: 'permission_required',
+    });
+    expect(cuaConnect).toHaveBeenCalledOnce();
+    expect(requestScreenRecordingAccess).toHaveBeenCalledOnce();
+    expect(cuaGetStatus).toHaveBeenCalledOnce();
     expect(openSystemPermissionSettings).toHaveBeenCalledWith(
       'screen_recording',
     );
+    expect(callOrder).toEqual([
+      'request',
+      'register-screen',
+      'recheck',
+      'open-settings',
+    ]);
+    unregister();
+  });
+
+  it('returns the refreshed status when capture registration completes the grant', async () => {
+    const {
+      callOrder,
+      cuaGetStatus,
+      event,
+      openSystemPermissionSettings,
+      requestScreenRecordingAccess,
+      unregister,
+    } = setup(true);
+    cuaGetStatus.mockImplementation(async () => {
+      callOrder.push('recheck');
+      return {
+        state: 'ready',
+        available: true,
+        platform: 'darwin',
+        permissions: {
+          accessibility: true,
+          screenRecording: true,
+        },
+        summary: 'Connected.',
+        nextActions: [],
+      };
+    });
+    const handler = electronMock.handlers.get(IPC_CHANNELS.connectComputer);
+
+    await expect(handler?.(event)).resolves.toMatchObject({ state: 'ready' });
+    expect(requestScreenRecordingAccess).toHaveBeenCalledOnce();
+    expect(openSystemPermissionSettings).not.toHaveBeenCalled();
+    expect(callOrder).toEqual(['request', 'register-screen', 'recheck']);
+    unregister();
+  });
+
+  it('does not open System Settings when the native request completes the grant', async () => {
+    const {
+      cuaConnect,
+      cuaGetStatus,
+      event,
+      openSystemPermissionSettings,
+      requestScreenRecordingAccess,
+      unregister,
+    } = setup(true);
+    cuaConnect.mockResolvedValue({
+      state: 'ready',
+      available: true,
+      platform: 'darwin',
+      permissions: {
+        accessibility: true,
+        screenRecording: true,
+      },
+      summary: 'Connected.',
+      nextActions: [],
+    });
+    const handler = electronMock.handlers.get(IPC_CHANNELS.connectComputer);
+
+    await expect(handler?.(event)).resolves.toMatchObject({ state: 'ready' });
+    expect(cuaGetStatus).not.toHaveBeenCalled();
+    expect(requestScreenRecordingAccess).not.toHaveBeenCalled();
+    expect(openSystemPermissionSettings).not.toHaveBeenCalled();
     unregister();
   });
 });

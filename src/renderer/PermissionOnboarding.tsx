@@ -119,7 +119,7 @@ export function PermissionOnboarding({
                         onClick={onOpenScreenRecordingSettings}
                         type="button"
                       >
-                        Open settings
+                        Request access
                       </button>
                     )}
                 </span>
@@ -160,9 +160,10 @@ export function PermissionOnboarding({
         </div>
 
         <p className="permission-onboarding__note" role="status">
-          macOS may open System Settings. Enable TroCode there, then return to
-          this window—we’ll check and connect automatically. Screen Recording
-          may require restarting TroCode once.
+          macOS will add TroCode to Screen Recording automatically. If System
+          Settings opens, enable TroCode there—there is no need to use the +
+          button. Then return here and we’ll connect automatically. Screen
+          Recording may require restarting TroCode once.
         </p>
       </section>
     </main>

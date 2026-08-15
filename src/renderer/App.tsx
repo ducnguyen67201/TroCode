@@ -16,6 +16,7 @@ import {
   createPermissionChecklist,
   inspectMicrophonePermission,
   isPermissionSetupComplete,
+  requestScreenRecordingPermission,
   shouldConnectAfterPermissionRefresh,
   type PermissionState,
 } from './permission-onboarding';
@@ -47,7 +48,7 @@ const EMPTY_COMPUTER_STATUS: CuaStatus = {
 const EMPTY_VOICE_STATUS: VoiceStatus = {
   state: 'not_configured',
   provider: 'openai',
-  model: 'gpt-realtime-whisper',
+  model: 'gpt-4o-mini-transcribe',
   summary: 'Checking the OpenAI voice connection…',
 };
 
@@ -81,12 +82,27 @@ function voiceStatusMessage(
     case 'unavailable':
       return 'Voice recognition is unavailable. Type your request instead.';
     case 'idle':
-      return `Hold ${pushToTalkShortcutName(platform)} to talk.`;
+      return `Voice ready. Hold ${pushToTalkShortcutName(platform)} to talk.`;
   }
 }
 
-function VoiceConnection({ status }: { status: VoiceStatus }) {
-  const connected = status.state === 'ready';
+function VoiceConnection({
+  inputStatus,
+  status,
+}: {
+  inputStatus: VoiceInputStatus;
+  status: VoiceStatus;
+}) {
+  const configured = status.state === 'ready';
+  const connected =
+    configured && inputStatus !== 'connecting' && inputStatus !== 'unavailable';
+  const connectionLabel = !configured
+    ? 'Not configured'
+    : inputStatus === 'connecting'
+      ? 'Connecting'
+      : connected
+        ? 'Connected'
+        : 'Not connected';
 
   return (
     <section className="computer-card" aria-labelledby="voice-heading">
@@ -98,10 +114,14 @@ function VoiceConnection({ status }: { status: VoiceStatus }) {
         <span
           className={`status-dot status-dot--${connected ? 'ready' : 'disconnected'}`}
         >
-          {connected ? 'Connected' : 'Not connected'}
+          {connectionLabel}
         </span>
       </div>
-      <p>{status.summary}</p>
+      <p>
+        {connected
+          ? 'Realtime voice is ready. The microphone stays off until you hold the shortcut.'
+          : status.summary}
+      </p>
       <p className="metadata">Model {status.model}</p>
     </section>
   );
@@ -705,7 +725,7 @@ export function App({
       }
 
       try {
-        setComputerStatus(await window.tro.connectComputer());
+        setComputerStatus(await requestScreenRecordingPermission(window.tro));
         setComputerStatusLoaded(true);
       } catch (connectError) {
         errors.push(
@@ -723,14 +743,18 @@ export function App({
 
   const openScreenRecordingSettings = useCallback(async () => {
     setPermissionError(null);
+    setIsRequestingPermissions(true);
     try {
-      await window.tro.openSystemPermissionSettings('screen_recording');
+      setComputerStatus(await requestScreenRecordingPermission(window.tro));
+      setComputerStatusLoaded(true);
     } catch (settingsError) {
       setPermissionError(
         settingsError instanceof Error
           ? settingsError.message
-          : 'TroCode could not open Screen Recording settings.',
+          : 'TroCode could not request Screen Recording permission.',
       );
+    } finally {
+      setIsRequestingPermissions(false);
     }
   }, []);
 
@@ -958,7 +982,10 @@ export function App({
           </section>
 
           <aside className="context-column">
-            <VoiceConnection status={voiceProviderStatus} />
+            <VoiceConnection
+              inputStatus={voiceStatus}
+              status={voiceProviderStatus}
+            />
 
             <section className="activity-card" id="activity" aria-labelledby="activity-heading">
               <div className="section-heading-row">

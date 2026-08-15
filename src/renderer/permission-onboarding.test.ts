@@ -7,6 +7,7 @@ import {
   inspectMicrophonePermission,
   isPermissionSetupComplete,
   permissionStateLabel,
+  requestScreenRecordingPermission,
   shouldConnectAfterPermissionRefresh,
 } from './permission-onboarding';
 
@@ -108,5 +109,34 @@ describe('permission onboarding', () => {
       'blocked',
     );
     expect(query).toHaveBeenCalledOnce();
+  });
+
+  it('uses one narrow computer-permission operation', async () => {
+    const permissionRequiredStatus: CuaStatus = {
+      ...READY_CUA_STATUS,
+      state: 'permission_required',
+      available: false,
+      permissions: {
+        accessibility: true,
+        screenRecording: false,
+      },
+    };
+    const connectComputer = vi.fn(async () => permissionRequiredStatus);
+
+    await expect(
+      requestScreenRecordingPermission({ connectComputer }),
+    ).resolves.toEqual(permissionRequiredStatus);
+
+    expect(connectComputer).toHaveBeenCalledOnce();
+  });
+
+  it('returns the completed native grant unchanged', async () => {
+    const connectComputer = vi.fn(async () => READY_CUA_STATUS);
+
+    await expect(
+      requestScreenRecordingPermission({ connectComputer }),
+    ).resolves.toEqual(READY_CUA_STATUS);
+
+    expect(connectComputer).toHaveBeenCalledOnce();
   });
 });
