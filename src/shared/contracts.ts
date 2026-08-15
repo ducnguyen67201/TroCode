@@ -350,6 +350,11 @@ export const CompanionStateSchema = z.enum([
   'error',
 ]);
 
+export const CompanionPositionSchema = z.object({
+  x: z.number().int().min(0).max(100_000),
+  y: z.number().int().min(0).max(100_000),
+});
+
 export const ConfigureVoiceRequestSchema = z.object({
   apiKey: z
     .string()
@@ -384,6 +389,7 @@ export type Capability = z.infer<typeof CapabilitySchema>;
 export type ActionApprovalGrant = z.infer<typeof ActionApprovalGrantSchema>;
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
 export type AuthUser = z.infer<typeof AuthUserSchema>;
+export type CompanionPosition = z.infer<typeof CompanionPositionSchema>;
 export type CompanionState = z.infer<typeof CompanionStateSchema>;
 export type ConfigureVoiceRequest = z.infer<
   typeof ConfigureVoiceRequestSchema

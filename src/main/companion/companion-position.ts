@@ -13,6 +13,10 @@ export interface Size {
   width: number;
 }
 
+export function shouldUseCompanionOverlay(platform: string): boolean {
+  return platform === 'win32';
+}
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
 }
@@ -43,5 +47,47 @@ export function placeCompanionNearCursor(
     y: Math.round(
       clamp(y, displayBounds.y, displayBottom - companionSize.height),
     ),
+  };
+}
+
+export function getVirtualDisplayBounds(displays: readonly Rectangle[]): Rectangle {
+  if (displays.length === 0) {
+    return { height: 0, width: 0, x: 0, y: 0 };
+  }
+
+  const left = Math.min(...displays.map((display) => display.x));
+  const top = Math.min(...displays.map((display) => display.y));
+  const right = Math.max(
+    ...displays.map((display) => display.x + display.width),
+  );
+  const bottom = Math.max(
+    ...displays.map((display) => display.y + display.height),
+  );
+
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  };
+}
+
+export function placeCompanionInOverlay(
+  cursor: Point,
+  overlayBounds: Rectangle,
+  companionSize: Size,
+  gap = 8,
+  placementBounds = overlayBounds,
+): Point {
+  const screenPosition = placeCompanionNearCursor(
+    cursor,
+    placementBounds,
+    companionSize,
+    gap,
+  );
+
+  return {
+    x: screenPosition.x - overlayBounds.x,
+    y: screenPosition.y - overlayBounds.y,
   };
 }

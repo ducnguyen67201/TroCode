@@ -19,14 +19,24 @@ type Driver = ReturnType<CuaModule['CuaDriver']['create']> & {
   uniffiDestroy(): void;
 };
 
-const CUA_PACKAGE_ENTRY = path.join(
+const CUA_PACKAGE_ENTRY_PARTS = [
   'cua-runtime',
   'node_modules',
   '@trycua',
   'cua-driver',
   'dist',
   'index.js',
-);
+] as const;
+
+function isWindowsPath(value: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('\\\\');
+}
+
+function resourcePathToFileUrl(resourcesPath: string, targetPath: string): string {
+  if (isWindowsPath(resourcesPath)) return pathToFileURL(targetPath).href;
+
+  return new URL(`file://${targetPath}`).href;
+}
 
 export function getCuaModuleSpecifier(
   isPackaged: boolean,
@@ -34,9 +44,14 @@ export function getCuaModuleSpecifier(
 ): string {
   if (!isPackaged) return '@trycua/cua-driver';
 
-  return pathToFileURL(
-    path.join(resourcesPath, 'app.asar.unpacked', CUA_PACKAGE_ENTRY),
-  ).href;
+  const join = isWindowsPath(resourcesPath) ? path.win32.join : path.posix.join;
+  const modulePath = join(
+    resourcesPath,
+    'app.asar.unpacked',
+    ...CUA_PACKAGE_ENTRY_PARTS,
+  );
+
+  return resourcePathToFileUrl(resourcesPath, modulePath);
 }
 
 function getSupportedPlatform(): CuaStatus['platform'] {

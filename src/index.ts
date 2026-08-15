@@ -9,7 +9,14 @@ import { AnalyticsService } from './main/analytics/analytics-service';
 import { EncryptedAuthSessionStore } from './main/auth/auth-session-store';
 import { GoogleAuthService } from './main/auth/google-auth-service';
 import { LocalOAuthBrowserFlow } from './main/auth/local-oauth-browser-flow';
-import { placeCompanionNearCursor } from './main/companion/companion-position';
+import {
+  getVirtualDisplayBounds,
+  placeCompanionInOverlay,
+  placeCompanionNearCursor,
+  shouldUseCompanionOverlay,
+  type Point,
+  type Rectangle,
+} from './main/companion/companion-position';
 import { CuaService } from './main/cua/cua-service';
 import { registerIpcHandlers } from './main/ipc/register-ipc';
 import { systemPermissionSettingsUrl } from './main/system-permission-settings';
@@ -67,6 +74,7 @@ const executionCoordinator = new TaskExecutionCoordinator({
   },
 });
 const COMPANION_SIZE = { height: 44, width: 44 } as const;
+const COMPANION_GAP = 8;
 const COMPANION_FOLLOW_INTERVAL_MS = 16;
 const SHUTDOWN_GRACE_PERIOD_MS = 2_000;
 
@@ -75,6 +83,7 @@ let companionWindow: BrowserWindow | null = null;
 let analyticsService: AnalyticsService | null = null;
 let companionState: CompanionState = 'idle';
 let companionFollowTimer: ReturnType<typeof setInterval> | null = null;
+let lastCompanionPosition: Point | null = null;
 let forcedExitTimer: ReturnType<typeof setTimeout> | null = null;
 let unregisterIpcHandlers: (() => void) | null = null;
 let isShuttingDown = false;
@@ -82,6 +91,7 @@ let isShuttingDown = false;
 function stopCompanionFollowing(): void {
   if (companionFollowTimer) clearInterval(companionFollowTimer);
   companionFollowTimer = null;
+  lastCompanionPosition = null;
 }
 
 function sendCompanionState(): void {
@@ -95,6 +105,36 @@ function sendCompanionState(): void {
 function updateCompanionState(state: CompanionState): void {
   companionState = state;
   sendCompanionState();
+}
+
+function boundsEqual(left: Rectangle, right: Rectangle): boolean {
+  return (
+    left.x === right.x &&
+    left.y === right.y &&
+    left.width === right.width &&
+    left.height === right.height
+  );
+}
+
+function pointEqual(left: Point | null, right: Point): boolean {
+  return left?.x === right.x && left.y === right.y;
+}
+
+function getCompanionOverlayBounds(): Rectangle {
+  return getVirtualDisplayBounds(
+    screen.getAllDisplays().map((display) => display.bounds),
+  );
+}
+
+function sendCompanionPosition(position: Point): void {
+  if (!companionWindow || companionWindow.isDestroyed()) return;
+  if (pointEqual(lastCompanionPosition, position)) return;
+
+  lastCompanionPosition = position;
+  companionWindow.webContents.send(
+    IPC_CHANNELS.companionPositionChanged,
+    position,
+  );
 }
 
 async function identifyAnalyticsUser(user: AuthUser): Promise<void> {
@@ -288,20 +328,47 @@ const positionCompanion = (): void => {
 
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursor);
-  const position = placeCompanionNearCursor(
-    cursor,
-    display.bounds,
-    COMPANION_SIZE,
-  );
-  const [currentX, currentY] = companionWindow.getPosition();
 
-  if (currentX !== position.x || currentY !== position.y) {
-    companionWindow.setPosition(position.x, position.y, false);
+  if (!shouldUseCompanionOverlay(process.platform)) {
+    const position = placeCompanionNearCursor(
+      cursor,
+      display.bounds,
+      COMPANION_SIZE,
+      COMPANION_GAP,
+    );
+    const [currentX, currentY] = companionWindow.getPosition();
+
+    if (currentX !== position.x || currentY !== position.y) {
+      companionWindow.setPosition(position.x, position.y, false);
+    }
+    return;
   }
+
+  const overlayBounds = getCompanionOverlayBounds();
+  if (overlayBounds.width <= 0 || overlayBounds.height <= 0) return;
+
+  const currentBounds = companionWindow.getBounds();
+  if (!boundsEqual(currentBounds, overlayBounds)) {
+    companionWindow.setBounds(overlayBounds, false);
+  }
+
+  const position = placeCompanionInOverlay(
+    cursor,
+    overlayBounds,
+    COMPANION_SIZE,
+    COMPANION_GAP,
+    display.bounds,
+  );
+  sendCompanionPosition(position);
 };
 
 const createCompanionWindow = (): void => {
   if (companionWindow && !companionWindow.isDestroyed()) return;
+
+  const useOverlayCompanion = shouldUseCompanionOverlay(process.platform);
+  const companionBounds = useOverlayCompanion
+    ? getCompanionOverlayBounds()
+    : { ...COMPANION_SIZE, x: 0, y: 0 };
 
   companionWindow = new BrowserWindow({
     alwaysOnTop: true,
@@ -309,12 +376,15 @@ const createCompanionWindow = (): void => {
     focusable: false,
     frame: false,
     hasShadow: false,
-    height: COMPANION_SIZE.height,
+    height: companionBounds.height,
     resizable: false,
     show: false,
     skipTaskbar: true,
     transparent: true,
-    width: COMPANION_SIZE.width,
+    width: companionBounds.width,
+    ...(useOverlayCompanion
+      ? { x: companionBounds.x, y: companionBounds.y }
+      : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -327,13 +397,21 @@ const createCompanionWindow = (): void => {
   companionWindow.setIgnoreMouseEvents(true, { forward: true });
   companionWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   companionWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  companionWindow.webContents.on('did-finish-load', sendCompanionState);
+  companionWindow.webContents.on('did-finish-load', () => {
+    sendCompanionState();
+    lastCompanionPosition = null;
+    positionCompanion();
+  });
   companionWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault();
   });
 
   const companionUrl = new URL(MAIN_WINDOW_WEBPACK_ENTRY);
   companionUrl.searchParams.set('mode', 'companion');
+  companionUrl.searchParams.set(
+    'tracking',
+    useOverlayCompanion ? 'overlay' : 'native',
+  );
 
   companionWindow.once('ready-to-show', () => {
     positionCompanion();

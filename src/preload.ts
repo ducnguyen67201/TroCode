@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 import {
   AuthStatusSchema,
+  CompanionPositionSchema,
   CancelTaskRequestSchema,
   CompanionStateSchema,
   ConfigureVoiceRequestSchema,
@@ -161,6 +162,22 @@ const desktopApi: DesktopApi = {
 };
 
 const companionApi: CompanionApi = {
+  onPositionChange(listener) {
+    const eventHandler = (
+      _event: Electron.IpcRendererEvent,
+      value: unknown,
+    ): void => {
+      listener(CompanionPositionSchema.parse(value));
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.companionPositionChanged, eventHandler);
+    return () =>
+      ipcRenderer.removeListener(
+        IPC_CHANNELS.companionPositionChanged,
+        eventHandler,
+      );
+  },
+
   onStateChange(listener) {
     const eventHandler = (
       _event: Electron.IpcRendererEvent,

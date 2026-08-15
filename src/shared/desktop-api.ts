@@ -1,5 +1,6 @@
 import type {
   AuthStatus,
+  CompanionPosition,
   CompanionState,
   ConfigureVoiceRequest,
   CuaStatus,
@@ -16,6 +17,7 @@ import type {
 
 export const IPC_CHANNELS = {
   cancelTask: 'task:cancel',
+  companionPositionChanged: 'companion:position-changed',
   companionStateChanged: 'companion:state-changed',
   configureVoice: 'voice:configure',
   connectComputer: 'cua:connect',
@@ -58,5 +60,6 @@ export interface DesktopApi {
 }
 
 export interface CompanionApi {
+  onPositionChange(listener: (position: CompanionPosition) => void): () => void;
   onStateChange(listener: (state: CompanionState) => void): () => void;
 }
