@@ -1,4 +1,5 @@
 import type {
+  AppPreferences,
   AuthStatus,
   CompanionPosition,
   CompanionState,
@@ -13,6 +14,7 @@ import type {
   SystemPermission,
   TaskSnapshot,
   TaskUpdate,
+  UpdateAppPreferencesRequest,
   VoiceCallAnswer,
   VoiceDiagnostic,
   VoiceStatus,
@@ -26,6 +28,7 @@ export const IPC_CHANNELS = {
   connectComputer: 'cua:connect',
   createVoiceCall: 'voice:create-call',
   decideApproval: 'task:decide-approval',
+  getAppPreferences: 'preferences:get',
   getComputerStatus: 'cua:status',
   getAuthStatus: 'auth:status',
   getVoiceStatus: 'voice:status',
@@ -40,6 +43,7 @@ export const IPC_CHANNELS = {
   steerTask: 'task:steer',
   submitTask: 'task:submit',
   taskUpdate: 'task:update',
+  updateAppPreferences: 'preferences:update',
 } as const;
 
 export interface DesktopApi {
@@ -48,6 +52,7 @@ export interface DesktopApi {
   connectComputer(): Promise<CuaStatus>;
   createVoiceCall(request: CreateVoiceCallRequest): Promise<VoiceCallAnswer>;
   decideApproval(request: DecideApprovalRequest): Promise<TaskSnapshot>;
+  getAppPreferences(): Promise<AppPreferences>;
   getComputerStatus(): Promise<CuaStatus>;
   getAuthStatus(): Promise<AuthStatus>;
   getVoiceStatus(): Promise<VoiceStatus>;
@@ -64,6 +69,9 @@ export interface DesktopApi {
   signOutGoogle(): Promise<AuthStatus>;
   steerTask(request: SteerTaskRequest): Promise<TaskSnapshot>;
   submitTask(request: SubmitTaskRequest): Promise<TaskSnapshot>;
+  updateAppPreferences(
+    request: UpdateAppPreferencesRequest,
+  ): Promise<AppPreferences>;
 }
 
 export interface CompanionApi {

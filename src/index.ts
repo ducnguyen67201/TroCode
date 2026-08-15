@@ -20,6 +20,10 @@ import {
 } from './main/companion/companion-position';
 import { CuaService } from './main/cua/cua-service';
 import { registerIpcHandlers } from './main/ipc/register-ipc';
+import {
+  AppPreferencesService,
+  FileAppPreferencesStore,
+} from './main/preferences/app-preferences-service';
 import { registerScreenRecordingHost } from './main/screen-recording-registration';
 import {
   initializeSingleInstance,
@@ -76,9 +80,15 @@ const authService = new GoogleAuthService({
   sessionStore: new EncryptedAuthSessionStore(),
 });
 const cuaService = new CuaService();
+const appPreferencesService = new AppPreferencesService(
+  new FileAppPreferencesStore(
+    path.join(app.getPath('userData'), 'app-preferences.json'),
+  ),
+);
 const voiceCredentialStore = new EncryptedVoiceCredentialStore();
 const voiceService = new VoiceService({
   credentialStore: voiceCredentialStore,
+  preferencesService: appPreferencesService,
 });
 const realtimePlanner = new GptRealtimePlanner({
   credentialStore: voiceCredentialStore,
@@ -396,6 +406,7 @@ const createWindow = (): void => {
 
   unregisterIpcHandlers?.();
   unregisterIpcHandlers = registerIpcHandlers(nextMainWindow, {
+    appPreferencesService,
     authService,
     cuaService,
     executionCoordinator,

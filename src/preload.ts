@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {
+  AppPreferencesSchema,
   AuthStatusSchema,
   CompanionPositionSchema,
   CancelTaskRequestSchema,
@@ -17,6 +18,7 @@ import {
   SystemPermissionSchema,
   TaskSnapshotSchema,
   TaskUpdateSchema,
+  UpdateAppPreferencesRequestSchema,
   VoiceCallAnswerSchema,
   VoiceDiagnosticSchema,
   VoiceStatusSchema,
@@ -47,6 +49,22 @@ const desktopApi: DesktopApi = {
       IPC_CHANNELS.signOutGoogle,
     );
     return AuthStatusSchema.parse(response);
+  },
+
+  async getAppPreferences() {
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.getAppPreferences,
+    );
+    return AppPreferencesSchema.parse(response);
+  },
+
+  async updateAppPreferences(input) {
+    const request = UpdateAppPreferencesRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.updateAppPreferences,
+      request,
+    );
+    return AppPreferencesSchema.parse(response);
   },
 
   async submitTask(input) {

@@ -133,6 +133,7 @@ describe('VoiceService', () => {
       Authorization: `Bearer ${TEST_API_KEY}`,
     });
     expect(request?.body).toContain('gpt-realtime-whisper');
+    expect(request?.body).toContain('"language":"en"');
     expect(diagnosticLogger.mock.calls.map(([event]) => event)).toEqual([
       'configure.start',
       'client-secret.request-start',
@@ -157,6 +158,9 @@ describe('VoiceService', () => {
       diagnosticLogger,
       environmentApiKey: '',
       fetchImpl,
+      preferencesService: {
+        getPrimaryLanguage: vi.fn(async () => 'vi' as const),
+      },
     });
 
     await expect(
@@ -185,6 +189,7 @@ describe('VoiceService', () => {
         input: {
           noise_reduction: { type: 'far_field' },
           transcription: {
+            language: 'vi',
             model: 'gpt-realtime-whisper',
           },
           turn_detection: null,
@@ -198,6 +203,11 @@ describe('VoiceService', () => {
       'call.response',
       'call.ready',
     ]);
+    expect(diagnosticLogger).toHaveBeenCalledWith('call.request-start', {
+      language: 'vi',
+      model: 'gpt-realtime-whisper',
+      timeoutMs: 15_000,
+    });
   });
 
   it('preserves the underlying realtime call transport failure cause', async () => {

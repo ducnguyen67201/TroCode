@@ -8,10 +8,12 @@ import {
 } from 'react';
 
 import type {
+  AppPreferences,
   AuthUser,
   CuaStatus,
   GoalSpec,
   PendingInteraction,
+  PrimaryLanguage,
   TaskEvent,
   TaskSnapshot,
   VoiceStatus,
@@ -20,6 +22,10 @@ import type {
 import { BrandMark } from './BrandMark';
 import { getCompanionState } from './companion-state';
 import { InsightsPage } from './InsightsPage';
+import {
+  isPrimaryLanguageSetupComplete,
+  primaryLanguageLabel,
+} from './language-options';
 import {
   createPermissionChecklist,
   inspectMicrophonePermission,
@@ -33,6 +39,7 @@ import {
   pushToTalkShortcutName,
   type PushToTalkPlatform,
 } from './push-to-talk';
+import { SettingsPage } from './SettingsPage';
 import {
   getCompanionErrorVisibility,
   INITIAL_TRANSIENT_CURSOR_ERROR_STATE,
@@ -76,7 +83,7 @@ const STEERABLE_PHASES = new Set([
   'blocked',
 ]);
 
-type ActiveView = 'agent' | 'insights';
+type ActiveView = 'agent' | 'insights' | 'settings';
 
 function appendUniqueEvent(
   currentEvents: TaskEvent[],
@@ -92,7 +99,7 @@ function appendUniqueEvent(
 function NavigationIcon({
   name,
 }: {
-  name: 'activity' | 'agent' | 'insights';
+  name: 'activity' | 'agent' | 'insights' | 'settings';
 }) {
   if (name === 'agent') {
     return (
@@ -107,6 +114,15 @@ function NavigationIcon({
     return (
       <svg aria-hidden="true" viewBox="0 0 24 24">
         <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+      </svg>
+    );
+  }
+
+  if (name === 'settings') {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19 12a7.4 7.4 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a8 8 0 0 0-1.7-1L14.5 3h-5L9 6.1a8 8 0 0 0-1.7 1L5 6.1 3 9.5 5 11a7.4 7.4 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a8 8 0 0 0 1.7 1l.4 3.1h5l.4-3.1a8 8 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5a7.4 7.4 0 0 0 .1-1Z" />
       </svg>
     );
   }
@@ -144,9 +160,11 @@ function voiceStatusMessage(
 
 function VoiceConnection({
   inputStatus,
+  primaryLanguage,
   status,
 }: {
   inputStatus: VoiceInputStatus;
+  primaryLanguage: PrimaryLanguage;
   status: VoiceStatus;
 }) {
   const configured = status.state === 'ready';
@@ -178,7 +196,9 @@ function VoiceConnection({
           ? 'Realtime voice is ready. The microphone stays off until you hold the shortcut.'
           : status.summary}
       </p>
-      <p className="metadata">Model {status.model}</p>
+      <p className="metadata">
+        Model {status.model} · {primaryLanguageLabel(primaryLanguage)}
+      </p>
     </section>
   );
 }
@@ -443,6 +463,19 @@ export function App({
   );
   const [voiceProviderStatus, setVoiceProviderStatus] =
     useState<VoiceStatus>(EMPTY_VOICE_STATUS);
+  const [appPreferences, setAppPreferences] =
+    useState<AppPreferences | null>(null);
+  const [languageDraft, setLanguageDraft] =
+    useState<PrimaryLanguage>('en');
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+  const [preferencesLoadError, setPreferencesLoadError] = useState<
+    string | null
+  >(null);
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsSaveMessage, setSettingsSaveMessage] = useState<string | null>(
+    null,
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCheckingPermissions, setIsCheckingPermissions] = useState(true);
   const [isRequestingPermissions, setIsRequestingPermissions] =
@@ -560,6 +593,24 @@ export function App({
         );
       });
 
+    void window.tro
+      .getAppPreferences()
+      .then((preferences) => {
+        setAppPreferences(preferences);
+        if (preferences.primaryLanguage) {
+          setLanguageDraft(preferences.primaryLanguage);
+        }
+        setPreferencesLoadError(null);
+      })
+      .catch((preferencesError: unknown) => {
+        setPreferencesLoadError(
+          preferencesError instanceof Error
+            ? preferencesError.message
+            : 'TroCode could not load your language preference.',
+        );
+      })
+      .finally(() => setPreferencesLoaded(true));
+
     return () => {
       unsubscribe();
     };
@@ -630,6 +681,31 @@ export function App({
     permissionChecklist,
     computerStatus,
   );
+  const languageSetupComplete =
+    isPrimaryLanguageSetupComplete(appPreferences, preferencesLoaded);
+
+  const saveSettings = useCallback(async () => {
+    setIsSavingPreferences(true);
+    setSettingsError(null);
+    setSettingsSaveMessage(null);
+    try {
+      const preferences = await window.tro.updateAppPreferences({
+        primaryLanguage: languageDraft,
+      });
+      setAppPreferences(preferences);
+      setSettingsSaveMessage(
+        `${primaryLanguageLabel(languageDraft)} will be used for new voice turns.`,
+      );
+    } catch (saveError) {
+      setSettingsError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'TroCode could not save your language preference.',
+      );
+    } finally {
+      setIsSavingPreferences(false);
+    }
+  }, [languageDraft]);
 
   const sendInput = useCallback(
     async (requestText = input, source: 'typed' | 'voice' = 'typed') => {
@@ -781,7 +857,9 @@ export function App({
       isSubmitting ||
       pendingInteraction?.kind === 'approval',
     enabled:
-      permissionSetupComplete && voiceProviderStatus.state === 'ready',
+      permissionSetupComplete &&
+      languageSetupComplete &&
+      voiceProviderStatus.state === 'ready',
     onAttemptStart: clearError,
     onError: reportError,
     onTranscriptChange: setInput,
@@ -808,6 +886,23 @@ export function App({
     const errors: string[] = [];
 
     try {
+      try {
+        const preferences = await window.tro.updateAppPreferences({
+          primaryLanguage: languageDraft,
+        });
+        setAppPreferences(preferences);
+        setPreferencesLoadError(null);
+      } catch (saveError) {
+        setPermissionError(
+          saveError instanceof Error
+            ? saveError.message
+            : 'TroCode could not save your language preference.',
+        );
+        return;
+      }
+
+      if (permissionSetupComplete) return;
+
       if (!navigator.mediaDevices?.getUserMedia) {
         setMicrophonePermission('unavailable');
         errors.push('No microphone is available to TroCode.');
@@ -852,7 +947,7 @@ export function App({
     } finally {
       setIsRequestingPermissions(false);
     }
-  }, []);
+  }, [languageDraft, permissionSetupComplete]);
 
   const openScreenRecordingSettings = useCallback(async () => {
     setPermissionError(null);
@@ -897,19 +992,23 @@ export function App({
     }
   }, [clearError, recordSnapshot, reportError, snapshot]);
 
-  if (!permissionSetupComplete) {
+  if (!permissionSetupComplete || !languageSetupComplete) {
     return (
       <PermissionOnboarding
         checklist={permissionChecklist}
         computerStatus={computerStatus}
-        error={permissionError}
+        error={permissionError ?? preferencesLoadError}
         isChecking={isCheckingPermissions}
+        isLanguageLoading={!preferencesLoaded}
         isRequesting={isRequestingPermissions}
+        onLanguageChange={setLanguageDraft}
         onEnable={() => void enablePermissions()}
         onOpenScreenRecordingSettings={() =>
           void openScreenRecordingSettings()
         }
         onRefresh={() => void refreshPermissions()}
+        permissionsComplete={permissionSetupComplete}
+        primaryLanguage={languageDraft}
       />
     );
   }
@@ -962,6 +1061,17 @@ export function App({
             <NavigationIcon name="insights" />
             Insights
           </button>
+          <button
+            aria-current={activeView === 'settings' ? 'page' : undefined}
+            className={`nav-item ${
+              activeView === 'settings' ? 'nav-item--active' : ''
+            }`}
+            onClick={() => setActiveView('settings')}
+            type="button"
+          >
+            <NavigationIcon name="settings" />
+            Settings
+          </button>
         </nav>
 
         <nav aria-label="Observe">
@@ -1001,10 +1111,16 @@ export function App({
             <span className="topbar-kicker">
               {activeView === 'agent'
                 ? 'General-purpose agent'
-                : 'Private on-device summary'}
+                : activeView === 'insights'
+                  ? 'Private on-device summary'
+                  : 'Personal preferences'}
             </span>
             <strong>
-              {activeView === 'agent' ? taskPhase : 'Insights overview'}
+              {activeView === 'agent'
+                ? taskPhase
+                : activeView === 'insights'
+                  ? 'Insights overview'
+                  : 'Voice and language'}
             </strong>
           </div>
           <div className="topbar-actions">
@@ -1030,6 +1146,20 @@ export function App({
           <InsightsPage
             events={sessionEvents}
             tasks={Object.values(sessionSnapshots)}
+          />
+        ) : activeView === 'settings' ? (
+          <SettingsPage
+            error={settingsError}
+            hasChanges={appPreferences?.primaryLanguage !== languageDraft}
+            isSaving={isSavingPreferences}
+            onLanguageChange={(language) => {
+              setLanguageDraft(language);
+              setSettingsError(null);
+              setSettingsSaveMessage(null);
+            }}
+            onSave={() => void saveSettings()}
+            primaryLanguage={languageDraft}
+            saveMessage={settingsSaveMessage}
           />
         ) : (
         <div className="content-grid" id="task">
@@ -1148,6 +1278,9 @@ export function App({
           <aside className="context-column">
             <VoiceConnection
               inputStatus={voiceStatus}
+              primaryLanguage={
+                appPreferences?.primaryLanguage ?? languageDraft
+              }
               status={voiceProviderStatus}
             />
 

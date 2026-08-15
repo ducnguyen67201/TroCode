@@ -1,6 +1,7 @@
-import type { CuaStatus } from '../shared/contracts';
+import type { CuaStatus, PrimaryLanguage } from '../shared/contracts';
 
 import { BrandMark } from './BrandMark';
+import { PRIMARY_LANGUAGE_OPTIONS } from './language-options';
 import {
   permissionStateLabel,
   type PermissionChecklist,
@@ -12,10 +13,14 @@ interface PermissionOnboardingProps {
   computerStatus: CuaStatus;
   error: string | null;
   isChecking: boolean;
+  isLanguageLoading: boolean;
   isRequesting: boolean;
+  onLanguageChange(language: PrimaryLanguage): void;
   onEnable(): void;
   onOpenScreenRecordingSettings(): void;
   onRefresh(): void;
+  permissionsComplete: boolean;
+  primaryLanguage: PrimaryLanguage;
 }
 
 const PERMISSIONS: ReadonlyArray<{
@@ -55,10 +60,14 @@ export function PermissionOnboarding({
   computerStatus,
   error,
   isChecking,
+  isLanguageLoading,
   isRequesting,
+  onLanguageChange,
   onEnable,
   onOpenScreenRecordingSettings,
   onRefresh,
+  permissionsComplete,
+  primaryLanguage,
 }: PermissionOnboardingProps) {
   const hasBlockedPermission = Object.values(checklist).some(
     (state) => state === 'blocked',
@@ -80,13 +89,38 @@ export function PermissionOnboarding({
       >
         <div className="permission-onboarding__intro">
           <span className="permission-onboarding__step">One-time setup</span>
-          <p className="eyebrow">Permissions</p>
+          <p className="eyebrow">Language &amp; permissions</p>
           <h1 id="permission-heading">Enable TroCode to work for you</h1>
           <p>
-            TroCode needs these macOS permissions to hear your request, use the
-            computer, and confirm the result. You stay in control and can revoke
-            them in System Settings at any time.
+            Choose your spoken language, then give TroCode the macOS permissions
+            it needs to hear your request, use the computer, and confirm the
+            result. You stay in control and can revoke permissions in System
+            Settings at any time.
           </p>
+          <label
+            className="language-field permission-onboarding__language"
+            htmlFor="onboarding-primary-language"
+          >
+            <span>What language will you usually speak?</span>
+            <select
+              disabled={isLanguageLoading || isRequesting}
+              id="onboarding-primary-language"
+              onChange={(event) =>
+                onLanguageChange(event.target.value as PrimaryLanguage)
+              }
+              value={primaryLanguage}
+            >
+              {PRIMARY_LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <small>
+              TroCode uses this to keep voice transcription in the language you
+              expect. You can change it later in Settings.
+            </small>
+          </label>
         </div>
 
         <ul className="permission-list">
@@ -138,12 +172,14 @@ export function PermissionOnboarding({
         <div className="permission-onboarding__actions">
           <button
             className="primary-button"
-            disabled={isChecking || isRequesting}
+            disabled={isChecking || isLanguageLoading || isRequesting}
             onClick={onEnable}
             type="button"
           >
             {isRequesting
-              ? 'Waiting for macOS…'
+              ? 'Finishing setup…'
+              : permissionsComplete
+                ? 'Finish setup'
               : hasBlockedPermission
                 ? 'Open permission settings'
                 : 'Enable all permissions'}
@@ -151,7 +187,7 @@ export function PermissionOnboarding({
           </button>
           <button
             className="permission-refresh"
-            disabled={isChecking || isRequesting}
+            disabled={isChecking || isLanguageLoading || isRequesting}
             onClick={onRefresh}
             type="button"
           >
