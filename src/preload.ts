@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {
+  AuthStatusSchema,
   CancelTaskRequestSchema,
+  CompanionStateSchema,
   ConfigureVoiceRequestSchema,
   CuaStatusSchema,
   DecideApprovalRequestSchema,
@@ -14,9 +16,34 @@ import {
   VoiceSessionSchema,
   VoiceStatusSchema,
 } from './shared/contracts';
-import { IPC_CHANNELS, type DesktopApi } from './shared/desktop-api';
+import {
+  IPC_CHANNELS,
+  type CompanionApi,
+  type DesktopApi,
+} from './shared/desktop-api';
 
 const desktopApi: DesktopApi = {
+  async getAuthStatus() {
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.getAuthStatus,
+    );
+    return AuthStatusSchema.parse(response);
+  },
+
+  async signInWithGoogle() {
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.signInWithGoogle,
+    );
+    return AuthStatusSchema.parse(response);
+  },
+
+  async signOutGoogle() {
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.signOutGoogle,
+    );
+    return AuthStatusSchema.parse(response);
+  },
+
   async submitTask(input) {
     const request = SubmitTaskRequestSchema.parse(input);
     const response: unknown = await ipcRenderer.invoke(
@@ -108,6 +135,11 @@ const desktopApi: DesktopApi = {
     return VoiceSessionSchema.parse(response);
   },
 
+  async setCompanionState(input) {
+    const state = CompanionStateSchema.parse(input);
+    await ipcRenderer.invoke(IPC_CHANNELS.setCompanionState, state);
+  },
+
   onTaskUpdate(listener) {
     const eventHandler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
       listener(TaskUpdateSchema.parse(value));
@@ -119,4 +151,23 @@ const desktopApi: DesktopApi = {
   },
 };
 
+const companionApi: CompanionApi = {
+  onStateChange(listener) {
+    const eventHandler = (
+      _event: Electron.IpcRendererEvent,
+      value: unknown,
+    ): void => {
+      listener(CompanionStateSchema.parse(value));
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.companionStateChanged, eventHandler);
+    return () =>
+      ipcRenderer.removeListener(
+        IPC_CHANNELS.companionStateChanged,
+        eventHandler,
+      );
+  },
+};
+
 contextBridge.exposeInMainWorld('tro', desktopApi);
+contextBridge.exposeInMainWorld('troCompanion', companionApi);

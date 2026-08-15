@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
+  AuthUser,
   CuaStatus,
   GoalSpec,
   PendingInteraction,
@@ -9,6 +10,14 @@ import type {
   VoiceStatus,
 } from '../shared/contracts';
 
+import { getCompanionState } from './companion-state';
+import {
+  createPermissionChecklist,
+  inspectMicrophonePermission,
+  isPermissionSetupComplete,
+  type PermissionState,
+} from './permission-onboarding';
+import { PermissionOnboarding } from './PermissionOnboarding';
 import {
   pushToTalkShortcutName,
   type PushToTalkPlatform,
@@ -110,42 +119,6 @@ function VoiceShortcut({ platform }: { platform: PushToTalkPlatform }) {
       <span aria-hidden="true">+</span>
       <kbd>{keys[1]}</kbd>
     </span>
-  );
-}
-
-function ComputerStatus({
-  isConnecting,
-  onConnect,
-  status,
-}: {
-  isConnecting: boolean;
-  onConnect: () => void;
-  status: CuaStatus;
-}) {
-  const statusLabel = status.state === 'ready' ? 'Connected' : 'Not connected';
-
-  return (
-    <section className="computer-card" aria-labelledby="computer-heading">
-      <div className="section-heading-row">
-        <div>
-          <p className="eyebrow">Computer use</p>
-          <h2 id="computer-heading">CUA Driver</h2>
-        </div>
-        <span className={`status-dot status-dot--${status.state}`}>
-          {statusLabel}
-        </span>
-      </div>
-      <p>{status.summary}</p>
-      {status.version && <p className="metadata">Driver {status.version}</p>}
-      <button
-        className="secondary-button"
-        disabled={isConnecting || status.state === 'ready'}
-        onClick={onConnect}
-        type="button"
-      >
-        {isConnecting ? 'Connecting…' : 'Connect computer'}
-      </button>
-    </section>
   );
 }
 
@@ -370,7 +343,15 @@ function PendingInteractionCard({
   );
 }
 
-export function App() {
+export function App({
+  currentUser,
+  isSigningOut,
+  onSignOut,
+}: {
+  currentUser: AuthUser;
+  isSigningOut: boolean;
+  onSignOut: () => void;
+}) {
   const [input, setInput] = useState('');
   const [snapshot, setSnapshot] = useState<TaskSnapshot | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
@@ -380,14 +361,51 @@ export function App() {
   const [voiceProviderStatus, setVoiceProviderStatus] =
     useState<VoiceStatus>(EMPTY_VOICE_STATUS);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
+  const [isCheckingPermissions, setIsCheckingPermissions] = useState(true);
+  const [isRequestingPermissions, setIsRequestingPermissions] =
+    useState(false);
+  const [computerStatusLoaded, setComputerStatusLoaded] = useState(false);
+  const [microphonePermission, setMicrophonePermission] =
+    useState<PermissionState>('checking');
+  const [permissionError, setPermissionError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const activeTaskIdRef = useRef<string | null>(null);
   const isSendingRef = useRef(false);
+  const permissionRefreshIdRef = useRef(0);
   const spokenInteractionIdRef = useRef<string | null>(null);
 
+  const refreshPermissions = useCallback(async () => {
+    const refreshId = permissionRefreshIdRef.current + 1;
+    permissionRefreshIdRef.current = refreshId;
+    setIsCheckingPermissions(true);
+
+    try {
+      const [nextComputerStatus, nextMicrophonePermission] = await Promise.all([
+        window.tro.getComputerStatus(),
+        inspectMicrophonePermission(),
+      ]);
+      if (permissionRefreshIdRef.current !== refreshId) return;
+
+      setComputerStatus(nextComputerStatus);
+      setComputerStatusLoaded(true);
+      setMicrophonePermission(nextMicrophonePermission);
+      setPermissionError(null);
+    } catch (statusError) {
+      if (permissionRefreshIdRef.current !== refreshId) return;
+      setComputerStatusLoaded(true);
+      setPermissionError(
+        statusError instanceof Error
+          ? statusError.message
+          : 'TroCode could not check system permissions.',
+      );
+    } finally {
+      if (permissionRefreshIdRef.current === refreshId) {
+        setIsCheckingPermissions(false);
+      }
+    }
+  }, []);
+
   useEffect(() => {
-    let isMounted = true;
     const unsubscribe = window.tro.onTaskUpdate((update) => {
       const activeTaskId = activeTaskIdRef.current;
       if (activeTaskId && activeTaskId !== update.snapshot.taskId) return;
@@ -402,40 +420,41 @@ export function App() {
     });
 
     void window.tro
-      .getComputerStatus()
-      .then((status) => {
-        if (isMounted) setComputerStatus(status);
-      })
-      .catch((statusError: unknown) => {
-        if (isMounted) {
-          setError(
-            statusError instanceof Error
-              ? statusError.message
-              : 'Could not inspect the CUA runtime.',
-          );
-        }
-      });
-
-    void window.tro
       .getVoiceStatus()
       .then((status) => {
-        if (isMounted) setVoiceProviderStatus(status);
+        setVoiceProviderStatus(status);
       })
       .catch((statusError: unknown) => {
-        if (isMounted) {
-          setError(
-            statusError instanceof Error
-              ? statusError.message
-              : 'Could not inspect the OpenAI voice connection.',
-          );
-        }
+        setError(
+          statusError instanceof Error
+            ? statusError.message
+            : 'Could not inspect the OpenAI voice connection.',
+        );
       });
 
     return () => {
-      isMounted = false;
       unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    const handleWindowFocus = (): void => {
+      void refreshPermissions();
+    };
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState === 'visible') void refreshPermissions();
+    };
+
+    void refreshPermissions();
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      permissionRefreshIdRef.current += 1;
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshPermissions]);
 
   const pendingInteraction = snapshot?.pendingInteraction ?? null;
   const pendingClarification =
@@ -469,6 +488,19 @@ export function App() {
   const taskPhase = useMemo(
     () => (snapshot ? formatLabel(snapshot.phase) : 'No active task'),
     [snapshot],
+  );
+  const permissionChecklist = useMemo(
+    () =>
+      createPermissionChecklist(
+        computerStatus,
+        microphonePermission,
+        computerStatusLoaded,
+      ),
+    [computerStatus, computerStatusLoaded, microphonePermission],
+  );
+  const permissionSetupComplete = isPermissionSetupComplete(
+    permissionChecklist,
+    computerStatus,
   );
 
   const sendInput = useCallback(
@@ -603,27 +635,79 @@ export function App() {
   }, [snapshot]);
 
   const { platform: voicePlatform, status: voiceStatus } = usePushToTalk({
-    disabled: isSubmitting || pendingInteraction?.kind === 'approval',
-    enabled: voiceProviderStatus.state === 'ready',
+    disabled:
+      !permissionSetupComplete ||
+      isSubmitting ||
+      pendingInteraction?.kind === 'approval',
+    enabled:
+      permissionSetupComplete && voiceProviderStatus.state === 'ready',
     onError: setError,
     onTranscriptChange: setInput,
     onTranscriptSubmit: (transcript) => void sendInput(transcript),
   });
+  const companionState = getCompanionState({
+    hasError:
+      error !== null ||
+      snapshot?.phase === 'failed' ||
+      computerStatus.state === 'error' ||
+      voiceProviderStatus.state === 'error',
+    isSending: isSubmitting,
+    voiceStatus,
+  });
 
-  const connectComputer = useCallback(async () => {
-    setError(null);
-    setIsConnecting(true);
+  useEffect(() => {
+    void window.tro.setCompanionState(companionState);
+  }, [companionState]);
+
+  const enablePermissions = useCallback(async () => {
+    setPermissionError(null);
+    setIsRequestingPermissions(true);
+    const errors: string[] = [];
 
     try {
-      setComputerStatus(await window.tro.connectComputer());
-    } catch (connectError) {
-      setError(
-        connectError instanceof Error
-          ? connectError.message
-          : 'The CUA runtime could not be connected.',
-      );
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setMicrophonePermission('unavailable');
+        errors.push('No microphone is available to TroCode.');
+      } else {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              autoGainControl: true,
+              echoCancellation: true,
+              noiseSuppression: true,
+            },
+          });
+          for (const track of stream.getTracks()) track.stop();
+          setMicrophonePermission('granted');
+        } catch (microphoneError) {
+          const microphoneUnavailable =
+            microphoneError instanceof DOMException &&
+            microphoneError.name === 'NotFoundError';
+          setMicrophonePermission(
+            microphoneUnavailable ? 'unavailable' : 'blocked',
+          );
+          errors.push(
+            microphoneUnavailable
+              ? 'No microphone was found.'
+              : 'Enable Microphone for TroCode in System Settings → Privacy & Security.',
+          );
+        }
+      }
+
+      try {
+        setComputerStatus(await window.tro.connectComputer());
+        setComputerStatusLoaded(true);
+      } catch (connectError) {
+        errors.push(
+          connectError instanceof Error
+            ? connectError.message
+            : 'The computer-use permission request could not be opened.',
+        );
+      }
+
+      setPermissionError(errors.length > 0 ? errors.join(' ') : null);
     } finally {
-      setIsConnecting(false);
+      setIsRequestingPermissions(false);
     }
   }, []);
 
@@ -652,6 +736,20 @@ export function App() {
       setIsSubmitting(false);
     }
   }, [snapshot]);
+
+  if (!permissionSetupComplete) {
+    return (
+      <PermissionOnboarding
+        checklist={permissionChecklist}
+        computerStatus={computerStatus}
+        error={permissionError}
+        isChecking={isCheckingPermissions}
+        isRequesting={isRequestingPermissions}
+        onEnable={() => void enablePermissions()}
+        onRefresh={() => void refreshPermissions()}
+      />
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -686,10 +784,6 @@ export function App() {
             <span aria-hidden="true">↗</span>
             Activity
           </a>
-          <a className="nav-item" href="#computer-heading">
-            <span aria-hidden="true">▣</span>
-            Computer
-          </a>
         </nav>
 
         <div className="sidebar-footer">
@@ -703,11 +797,27 @@ export function App() {
 
       <main className="workspace" id="task">
         <header className="topbar">
-          <div>
+          <div className="topbar-title">
             <span className="topbar-kicker">General-purpose agent</span>
             <strong>{taskPhase}</strong>
           </div>
-          <span className="prototype-pill">Foundation · v0.1</span>
+          <div className="topbar-actions">
+            <span className="prototype-pill">Foundation · v0.1</span>
+            <span className="account-chip" title={currentUser.email}>
+              <span className="account-avatar" aria-hidden="true">
+                {currentUser.name.slice(0, 1).toUpperCase()}
+              </span>
+              <span>{currentUser.name}</span>
+            </span>
+            <button
+              className="sign-out-button"
+              disabled={isSigningOut}
+              onClick={onSignOut}
+              type="button"
+            >
+              {isSigningOut ? 'Signing out…' : 'Sign out'}
+            </button>
+          </div>
         </header>
 
         <div className="content-grid">
@@ -825,12 +935,6 @@ export function App() {
 
           <aside className="context-column">
             <VoiceConnection status={voiceProviderStatus} />
-
-            <ComputerStatus
-              isConnecting={isConnecting}
-              onConnect={() => void connectComputer()}
-              status={computerStatus}
-            />
 
             <section className="activity-card" id="activity" aria-labelledby="activity-heading">
               <div className="section-heading-row">

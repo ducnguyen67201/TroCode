@@ -21,7 +21,7 @@ export function placeCompanionNearCursor(
   cursor: Point,
   displayBounds: Rectangle,
   companionSize: Size,
-  gap = 16,
+  gap = 8,
 ): Point {
   const displayRight = displayBounds.x + displayBounds.width;
   const displayBottom = displayBounds.y + displayBounds.height;

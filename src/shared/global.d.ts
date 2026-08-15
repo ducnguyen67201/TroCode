@@ -1,4 +1,4 @@
-import type { DesktopApi } from './desktop-api';
+import type { CompanionApi, DesktopApi } from './desktop-api';
 
 declare global {
   interface BrowserSpeechRecognition extends EventTarget {
@@ -21,6 +21,7 @@ declare global {
   interface Window {
     SpeechRecognition?: BrowserSpeechRecognitionConstructor;
     tro: DesktopApi;
+    troCompanion: CompanionApi;
     webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
   }
 }

@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import './index.css';
-import { App } from './renderer/App';
+import { AuthGate } from './renderer/AuthGate';
 import { CursorCompanion } from './renderer/CursorCompanion';
 
 const rootElement = document.getElementById('root');
@@ -15,6 +15,6 @@ if (isCompanionWindow) document.documentElement.classList.add('companion-mode');
 
 createRoot(rootElement).render(
   <StrictMode>
-    {isCompanionWindow ? <CursorCompanion /> : <App />}
+    {isCompanionWindow ? <CursorCompanion /> : <AuthGate />}
   </StrictMode>,
 );

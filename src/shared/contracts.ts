@@ -337,6 +337,13 @@ export const VoiceStatusSchema = z.object({
   summary: z.string().min(1),
 });
 
+export const CompanionStateSchema = z.enum([
+  'idle',
+  'listening',
+  'sending',
+  'error',
+]);
+
 export const ConfigureVoiceRequestSchema = z.object({
   apiKey: z
     .string()
@@ -354,8 +361,24 @@ export const VoiceSessionSchema = z.object({
   model: z.literal('gpt-realtime-whisper'),
 });
 
+export const AuthUserSchema = z.object({
+  id: z.string().min(1).max(255),
+  email: z.string().email().max(320),
+  name: z.string().min(1).max(255),
+});
+
+export const AuthStatusSchema = z.object({
+  state: z.enum(['signed_out', 'signed_in', 'error']),
+  configured: z.boolean(),
+  user: AuthUserSchema.nullable(),
+  summary: z.string().min(1).max(1_000),
+});
+
 export type Capability = z.infer<typeof CapabilitySchema>;
 export type ActionApprovalGrant = z.infer<typeof ActionApprovalGrantSchema>;
+export type AuthStatus = z.infer<typeof AuthStatusSchema>;
+export type AuthUser = z.infer<typeof AuthUserSchema>;
+export type CompanionState = z.infer<typeof CompanionStateSchema>;
 export type ConfigureVoiceRequest = z.infer<
   typeof ConfigureVoiceRequestSchema
 >;

@@ -27,6 +27,12 @@ export const mainConfig: Configuration = {
   plugins: [
     ...plugins,
     new DefinePlugin({
+      'process.env.GOOGLE_OAUTH_CLIENT_ID': JSON.stringify(
+        process.env.GOOGLE_OAUTH_CLIENT_ID ?? '',
+      ),
+      'process.env.GOOGLE_OAUTH_CLIENT_SECRET': JSON.stringify(
+        process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? '',
+      ),
       'process.env.POSTHOG_ENVIRONMENT': JSON.stringify(
         process.env.POSTHOG_ENVIRONMENT ?? '',
       ),
