@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { VoiceDiagnostic } from '../shared/contracts';
+import type {
+  VoiceDiagnostic,
+  VoiceShortcutEvent,
+} from '../shared/contracts';
 
 import {
   detectPushToTalkPlatform,
@@ -61,6 +64,12 @@ interface PushToTalkAttemptReadiness {
   platform: PushToTalkPlatform;
 }
 
+interface VoiceShortcutEventHandlers {
+  beginListening(): unknown;
+  finishListening(): void;
+  isListening: boolean;
+}
+
 export function beginPushToTalkAttemptIfValid(
   {
     disabled,
@@ -83,6 +92,18 @@ export function beginPushToTalkAttemptIfValid(
 
   onAttemptStart();
   return true;
+}
+
+export function handleVoiceShortcutEvent(
+  event: VoiceShortcutEvent,
+  { beginListening, finishListening, isListening }: VoiceShortcutEventHandlers,
+): void {
+  if (event.action === 'pressed') {
+    if (!isListening) beginListening();
+    return;
+  }
+
+  if (event.action === 'released' && isListening) finishListening();
 }
 
 function getPushToTalkPlatform(): PushToTalkPlatform {
@@ -433,6 +454,21 @@ export function usePushToTalk({
     enabledRef.current = enabled;
     if (!enabled) cancel();
   }, [cancel, enabled, platform]);
+
+  useEffect(
+    () => {
+      const unsubscribe = window.tro.onVoiceShortcut((event) => {
+        handleVoiceShortcutEvent(event, {
+          beginListening: () => void beginListening(),
+          finishListening,
+          isListening: chordHeldRef.current,
+        });
+      });
+
+      return unsubscribe;
+    },
+    [beginListening, finishListening],
+  );
 
   useEffect(() => {
     const pressedCodes = pressedCodesRef.current;

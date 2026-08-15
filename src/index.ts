@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen, shell } from 'electron';
+import { app, BrowserWindow, globalShortcut, screen, shell } from 'electron';
 import path from 'node:path';
 
 import { TaskExecutionCoordinator } from './main/agent/execution-coordinator';
@@ -22,6 +22,7 @@ import { registerIpcHandlers } from './main/ipc/register-ipc';
 import { registerScreenRecordingHost } from './main/screen-recording-registration';
 import { initializeSingleInstance } from './main/single-instance';
 import { systemPermissionSettingsUrl } from './main/system-permission-settings';
+import { registerGlobalVoiceShortcut } from './main/voice/global-voice-shortcut';
 import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-store';
 import { VoiceService } from './main/voice/voice-service';
 import {
@@ -103,6 +104,7 @@ let companionFollowTimer: ReturnType<typeof setInterval> | null = null;
 let lastCompanionPosition: Point | null = null;
 let forcedExitTimer: ReturnType<typeof setTimeout> | null = null;
 let unregisterIpcHandlers: (() => void) | null = null;
+let unregisterGlobalVoiceShortcut: (() => void) | null = null;
 let isShuttingDown = false;
 
 function stopCompanionFollowing(): void {
@@ -173,6 +175,8 @@ function beginShutdown(exitCode = 0): void {
   if (isShuttingDown) return;
   isShuttingDown = true;
   stopCompanionFollowing();
+  unregisterGlobalVoiceShortcut?.();
+  unregisterGlobalVoiceShortcut = null;
   oauthBrowserFlow.shutdown();
   unregisterIpcHandlers?.();
   unregisterIpcHandlers = null;
@@ -266,6 +270,16 @@ function revealWindow(window: BrowserWindow): void {
   window.show();
   window.moveTop();
   window.focus();
+}
+
+function ensureGlobalVoiceShortcut(): void {
+  if (unregisterGlobalVoiceShortcut) return;
+
+  unregisterGlobalVoiceShortcut = registerGlobalVoiceShortcut({
+    getTarget: () => mainWindow,
+    platform: process.platform,
+    registry: globalShortcut,
+  });
 }
 
 const createWindow = (): void => {
@@ -487,6 +501,7 @@ if (hasSingleInstanceLock) {
     if (authStatus.user) await identifyAnalyticsUser(authStatus.user);
     createWindow();
     createCompanionWindow();
+    ensureGlobalVoiceShortcut();
   });
 
   app.on('window-all-closed', () => {

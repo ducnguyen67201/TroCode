@@ -393,6 +393,11 @@ export const VoiceDiagnosticSchema = z.object({
   ]),
 });
 
+export const VoiceShortcutEventSchema = z.object({
+  action: z.enum(['pressed', 'released']),
+  source: z.literal('global'),
+});
+
 export const AuthUserSchema = z.object({
   id: z.string().min(1).max(255),
   email: z.string().email().max(320),
@@ -449,4 +454,5 @@ export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>;
 export type TaskUpdate = z.infer<typeof TaskUpdateSchema>;
 export type VoiceCallAnswer = z.infer<typeof VoiceCallAnswerSchema>;
 export type VoiceDiagnostic = z.infer<typeof VoiceDiagnosticSchema>;
+export type VoiceShortcutEvent = z.infer<typeof VoiceShortcutEventSchema>;
 export type VoiceStatus = z.infer<typeof VoiceStatusSchema>;

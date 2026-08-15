@@ -30,6 +30,7 @@ import {
 } from './permission-onboarding';
 import { PermissionOnboarding } from './PermissionOnboarding';
 import {
+  globalPushToTalkShortcutName,
   pushToTalkShortcutName,
   type PushToTalkPlatform,
 } from './push-to-talk';
@@ -137,8 +138,13 @@ function voiceStatusMessage(
       return 'Waiting for microphone access…';
     case 'unavailable':
       return 'Voice recognition is unavailable. Type your request instead.';
-    case 'idle':
+    case 'idle': {
+      const globalShortcut = globalPushToTalkShortcutName(platform);
+      if (globalShortcut) {
+        return `Voice ready. Hold ${pushToTalkShortcutName(platform)} to talk, or hold ${globalShortcut} globally.`;
+      }
       return `Voice ready. Hold ${pushToTalkShortcutName(platform)} to talk.`;
+    }
   }
 }
 

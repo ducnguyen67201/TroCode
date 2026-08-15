@@ -19,6 +19,7 @@ import {
   TaskUpdateSchema,
   VoiceCallAnswerSchema,
   VoiceDiagnosticSchema,
+  VoiceShortcutEventSchema,
   VoiceStatusSchema,
 } from './shared/contracts';
 import {
@@ -173,6 +174,19 @@ const desktopApi: DesktopApi = {
     ipcRenderer.on(IPC_CHANNELS.taskUpdate, eventHandler);
     return () =>
       ipcRenderer.removeListener(IPC_CHANNELS.taskUpdate, eventHandler);
+  },
+
+  onVoiceShortcut(listener) {
+    const eventHandler = (
+      _event: Electron.IpcRendererEvent,
+      value: unknown,
+    ): void => {
+      listener(VoiceShortcutEventSchema.parse(value));
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.voiceShortcut, eventHandler);
+    return () =>
+      ipcRenderer.removeListener(IPC_CHANNELS.voiceShortcut, eventHandler);
   },
 };
 

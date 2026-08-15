@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   beginPushToTalkAttemptIfValid,
+  handleVoiceShortcutEvent,
   logVoiceConnectionFailure,
   voiceConnectionErrorMessage,
 } from './use-push-to-talk';
@@ -69,5 +70,75 @@ describe('voice connection diagnostics', () => {
         step: 'realtime_call',
       },
     );
+  });
+});
+
+describe('global voice shortcut events', () => {
+  it('starts listening when the global press arrives while inactive', () => {
+    const beginListening = vi.fn();
+    const finishListening = vi.fn();
+
+    handleVoiceShortcutEvent(
+      { action: 'pressed', source: 'global' },
+      {
+        beginListening,
+        finishListening,
+        isListening: false,
+      },
+    );
+
+    expect(beginListening).toHaveBeenCalledOnce();
+    expect(finishListening).not.toHaveBeenCalled();
+  });
+
+  it('ignores a repeated global press while already listening', () => {
+    const beginListening = vi.fn();
+    const finishListening = vi.fn();
+
+    handleVoiceShortcutEvent(
+      { action: 'pressed', source: 'global' },
+      {
+        beginListening,
+        finishListening,
+        isListening: true,
+      },
+    );
+
+    expect(beginListening).not.toHaveBeenCalled();
+    expect(finishListening).not.toHaveBeenCalled();
+  });
+
+  it('finishes listening when the global release arrives while active', () => {
+    const beginListening = vi.fn();
+    const finishListening = vi.fn();
+
+    handleVoiceShortcutEvent(
+      { action: 'released', source: 'global' },
+      {
+        beginListening,
+        finishListening,
+        isListening: true,
+      },
+    );
+
+    expect(finishListening).toHaveBeenCalledOnce();
+    expect(beginListening).not.toHaveBeenCalled();
+  });
+
+  it('ignores global release while inactive', () => {
+    const beginListening = vi.fn();
+    const finishListening = vi.fn();
+
+    handleVoiceShortcutEvent(
+      { action: 'released', source: 'global' },
+      {
+        beginListening,
+        finishListening,
+        isListening: false,
+      },
+    );
+
+    expect(beginListening).not.toHaveBeenCalled();
+    expect(finishListening).not.toHaveBeenCalled();
   });
 });

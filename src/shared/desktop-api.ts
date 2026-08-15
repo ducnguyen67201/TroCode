@@ -15,6 +15,7 @@ import type {
   TaskUpdate,
   VoiceCallAnswer,
   VoiceDiagnostic,
+  VoiceShortcutEvent,
   VoiceStatus,
 } from './contracts';
 
@@ -40,6 +41,7 @@ export const IPC_CHANNELS = {
   steerTask: 'task:steer',
   submitTask: 'task:submit',
   taskUpdate: 'task:update',
+  voiceShortcut: 'voice:shortcut',
 } as const;
 
 export interface DesktopApi {
@@ -52,6 +54,7 @@ export interface DesktopApi {
   getAuthStatus(): Promise<AuthStatus>;
   getVoiceStatus(): Promise<VoiceStatus>;
   onTaskUpdate(listener: (update: TaskUpdate) => void): () => void;
+  onVoiceShortcut(listener: (event: VoiceShortcutEvent) => void): () => void;
   openSystemPermissionSettings(permission: SystemPermission): Promise<void>;
   recordVoiceTranscript(request: RecordVoiceTranscriptRequest): Promise<void>;
   reportVoiceDiagnostic(diagnostic: VoiceDiagnostic): Promise<void>;

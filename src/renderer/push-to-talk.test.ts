@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   detectPushToTalkPlatform,
+  globalPushToTalkShortcutName,
   isPushToTalkChord,
   parseRealtimeTranscriptionEvent,
   pushToTalkShortcutName,
@@ -36,6 +37,10 @@ describe('push-to-talk helpers', () => {
       isPushToTalkChord('windows', new Set(['AltLeft', 'ControlRight'])),
     ).toBe(false);
     expect(pushToTalkShortcutName('windows')).toBe('left Alt + left Control');
+    expect(globalPushToTalkShortcutName('windows')).toBe(
+      'Ctrl + Alt + Space',
+    );
+    expect(globalPushToTalkShortcutName('macos')).toBeNull();
   });
 
   it('combines final and interim speech results', () => {

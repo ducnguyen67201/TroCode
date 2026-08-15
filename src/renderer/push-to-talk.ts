@@ -102,6 +102,13 @@ export function pushToTalkShortcutName(platform: PushToTalkPlatform): string {
   return 'Command + Control';
 }
 
+export function globalPushToTalkShortcutName(
+  platform: PushToTalkPlatform,
+): string | null {
+  if (platform === 'windows') return 'Ctrl + Alt + Space';
+  return null;
+}
+
 export function readRecognitionTranscript(
   results: RecognitionResultListLike,
 ): RecognitionTranscript {
