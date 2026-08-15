@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   detectPushToTalkPlatform,
   isPushToTalkChord,
+  parseRealtimeTranscriptionEvent,
   pushToTalkShortcutName,
   readRecognitionTranscript,
   speechRecognitionErrorMessage,
@@ -59,5 +60,34 @@ describe('push-to-talk helpers', () => {
       'left Alt + left Control',
     );
     expect(speechRecognitionErrorMessage('aborted')).toBeNull();
+  });
+});
+
+describe('parseRealtimeTranscriptionEvent', () => {
+  it('parses transcript deltas and completed turns', () => {
+    expect(
+      parseRealtimeTranscriptionEvent(
+        JSON.stringify({
+          type: 'conversation.item.input_audio_transcription.delta',
+          delta: 'open YouTube',
+        }),
+      ),
+    ).toEqual({ type: 'delta', delta: 'open YouTube' });
+
+    expect(
+      parseRealtimeTranscriptionEvent(
+        JSON.stringify({
+          type: 'conversation.item.input_audio_transcription.completed',
+          transcript: ' open YouTube for me ',
+        }),
+      ),
+    ).toEqual({ type: 'completed', transcript: 'open YouTube for me' });
+  });
+
+  it('ignores malformed and unrelated events', () => {
+    expect(parseRealtimeTranscriptionEvent('not-json')).toBeNull();
+    expect(
+      parseRealtimeTranscriptionEvent(JSON.stringify({ type: 'session.created' })),
+    ).toBeNull();
   });
 });

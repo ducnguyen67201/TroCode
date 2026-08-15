@@ -54,6 +54,8 @@ export const ProposedActionSchema = z.object({
       'open_url',
       'click_element',
       'type_text',
+      'press_key',
+      'scroll',
       'read_file',
     ]),
   ),
@@ -61,7 +63,16 @@ export const ProposedActionSchema = z.object({
   description: z.string().min(1),
   target: z.string().optional(),
   parameters: z
-    .record(z.string(), z.union([z.string(), z.array(z.string())]))
+    .record(
+      z.string().min(1).max(100),
+      z.union([
+        z.string().max(100_000),
+        z.array(z.string().max(8_000)).max(100),
+      ]),
+    )
+    .refine((parameters) => Object.keys(parameters).length <= 64, {
+      message: 'An action cannot contain more than 64 parameters.',
+    })
     .optional(),
 });
 
@@ -155,6 +166,14 @@ export const PendingInteractionSchema = z.discriminatedUnion('kind', [
   ApprovalInteractionSchema,
 ]);
 
+export const ActionApprovalGrantSchema = z.object({
+  interactionId: z.string().uuid(),
+  actionDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  action: ProposedActionSchema,
+  approvedAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+});
+
 export const TaskMessageSchema = z.object({
   messageId: z.string().uuid(),
   taskId: z.string().uuid(),
@@ -177,18 +196,57 @@ export const TaskProgressSchema = z.object({
   maxSteps: z.number().int().positive().max(200),
 });
 
-export const TaskSnapshotSchema = z.object({
-  taskId: z.string().uuid(),
-  request: z.string().min(2),
-  phase: TaskPhaseSchema,
-  goal: GoalSpecSchema.nullable(),
-  messages: z.array(TaskMessageSchema).max(200),
-  pendingInteraction: PendingInteractionSchema.nullable(),
-  progress: TaskProgressSchema.nullable(),
+export const SteeringInstructionSchema = z.object({
+  id: z.string().uuid(),
+  instruction: z.string().min(1).max(8_000),
   createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-  lastEvent: TaskEventSchema.nullable(),
+  requiresGoalReview: z.literal(true),
 });
+
+export const TaskSnapshotSchema = z
+  .object({
+    taskId: z.string().uuid(),
+    request: z.string().min(2).max(8_000),
+    phase: TaskPhaseSchema,
+    goal: GoalSpecSchema.nullable(),
+    messages: z.array(TaskMessageSchema).max(200),
+    pendingInteraction: PendingInteractionSchema.nullable(),
+    approvalGrant: ActionApprovalGrantSchema.nullable(),
+    progress: TaskProgressSchema.nullable(),
+    queuedSteering: z.array(SteeringInstructionSchema).max(50),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+    lastEvent: TaskEventSchema.nullable(),
+  })
+  .superRefine((snapshot, context) => {
+    const mismatchedMessage = snapshot.messages.some(
+      (message) => message.taskId !== snapshot.taskId,
+    );
+    if (mismatchedMessage) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Task messages must belong to the snapshot task.',
+        path: ['messages'],
+      });
+    }
+    if (
+      snapshot.pendingInteraction &&
+      snapshot.pendingInteraction.taskId !== snapshot.taskId
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'The pending interaction must belong to the snapshot task.',
+        path: ['pendingInteraction', 'taskId'],
+      });
+    }
+    if (snapshot.lastEvent && snapshot.lastEvent.taskId !== snapshot.taskId) {
+      context.addIssue({
+        code: 'custom',
+        message: 'The latest event must belong to the snapshot task.',
+        path: ['lastEvent', 'taskId'],
+      });
+    }
+  });
 
 export const SubmitTaskRequestSchema = z.object({
   text: z.string().trim().min(2).max(8_000),
@@ -230,15 +288,32 @@ export const RequestApprovalSchema = z.object({
   action: ProposedActionSchema,
 });
 
+export const ConsumeApprovalGrantRequestSchema = z.object({
+  taskId: z.string().uuid(),
+  action: ProposedActionSchema,
+});
+
 export const SteerTaskRequestSchema = z.object({
   taskId: z.string().uuid(),
   instruction: z.string().trim().min(1).max(8_000),
 });
 
-export const TaskUpdateSchema = z.object({
-  event: TaskEventSchema,
-  snapshot: TaskSnapshotSchema,
-});
+export const TaskUpdateSchema = z
+  .object({
+    event: TaskEventSchema,
+    snapshot: TaskSnapshotSchema,
+  })
+  .superRefine((update, context) => {
+    if (
+      update.event.taskId !== update.snapshot.taskId ||
+      update.event.eventId !== update.snapshot.lastEvent?.eventId
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Task update event and snapshot do not match.',
+      });
+    }
+  });
 
 export const CuaStatusSchema = z.object({
   state: z.enum(['disconnected', 'permission_required', 'ready', 'error']),
@@ -255,8 +330,39 @@ export const CuaStatusSchema = z.object({
   nextActions: z.array(z.string()),
 });
 
+export const VoiceStatusSchema = z.object({
+  state: z.enum(['not_configured', 'ready', 'unavailable', 'error']),
+  provider: z.literal('openai'),
+  model: z.literal('gpt-realtime-whisper'),
+  summary: z.string().min(1),
+});
+
+export const ConfigureVoiceRequestSchema = z.object({
+  apiKey: z
+    .string()
+    .trim()
+    .min(20)
+    .max(500)
+    .refine((value) => value.startsWith('sk-'), {
+      message: 'Enter a valid OpenAI API key.',
+    }),
+});
+
+export const VoiceSessionSchema = z.object({
+  clientSecret: z.string().min(1).max(2_048),
+  expiresAt: z.number().int().positive(),
+  model: z.literal('gpt-realtime-whisper'),
+});
+
 export type Capability = z.infer<typeof CapabilitySchema>;
+export type ActionApprovalGrant = z.infer<typeof ActionApprovalGrantSchema>;
+export type ConfigureVoiceRequest = z.infer<
+  typeof ConfigureVoiceRequestSchema
+>;
 export type CuaStatus = z.infer<typeof CuaStatusSchema>;
+export type ConsumeApprovalGrantRequest = z.infer<
+  typeof ConsumeApprovalGrantRequestSchema
+>;
 export type DecideApprovalRequest = z.infer<
   typeof DecideApprovalRequestSchema
 >;
@@ -270,6 +376,7 @@ export type RespondToInteractionRequest = z.infer<
 >;
 export type SensitiveAction = z.infer<typeof SensitiveActionSchema>;
 export type StartTaskRequest = z.infer<typeof StartTaskRequestSchema>;
+export type SteeringInstruction = z.infer<typeof SteeringInstructionSchema>;
 export type SteerTaskRequest = z.infer<typeof SteerTaskRequestSchema>;
 export type SubmitTaskRequest = z.infer<typeof SubmitTaskRequestSchema>;
 export type TaskEvent = z.infer<typeof TaskEventSchema>;
@@ -277,3 +384,5 @@ export type TaskMessage = z.infer<typeof TaskMessageSchema>;
 export type TaskPhase = z.infer<typeof TaskPhaseSchema>;
 export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>;
 export type TaskUpdate = z.infer<typeof TaskUpdateSchema>;
+export type VoiceSession = z.infer<typeof VoiceSessionSchema>;
+export type VoiceStatus = z.infer<typeof VoiceStatusSchema>;

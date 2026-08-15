@@ -6,7 +6,8 @@
   "main": ".webpack/main",
   "private": true,
   "scripts": {
-    "start": "electron-forge start",
+    "start": "doppler run --project tro-app --config dev -- npm exec -- electron-forge start",
+    "start:local": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
@@ -41,11 +42,13 @@
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.67.0",
     "@typescript-eslint/parser": "^8.67.0",
     "@vercel/webpack-asset-relocator-loader": "^1.7.3",
     "@vitest/coverage-v8": "^4.1.10",
     "css-loader": "^6.11.0",
+    "dotenv": "^17.4.2",
     "electron": "43.4.0",
     "eslint": "^8.57.1",
     "eslint-import-resolver-typescript": "^4.4.5",
@@ -62,8 +65,10 @@
   "dependencies": {
     "@trycua/cua-driver": "^0.19.3",
     "electron-squirrel-startup": "^1.0.1",
+    "posthog-node": "^5.49.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "ws": "^8.21.3",
     "zod": "^4.4.3"
   }
 }

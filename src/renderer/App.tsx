@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   CuaStatus,
   GoalSpec,
+  PendingInteraction,
   TaskEvent,
   TaskSnapshot,
+  VoiceStatus,
 } from '../shared/contracts';
 
 import {
@@ -31,6 +33,23 @@ const EMPTY_COMPUTER_STATUS: CuaStatus = {
   nextActions: [],
 };
 
+const EMPTY_VOICE_STATUS: VoiceStatus = {
+  state: 'not_configured',
+  provider: 'openai',
+  model: 'gpt-realtime-whisper',
+  summary: 'Checking the OpenAI voice connection…',
+};
+
+const TERMINAL_PHASES = new Set(['completed', 'failed', 'cancelled']);
+const STEERABLE_PHASES = new Set([
+  'planning',
+  'observing',
+  'acting',
+  'verifying',
+  'paused',
+  'blocked',
+]);
+
 function formatLabel(value: string): string {
   return value.replaceAll('_', ' ');
 }
@@ -40,6 +59,8 @@ function voiceStatusMessage(
   platform: PushToTalkPlatform,
 ): string {
   switch (status) {
+    case 'connecting':
+      return 'Connecting to OpenAI voice…';
     case 'listening':
       return 'Listening… Release either key to send.';
     case 'processing':
@@ -51,6 +72,28 @@ function voiceStatusMessage(
     case 'idle':
       return `Hold ${pushToTalkShortcutName(platform)} to talk.`;
   }
+}
+
+function VoiceConnection({ status }: { status: VoiceStatus }) {
+  const connected = status.state === 'ready';
+
+  return (
+    <section className="computer-card" aria-labelledby="voice-heading">
+      <div className="section-heading-row">
+        <div>
+          <p className="eyebrow">Voice input</p>
+          <h2 id="voice-heading">OpenAI Realtime</h2>
+        </div>
+        <span
+          className={`status-dot status-dot--${connected ? 'ready' : 'disconnected'}`}
+        >
+          {connected ? 'Connected' : 'Not connected'}
+        </span>
+      </div>
+      <p>{status.summary}</p>
+      <p className="metadata">Model {status.model}</p>
+    </section>
+  );
 }
 
 function VoiceShortcut({ platform }: { platform: PushToTalkPlatform }) {
@@ -106,7 +149,19 @@ function ComputerStatus({
   );
 }
 
-function GoalPreview({ goal }: { goal: GoalSpec }) {
+function GoalPreview({
+  canStart,
+  goal,
+  isStarting,
+  onStart,
+  phase,
+}: {
+  canStart: boolean;
+  goal: GoalSpec;
+  isStarting: boolean;
+  onStart: () => void;
+  phase: TaskSnapshot['phase'];
+}) {
   return (
     <section className="goal-card" aria-labelledby="goal-heading">
       <div className="goal-title-row">
@@ -151,6 +206,24 @@ function GoalPreview({ goal }: { goal: GoalSpec }) {
           capability or resource scope.
         </p>
       </div>
+
+      {phase === 'ready' && (
+        <div className="goal-start">
+          <p>
+            {canStart
+              ? 'OpenAI and CUA are ready. Starting will begin the observe → act → verify loop.'
+              : 'Connect OpenAI Realtime and the CUA Driver before starting.'}
+          </p>
+          <button
+            className="primary-button"
+            disabled={!canStart || isStarting}
+            onClick={onStart}
+            type="button"
+          >
+            {isStarting ? 'Starting…' : 'Start task'}
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -175,6 +248,128 @@ function ActivityList({ events }: { events: TaskEvent[] }) {
   );
 }
 
+function Conversation({ snapshot }: { snapshot: TaskSnapshot }) {
+  return (
+    <section className="conversation-card" aria-labelledby="conversation-heading">
+      <div className="section-heading-row">
+        <div>
+          <p className="eyebrow">Same task</p>
+          <h2 id="conversation-heading">Conversation</h2>
+        </div>
+        <span className="event-count">{snapshot.messages.length}</span>
+      </div>
+      <ol aria-live="polite" className="message-list">
+        {snapshot.messages.map((message) => (
+          <li
+            className={`message message--${message.role}`}
+            key={message.messageId}
+          >
+            <span>{message.role === 'user' ? 'You' : 'TroCode'}</span>
+            <p>{message.text}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function PendingInteractionCard({
+  interaction,
+  isSending,
+  onAnswerChoice,
+  onApproval,
+}: {
+  interaction: PendingInteraction;
+  isSending: boolean;
+  onAnswerChoice: (answer: string) => void;
+  onApproval: (decision: 'approve' | 'deny') => void;
+}) {
+  if (interaction.kind === 'clarification') {
+    return (
+      <section
+        aria-live="polite"
+        aria-labelledby="interaction-heading"
+        className="interaction-card interaction-card--clarification"
+      >
+        <p className="eyebrow">TroCode needs your input</p>
+        <h2 id="interaction-heading">{interaction.prompt}</h2>
+        {interaction.choices && (
+          <div className="interaction-choices">
+            {interaction.choices.map((choice) => (
+              <button
+                disabled={isSending}
+                key={choice.id}
+                onClick={() => onAnswerChoice(choice.label)}
+                type="button"
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <p>Answer below by voice or text. Your response will continue this task.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      aria-live="assertive"
+      aria-labelledby="interaction-heading"
+      className="interaction-card interaction-card--approval"
+    >
+      <p className="eyebrow">Exact approval required</p>
+      <h2 id="interaction-heading">{interaction.prompt}</h2>
+      <p>{interaction.consequence}</p>
+      <dl className="approval-details">
+        <div>
+          <dt>Action</dt>
+          <dd>{formatLabel(interaction.action.action)}</dd>
+        </div>
+        <div>
+          <dt>Description</dt>
+          <dd>{interaction.action.description}</dd>
+        </div>
+        {interaction.action.target && (
+          <div>
+            <dt>Target</dt>
+            <dd>{interaction.action.target}</dd>
+          </div>
+        )}
+        {Object.entries(interaction.action.parameters ?? {}).map(
+          ([key, value]) => (
+            <div key={key}>
+              <dt>{formatLabel(key)}</dt>
+              <dd>{Array.isArray(value) ? value.join(', ') : value}</dd>
+            </div>
+          ),
+        )}
+      </dl>
+      <p className="approval-note">
+        Spoken or typed “yes” cannot approve this action. Use the button below.
+      </p>
+      <div className="approval-actions">
+        <button
+          className="secondary-button"
+          disabled={isSending}
+          onClick={() => onApproval('deny')}
+          type="button"
+        >
+          Deny
+        </button>
+        <button
+          className="primary-button"
+          disabled={isSending}
+          onClick={() => onApproval('approve')}
+          type="button"
+        >
+          Approve exact action
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export function App() {
   const [input, setInput] = useState('');
   const [snapshot, setSnapshot] = useState<TaskSnapshot | null>(null);
@@ -182,14 +377,28 @@ export function App() {
   const [computerStatus, setComputerStatus] = useState<CuaStatus>(
     EMPTY_COMPUTER_STATUS,
   );
+  const [voiceProviderStatus, setVoiceProviderStatus] =
+    useState<VoiceStatus>(EMPTY_VOICE_STATUS);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activeTaskIdRef = useRef<string | null>(null);
+  const isSendingRef = useRef(false);
+  const spokenInteractionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
-    const unsubscribe = window.tro.onTaskEvent((taskEvent) => {
-      setEvents((currentEvents) => [...currentEvents, taskEvent]);
+    const unsubscribe = window.tro.onTaskUpdate((update) => {
+      const activeTaskId = activeTaskIdRef.current;
+      if (activeTaskId && activeTaskId !== update.snapshot.taskId) return;
+
+      activeTaskIdRef.current = update.snapshot.taskId;
+      setSnapshot(update.snapshot);
+      setEvents((currentEvents) =>
+        currentEvents.some((event) => event.eventId === update.event.eventId)
+          ? currentEvents
+          : [...currentEvents, update.event],
+      );
     });
 
     void window.tro
@@ -207,48 +416,198 @@ export function App() {
         }
       });
 
+    void window.tro
+      .getVoiceStatus()
+      .then((status) => {
+        if (isMounted) setVoiceProviderStatus(status);
+      })
+      .catch((statusError: unknown) => {
+        if (isMounted) {
+          setError(
+            statusError instanceof Error
+              ? statusError.message
+              : 'Could not inspect the OpenAI voice connection.',
+          );
+        }
+      });
+
     return () => {
       isMounted = false;
       unsubscribe();
     };
   }, []);
 
-  const canSubmit = input.trim().length >= 2 && !isSubmitting;
+  const pendingInteraction = snapshot?.pendingInteraction ?? null;
+  const pendingClarification =
+    pendingInteraction?.kind === 'clarification' ? pendingInteraction : null;
+  const isSteering = snapshot ? STEERABLE_PHASES.has(snapshot.phase) : false;
+
+  useEffect(() => {
+    if (!pendingInteraction) return;
+    if (spokenInteractionIdRef.current === pendingInteraction.id) return;
+    if (
+      !('speechSynthesis' in window) ||
+      typeof SpeechSynthesisUtterance === 'undefined'
+    ) {
+      return;
+    }
+
+    spokenInteractionIdRef.current = pendingInteraction.id;
+    const text =
+      pendingInteraction.kind === 'approval'
+        ? `${pendingInteraction.prompt}. This needs exact approval in TroCode.`
+        : pendingInteraction.prompt;
+    const utterance = new SpeechSynthesisUtterance(text);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }, [pendingInteraction]);
+
+  const canSubmit =
+    input.trim().length >= (pendingClarification || isSteering ? 1 : 2) &&
+    !isSubmitting &&
+    pendingInteraction?.kind !== 'approval';
   const taskPhase = useMemo(
     () => (snapshot ? formatLabel(snapshot.phase) : 'No active task'),
     [snapshot],
   );
 
-  const submitTask = useCallback(async (requestText = input) => {
-    const normalizedRequest = requestText.trim();
-    if (normalizedRequest.length < 2 || isSubmitting) return;
+  const sendInput = useCallback(
+    async (requestText = input) => {
+      const normalizedRequest = requestText.trim();
+      const minimumLength = pendingClarification || isSteering ? 1 : 2;
+      if (
+        normalizedRequest.length < minimumLength ||
+        isSubmitting ||
+        isSendingRef.current
+      ) {
+        return;
+      }
 
-    setError(null);
-    setEvents([]);
+      isSendingRef.current = true;
+      setError(null);
+      setIsSubmitting(true);
+
+      try {
+        let nextSnapshot: TaskSnapshot;
+        if (pendingClarification && snapshot) {
+          nextSnapshot = await window.tro.respondToInteraction({
+            taskId: snapshot.taskId,
+            interactionId: pendingClarification.id,
+            kind: 'answer',
+            text: normalizedRequest,
+          });
+        } else if (isSteering && snapshot) {
+          nextSnapshot = await window.tro.steerTask({
+            taskId: snapshot.taskId,
+            instruction: normalizedRequest,
+          });
+        } else {
+          if (snapshot && !TERMINAL_PHASES.has(snapshot.phase)) {
+            await window.tro.cancelTask(snapshot.taskId);
+          }
+          activeTaskIdRef.current = null;
+          setEvents([]);
+          setSnapshot(null);
+          nextSnapshot = await window.tro.submitTask({
+            text: normalizedRequest,
+          });
+        }
+
+        activeTaskIdRef.current = nextSnapshot.taskId;
+        setSnapshot(nextSnapshot);
+        setInput('');
+      } catch (submitError) {
+        setError(
+          submitError instanceof Error
+            ? submitError.message
+            : 'The task could not accept that input.',
+        );
+      } finally {
+        isSendingRef.current = false;
+        setIsSubmitting(false);
+      }
+    },
+    [input, isSteering, isSubmitting, pendingClarification, snapshot],
+  );
+
+  const decideApproval = useCallback(
+    async (decision: 'approve' | 'deny') => {
+      if (
+        !snapshot ||
+        snapshot.pendingInteraction?.kind !== 'approval' ||
+        isSubmitting ||
+        isSendingRef.current
+      ) {
+        return;
+      }
+
+      const approval = snapshot.pendingInteraction;
+      isSendingRef.current = true;
+      setError(null);
+      setIsSubmitting(true);
+
+      try {
+        setSnapshot(
+          await window.tro.decideApproval({
+            taskId: snapshot.taskId,
+            interactionId: approval.id,
+            kind: 'approval',
+            decision,
+            actionDigest: approval.actionDigest,
+          }),
+        );
+      } catch (approvalError) {
+        setError(
+          approvalError instanceof Error
+            ? approvalError.message
+            : 'The approval decision could not be recorded.',
+        );
+      } finally {
+        isSendingRef.current = false;
+        setIsSubmitting(false);
+      }
+    },
+    [isSubmitting, snapshot],
+  );
+
+  const resetTask = useCallback(async () => {
+    if (isSendingRef.current) return;
+
+    isSendingRef.current = true;
     setIsSubmitting(true);
-    setInput(normalizedRequest);
+    const activeSnapshot = snapshot;
 
     try {
-      const nextSnapshot = await window.tro.submitTask({
-        text: normalizedRequest,
-      });
-      setSnapshot(nextSnapshot);
-    } catch (submitError) {
+      if (
+        activeSnapshot &&
+        !TERMINAL_PHASES.has(activeSnapshot.phase)
+      ) {
+        await window.tro.cancelTask(activeSnapshot.taskId);
+      }
+
+      activeTaskIdRef.current = null;
+      setInput('');
+      setSnapshot(null);
+      setEvents([]);
+      setError(null);
+    } catch (cancelError) {
       setError(
-        submitError instanceof Error
-          ? submitError.message
-          : 'The goal could not be compiled.',
+        cancelError instanceof Error
+          ? cancelError.message
+          : 'The current task could not be cancelled.',
       );
     } finally {
+      isSendingRef.current = false;
       setIsSubmitting(false);
     }
-  }, [input, isSubmitting]);
+  }, [snapshot]);
 
   const { platform: voicePlatform, status: voiceStatus } = usePushToTalk({
-    disabled: isSubmitting,
+    disabled: isSubmitting || pendingInteraction?.kind === 'approval',
+    enabled: voiceProviderStatus.state === 'ready',
     onError: setError,
     onTranscriptChange: setInput,
-    onTranscriptSubmit: (transcript) => void submitTask(transcript),
+    onTranscriptSubmit: (transcript) => void sendInput(transcript),
   });
 
   const connectComputer = useCallback(async () => {
@@ -268,6 +627,32 @@ export function App() {
     }
   }, []);
 
+  const startTask = useCallback(async () => {
+    if (
+      !snapshot ||
+      snapshot.phase !== 'ready' ||
+      isSendingRef.current
+    ) {
+      return;
+    }
+
+    isSendingRef.current = true;
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      setSnapshot(await window.tro.startTask(snapshot.taskId));
+    } catch (startError) {
+      setError(
+        startError instanceof Error
+          ? startError.message
+          : 'The task could not start.',
+      );
+    } finally {
+      isSendingRef.current = false;
+      setIsSubmitting(false);
+    }
+  }, [snapshot]);
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -283,12 +668,8 @@ export function App() {
 
         <button
           className="new-task-button"
-          onClick={() => {
-            setInput('');
-            setSnapshot(null);
-            setEvents([]);
-            setError(null);
-          }}
+          disabled={isSubmitting}
+          onClick={() => void resetTask()}
           type="button"
         >
           <span aria-hidden="true">＋</span>
@@ -344,10 +725,16 @@ export function App() {
               className="task-composer"
               onSubmit={(event) => {
                 event.preventDefault();
-                void submitTask();
+                void sendInput();
               }}
             >
-              <label htmlFor="task-request">Describe the outcome</label>
+              <label htmlFor="task-request">
+                {pendingClarification
+                  ? 'Answer TroCode to continue this task'
+                  : isSteering
+                    ? 'Steer the active task'
+                    : 'Describe the outcome'}
+              </label>
               <div
                 aria-live="polite"
                 className={`voice-status voice-status--${voiceStatus}`}
@@ -359,26 +746,50 @@ export function App() {
               <textarea
                 id="task-request"
                 onChange={(event) => setInput(event.target.value)}
-                placeholder="Open YouTube for me, research a topic, fix code, or guide me through an app…"
+                placeholder={
+                  pendingClarification
+                    ? 'Type or hold the voice shortcut to answer…'
+                    : isSteering
+                      ? 'Pause, stop, or change the next step…'
+                      : 'Open YouTube for me, research a topic, fix code, or guide me through an app…'
+                }
                 rows={4}
                 value={input}
               />
               <div className="composer-footer">
-                <span>Nothing executes until scope and approvals are checked.</span>
+                <span>
+                  {pendingClarification
+                    ? 'This answer stays attached to the current task.'
+                    : isSteering
+                      ? 'Steering is reviewed at the next safe boundary.'
+                      : 'Nothing executes until scope and approvals are checked.'}
+                </span>
                 <button className="primary-button" disabled={!canSubmit} type="submit">
-                  {isSubmitting ? 'Compiling…' : 'Compile goal'}
+                  {isSubmitting
+                    ? 'Sending…'
+                    : pendingClarification
+                      ? 'Send answer'
+                      : isSteering
+                        ? 'Send steering'
+                        : 'Compile goal'}
                   <span aria-hidden="true">→</span>
                 </button>
               </div>
             </form>
 
-            <div className="examples" aria-label="Example tasks">
-              {EXAMPLE_TASKS.map((example) => (
-                <button key={example} onClick={() => setInput(example)} type="button">
-                  {example}
-                </button>
-              ))}
-            </div>
+            {!snapshot && (
+              <div className="examples" aria-label="Example tasks">
+                {EXAMPLE_TASKS.map((example) => (
+                  <button
+                    key={example}
+                    onClick={() => setInput(example)}
+                    type="button"
+                  >
+                    {example}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {error && (
               <div className="error-banner" role="alert">
@@ -387,10 +798,34 @@ export function App() {
               </div>
             )}
 
-            {snapshot?.goal && <GoalPreview goal={snapshot.goal} />}
+            {pendingInteraction && (
+              <PendingInteractionCard
+                interaction={pendingInteraction}
+                isSending={isSubmitting}
+                onAnswerChoice={(answer) => void sendInput(answer)}
+                onApproval={(decision) => void decideApproval(decision)}
+              />
+            )}
+
+            {snapshot && <Conversation snapshot={snapshot} />}
+            {snapshot?.goal && (
+              <GoalPreview
+                canStart={
+                  computerStatus.state === 'ready' &&
+                  computerStatus.available &&
+                  voiceProviderStatus.state === 'ready'
+                }
+                goal={snapshot.goal}
+                isStarting={isSubmitting}
+                onStart={() => void startTask()}
+                phase={snapshot.phase}
+              />
+            )}
           </section>
 
           <aside className="context-column">
+            <VoiceConnection status={voiceProviderStatus} />
+
             <ComputerStatus
               isConnecting={isConnecting}
               onConnect={() => void connectComputer()}

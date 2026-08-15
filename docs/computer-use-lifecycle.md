@@ -23,7 +23,7 @@ idle
   -> interpreting
   -> clarifying | ready
   -> awaiting_approval | planning
-  -> observing
+  -> observing | awaiting_input
   -> acting
   -> verifying
   -> completed | blocked | failed | cancelled
@@ -31,22 +31,33 @@ idle
 
 Invalid transitions throw instead of being silently accepted. In particular, an idle task cannot jump directly to `acting`, and terminal states cannot restart.
 
+`clarifying` completes an underspecified goal before compilation. `awaiting_input`
+pauses an already-compiled running task for a task-scoped answer. Free-form
+answers and exact approvals use separate contracts. After either interaction,
+the task returns to `observing`; it never resumes directly into `acting`.
+Steering received while a task is running is queued without interrupting an
+atomic action. It invalidates any unconsumed approval and requires goal review
+at the next safe boundary before the task re-observes.
+
 ## Execution loop
 
-Once a model provider and executor are added, one computer-use iteration will be:
+The implemented computer-use iteration is:
 
 1. Re-read the current goal and remaining budget.
-2. Observe the exact target window.
-3. Propose one typed action.
+2. Capture a fresh desktop observation through the task-scoped CUA session.
+3. Ask GPT Realtime for exactly one typed function-call decision.
 4. Evaluate capability, resource, and approval policy.
 5. Ask the user if approval is required.
 6. Execute the action through CUA.
-7. Inspect the structured result and verification metadata.
-8. Re-observe when an action is not verified.
-9. Run the independent goal verifier.
-10. Continue, re-plan, block, fail, or complete.
+7. Inspect CUA delivery/effect metadata.
+8. Stop without retry when completion is unknown.
+9. Re-observe and let the latest screenshot prove progress or completion.
+10. Continue, ask, block, fail, or complete.
 
-Accessibility element actions should be preferred. Pixel or foreground actions are escalation paths, not the default. Non-idempotent actions with unknown completion must not be retried automatically.
+The current vertical slice supports coordinates, typing, keypresses, scrolling,
+and direct HTTPS navigation. Accessibility element actions and app-specific
+independent verifiers remain the next hardening step. Non-idempotent actions
+with unknown completion are never retried automatically.
 
 ## Tool result contract
 

@@ -1,10 +1,18 @@
 import { app } from 'electron';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type * as CuaDriverSdk from '@trycua/cua-driver';
 
 import type { CuaStatus } from '../../shared/contracts';
+import {
+  DesktopActionOutcomeSchema,
+  DesktopObservationSchema,
+  type DesktopActionOutcome,
+  type DesktopCommand,
+  type DesktopObservation,
+} from '../agent/execution-contracts';
 
 type CuaModule = typeof CuaDriverSdk;
 type Driver = ReturnType<CuaModule['CuaDriver']['create']> & {
@@ -60,6 +68,8 @@ export class CuaService {
   private driver: Driver | null = null;
   private driverVersion: string | undefined;
 
+  private readonly activeSessions = new Set<string>();
+
   async getStatus(): Promise<CuaStatus> {
     const platform = getSupportedPlatform();
     if (platform === 'unsupported') {
@@ -88,7 +98,9 @@ export class CuaService {
           platform,
           permissions,
           summary: 'Accessibility and Screen Recording permissions are required.',
-          nextActions: ['Choose Connect computer and approve the macOS prompts.'],
+          nextActions: [
+            'Approve the macOS prompts, or choose Connect computer to reopen them.',
+          ],
         };
       }
 
@@ -135,6 +147,191 @@ export class CuaService {
     if (!shouldAutoConnect(status)) return status;
 
     return this.initializeDriver(false);
+  }
+
+  async startTaskSession(taskId: string, signal?: AbortSignal): Promise<void> {
+    if (this.activeSessions.has(taskId)) return;
+
+    const cua = await this.loadModule();
+    const driver = this.requireDriver();
+    const started = await driver.startSession(
+      cua.StartSessionInput.new({
+        session: taskId,
+        captureScope: cua.CaptureScope.Desktop,
+      }),
+      signal ? { signal } : undefined,
+    );
+    if (!started.active) {
+      throw new Error(`CUA did not activate task session ${taskId}.`);
+    }
+    this.activeSessions.add(taskId);
+  }
+
+  async observe(
+    taskId: string,
+    signal?: AbortSignal,
+  ): Promise<DesktopObservation> {
+    this.assertActiveSession(taskId);
+    const cua = await this.loadModule();
+    const result = await this.requireDriver().getDesktopState(
+      cua.GetDesktopStateInput.new({ session: taskId }),
+      signal ? { signal } : undefined,
+    );
+
+    if (result.isError) {
+      throw new Error(
+        result.text || result.errorCode || 'CUA could not observe the desktop.',
+      );
+    }
+
+    const image = result.images[0];
+    const fingerprintSource = image
+      ? Buffer.from(image.dataBase64, 'base64')
+      : Buffer.from(
+          `${result.text}\n${result.structuredJson ?? ''}\n${result.rawJson}`,
+          'utf8',
+        );
+
+    return DesktopObservationSchema.parse({
+      observationId: randomUUID(),
+      taskId,
+      capturedAt: new Date().toISOString(),
+      text: result.text.slice(0, 100_000),
+      ...(result.structuredJson
+        ? { structuredState: result.structuredJson.slice(0, 500_000) }
+        : {}),
+      ...(image
+        ? {
+            screenshot: {
+              mimeType: image.mimeType,
+              dataBase64: image.dataBase64,
+            },
+          }
+        : {}),
+      degraded: result.degraded,
+      fingerprint: createHash('sha256').update(fingerprintSource).digest('hex'),
+    });
+  }
+
+  async executeCommand(
+    taskId: string,
+    command: DesktopCommand,
+    signal?: AbortSignal,
+  ): Promise<DesktopActionOutcome> {
+    this.assertActiveSession(taskId);
+    const cua = await this.loadModule();
+    const driver = this.requireDriver();
+    const asyncOptions = signal ? { signal } : undefined;
+
+    const result = await (async () => {
+      switch (command.kind) {
+        case 'open_url':
+          throw new Error('URL navigation is handled outside the CUA driver.');
+        case 'click': {
+          const button = {
+            left: cua.ClickButton.Left,
+            middle: cua.ClickButton.Middle,
+            right: cua.ClickButton.Right,
+          }[command.button];
+          return driver.click(
+            cua.ClickInput.new({
+              session: taskId,
+              scope: cua.DesktopScope.Desktop,
+              x: command.x,
+              y: command.y,
+              button,
+              count: command.count,
+            }),
+            asyncOptions,
+          );
+        }
+        case 'type_text':
+          return driver.typeText(
+            cua.TypeTextInput.new({
+              session: taskId,
+              scope: cua.DesktopScope.Desktop,
+              text: command.text,
+            }),
+            asyncOptions,
+          );
+        case 'keypress':
+          if (command.keys.length === 1) {
+            return driver.pressKey(
+              cua.PressKeyInput.new({
+                session: taskId,
+                scope: cua.DesktopScope.Desktop,
+                key: command.keys[0]!,
+              }),
+              asyncOptions,
+            );
+          }
+          return driver.hotkey(
+            cua.HotkeyInput.new({
+              session: taskId,
+              scope: cua.DesktopScope.Desktop,
+              keys: command.keys,
+            }),
+            asyncOptions,
+          );
+        case 'scroll': {
+          const direction = {
+            down: cua.ScrollDirection.Down,
+            left: cua.ScrollDirection.Left,
+            right: cua.ScrollDirection.Right,
+            up: cua.ScrollDirection.Up,
+          }[command.direction];
+          return driver.scroll(
+            cua.ScrollInput.new({
+              session: taskId,
+              scope: cua.DesktopScope.Desktop,
+              x: command.x,
+              y: command.y,
+              direction,
+              amount: BigInt(command.amount),
+            }),
+            asyncOptions,
+          );
+        }
+      }
+    })();
+
+    if (result.isError) {
+      return DesktopActionOutcomeSchema.parse({
+        status: 'failed',
+        summary:
+          result.text || result.errorCode || 'The desktop action was refused.',
+      });
+    }
+
+    const effect = result.action?.effect;
+    if (effect === cua.ActionEffect.Confirmed) {
+      return DesktopActionOutcomeSchema.parse({
+        status: 'confirmed',
+        summary: result.text || 'CUA confirmed the desktop action.',
+      });
+    }
+    if (effect === cua.ActionEffect.Refused) {
+      return DesktopActionOutcomeSchema.parse({
+        status: 'failed',
+        summary: result.text || 'CUA refused the desktop action.',
+      });
+    }
+
+    return DesktopActionOutcomeSchema.parse({
+      status: 'unknown',
+      summary:
+        result.text ||
+        'CUA could not confirm whether the desktop action changed the screen.',
+    });
+  }
+
+  async endTaskSession(taskId: string, signal?: AbortSignal): Promise<void> {
+    if (!this.activeSessions.delete(taskId)) return;
+    const cua = await this.loadModule();
+    await this.requireDriver().endSession(
+      cua.EndSessionInput.new({ session: taskId }),
+      signal ? { signal } : undefined,
+    );
   }
 
   private async initializeDriver(
@@ -191,11 +388,28 @@ export class CuaService {
     const driver = this.driver;
     this.driver = null;
     this.driverVersion = undefined;
+    this.activeSessions.clear();
 
     if (!driver) return;
 
-    await driver.shutdown();
-    driver.uniffiDestroy();
+    try {
+      await driver.shutdown();
+    } finally {
+      driver.uniffiDestroy();
+    }
+  }
+
+  private requireDriver(): Driver {
+    if (!this.driver || !this.driver.isAvailable()) {
+      throw new Error('Connect the computer-use runtime before starting a task.');
+    }
+    return this.driver;
+  }
+
+  private assertActiveSession(taskId: string): void {
+    if (!this.activeSessions.has(taskId)) {
+      throw new Error(`CUA session for task ${taskId} is not active.`);
+    }
   }
 
   private async loadModule(): Promise<CuaModule> {

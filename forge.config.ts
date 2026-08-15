@@ -60,6 +60,9 @@ async function stageCuaRuntime(
 
 const config: ForgeConfig = {
   packagerConfig: {
+    ...(process.platform === 'darwin'
+      ? { icon: path.resolve(__dirname, 'src/assets/trocode-app-icon.icns') }
+      : {}),
     // The CUA ESM package locates its native runtime relative to import.meta.url.
     // Keep this complete dependency island outside ASAR so both the JavaScript
     // loader and native libraries resolve to real filesystem paths.

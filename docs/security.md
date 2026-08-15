@@ -12,18 +12,32 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
 
 ## Default behavior
 
-- No computer permissions are requested during application startup.
+- On macOS, launch checks Accessibility and Screen Recording state without
+  prompting. **Connect computer** is the explicit permission-onboarding action;
+  later launches initialize automatically once both grants exist.
 - No task executes merely because it was described as a question.
 - `guide` mode observes and explains; it does not act.
 - Consequential actions require explicit approval.
 - Remote navigation and creation of unexpected Electron windows are denied.
-- CUA actions will use bounded authorization and a generated capability manifest before production execution is enabled.
+- Current CUA actions are bounded by the compiled goal, host policy, task
+  budget, fresh observation, and exact approvals. Per-skill native capability
+  manifests remain a release hardening requirement.
 
 ## Sensitive data
 
 Screenshots, URLs, document text, file paths, and typed input may contain private data. Do not write them to analytics logs. Trajectory storage should be opt-in, encrypted locally, and have a clear retention policy.
 
-Do not ship a shared model-provider API key inside the renderer or application bundle. Use a cloud gateway or a user-owned key stored through an operating-system credential store.
+PostHog runs only in the trusted Electron main process. Its event surface is an
+explicit allowlist of application lifecycle, task lifecycle, platform, version,
+and compiled-goal classification fields. Anonymous activity uses a random local
+installation ID without a person profile. Email and display name are sent only
+when a future authenticated account flow explicitly calls the identify hook.
+
+Do not ship a shared model-provider API key inside the renderer or application
+bundle. Doppler injects the developer-owned OpenAI key into the Electron main
+process at runtime, and only short-lived Realtime client secrets cross into the
+renderer. A production service may replace this with an authenticated cloud
+gateway.
 
 ## Release requirements
 

@@ -69,11 +69,13 @@ const ACT_TERMS = [
   'create',
   'delete',
   'download',
+  'draft',
   'fill',
   'fix',
   'install',
   'open',
   'organize',
+  'reply',
   'run',
   'schedule',
   'send',
@@ -196,8 +198,15 @@ function inferCapabilities(
     capabilities.add('filesystem');
   }
 
-  if (includesTerm(normalizedRequest, 'email')) capabilities.add('email');
+  if (
+    includesTerm(normalizedRequest, 'email') ||
+    includesTerm(normalizedRequest, 'gmail')
+  ) {
+    capabilities.add('email');
+  }
   if (includesTerm(normalizedRequest, 'calendar')) capabilities.add('calendar');
+
+  if (includesTerm(normalizedRequest, 'gmail')) capabilities.add('browser');
 
   const refersToVisualSurface = [
     'app',
@@ -235,6 +244,7 @@ function inferAllowedDomains(request: string): string[] {
   const domains = new Set<string>();
 
   if (includesTerm(normalizedRequest, 'youtube')) domains.add('youtube.com');
+  if (includesTerm(normalizedRequest, 'gmail')) domains.add('mail.google.com');
 
   for (const match of request.matchAll(/https?:\/\/([^\s/]+)/gi)) {
     const hostname = match[1]?.replace(/[),.;]+$/, '').toLowerCase();

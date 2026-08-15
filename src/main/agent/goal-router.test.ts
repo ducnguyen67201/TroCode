@@ -20,6 +20,8 @@ describe('goal router', () => {
 
   it('treats explicit outcome verbs as action requests', () => {
     expect(inferInteractionMode('Open YouTube for me')).toBe('act');
+    expect(inferInteractionMode('Reply to Alex in Gmail')).toBe('act');
+    expect(inferInteractionMode('Draft an email to Alex')).toBe('act');
   });
 
   it('selects coding tools without coupling every request to education', () => {
@@ -36,6 +38,15 @@ describe('goal router', () => {
     expect(inferDomain('Research three note-taking apps and compare them')).toBe(
       'research',
     );
+  });
+
+  it('grants Gmail requests only the Gmail browser and email surface', () => {
+    const goal = compileGoal('Open Gmail for me');
+
+    expect(goal.capabilities).toEqual(
+      expect.arrayContaining(['browser', 'computer_use', 'email']),
+    );
+    expect(goal.scope.allowedDomains).toContain('mail.google.com');
   });
 
   it('asks for clarification when there is no usable outcome', () => {

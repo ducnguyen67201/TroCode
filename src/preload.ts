@@ -1,10 +1,18 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {
+  CancelTaskRequestSchema,
+  ConfigureVoiceRequestSchema,
   CuaStatusSchema,
+  DecideApprovalRequestSchema,
+  RespondToInteractionRequestSchema,
+  StartTaskRequestSchema,
+  SteerTaskRequestSchema,
   SubmitTaskRequestSchema,
-  TaskEventSchema,
   TaskSnapshotSchema,
+  TaskUpdateSchema,
+  VoiceSessionSchema,
+  VoiceStatusSchema,
 } from './shared/contracts';
 import { IPC_CHANNELS, type DesktopApi } from './shared/desktop-api';
 
@@ -19,9 +27,47 @@ const desktopApi: DesktopApi = {
   },
 
   async cancelTask(taskId) {
-    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.cancelTask, {
-      taskId,
-    });
+    const request = CancelTaskRequestSchema.parse({ taskId });
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.cancelTask,
+      request,
+    );
+    return TaskSnapshotSchema.parse(response);
+  },
+
+  async startTask(taskId) {
+    const request = StartTaskRequestSchema.parse({ taskId });
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.startTask,
+      request,
+    );
+    return TaskSnapshotSchema.parse(response);
+  },
+
+  async respondToInteraction(input) {
+    const request = RespondToInteractionRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.respondToInteraction,
+      request,
+    );
+    return TaskSnapshotSchema.parse(response);
+  },
+
+  async decideApproval(input) {
+    const request = DecideApprovalRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.decideApproval,
+      request,
+    );
+    return TaskSnapshotSchema.parse(response);
+  },
+
+  async steerTask(input) {
+    const request = SteerTaskRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.steerTask,
+      request,
+    );
     return TaskSnapshotSchema.parse(response);
   },
 
@@ -39,13 +85,37 @@ const desktopApi: DesktopApi = {
     return CuaStatusSchema.parse(response);
   },
 
-  onTaskEvent(listener) {
+  async getVoiceStatus() {
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.getVoiceStatus,
+    );
+    return VoiceStatusSchema.parse(response);
+  },
+
+  async configureVoice(input) {
+    const request = ConfigureVoiceRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.configureVoice,
+      request,
+    );
+    return VoiceStatusSchema.parse(response);
+  },
+
+  async createVoiceSession() {
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.createVoiceSession,
+    );
+    return VoiceSessionSchema.parse(response);
+  },
+
+  onTaskUpdate(listener) {
     const eventHandler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
-      listener(TaskEventSchema.parse(value));
+      listener(TaskUpdateSchema.parse(value));
     };
 
-    ipcRenderer.on(IPC_CHANNELS.taskEvent, eventHandler);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.taskEvent, eventHandler);
+    ipcRenderer.on(IPC_CHANNELS.taskUpdate, eventHandler);
+    return () =>
+      ipcRenderer.removeListener(IPC_CHANNELS.taskUpdate, eventHandler);
   },
 };
 

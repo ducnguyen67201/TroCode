@@ -3,13 +3,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   detectPushToTalkPlatform,
   isPushToTalkChord,
+  parseRealtimeTranscriptionEvent,
   pushToTalkShortcutName,
-  readRecognitionTranscript,
-  speechRecognitionErrorMessage,
   type PushToTalkPlatform,
 } from './push-to-talk';
 
 export type VoiceInputStatus =
+  | 'connecting'
   | 'idle'
   | 'listening'
   | 'processing'
@@ -18,6 +18,7 @@ export type VoiceInputStatus =
 
 interface UsePushToTalkOptions {
   disabled?: boolean;
+  enabled?: boolean;
   onError(message: string): void;
   onTranscriptChange(transcript: string): void;
   onTranscriptSubmit(transcript: string): void;
@@ -29,181 +30,311 @@ interface PushToTalkState {
   status: VoiceInputStatus;
 }
 
-function getSpeechRecognitionConstructor():
-  | BrowserSpeechRecognitionConstructor
-  | undefined {
-  if (typeof window === 'undefined') return undefined;
-  return window.SpeechRecognition ?? window.webkitSpeechRecognition;
+interface ActiveVoiceTurn {
+  channel: RTCDataChannel;
+  committed: boolean;
+  connection: RTCPeerConnection;
+  resultTimer: ReturnType<typeof setTimeout> | null;
+  stream: MediaStream;
+  transcript: string;
 }
+
+const OPENAI_REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
+const CONNECTION_TIMEOUT_MS = 12_000;
+const TRANSCRIPT_TIMEOUT_MS = 20_000;
 
 function getPushToTalkPlatform(): PushToTalkPlatform {
   if (typeof navigator === 'undefined') return 'unsupported';
   return detectPushToTalkPlatform(navigator.platform, navigator.userAgent);
 }
 
+function closeVoiceTurn(turn: ActiveVoiceTurn): void {
+  if (turn.resultTimer) clearTimeout(turn.resultTimer);
+  turn.resultTimer = null;
+  for (const track of turn.stream.getTracks()) track.stop();
+  if (turn.channel.readyState !== 'closed') turn.channel.close();
+  if (turn.connection.connectionState !== 'closed') turn.connection.close();
+}
+
+function waitForDataChannelOpen(channel: RTCDataChannel): Promise<void> {
+  if (channel.readyState === 'open') return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('OpenAI voice connection timed out.'));
+    }, CONNECTION_TIMEOUT_MS);
+
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      channel.removeEventListener('open', handleOpen);
+      channel.removeEventListener('close', handleClose);
+      channel.removeEventListener('error', handleError);
+    };
+    const handleOpen = (): void => {
+      cleanup();
+      resolve();
+    };
+    const handleClose = (): void => {
+      cleanup();
+      reject(new Error('OpenAI closed the voice connection.'));
+    };
+    const handleError = (): void => {
+      cleanup();
+      reject(new Error('OpenAI voice could not establish a media connection.'));
+    };
+
+    channel.addEventListener('open', handleOpen);
+    channel.addEventListener('close', handleClose);
+    channel.addEventListener('error', handleError);
+  });
+}
+
+function voiceConnectionErrorMessage(error: unknown): string {
+  if (error instanceof DOMException && error.name === 'NotAllowedError') {
+    return 'Microphone access is required for voice input.';
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return 'TroCode could not connect to OpenAI voice.';
+}
+
 export function usePushToTalk({
   disabled = false,
+  enabled = true,
   onError,
   onTranscriptChange,
   onTranscriptSubmit,
 }: UsePushToTalkOptions): PushToTalkState {
   const [platform] = useState<PushToTalkPlatform>(getPushToTalkPlatform);
   const [status, setStatus] = useState<VoiceInputStatus>(() =>
-    platform !== 'unsupported' && getSpeechRecognitionConstructor()
-      ? 'idle'
-      : 'unavailable',
+    enabled && platform !== 'unsupported' ? 'idle' : 'unavailable',
   );
-  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const activeTurnRef = useRef<ActiveVoiceTurn | null>(null);
+  const attemptRef = useRef(0);
   const pressedCodesRef = useRef(new Set<string>());
   const chordHeldRef = useRef(false);
-  const recognitionStartedRef = useRef(false);
-  const releaseRequestedRef = useRef(false);
-  const transcriptRef = useRef('');
-  const permissionRequestRef = useRef(0);
   const disabledRef = useRef(disabled);
+  const enabledRef = useRef(enabled);
   const onErrorRef = useRef(onError);
   const onTranscriptChangeRef = useRef(onTranscriptChange);
   const onTranscriptSubmitRef = useRef(onTranscriptSubmit);
 
   useEffect(() => {
     disabledRef.current = disabled;
+    enabledRef.current = enabled;
     onErrorRef.current = onError;
     onTranscriptChangeRef.current = onTranscriptChange;
     onTranscriptSubmitRef.current = onTranscriptSubmit;
-  }, [disabled, onError, onTranscriptChange, onTranscriptSubmit]);
+  }, [disabled, enabled, onError, onTranscriptChange, onTranscriptSubmit]);
 
   const cancel = useCallback(() => {
+    attemptRef.current += 1;
     pressedCodesRef.current.clear();
     chordHeldRef.current = false;
-    releaseRequestedRef.current = false;
-    permissionRequestRef.current += 1;
 
-    const recognition = recognitionRef.current;
-    if (recognition && recognitionStartedRef.current) recognition.abort();
-    else setStatus(recognition ? 'idle' : 'unavailable');
-  }, []);
+    const turn = activeTurnRef.current;
+    activeTurnRef.current = null;
+    if (turn) closeVoiceTurn(turn);
+
+    setStatus(
+      enabledRef.current && platform !== 'unsupported'
+        ? 'idle'
+        : 'unavailable',
+    );
+  }, [platform]);
+
+  const failTurn = useCallback(
+    (turn: ActiveVoiceTurn, message: string): void => {
+      if (activeTurnRef.current !== turn) return;
+      activeTurnRef.current = null;
+      chordHeldRef.current = false;
+      closeVoiceTurn(turn);
+      setStatus(enabledRef.current ? 'idle' : 'unavailable');
+      onErrorRef.current(message);
+    },
+    [],
+  );
 
   const beginListening = useCallback(async () => {
     if (
       disabledRef.current ||
+      !enabledRef.current ||
+      platform === 'unsupported' ||
       chordHeldRef.current ||
-      !recognitionRef.current
+      activeTurnRef.current
     ) {
       return;
     }
 
     chordHeldRef.current = true;
-    releaseRequestedRef.current = false;
-    transcriptRef.current = '';
-    const permissionRequest = permissionRequestRef.current + 1;
-    permissionRequestRef.current = permissionRequest;
+    const attempt = attemptRef.current + 1;
+    attemptRef.current = attempt;
     setStatus('requesting_permission');
 
+    let pendingStream: MediaStream | null = null;
+    let pendingTurn: ActiveVoiceTurn | null = null;
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      for (const track of stream.getTracks()) track.stop();
+      pendingStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          autoGainControl: true,
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
 
-      if (permissionRequestRef.current !== permissionRequest) return;
-
-      if (!chordHeldRef.current || disabledRef.current) {
-        setStatus('idle');
+      if (attemptRef.current !== attempt || !chordHeldRef.current) {
+        for (const track of pendingStream.getTracks()) track.stop();
         return;
       }
 
-      recognitionRef.current.start();
-    } catch (error) {
-      if (permissionRequestRef.current !== permissionRequest) return;
+      setStatus('connecting');
+      const session = await window.tro.createVoiceSession();
+      if (attemptRef.current !== attempt || !chordHeldRef.current) {
+        for (const track of pendingStream.getTracks()) track.stop();
+        return;
+      }
 
-      chordHeldRef.current = false;
-      setStatus('idle');
-      onErrorRef.current(
-        error instanceof DOMException && error.name === 'NotAllowedError'
-          ? 'Microphone access is required for voice input.'
-          : 'TroCode could not start the microphone.',
-      );
-    }
-  }, []);
+      const connection = new RTCPeerConnection();
+      const channel = connection.createDataChannel('oai-events');
+      const turn: ActiveVoiceTurn = {
+        channel,
+        committed: false,
+        connection,
+        resultTimer: null,
+        stream: pendingStream,
+        transcript: '',
+      };
+      pendingTurn = turn;
+      activeTurnRef.current = turn;
 
-  const finishListening = useCallback(() => {
-    if (!chordHeldRef.current) return;
+      for (const track of pendingStream.getTracks()) {
+        connection.addTrack(track, pendingStream);
+      }
 
-    chordHeldRef.current = false;
+      channel.addEventListener('message', (event) => {
+        if (
+          activeTurnRef.current !== turn ||
+          typeof event.data !== 'string'
+        ) {
+          return;
+        }
 
-    if (!recognitionStartedRef.current || !recognitionRef.current) {
-      permissionRequestRef.current += 1;
-      setStatus(recognitionRef.current ? 'idle' : 'unavailable');
-      return;
-    }
+        const transcriptionEvent = parseRealtimeTranscriptionEvent(event.data);
+        if (!transcriptionEvent) return;
 
-    releaseRequestedRef.current = true;
-    setStatus('processing');
-    recognitionRef.current.stop();
-  }, []);
+        if (transcriptionEvent.type === 'delta') {
+          turn.transcript += transcriptionEvent.delta;
+          onTranscriptChangeRef.current(turn.transcript.trimStart());
+          return;
+        }
 
-  useEffect(() => {
-    const SpeechRecognitionConstructor = getSpeechRecognitionConstructor();
+        if (transcriptionEvent.type === 'error') {
+          failTurn(turn, transcriptionEvent.message);
+          return;
+        }
 
-    if (!SpeechRecognitionConstructor || platform === 'unsupported') {
-      return undefined;
-    }
+        const transcript =
+          transcriptionEvent.transcript || turn.transcript.trim();
+        const shouldSubmit = turn.committed && transcript.length >= 2;
+        activeTurnRef.current = null;
+        closeVoiceTurn(turn);
+        setStatus(enabledRef.current ? 'idle' : 'unavailable');
 
-    const recognition = new SpeechRecognitionConstructor();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = navigator.language || 'en-US';
-    recognitionRef.current = recognition;
+        if (shouldSubmit) {
+          onTranscriptChangeRef.current(transcript);
+          onTranscriptSubmitRef.current(transcript);
+        } else if (turn.committed) {
+          onErrorRef.current(
+            `No speech was detected. Hold ${pushToTalkShortcutName(platform)} and try again.`,
+          );
+        }
+      });
 
-    recognition.onstart = () => {
-      recognitionStartedRef.current = true;
+      connection.addEventListener('connectionstatechange', () => {
+        if (connection.connectionState === 'failed') {
+          failTurn(turn, 'The OpenAI voice media connection failed.');
+        }
+      });
 
-      if (!chordHeldRef.current) {
-        releaseRequestedRef.current = true;
-        setStatus('processing');
-        recognition.stop();
+      const offer = await connection.createOffer();
+      await connection.setLocalDescription(offer);
+      const response = await fetch(OPENAI_REALTIME_CALLS_URL, {
+        method: 'POST',
+        body: offer.sdp,
+        headers: {
+          Authorization: `Bearer ${session.clientSecret}`,
+          'Content-Type': 'application/sdp',
+        },
+      });
+      const answerSdp = await response.text();
+      if (!response.ok) {
+        throw new Error('OpenAI rejected the realtime voice connection.');
+      }
+
+      await connection.setRemoteDescription({
+        type: 'answer',
+        sdp: answerSdp,
+      });
+      await waitForDataChannelOpen(channel);
+
+      if (
+        attemptRef.current !== attempt ||
+        !chordHeldRef.current ||
+        activeTurnRef.current !== turn
+      ) {
+        if (activeTurnRef.current === turn) activeTurnRef.current = null;
+        closeVoiceTurn(turn);
         return;
       }
 
       setStatus('listening');
-    };
-
-    recognition.onresult = (event) => {
-      const transcript = readRecognitionTranscript(event.results).combined;
-      transcriptRef.current = transcript;
-      onTranscriptChangeRef.current(transcript);
-    };
-
-    recognition.onerror = (event) => {
-      releaseRequestedRef.current = false;
-      const message = speechRecognitionErrorMessage(event.error, platform);
-      if (message) onErrorRef.current(message);
-    };
-
-    recognition.onend = () => {
-      recognitionStartedRef.current = false;
-      chordHeldRef.current = false;
-      const shouldSubmit = releaseRequestedRef.current;
-      releaseRequestedRef.current = false;
-      setStatus('idle');
-
-      const transcript = transcriptRef.current.trim();
-      if (shouldSubmit && transcript.length >= 2) {
-        onTranscriptSubmitRef.current(transcript);
-      } else if (shouldSubmit) {
-        onErrorRef.current(
-          `No speech was detected. Hold ${pushToTalkShortcutName(platform)} and try again.`,
-        );
+    } catch (error) {
+      if (pendingTurn && activeTurnRef.current === pendingTurn) {
+        activeTurnRef.current = null;
+        closeVoiceTurn(pendingTurn);
+      } else if (pendingStream) {
+        for (const track of pendingStream.getTracks()) track.stop();
       }
-    };
 
-    return () => {
-      recognition.onstart = null;
-      recognition.onresult = null;
-      recognition.onerror = null;
-      recognition.onend = null;
-      recognition.abort();
-      recognitionRef.current = null;
-    };
-  }, [platform]);
+      if (attemptRef.current !== attempt) return;
+      chordHeldRef.current = false;
+      setStatus(enabledRef.current ? 'idle' : 'unavailable');
+      onErrorRef.current(voiceConnectionErrorMessage(error));
+    }
+  }, [failTurn, platform]);
+
+  const finishListening = useCallback(() => {
+    if (!chordHeldRef.current) return;
+    chordHeldRef.current = false;
+
+    const turn = activeTurnRef.current;
+    if (!turn || turn.channel.readyState !== 'open') {
+      attemptRef.current += 1;
+      if (turn) {
+        activeTurnRef.current = null;
+        closeVoiceTurn(turn);
+      }
+      setStatus(enabledRef.current ? 'idle' : 'unavailable');
+      onErrorRef.current(
+        'Voice was still connecting. Hold the shortcut until “Listening” appears, then speak.',
+      );
+      return;
+    }
+
+    turn.committed = true;
+    setStatus('processing');
+    turn.channel.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+    for (const track of turn.stream.getTracks()) track.stop();
+    turn.resultTimer = setTimeout(() => {
+      failTurn(turn, 'OpenAI voice did not return a transcript in time.');
+    }, TRANSCRIPT_TIMEOUT_MS);
+  }, [failTurn]);
+
+  useEffect(() => {
+    enabledRef.current = enabled;
+    if (!enabled) cancel();
+  }, [cancel, enabled, platform]);
 
   useEffect(() => {
     const pressedCodes = pressedCodesRef.current;
@@ -217,12 +348,7 @@ export function usePushToTalk({
         return;
       }
 
-      if (
-        event.repeat ||
-        !isPushToTalkChord(platform, pressedCodes)
-      ) {
-        return;
-      }
+      if (event.repeat || !isPushToTalkChord(platform, pressedCodes)) return;
       event.preventDefault();
       void beginListening();
     };
@@ -253,8 +379,16 @@ export function usePushToTalk({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
+      cancel();
     };
   }, [beginListening, cancel, finishListening, platform]);
 
-  return { cancel, platform, status };
+  const visibleStatus =
+    !enabled || platform === 'unsupported'
+      ? 'unavailable'
+      : status === 'unavailable'
+        ? 'idle'
+        : status;
+
+  return { cancel, platform, status: visibleStatus };
 }

@@ -1,6 +1,10 @@
 # Conversational task execution
 
-Status: Proposed design. Runtime behavior is unchanged until this design is approved and implemented.
+Status: Approved design. The conversational contracts, runtime continuation,
+validated IPC, GPT Realtime planning, task-scoped CUA execution, voice/text
+routing, and interaction UI are implemented as a bounded vertical slice.
+Global companion controls, accessibility-first targeting, direct connectors,
+and app-specific independent verifiers remain phased work.
 
 ## Product outcome
 
@@ -31,15 +35,26 @@ This is not a long prerecorded click script. It is a bounded loop that observes 
 6. **Use the safest executor.** Prefer a direct API when available, then accessibility elements, then visual coordinates as a last resort.
 7. **Do not retry uncertain consequences.** If Send may have succeeded but verification is inconclusive, stop and ask the user instead of sending again.
 
-## Current gap
+## Current implementation boundary
 
 The current implementation supports:
 
 ```text
-voice or text -> submitTask -> compile GoalSpec -> ready
+voice or text -> compile GoalSpec -> user presses Start
+  -> start GPT Realtime + CUA task sessions
+  -> fresh screenshot -> one typed model decision -> host policy
+  -> one admitted action -> fresh screenshot -> verify or continue
 ```
 
-It does not yet start a CUA session or run an observe-act-verify loop. The cursor companion follows the physical pointer but has no task state, interaction surface, or authority to act. Voice capture is attached to the focused renderer, so the existing shortcut is unavailable while Gmail or another application has focus.
+The first slice uses desktop screenshots and coordinate actions when required.
+It does not yet prefer stable accessibility element handles or use a Gmail API.
+The main window yields the foreground before each observation and returns for a
+question, exact approval, completion, or safe stop, so interacting with TroCode
+does not leave its own approval screen covering the Gmail target.
+The cursor companion follows the physical pointer but still has no task-state
+interaction surface or authority of its own. Voice capture is attached to the
+focused renderer, so the existing shortcut is unavailable while Gmail or
+another application has focus.
 
 ## System shape
 
@@ -175,11 +190,10 @@ Each model turn returns one parsed decision, not arbitrary commands:
 
 ```ts
 type AgentDecision =
-  | { kind: 'propose_action'; action: ProposedAction; rationale: string }
-  | { kind: 'request_clarification'; question: string; choices?: string[] }
-  | { kind: 'verify_goal'; expectation: string }
-  | { kind: 'complete'; summary: string; evidence: string[] }
-  | { kind: 'blocked'; reason: string; recovery: string };
+  | { kind: 'action'; observationId: string; command: DesktopCommand; intent: string }
+  | { kind: 'ask_user'; prompt: string; choices?: string[] }
+  | { kind: 'complete'; summary: string }
+  | { kind: 'blocked'; reason: string };
 ```
 
 ## Goal revisions and task facts
@@ -355,17 +369,18 @@ This phase makes the conversation model real without granting desktop action aut
 - Add the configurable global toggle-to-talk shortcut and typed fallback.
 - Test focus changes, microphone denial, shortcut collision, and accessibility.
 
-### Phase 3: agent and policy loop
+### Phase 3: agent and policy loop — implemented vertical slice
 
 - Add the model-provider interface, structured decision schema, bounded context manager, and tool router.
 - Add exact single-use approval digests and approval UI.
-- Add goal revisions for scope-changing steering.
+- Queue steering at safe boundaries; immutable goal revisions for scope-changing
+  steering remain a hardening step.
 - Run deterministic simulations before connecting native actions.
 
-### Phase 4: CUA execution
+### Phase 4: CUA execution — implemented vertical slice
 
 - Add session, observation, action, and verification adapters behind `CuaService`.
-- Prefer accessibility targets and detect stale observations.
+- Prefer accessibility targets and detect stale observations. (Next hardening step.)
 - Add Gmail end-to-end evaluations, including ambiguous threads and unknown Send completion.
 - Enable actions gradually by capability and application allowlist.
 
@@ -395,4 +410,3 @@ The design is ready for broad use only when tests prove:
 - The agent observes after every navigation, click, submit, or focus change.
 - Direct integrations are preferred, while visible CUA remains available when needed.
 - The global microphone shortcut is a configurable toggle, never always-on listening.
-

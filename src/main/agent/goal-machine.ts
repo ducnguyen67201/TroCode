@@ -70,6 +70,7 @@ interface TransitionDetails {
   summary: string;
   nextActions?: string[];
   artifacts?: string[];
+  timestamp?: string;
 }
 
 export function isTerminalPhase(phase: TaskPhase): boolean {
@@ -89,7 +90,7 @@ export function transitionTask(
     throw new Error(`Invalid task transition: ${snapshot.phase} -> ${nextPhase}`);
   }
 
-  const timestamp = new Date().toISOString();
+  const timestamp = details.timestamp ?? new Date().toISOString();
   const lastEvent: TaskEvent = {
     eventId: randomUUID(),
     taskId: snapshot.taskId,

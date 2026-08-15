@@ -14,31 +14,54 @@ Crux influenced the separation of pure behavior from side effects, but it is not
 flowchart LR
     UI["React renderer"] -->|"DesktopApi only"| PRELOAD["Sandboxed preload"]
     PRELOAD -->|"validated IPC"| MAIN["Electron main"]
-    MAIN --> GOAL["Goal runtime"]
-    GOAL --> POLICY["Policy engine"]
-    MAIN --> CUA["CUA service"]
+    MAIN --> COORD["Execution coordinator"]
+    COORD --> GOAL["Goal runtime"]
+    COORD --> RT["GPT Realtime planner"]
+    COORD --> POLICY["Policy engine"]
+    COORD --> CUA["CUA service"]
     CUA --> NATIVE["Rust-backed native runtime"]
 ```
 
 ### Renderer
 
-The renderer owns presentation state. It can submit a request, cancel a task, subscribe to typed task events, inspect CUA status, and initiate permission onboarding. It has no direct system access.
+The renderer owns presentation state. It can submit a request, answer a pending clarification, decide an exact approval, queue steering, cancel a task, subscribe to typed task updates, inspect CUA status, and initiate permission onboarding. It has no direct system access.
 
 ### Preload
 
-The preload exposes exactly five operations through `contextBridge`. It parses inputs and outputs using shared Zod contracts. Raw `ipcRenderer` is never exposed.
+The preload exposes a fixed set of task and CUA operations through `contextBridge`. It parses inputs and outputs using shared Zod contracts. Raw `ipcRenderer` is never exposed.
 
 ### Main process
 
-The main process verifies the sending `webContents`, owns task state, hosts the CUA runtime, and controls application shutdown. Renderer navigation and new-window creation are denied.
+The main process verifies the sending `webContents`, owns task state, hosts GPT
+Realtime and CUA sessions, serializes execution, and controls application
+shutdown. Renderer navigation and new-window creation are denied. The API key
+and raw screenshots remain main-process-only.
 
 ### Goal runtime
 
-The current deterministic router establishes the contract before model integration. A future model-backed compiler may improve classification, but its output must parse as `GoalSpec` and pass the same policy checks.
+The current deterministic router establishes the contract before model integration. The runtime also owns task-scoped clarification and approval interactions, rejects stale or replayed responses, and resumes through observation rather than acting directly. A future model-backed compiler may improve classification, but its output must parse as `GoalSpec` and pass the same policy checks.
+
+### Execution coordinator and planner
+
+Starting a reviewed goal creates one `AbortController`, one GPT Realtime
+WebSocket, and one CUA session for that task. Every turn sends the latest
+bounded observation and screenshot to a single function tool. The returned
+decision is schema-parsed, policy-checked, and limited to one action before the
+screen is observed again. The main window hides before observation and returns
+for interactions or terminal states, preventing its own approval UI from
+covering the target application during revalidation. The model never receives
+a CUA handle and cannot grant approvals or widen scope.
 
 ### CUA service
 
-The CUA package is imported during startup. TroCode initializes the driver automatically when operating-system permissions are already granted. Permission prompts occur only after a user chooses **Connect computer** for first-run onboarding. Shutdown first stops native admission, then destroys the UniFFI handle.
+The CUA package is inspected during startup. On macOS, TroCode initializes the
+driver automatically only when Accessibility and Screen Recording have already
+been granted. **Connect computer** is the explicit permission-onboarding and
+recovery action. Internal methods
+start/end task sessions, capture desktop state, and dispatch typed clicks, text,
+keypresses, and scrolling. These methods are never exposed through `DesktopApi`.
+Shutdown cancels task loops and ends their sessions before stopping native
+admission and destroying the UniFFI handle.
 
 Packaged builds keep a small CUA dependency island under
 `app.asar.unpacked/cua-runtime`. CUA resolves its platform-specific `.node` and
