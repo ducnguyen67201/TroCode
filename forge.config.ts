@@ -19,6 +19,12 @@ import { mainConfig } from './webpack.main.config';
 import { rendererConfig } from './webpack.renderer.config';
 
 const CUA_RUNTIME_DIRECTORY = 'cua-runtime';
+const APP_ICON_BASENAME = path.resolve(
+  __dirname,
+  'src/assets/trocode-app-icon',
+);
+const APP_ICON_PNG = `${APP_ICON_BASENAME}.png`;
+const APP_ICON_ICO = `${APP_ICON_BASENAME}.ico`;
 
 function nativeCuaPackage(platform: ForgePlatform, arch: ForgeArch): string {
   if (arch !== 'arm64' && arch !== 'x64') {
@@ -60,9 +66,8 @@ async function stageCuaRuntime(
 
 const config: ForgeConfig = {
   packagerConfig: {
-    ...(process.platform === 'darwin'
-      ? { icon: path.resolve(__dirname, 'src/assets/trocode-app-icon.icns') }
-      : {}),
+    extraResource: APP_ICON_PNG,
+    icon: APP_ICON_BASENAME,
     // The CUA ESM package locates its native runtime relative to import.meta.url.
     // Keep this complete dependency island outside ASAR so both the JavaScript
     // loader and native libraries resolve to real filesystem paths.
@@ -81,7 +86,7 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({}),
+    new MakerSquirrel({ setupIcon: APP_ICON_ICO }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),

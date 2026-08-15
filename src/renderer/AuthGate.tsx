@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { AuthStatus } from '../shared/contracts';
 
 import { App } from './App';
+import { BrandMark } from './BrandMark';
 
 const EMPTY_AUTH_STATUS: AuthStatus = {
   state: 'signed_out',
@@ -25,9 +26,7 @@ function LoginScreen({
   return (
     <main className="auth-screen">
       <section className="auth-card" aria-labelledby="auth-heading">
-        <div className="auth-brand-mark" aria-hidden="true">
-          T
-        </div>
+        <BrandMark className="auth-brand-mark" />
         <p className="eyebrow">Welcome to TroCode</p>
         <h1 id="auth-heading">Your desktop agent, connected to you.</h1>
         <p className="auth-description">
@@ -121,7 +120,7 @@ export function AuthGate() {
     return (
       <main className="auth-screen" aria-live="polite">
         <div>
-          <div className="auth-loading-mark">T</div>
+          <BrandMark className="auth-loading-mark" />
           <span className="auth-status">Checking your Google session…</span>
         </div>
       </main>

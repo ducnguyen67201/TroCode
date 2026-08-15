@@ -1,5 +1,6 @@
 import type { CuaStatus } from '../shared/contracts';
 
+import { BrandMark } from './BrandMark';
 import {
   permissionStateLabel,
   type PermissionChecklist,
@@ -66,9 +67,7 @@ export function PermissionOnboarding({
   return (
     <main className="permission-onboarding">
       <div className="permission-onboarding__brand">
-        <div className="brand-mark" aria-hidden="true">
-          T
-        </div>
+        <BrandMark />
         <div>
           <strong>TroCode</strong>
           <span>Desktop agent</span>

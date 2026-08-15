@@ -195,11 +195,13 @@ function configureDock(): void {
   if (process.platform !== 'darwin' || !dock) return;
 
   void dock.show();
-  if (!app.isPackaged) {
-    dock.setIcon(
-      path.join(app.getAppPath(), 'src', 'assets', 'trocode-app-icon.png'),
-    );
-  }
+  dock.setIcon(runtimeAppIconPath());
+}
+
+function runtimeAppIconPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'trocode-app-icon.png')
+    : path.join(app.getAppPath(), 'src', 'assets', 'trocode-app-icon.png');
 }
 
 function revealWindow(window: BrowserWindow): void {
@@ -218,6 +220,7 @@ const createWindow = (): void => {
   const nextMainWindow = new BrowserWindow({
     backgroundColor: '#f3f3ef',
     height: 820,
+    icon: runtimeAppIconPath(),
     minHeight: 680,
     minWidth: 960,
     show: false,

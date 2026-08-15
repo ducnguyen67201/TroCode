@@ -10,6 +10,7 @@ import type {
   VoiceStatus,
 } from '../shared/contracts';
 
+import { BrandMark } from './BrandMark';
 import { getCompanionState } from './companion-state';
 import {
   createPermissionChecklist,
@@ -780,9 +781,7 @@ export function App({
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark" aria-hidden="true">
-            T
-          </div>
+          <BrandMark />
           <div>
             <strong>TroCode</strong>
             <span>Desktop agent</span>

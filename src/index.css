@@ -70,18 +70,12 @@ body {
 
 .auth-brand-mark,
 .auth-loading-mark {
-  display: grid;
+  display: block;
   width: 58px;
   height: 58px;
   margin: 0 auto 28px;
-  place-items: center;
-  border: 1px solid rgba(214, 170, 33, 0.55);
-  border-radius: 18px;
-  background: linear-gradient(145deg, rgba(242, 201, 76, 0.42), rgba(242, 201, 76, 0.12));
-  color: var(--accent-text);
-  font-size: 24px;
-  font-weight: 900;
-  box-shadow: 0 0 50px rgba(242, 201, 76, 0.2);
+  filter: drop-shadow(0 12px 24px rgba(94, 73, 5, 0.16));
+  object-fit: contain;
 }
 
 .auth-loading-mark {
@@ -739,15 +733,11 @@ textarea:focus-visible {
 }
 
 .brand-mark {
-  display: grid;
+  display: block;
+  flex: 0 0 auto;
   width: 34px;
   height: 34px;
-  place-items: center;
-  border: 1px solid rgba(214, 170, 33, 0.5);
-  border-radius: 11px;
-  background: linear-gradient(145deg, rgba(242, 201, 76, 0.42), rgba(242, 201, 76, 0.14));
-  color: var(--accent-text);
-  font-weight: 800;
+  object-fit: contain;
 }
 
 .brand > div:last-child,
