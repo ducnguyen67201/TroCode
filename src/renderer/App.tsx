@@ -534,7 +534,7 @@ export function App({
   );
 
   const sendInput = useCallback(
-    async (requestText = input) => {
+    async (requestText = input, source: 'typed' | 'voice' = 'typed') => {
       const normalizedRequest = requestText.trim();
       const minimumLength = pendingClarification || isSteering ? 1 : 2;
       if (
@@ -550,6 +550,10 @@ export function App({
       setIsSubmitting(true);
 
       try {
+        if (source === 'voice') {
+          await window.tro.recordVoiceTranscript({ text: normalizedRequest });
+        }
+
         let nextSnapshot: TaskSnapshot;
         if (pendingClarification && snapshot) {
           nextSnapshot = await window.tro.respondToInteraction({
@@ -673,7 +677,7 @@ export function App({
       permissionSetupComplete && voiceProviderStatus.state === 'ready',
     onError: setError,
     onTranscriptChange: setInput,
-    onTranscriptSubmit: (transcript) => void sendInput(transcript),
+    onTranscriptSubmit: (transcript) => void sendInput(transcript, 'voice'),
   });
   const companionState = getCompanionState({
     hasError:

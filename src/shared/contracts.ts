@@ -366,6 +366,10 @@ export const ConfigureVoiceRequestSchema = z.object({
     }),
 });
 
+export const RecordVoiceTranscriptRequestSchema = z.object({
+  text: z.string().trim().min(1).max(8_000),
+});
+
 export const VoiceSessionSchema = z.object({
   clientSecret: z.string().min(1).max(2_048),
   expiresAt: z.number().int().positive(),
@@ -406,6 +410,9 @@ export type GoalSpec = z.infer<typeof GoalSpecSchema>;
 export type InteractionMode = z.infer<typeof InteractionModeSchema>;
 export type PendingInteraction = z.infer<typeof PendingInteractionSchema>;
 export type ProposedAction = z.infer<typeof ProposedActionSchema>;
+export type RecordVoiceTranscriptRequest = z.infer<
+  typeof RecordVoiceTranscriptRequestSchema
+>;
 export type RespondToInteractionRequest = z.infer<
   typeof RespondToInteractionRequestSchema
 >;

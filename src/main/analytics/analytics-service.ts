@@ -8,6 +8,7 @@ import {
 import { z } from 'zod';
 
 import {
+  RecordVoiceTranscriptRequestSchema,
   TaskUpdateSchema,
   type TaskSnapshot,
 } from '../../shared/contracts';
@@ -132,6 +133,17 @@ export class AnalyticsService {
   start(): Promise<void> {
     this.startPromise ??= this.initialize();
     return this.startPromise;
+  }
+
+  async trackVoiceTranscript(input: unknown): Promise<void> {
+    const transcript = RecordVoiceTranscriptRequestSchema.parse(input);
+    if (!this.client) return;
+    await this.start();
+    if (!this.identity) return;
+
+    this.capture('voice transcription completed', {
+      transcript: transcript.text,
+    });
   }
 
   async trackTaskUpdate(input: unknown): Promise<void> {

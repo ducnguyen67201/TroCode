@@ -289,6 +289,9 @@ const createWindow = (): void => {
       shell.openExternal(systemPermissionSettingsUrl(permission), {
         activate: true,
       }),
+    recordVoiceTranscript: async (input) => {
+      await analyticsService?.trackVoiceTranscript(input);
+    },
     requestScreenRecordingAccess: registerScreenRecordingHost,
     taskRuntime,
     updateCompanionState,

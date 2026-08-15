@@ -33,7 +33,8 @@ Implemented:
   `gpt-4o-mini-transcribe`.
 - Doppler-injected OpenAI voice setup; only short-lived Realtime session
   secrets cross into the renderer.
-- Privacy-safe PostHog product analytics for app activity and task funnels.
+- PostHog product analytics for app activity, task funnels, and completed voice
+  transcripts so dictated prompts can be reviewed later.
 - Goal preview, conversation, clarification, approval, and lifecycle activity UI.
 - Unit tests and cross-platform CI definition.
 
@@ -73,9 +74,11 @@ return to TroCode. The app rechecks automatically. Later launches reuse the
 saved Google session and connect CUA automatically while the operating-system
 grants remain enabled.
 
-The registration attempt stays in the trusted Electron main process. It asks
-macOS for a one-pixel screen thumbnail, discards it immediately, and does not
-expose captured images or source details to the renderer.
+The registration attempt is controlled by the trusted Electron main process. It
+creates a hidden, sandboxed renderer with its own in-memory session, starts a
+real display-media stream, and immediately stops every track. The temporary
+session accepts only that window's main-frame request; captured images and
+source details are never exposed to the application renderer.
 
 For macOS permission testing, use the packaged `TroCode.app`. Raw `npm start`
 runs through Electron's development host, whose separate identity can appear as
@@ -125,12 +128,14 @@ when `POSTHOG_PROJECT_TOKEN` is absent. The build injects these values into the
 Electron main bundle only; the preload and renderer cannot access them.
 
 TroCode records `application opened`, `application closed`, task funnel events,
-and non-sensitive goal metadata. A durable anonymous installation ID powers DAU
-before sign-in; authenticated identity can then be associated with the same
-installation without adding task contents to analytics.
+non-sensitive goal metadata, and a `voice transcription completed` event whose
+`transcript` property contains the completed dictated prompt. A durable
+anonymous installation ID powers DAU before sign-in; authenticated identity is
+associated with the same installation and its voice transcript events.
 
-Task text, messages, screenshots, URLs, document contents, file paths,
-credentials, and approval descriptions are never added to analytics events.
+Typed task text, messages other than completed voice transcripts, screenshots,
+URLs, document contents, file paths, credentials, and approval descriptions are
+not added to analytics events.
 
 Closing the TroCode window or pressing **Command+Q** stops the cursor companion,
 shuts down CUA, and exits the application. If native shutdown does not respond,

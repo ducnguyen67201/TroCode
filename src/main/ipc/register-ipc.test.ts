@@ -43,6 +43,7 @@ function setup(authenticated: boolean): {
   callOrder: string[];
   openSystemPermissionSettings: ReturnType<typeof vi.fn>;
   requestScreenRecordingAccess: ReturnType<typeof vi.fn>;
+  recordVoiceTranscript: ReturnType<typeof vi.fn>;
   submit: ReturnType<typeof vi.fn>;
   unregister: () => void;
 } {
@@ -107,11 +108,13 @@ function setup(authenticated: boolean): {
   const requestScreenRecordingAccess = vi.fn(async () => {
     callOrder.push('register-screen');
   });
+  const recordVoiceTranscript = vi.fn(async () => undefined);
   const services = {
     authService,
     cuaService: { connect: cuaConnect, getStatus: cuaGetStatus },
     executionCoordinator,
     openSystemPermissionSettings,
+    recordVoiceTranscript,
     requestScreenRecordingAccess,
     taskRuntime,
     updateCompanionState: vi.fn(),
@@ -126,6 +129,7 @@ function setup(authenticated: boolean): {
     event,
     executionCoordinator,
     openSystemPermissionSettings,
+    recordVoiceTranscript,
     requestScreenRecordingAccess,
     submit,
     unregister: registerIpcHandlers(mainWindow, services),
@@ -162,6 +166,22 @@ describe('registerIpcHandlers auth boundary', () => {
       taskId: 'task-id',
     });
     expect(submit).toHaveBeenCalledWith({ text: 'Open YouTube' });
+    unregister();
+  });
+
+  it('validates and persists a completed voice transcript after authentication', async () => {
+    const { event, recordVoiceTranscript, unregister } = setup(true);
+    const handler = electronMock.handlers.get(
+      IPC_CHANNELS.recordVoiceTranscript,
+    );
+
+    expect(handler).toBeTypeOf('function');
+    await expect(
+      handler?.(event, { text: '  Open YouTube for me  ' }),
+    ).resolves.toBeUndefined();
+    expect(recordVoiceTranscript).toHaveBeenCalledWith({
+      text: 'Open YouTube for me',
+    });
     unregister();
   });
 

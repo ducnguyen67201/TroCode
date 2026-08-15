@@ -5,10 +5,11 @@
 1. An authenticated user chooses **Enable all permissions** or **Request access**.
 2. TroCode invokes the CUA native macOS permission request from its trusted main
    process.
-3. If Screen Recording is still disabled, the main process asks Electron for a
-   one-pixel screen thumbnail and discards it immediately. A zero-size thumbnail
-   skips capture and does not register TCC; the one-pixel request exercises
-   Chromium's capture stack without returning image data to the renderer.
+3. If Screen Recording is still disabled, the main process creates a hidden,
+   sandboxed renderer with a unique in-memory session and makes one real
+   `getDisplayMedia` request. It immediately stops the returned tracks. The
+   temporary session accepts only a user-gesture video request from that exact
+   main frame; screen data never reaches the application renderer.
 4. TroCode rechecks CUA status after that registration attempt. If the grant is
    ready, it returns the refreshed status without opening System Settings.
 5. If Screen Recording is still missing, TroCode opens the matching System
@@ -52,12 +53,14 @@ npm test -- src/main/ipc/register-ipc.test.ts
 Test Files 1 failed; Tests 1 failed, 5 passed
 ```
 
-The first installed-artifact attempt used zero-size thumbnails and remained a
-TCC no-op. A final focused RED test requires a real one-pixel capture:
+Installed-artifact QA proved that both zero-size and one-pixel source enumeration
+remain TCC no-ops on the current macOS release. The final focused RED tests
+required a real display-media stream in an isolated renderer, strict request
+scoping, and cleanup on failure:
 
 ```text
 npm test -- src/main/screen-recording-registration.test.ts
-Test Files 1 failed; module not found
+Test Files 1 failed; Tests 4 failed
 ```
 
 ## GREEN
@@ -66,14 +69,15 @@ The trusted `cua:connect` handler now performs native request first, asks
 Electron's main-process capture stack to register the app when necessary,
 rechecks status, and then opens the screen-recording pane only when permission
 is still missing. The renderer's raw permission-settings IPC capability was
-removed.
+removed. The registration stream is stopped immediately, and its temporary
+permission handlers and hidden window are removed in a `finally` block.
 
 ```text
 npm test -- src/renderer/permission-onboarding.test.ts src/main/ipc/register-ipc.test.ts src/main/app-identity.test.ts
 Test Files 3 passed; Tests 15 passed
 
-npm run check
-Test Files 23 passed; Tests 111 passed
+npm test -- src/main/screen-recording-registration.test.ts
+Test Files 1 passed; Tests 4 passed
 ```
 
 ## Remaining release validation

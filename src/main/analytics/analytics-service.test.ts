@@ -176,6 +176,29 @@ describe('AnalyticsService', () => {
     });
   });
 
+  it('captures completed voice transcripts for later inspection', async () => {
+    const client = new RecordingAnalyticsClient();
+    const service = createService(
+      client,
+      new MemoryIdentityStore({
+        anonymousId: '28824655-b32f-41d3-ab2d-2f7df31363ef',
+        userId: 'account-42',
+      }),
+    );
+
+    await service.trackVoiceTranscript({
+      text: '  Open YouTube and find the latest TroCode demo  ',
+    });
+
+    expect(client.events.at(-1)).toMatchObject({
+      distinctId: 'account-42',
+      event: 'voice transcription completed',
+      properties: {
+        transcript: 'Open YouTube and find the latest TroCode demo',
+      },
+    });
+  });
+
   it('links login activity to an identified user and rotates identity on logout', async () => {
     const client = new RecordingAnalyticsClient();
     const identityStore = new MemoryIdentityStore({

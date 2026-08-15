@@ -34,13 +34,19 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
 
 ## Sensitive data
 
-Screenshots, URLs, document text, file paths, and typed input may contain private data. Do not write them to analytics logs. Trajectory storage should be opt-in, encrypted locally, and have a clear retention policy.
+Screenshots, URLs, document text, file paths, and typed input may contain private
+data. Do not write them to analytics logs. Completed voice transcripts are the
+explicit exception: TroCode stores their text in PostHog so the team can review
+dictated prompts. Access and retention must be controlled in the PostHog
+project. Trajectory storage should be opt-in, encrypted locally, and have a
+clear retention policy.
 
 PostHog runs only in the trusted Electron main process. Its event surface is an
 explicit allowlist of application lifecycle, task lifecycle, platform, version,
-and compiled-goal classification fields. Anonymous activity uses a random local
-installation ID without a person profile. Email and display name are sent only
-after successful Google authentication.
+compiled-goal classification fields, and completed voice transcript text.
+Anonymous activity uses a random local installation ID without a person
+profile. Email and display name are sent only after successful Google
+authentication.
 
 Do not ship a shared model-provider API key inside the renderer or application
 bundle. Doppler injects the developer-owned OpenAI key into the Electron main

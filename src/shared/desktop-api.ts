@@ -5,6 +5,7 @@ import type {
   ConfigureVoiceRequest,
   CuaStatus,
   DecideApprovalRequest,
+  RecordVoiceTranscriptRequest,
   RespondToInteractionRequest,
   SteerTaskRequest,
   SubmitTaskRequest,
@@ -25,6 +26,7 @@ export const IPC_CHANNELS = {
   getComputerStatus: 'cua:status',
   getAuthStatus: 'auth:status',
   getVoiceStatus: 'voice:status',
+  recordVoiceTranscript: 'voice:record-transcript',
   respondToInteraction: 'task:respond',
   setCompanionState: 'companion:set-state',
   startTask: 'task:start',
@@ -45,6 +47,7 @@ export interface DesktopApi {
   getAuthStatus(): Promise<AuthStatus>;
   getVoiceStatus(): Promise<VoiceStatus>;
   onTaskUpdate(listener: (update: TaskUpdate) => void): () => void;
+  recordVoiceTranscript(request: RecordVoiceTranscriptRequest): Promise<void>;
   respondToInteraction(
     request: RespondToInteractionRequest,
   ): Promise<TaskSnapshot>;

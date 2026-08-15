@@ -8,6 +8,7 @@ import {
   ConfigureVoiceRequestSchema,
   CuaStatusSchema,
   DecideApprovalRequestSchema,
+  RecordVoiceTranscriptRequestSchema,
   RespondToInteractionRequestSchema,
   StartTaskRequestSchema,
   SteerTaskRequestSchema,
@@ -134,6 +135,11 @@ const desktopApi: DesktopApi = {
       IPC_CHANNELS.createVoiceSession,
     );
     return VoiceSessionSchema.parse(response);
+  },
+
+  async recordVoiceTranscript(input) {
+    const request = RecordVoiceTranscriptRequestSchema.parse(input);
+    await ipcRenderer.invoke(IPC_CHANNELS.recordVoiceTranscript, request);
   },
 
   async setCompanionState(input) {

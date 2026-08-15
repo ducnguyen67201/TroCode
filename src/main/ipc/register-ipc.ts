@@ -2,9 +2,11 @@ import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 
 import {
   CompanionStateSchema,
+  RecordVoiceTranscriptRequestSchema,
   TaskUpdateSchema,
   type AuthUser,
   type CompanionState,
+  type RecordVoiceTranscriptRequest,
   type SystemPermission,
 } from '../../shared/contracts';
 import { IPC_CHANNELS } from '../../shared/desktop-api';
@@ -23,6 +25,9 @@ interface IpcServices {
   openSystemPermissionSettings(
     permission: SystemPermission,
   ): Promise<unknown> | unknown;
+  recordVoiceTranscript(
+    input: RecordVoiceTranscriptRequest,
+  ): Promise<void> | void;
   requestScreenRecordingAccess(): Promise<unknown> | unknown;
   taskRuntime: TaskRuntime;
   updateCompanionState(state: CompanionState): void;
@@ -63,6 +68,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.getComputerStatus,
     IPC_CHANNELS.getAuthStatus,
     IPC_CHANNELS.getVoiceStatus,
+    IPC_CHANNELS.recordVoiceTranscript,
     IPC_CHANNELS.respondToInteraction,
     IPC_CHANNELS.setCompanionState,
     IPC_CHANNELS.startTask,
@@ -173,6 +179,15 @@ export function registerIpcHandlers(
     await assertAuthorizedSender(event, mainWindow, services.authService);
     return services.voiceService.createSession();
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.recordVoiceTranscript,
+    async (event, input: unknown) => {
+      await assertAuthorizedSender(event, mainWindow, services.authService);
+      const request = RecordVoiceTranscriptRequestSchema.parse(input);
+      await services.recordVoiceTranscript(request);
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.setCompanionState, (event, input: unknown) => {
     assertTrustedSender(event, mainWindow);
