@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { CuaStatus } from '../shared/contracts';
+
 import {
   createPermissionChecklist,
   inspectMicrophonePermission,
   isPermissionSetupComplete,
   permissionStateLabel,
+  shouldConnectAfterPermissionRefresh,
 } from './permission-onboarding';
 
 const READY_CUA_STATUS: CuaStatus = {
@@ -76,6 +78,27 @@ describe('permission onboarding', () => {
     expect(checklist.accessibility).toBe('not_required');
     expect(checklist.screenRecording).toBe('not_required');
     expect(permissionStateLabel(checklist.accessibility)).toBe('Not required');
+  });
+
+  it('auto-connects after the final macOS grant is detected', () => {
+    expect(
+      shouldConnectAfterPermissionRefresh({
+        ...READY_CUA_STATUS,
+        state: 'disconnected',
+        available: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldConnectAfterPermissionRefresh({
+        ...READY_CUA_STATUS,
+        state: 'permission_required',
+        available: false,
+        permissions: {
+          accessibility: true,
+          screenRecording: false,
+        },
+      }),
+    ).toBe(false);
   });
 
   it('reads microphone permission without starting a recording', async () => {

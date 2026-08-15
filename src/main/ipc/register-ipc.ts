@@ -3,6 +3,7 @@ import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import {
   CompanionStateSchema,
   TaskUpdateSchema,
+  type AuthUser,
   type CompanionState,
 } from '../../shared/contracts';
 import { IPC_CHANNELS } from '../../shared/desktop-api';
@@ -16,6 +17,8 @@ interface IpcServices {
   authService: GoogleAuthService;
   cuaService: CuaService;
   executionCoordinator: TaskExecutionCoordinator;
+  onAuthSignedIn?(user: AuthUser): Promise<void> | void;
+  onAuthSignedOut?(): Promise<void> | void;
   taskRuntime: TaskRuntime;
   updateCompanionState(state: CompanionState): void;
   voiceService: VoiceService;
@@ -71,14 +74,18 @@ export function registerIpcHandlers(
     return services.authService.getStatus();
   });
 
-  ipcMain.handle(IPC_CHANNELS.signInWithGoogle, (event) => {
+  ipcMain.handle(IPC_CHANNELS.signInWithGoogle, async (event) => {
     assertTrustedSender(event, mainWindow);
-    return services.authService.signIn();
+    const status = await services.authService.signIn();
+    if (status.user) await services.onAuthSignedIn?.(status.user);
+    return status;
   });
 
-  ipcMain.handle(IPC_CHANNELS.signOutGoogle, (event) => {
+  ipcMain.handle(IPC_CHANNELS.signOutGoogle, async (event) => {
     assertTrustedSender(event, mainWindow);
-    return services.authService.signOut();
+    const status = await services.authService.signOut();
+    await services.onAuthSignedOut?.();
+    return status;
   });
 
   ipcMain.handle(IPC_CHANNELS.submitTask, async (event, input: unknown) => {

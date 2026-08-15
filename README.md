@@ -16,6 +16,10 @@ Implemented:
 - Structured pending interactions and exact, single-use approval decisions.
 - Task steering queued for goal review at the next safe execution boundary.
 - Capability, resource-scope, and approval policy evaluation.
+- Native Google OAuth sign-in with Authorization Code + PKCE, verified identity
+  claims, and an operating-system-encrypted one-time local session.
+- A post-login permission checklist for Microphone, Accessibility, and Screen
+  Recording that automatically rechecks when TroCode regains focus.
 - Automatic CUA initialization after explicit first-run permission onboarding.
 - Task-scoped CUA sessions with bounded screenshots, typed clicks, text entry,
   keypresses, scrolling, and session cleanup.
@@ -60,26 +64,31 @@ npm install
 npm start
 ```
 
-On first launch, choose **Connect computer**, then approve the macOS
-Accessibility and Screen Recording prompts. Later launches connect
-automatically once both permissions are granted.
+On first launch, sign in with Google, then use the one-time permission screen to
+enable Microphone, Accessibility, and Screen Recording. TroCode moves into the
+workspace only after every required grant is ready. When macOS opens System
+Settings, return to TroCode and it will recheck automatically. Later launches
+reuse the saved Google session and connect CUA automatically while the operating
+system grants remain enabled.
 
 ### Environment and Doppler
 
-The default `npm start` command runs Electron through Doppler, then uses npm to
-resolve the project-local Electron Forge executable. This workspace is linked
-to the `tro-app` project and `dev` config. Add the OpenAI key once without
-putting it in shell history:
+The default `npm start` command runs Electron through the `tro-app` project and
+`dev` config in Doppler, then uses npm to resolve the project-local Electron
+Forge executable. The project and config are explicit in the script, so startup
+does not depend on a machine-local Doppler selection. Configure these values:
 
 ```bash
-doppler secrets set OPENAI_API_KEY
+doppler secrets set OPENAI_API_KEY GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET GOOGLE_OAUTH_PROJECT_ID
 npm start
 ```
 
 Paste the value at Doppler's prompt, then enter a line containing only `.`.
-Doppler injects `OPENAI_API_KEY` into the Electron main process at runtime, so
-the voice card connects automatically and the long-lived key never enters the
-renderer or the webpack bundle.
+Doppler injects the values while Electron Forge builds and starts the app. The
+OpenAI key and Google tokens stay main-process-only. A desktop OAuth client
+secret is public-client configuration rather than an authorization credential;
+the user session itself is encrypted with Electron `safeStorage` and never
+crosses into the renderer.
 
 For a machine that is not linked yet, run:
 
@@ -100,9 +109,8 @@ Electron main bundle only; the preload and renderer cannot access them.
 
 TroCode records `application opened`, `application closed`, task funnel events,
 and non-sensitive goal metadata. A durable anonymous installation ID powers DAU
-before authentication exists. Once an account flow is added, call
-`AnalyticsService.identifyUser(...)` after successful authentication and
-`AnalyticsService.resetUser()` on logout to associate activity with that user.
+before sign-in; authenticated identity can then be associated with the same
+installation without adding task contents to analytics.
 
 Task text, messages, screenshots, URLs, document contents, file paths,
 credentials, and approval descriptions are never added to analytics events.
@@ -147,6 +155,8 @@ npm run package
 ```
 
 `npm run make` generates a distributable for the current operating system. Production distribution still requires Apple notarization and Windows code signing.
+Use `npm run package:doppler` when validating a package with the Google OAuth
+client configuration injected into the main bundle.
 
 CUA installs a native package for the host OS and CPU, so build each release on
 its target operating system. During packaging, TroCode stages the CUA JavaScript
@@ -159,6 +169,7 @@ native-library resolution in the packaged application.
 React renderer
   -> typed preload API
     -> trusted Electron IPC
+      -> Google OAuth service / encrypted local session
       -> goal runtime / policy engine
       -> GPT Realtime visual planner (one typed decision per observation)
       -> PostHog analytics service (allowlisted metadata only)

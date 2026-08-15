@@ -14,6 +14,7 @@ Crux influenced the separation of pure behavior from side effects, but it is not
 flowchart LR
     UI["React renderer"] -->|"DesktopApi only"| PRELOAD["Sandboxed preload"]
     PRELOAD -->|"validated IPC"| MAIN["Electron main"]
+    MAIN --> AUTH["Google OAuth + encrypted session"]
     MAIN --> COORD["Execution coordinator"]
     COORD --> GOAL["Goal runtime"]
     COORD --> RT["GPT Realtime planner"]
@@ -24,7 +25,12 @@ flowchart LR
 
 ### Renderer
 
-The renderer owns presentation state. It can submit a request, answer a pending clarification, decide an exact approval, queue steering, cancel a task, subscribe to typed task updates, inspect CUA status, and initiate permission onboarding. It has no direct system access.
+The renderer owns presentation state. It gates the workspace behind Google
+sign-in and a required post-login permission checklist, then can submit a
+request, answer a pending clarification, decide an exact approval, queue
+steering, cancel a task, subscribe to typed task updates, inspect CUA status,
+and initiate permission onboarding. It has no direct system access and never
+receives OAuth tokens.
 
 ### Preload
 
@@ -32,10 +38,11 @@ The preload exposes a fixed set of task and CUA operations through `contextBridg
 
 ### Main process
 
-The main process verifies the sending `webContents`, owns task state, hosts GPT
-Realtime and CUA sessions, serializes execution, and controls application
-shutdown. Renderer navigation and new-window creation are denied. The API key
-and raw screenshots remain main-process-only.
+The main process verifies the sending `webContents`, enforces a signed-in
+session on task, voice, and CUA IPC, owns task state, hosts GPT Realtime and CUA
+sessions, serializes execution, and controls application shutdown. Renderer
+navigation and new-window creation are denied. OAuth tokens, the API key, and
+raw screenshots remain main-process-only.
 
 ### Goal runtime
 
@@ -56,8 +63,10 @@ a CUA handle and cannot grant approvals or widen scope.
 
 The CUA package is inspected during startup. On macOS, TroCode initializes the
 driver automatically only when Accessibility and Screen Recording have already
-been granted. **Connect computer** is the explicit permission-onboarding and
-recovery action. Internal methods
+been granted. After sign-in, a dedicated onboarding gate requests Microphone,
+Accessibility, and Screen Recording, reports each grant independently, and
+rechecks when the application regains focus. The workspace remains unavailable
+until required permissions and the driver are ready. Internal methods
 start/end task sessions, capture desktop state, and dispatch typed clicks, text,
 keypresses, and scrolling. These methods are never exposed through `DesktopApi`.
 Shutdown cancels task loops and ends their sessions before stopping native

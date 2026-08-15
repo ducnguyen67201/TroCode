@@ -5,6 +5,7 @@ import path from 'node:path';
 import { z } from 'zod';
 
 import { AuthUserSchema } from '../../shared/contracts';
+
 import type { AuthSession, AuthSessionStore } from './google-auth-service';
 
 const SESSION_FILE_NAME = 'google-auth-session.enc';

@@ -1,4 +1,5 @@
 import type { CuaStatus } from '../shared/contracts';
+
 import {
   permissionStateLabel,
   type PermissionChecklist,
@@ -144,7 +145,8 @@ export function PermissionOnboarding({
 
         <p className="permission-onboarding__note" role="status">
           macOS may open System Settings. Enable TroCode there, then return to
-          this window—we’ll check again automatically.
+          this window—we’ll check and connect automatically. Screen Recording
+          may require restarting TroCode once.
         </p>
       </section>
     </main>

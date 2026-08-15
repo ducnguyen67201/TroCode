@@ -16,6 +16,7 @@ import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-sto
 import { VoiceService } from './main/voice/voice-service';
 import {
   TaskUpdateSchema,
+  type AuthUser,
   type CompanionState,
   type TaskSnapshot,
 } from './shared/contracts';
@@ -93,6 +94,15 @@ function sendCompanionState(): void {
 function updateCompanionState(state: CompanionState): void {
   companionState = state;
   sendCompanionState();
+}
+
+async function identifyAnalyticsUser(user: AuthUser): Promise<void> {
+  await analyticsService?.identifyUser({
+    email: user.email,
+    loginMethod: 'oauth',
+    name: user.name,
+    userId: user.id,
+  });
 }
 
 function finishShutdown(exitCode: number): void {
@@ -228,6 +238,8 @@ const createWindow = (): void => {
     authService,
     cuaService,
     executionCoordinator,
+    onAuthSignedIn: identifyAnalyticsUser,
+    onAuthSignedOut: async () => analyticsService?.resetUser(),
     taskRuntime,
     updateCompanionState,
     voiceService,
@@ -356,6 +368,8 @@ void app.whenReady().then(async () => {
     analyticsService.start(),
     cuaService.connectIfPermitted(),
   ]);
+  const authStatus = await authService.getStatus();
+  if (authStatus.user) await identifyAnalyticsUser(authStatus.user);
   createWindow();
   createCompanionWindow();
 });

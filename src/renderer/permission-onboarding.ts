@@ -72,6 +72,21 @@ export function isPermissionSetupComplete(
   );
 }
 
+export function shouldConnectAfterPermissionRefresh(
+  computerStatus: CuaStatus,
+): boolean {
+  if (computerStatus.state !== 'disconnected') return false;
+  if (computerStatus.platform === 'darwin') {
+    return (
+      computerStatus.permissions?.accessibility === true &&
+      computerStatus.permissions.screenRecording === true
+    );
+  }
+  return (
+    computerStatus.platform === 'win32' || computerStatus.platform === 'linux'
+  );
+}
+
 export function permissionStateLabel(state: PermissionState): string {
   switch (state) {
     case 'blocked':

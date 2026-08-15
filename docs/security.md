@@ -12,9 +12,18 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
 
 ## Default behavior
 
+- Google sign-in opens in the system browser and uses a random loopback port,
+  state, nonce, and PKCE. The main process verifies the ID token signature,
+  issuer, audience, timestamps, nonce, and verified-email claim.
+- The renderer receives only an allowlisted user ID, email, display name, and
+  sign-in status. OAuth codes and tokens never cross the preload boundary. The
+  saved session is encrypted through Electron `safeStorage`; sign-out deletes
+  it.
 - On macOS, launch checks Accessibility and Screen Recording state without
-  prompting. **Connect computer** is the explicit permission-onboarding action;
-  later launches initialize automatically once both grants exist.
+  prompting. After authentication, a dedicated onboarding gate explicitly
+  requests Microphone, Accessibility, and Screen Recording and blocks the
+  workspace until the grants and CUA runtime are ready. Later launches
+  initialize automatically while the operating-system grants remain enabled.
 - No task executes merely because it was described as a question.
 - `guide` mode observes and explains; it does not act.
 - Consequential actions require explicit approval.
@@ -31,7 +40,7 @@ PostHog runs only in the trusted Electron main process. Its event surface is an
 explicit allowlist of application lifecycle, task lifecycle, platform, version,
 and compiled-goal classification fields. Anonymous activity uses a random local
 installation ID without a person profile. Email and display name are sent only
-when a future authenticated account flow explicitly calls the identify hook.
+after successful Google authentication.
 
 Do not ship a shared model-provider API key inside the renderer or application
 bundle. Doppler injects the developer-owned OpenAI key into the Electron main

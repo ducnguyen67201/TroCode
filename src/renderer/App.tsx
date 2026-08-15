@@ -15,6 +15,7 @@ import {
   createPermissionChecklist,
   inspectMicrophonePermission,
   isPermissionSetupComplete,
+  shouldConnectAfterPermissionRefresh,
   type PermissionState,
 } from './permission-onboarding';
 import { PermissionOnboarding } from './PermissionOnboarding';
@@ -380,10 +381,18 @@ export function App({
     setIsCheckingPermissions(true);
 
     try {
-      const [nextComputerStatus, nextMicrophonePermission] = await Promise.all([
-        window.tro.getComputerStatus(),
-        inspectMicrophonePermission(),
-      ]);
+      const [observedComputerStatus, nextMicrophonePermission] =
+        await Promise.all([
+          window.tro.getComputerStatus(),
+          inspectMicrophonePermission(),
+        ]);
+      if (permissionRefreshIdRef.current !== refreshId) return;
+
+      const nextComputerStatus = shouldConnectAfterPermissionRefresh(
+        observedComputerStatus,
+      )
+        ? await window.tro.connectComputer()
+        : observedComputerStatus;
       if (permissionRefreshIdRef.current !== refreshId) return;
 
       setComputerStatus(nextComputerStatus);
@@ -439,13 +448,13 @@ export function App({
 
   useEffect(() => {
     const handleWindowFocus = (): void => {
-      void refreshPermissions();
+      queueMicrotask(() => void refreshPermissions());
     };
     const handleVisibilityChange = (): void => {
       if (document.visibilityState === 'visible') void refreshPermissions();
     };
 
-    void refreshPermissions();
+    queueMicrotask(() => void refreshPermissions());
     window.addEventListener('focus', handleWindowFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AuthUser } from '../../shared/contracts';
+
 import {
   GoogleAuthService,
   type AuthSession,

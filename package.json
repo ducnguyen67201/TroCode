@@ -9,6 +9,7 @@
     "start": "doppler run --project tro-app --config dev -- npm exec -- electron-forge start",
     "start:local": "electron-forge start",
     "package": "electron-forge package",
+    "package:doppler": "doppler run --project tro-app --config dev -- npm exec -- electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
