@@ -34,6 +34,9 @@ function setup(authenticated: boolean): {
     signOut: ReturnType<typeof vi.fn>;
   };
   event: unknown;
+  executionCoordinator: {
+    cancelActiveTasks: ReturnType<typeof vi.fn>;
+  };
   submit: ReturnType<typeof vi.fn>;
   unregister: () => void;
 } {
@@ -69,10 +72,13 @@ function setup(authenticated: boolean): {
     on: vi.fn(),
     submit,
   };
+  const executionCoordinator = {
+    cancelActiveTasks: vi.fn(() => []),
+  };
   const services = {
     authService,
     cuaService: {},
-    executionCoordinator: {},
+    executionCoordinator,
     taskRuntime,
     updateCompanionState: vi.fn(),
     voiceService: {},
@@ -81,6 +87,7 @@ function setup(authenticated: boolean): {
   return {
     authService,
     event,
+    executionCoordinator,
     submit,
     unregister: registerIpcHandlers(mainWindow, services),
   };
@@ -116,6 +123,18 @@ describe('registerIpcHandlers auth boundary', () => {
       taskId: 'task-id',
     });
     expect(submit).toHaveBeenCalledWith({ text: 'Open YouTube' });
+    unregister();
+  });
+
+  it('cancels active execution before signing out', async () => {
+    const { event, executionCoordinator, unregister } = setup(true);
+    const handler = electronMock.handlers.get(IPC_CHANNELS.signOutGoogle);
+
+    await expect(handler?.(event)).resolves.toMatchObject({
+      state: 'signed_out',
+      user: null,
+    });
+    expect(executionCoordinator.cancelActiveTasks).toHaveBeenCalledOnce();
     unregister();
   });
 });

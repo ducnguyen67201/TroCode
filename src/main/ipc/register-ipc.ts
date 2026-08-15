@@ -83,6 +83,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.signOutGoogle, async (event) => {
     assertTrustedSender(event, mainWindow);
+    services.executionCoordinator.cancelActiveTasks();
     const status = await services.authService.signOut();
     await services.onAuthSignedOut?.();
     return status;

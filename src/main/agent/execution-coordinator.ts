@@ -135,6 +135,10 @@ export class TaskExecutionCoordinator {
     return snapshot;
   }
 
+  cancelActiveTasks(): TaskSnapshot[] {
+    return [...this.contexts.keys()].map((taskId) => this.cancel({ taskId }));
+  }
+
   async waitForIdle(taskId: string): Promise<void> {
     await this.contexts.get(taskId)?.running;
   }
