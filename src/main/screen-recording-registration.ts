@@ -10,8 +10,34 @@ const START_AND_STOP_CAPTURE_SCRIPT = `
       audio: false,
       video: true,
     });
-    for (const track of stream.getTracks()) track.stop();
-    return true;
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.srcObject = stream;
+
+    try {
+      await video.play();
+      await new Promise((resolve) => {
+        let finished = false;
+        let fallbackTimer;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          clearTimeout(fallbackTimer);
+          resolve(undefined);
+        };
+        fallbackTimer = setTimeout(finish, 750);
+        if (typeof video.requestVideoFrameCallback === 'function') {
+          video.requestVideoFrameCallback(finish);
+        } else {
+          video.addEventListener('loadeddata', finish, { once: true });
+        }
+      });
+      return true;
+    } finally {
+      video.srcObject = null;
+      for (const track of stream.getTracks()) track.stop();
+    }
   })()
 `;
 

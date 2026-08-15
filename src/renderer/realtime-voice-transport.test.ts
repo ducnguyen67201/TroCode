@@ -6,6 +6,7 @@ import {
   closeRealtimeVoiceTransport,
   isRealtimeVoiceTransportReady,
   openRealtimeVoiceTransport,
+  readOutboundAudioStats,
 } from './realtime-voice-transport';
 
 const SESSION: VoiceSession = {
@@ -36,7 +37,15 @@ class FakePeerConnection extends EventTarget {
 
   readonly order: string[] = [];
 
+  microphoneTrack: MediaStreamTrack | null = null;
+
   readonly replaceTrack = vi.fn(async () => undefined);
+
+  addTrack(track: MediaStreamTrack): RTCRtpSender {
+    this.order.push('add-track');
+    this.microphoneTrack = track;
+    return { replaceTrack: this.replaceTrack } as unknown as RTCRtpSender;
+  }
 
   addTransceiver(): RTCRtpTransceiver {
     this.order.push('add-transceiver');
@@ -120,6 +129,66 @@ describe('realtime voice transport', () => {
         status: 200,
       },
     );
+  });
+
+  it('negotiates a supplied microphone track in the initial SDP offer', async () => {
+    const connection = new FakePeerConnection();
+    const diagnosticLogger = vi.fn();
+    const microphoneTrack = { kind: 'audio' } as MediaStreamTrack;
+
+    await openRealtimeVoiceTransport(SESSION, {
+      audioTrack: microphoneTrack,
+      createPeerConnection: () =>
+        connection as unknown as RTCPeerConnection,
+      diagnosticLogger,
+      fetchImpl: vi.fn<typeof fetch>(async () => new Response('answer')),
+    });
+
+    expect(connection.microphoneTrack).toBe(microphoneTrack);
+    expect(connection.order).toEqual([
+      'create-data-channel',
+      'add-track',
+      'create-offer',
+      'set-local-description',
+      'set-remote-description',
+    ]);
+    expect(diagnosticLogger).toHaveBeenCalledWith('transport.create', {
+      audioTrackAttached: true,
+      expiresAt: SESSION.expiresAt,
+      model: SESSION.model,
+    });
+  });
+
+  it('reports outbound audio packets and bytes for commit diagnostics', async () => {
+    const sender = {
+      getStats: vi.fn(async () => ({
+        forEach: (callback: (stats: RTCStats) => void): void => {
+          callback({
+            bytesSent: 4_096,
+            id: 'audio-outbound',
+            kind: 'audio',
+            packetsSent: 12,
+            ssrc: 1,
+            timestamp: 1_000,
+            type: 'outbound-rtp',
+          } as RTCOutboundRtpStreamStats);
+          callback({
+            bytesSent: 8_192,
+            id: 'video-outbound',
+            kind: 'video',
+            packetsSent: 24,
+            ssrc: 2,
+            timestamp: 1_000,
+            type: 'outbound-rtp',
+          } as RTCOutboundRtpStreamStats);
+        },
+      })),
+    } as unknown as RTCRtpSender;
+
+    await expect(readOutboundAudioStats(sender)).resolves.toEqual({
+      bytesSent: 4_096,
+      packetsSent: 12,
+    });
   });
 
   it('closes the prepared transport when OpenAI rejects the SDP offer', async () => {

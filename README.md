@@ -76,9 +76,10 @@ grants remain enabled.
 
 The registration attempt is controlled by the trusted Electron main process. It
 creates a hidden, sandboxed renderer with its own in-memory session, starts a
-real display-media stream, and immediately stops every track. The temporary
-session accepts only that window's main-frame request; captured images and
-source details are never exposed to the application renderer.
+real display-media stream, waits for its first frame (or a short bounded
+fallback), and then stops every track. The temporary session accepts only that
+window's main-frame request; captured images and source details are never
+exposed to the application renderer.
 
 For macOS permission testing, use the packaged `TroCode.app`. Raw `npm start`
 runs through Electron's development host, whose separate identity can appear as
@@ -86,10 +87,11 @@ runs through Electron's development host, whose separate identity can appear as
 The packaged application uses the stable bundle identifier
 `com.trocode.desktop`; production releases must keep that identifier and use a
 consistent Apple signing identity so macOS can preserve grants across updates.
-Local packages fall back to an ad-hoc signature so they remain launchable. Set
-`TROCODE_MACOS_SIGNING_IDENTITY` to the installed Developer ID Application
-certificate name for distributable macOS builds; those builds retain hardened
-runtime signing.
+Local packages fall back to an ad-hoc signature so they remain launchable, but
+an ad-hoc build is not an authoritative test of automatic TCC registration or
+grant persistence. Set `TROCODE_MACOS_SIGNING_IDENTITY` to the installed
+Developer ID Application certificate name for distributable macOS builds;
+those builds retain hardened runtime signing and a stable code requirement.
 
 ### Environment and Doppler
 

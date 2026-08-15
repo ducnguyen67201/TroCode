@@ -4,6 +4,7 @@ import {
   detectPushToTalkPlatform,
   isPushToTalkChord,
   parseRealtimeTranscriptionEvent,
+  realtimeTranscriptionErrorMessage,
   pushToTalkShortcutName,
   readRecognitionTranscript,
   speechRecognitionErrorMessage,
@@ -89,5 +90,35 @@ describe('parseRealtimeTranscriptionEvent', () => {
     expect(
       parseRealtimeTranscriptionEvent(JSON.stringify({ type: 'session.created' })),
     ).toBeNull();
+  });
+
+  it('preserves provider error codes for voice diagnostics', () => {
+    expect(
+      parseRealtimeTranscriptionEvent(
+        JSON.stringify({
+          type: 'error',
+          error: {
+            code: 'input_audio_buffer_commit_empty',
+            message: 'Input audio buffer is too small.',
+          },
+        }),
+      ),
+    ).toEqual({
+      code: 'input_audio_buffer_commit_empty',
+      message: 'Input audio buffer is too small.',
+      type: 'error',
+    });
+  });
+
+  it('turns an empty provider buffer into an actionable local message', () => {
+    expect(
+      realtimeTranscriptionErrorMessage(
+        'input_audio_buffer_commit_empty',
+        'Error committing input audio buffer: buffer too small.',
+        'macos',
+      ),
+    ).toBe(
+      'Microphone audio did not reach OpenAI. Hold Command + Control, speak, then release.',
+    );
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   getVirtualDisplayBounds,
+  interpolateCompanionPosition,
   placeCompanionInOverlay,
   placeCompanionNearCursor,
   shouldUseCompanionOverlay,
@@ -60,5 +61,21 @@ describe('cursor companion placement', () => {
     expect(shouldUseCompanionOverlay('win32')).toBe(true);
     expect(shouldUseCompanionOverlay('darwin')).toBe(false);
     expect(shouldUseCompanionOverlay('linux')).toBe(false);
+  });
+
+  it('glides between positions with clamped ease-out movement', () => {
+    expect(
+      interpolateCompanionPosition({ x: 100, y: 200 }, { x: 500, y: 600 }, 0),
+    ).toEqual({ x: 100, y: 200 });
+    expect(
+      interpolateCompanionPosition(
+        { x: 100, y: 200 },
+        { x: 500, y: 600 },
+        0.5,
+      ),
+    ).toEqual({ x: 450, y: 550 });
+    expect(
+      interpolateCompanionPosition({ x: 100, y: 200 }, { x: 500, y: 600 }, 2),
+    ).toEqual({ x: 500, y: 600 });
   });
 });

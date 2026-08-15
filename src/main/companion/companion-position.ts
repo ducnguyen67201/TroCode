@@ -13,12 +13,30 @@ export interface Size {
   width: number;
 }
 
+function clampUnit(value: number): number {
+  return clamp(value, 0, 1);
+}
+
 export function shouldUseCompanionOverlay(platform: string): boolean {
   return platform === 'win32';
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
+}
+
+export function interpolateCompanionPosition(
+  from: Point,
+  to: Point,
+  progress: number,
+): Point {
+  const normalizedProgress = clampUnit(progress);
+  const easedProgress = 1 - Math.pow(1 - normalizedProgress, 3);
+
+  return {
+    x: Math.round(from.x + (to.x - from.x) * easedProgress),
+    y: Math.round(from.y + (to.y - from.y) * easedProgress),
+  };
 }
 
 export function placeCompanionNearCursor(

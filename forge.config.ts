@@ -113,6 +113,13 @@ const config: ForgeConfig = {
   plugins: [
     new AutoUnpackNativesPlugin({}),
     new WebpackPlugin({
+      devContentSecurityPolicy: [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-eval' 'unsafe-inline' data:",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "connect-src 'self' https://api.openai.com ws://localhost:* http://localhost:*",
+      ].join('; '),
       loggerPort: 9100,
       mainConfig,
       port: 3010,

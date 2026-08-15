@@ -51,10 +51,12 @@ It does not yet prefer stable accessibility element handles or use a Gmail API.
 The main window yields the foreground before each observation and returns for a
 question, exact approval, completion, or safe stop, so interacting with TroCode
 does not leave its own approval screen covering the Gmail target.
-The cursor companion follows the physical pointer but still has no task-state
-interaction surface or authority of its own. Voice capture is attached to the
-focused renderer, so the existing shortcut is unavailable while Gmail or
-another application has focus.
+The cursor companion follows the physical pointer while idle. After policy and
+any exact approval admit a coordinate action, it glides to that action target
+without moving the real pointer, then returns to pointer-following when TroCode
+needs the user. It still has no task-state interaction surface or authority of
+its own. Voice capture is attached to the focused renderer, so the existing
+shortcut is unavailable while Gmail or another application has focus.
 
 ## System shape
 

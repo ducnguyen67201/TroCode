@@ -9,7 +9,13 @@ export interface RealtimeVoiceTransport {
   sender: RTCRtpSender;
 }
 
-interface RealtimeVoiceTransportDependencies {
+export interface OutboundAudioStats {
+  bytesSent: number;
+  packetsSent: number;
+}
+
+export interface RealtimeVoiceTransportDependencies {
+  audioTrack?: MediaStreamTrack;
   createPeerConnection?: () => RTCPeerConnection;
   diagnosticLogger?: VoiceDiagnosticLogger;
   fetchImpl?: typeof fetch;
@@ -27,7 +33,7 @@ type VoiceDiagnosticLogger = (
 
 const SECRET_PATTERN = /\b(?:ek|sk)[-_][a-z0-9._-]+/gi;
 
-function defaultVoiceDiagnosticLogger(
+export function logRealtimeVoiceDiagnostic(
   event: string,
   properties: VoiceDiagnosticProperties = {},
 ): void {
@@ -36,6 +42,23 @@ function defaultVoiceDiagnosticLogger(
       ? ` ${JSON.stringify(properties)}`
       : '';
   console.info(`[voice:renderer] ${event}${details}`);
+}
+
+export async function readOutboundAudioStats(
+  sender: RTCRtpSender,
+): Promise<OutboundAudioStats> {
+  const report = await sender.getStats();
+  const totals: OutboundAudioStats = { bytesSent: 0, packetsSent: 0 };
+
+  report.forEach((stats: RTCStats) => {
+    if (stats.type !== 'outbound-rtp') return;
+    const outbound = stats as RTCOutboundRtpStreamStats;
+    if (outbound.kind !== 'audio') return;
+    totals.bytesSent += outbound.bytesSent ?? 0;
+    totals.packetsSent += outbound.packetsSent ?? 0;
+  });
+
+  return totals;
 }
 
 function diagnosticErrorProperties(
@@ -107,20 +130,20 @@ export function isRealtimeVoiceTransportReady(
 export async function openRealtimeVoiceTransport(
   session: VoiceSession,
   {
+    audioTrack,
     createPeerConnection = () => new RTCPeerConnection(),
-    diagnosticLogger = defaultVoiceDiagnosticLogger,
+    diagnosticLogger = logRealtimeVoiceDiagnostic,
     fetchImpl = fetch,
   }: RealtimeVoiceTransportDependencies = {},
 ): Promise<RealtimeVoiceTransport> {
   const connection = createPeerConnection();
   const channel = connection.createDataChannel('oai-events');
-  // Negotiate an audio sender without attaching a microphone track. A real
-  // track is installed only while push-to-talk is actively held.
-  const sender = connection.addTransceiver('audio', {
-    direction: 'sendonly',
-  }).sender;
+  const sender = audioTrack
+    ? connection.addTrack(audioTrack)
+    : connection.addTransceiver('audio', { direction: 'sendonly' }).sender;
   const transport = { channel, connection, sender };
   diagnosticLogger('transport.create', {
+    audioTrackAttached: Boolean(audioTrack),
     expiresAt: session.expiresAt,
     model: session.model,
   });
