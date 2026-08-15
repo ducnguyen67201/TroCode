@@ -7,6 +7,15 @@ import type {
   TaskSnapshot,
 } from '../shared/contracts';
 
+import {
+  pushToTalkShortcutName,
+  type PushToTalkPlatform,
+} from './push-to-talk';
+import {
+  usePushToTalk,
+  type VoiceInputStatus,
+} from './use-push-to-talk';
+
 const EXAMPLE_TASKS = [
   'Open YouTube for me',
   'Show me how to organize my Downloads folder',
@@ -24,6 +33,41 @@ const EMPTY_COMPUTER_STATUS: CuaStatus = {
 
 function formatLabel(value: string): string {
   return value.replaceAll('_', ' ');
+}
+
+function voiceStatusMessage(
+  status: VoiceInputStatus,
+  platform: PushToTalkPlatform,
+): string {
+  switch (status) {
+    case 'listening':
+      return 'Listening… Release either key to send.';
+    case 'processing':
+      return 'Finishing transcript…';
+    case 'requesting_permission':
+      return 'Waiting for microphone access…';
+    case 'unavailable':
+      return 'Voice recognition is unavailable. Type your request instead.';
+    case 'idle':
+      return `Hold ${pushToTalkShortcutName(platform)} to talk.`;
+  }
+}
+
+function VoiceShortcut({ platform }: { platform: PushToTalkPlatform }) {
+  if (platform === 'unsupported') return null;
+
+  const keys = platform === 'windows' ? ['Left Alt', 'Left Ctrl'] : ['⌘', '⌃'];
+
+  return (
+    <span
+      className="voice-shortcut"
+      aria-label={pushToTalkShortcutName(platform)}
+    >
+      <kbd>{keys[0]}</kbd>
+      <span aria-hidden="true">+</span>
+      <kbd>{keys[1]}</kbd>
+    </span>
+  );
 }
 
 function ComputerStatus({
@@ -175,15 +219,19 @@ export function App() {
     [snapshot],
   );
 
-  const submitTask = useCallback(async () => {
-    if (!canSubmit) return;
+  const submitTask = useCallback(async (requestText = input) => {
+    const normalizedRequest = requestText.trim();
+    if (normalizedRequest.length < 2 || isSubmitting) return;
 
     setError(null);
     setEvents([]);
     setIsSubmitting(true);
+    setInput(normalizedRequest);
 
     try {
-      const nextSnapshot = await window.tro.submitTask({ text: input });
+      const nextSnapshot = await window.tro.submitTask({
+        text: normalizedRequest,
+      });
       setSnapshot(nextSnapshot);
     } catch (submitError) {
       setError(
@@ -194,7 +242,14 @@ export function App() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [canSubmit, input]);
+  }, [input, isSubmitting]);
+
+  const { platform: voicePlatform, status: voiceStatus } = usePushToTalk({
+    disabled: isSubmitting,
+    onError: setError,
+    onTranscriptChange: setInput,
+    onTranscriptSubmit: (transcript) => void submitTask(transcript),
+  });
 
   const connectComputer = useCallback(async () => {
     setError(null);
@@ -293,6 +348,14 @@ export function App() {
               }}
             >
               <label htmlFor="task-request">Describe the outcome</label>
+              <div
+                aria-live="polite"
+                className={`voice-status voice-status--${voiceStatus}`}
+              >
+                <span className="voice-indicator" aria-hidden="true" />
+                <span>{voiceStatusMessage(voiceStatus, voicePlatform)}</span>
+                <VoiceShortcut platform={voicePlatform} />
+              </div>
               <textarea
                 id="task-request"
                 onChange={(event) => setInput(event.target.value)}

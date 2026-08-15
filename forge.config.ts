@@ -66,6 +66,10 @@ const config: ForgeConfig = {
     asar: {
       unpackDir: CUA_RUNTIME_DIRECTORY,
     },
+    extendInfo: {
+      NSMicrophoneUsageDescription:
+        'TroCode uses the microphone while you hold Command and Control for voice input.',
+    },
   },
   hooks: {
     packageAfterCopy: async (_forgeConfig, buildPath, _version, platform, arch) => {
@@ -82,7 +86,9 @@ const config: ForgeConfig = {
   plugins: [
     new AutoUnpackNativesPlugin({}),
     new WebpackPlugin({
+      loggerPort: 9100,
       mainConfig,
+      port: 3010,
       renderer: {
         config: rendererConfig,
         entryPoints: [

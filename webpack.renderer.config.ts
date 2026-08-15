@@ -8,6 +8,11 @@ rules.push({
   use: [{ loader: 'style-loader' }, { loader: 'css-loader' }],
 });
 
+rules.push({
+  test: /\.(png|jpe?g|webp)$/i,
+  type: 'asset/resource',
+});
+
 export const rendererConfig: Configuration = {
   module: {
     rules,

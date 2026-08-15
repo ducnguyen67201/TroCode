@@ -40,6 +40,12 @@ The current deterministic router establishes the contract before model integrati
 
 The CUA package is imported lazily. Permission prompts occur only after a user chooses **Connect computer**. Shutdown first stops native admission, then destroys the UniFFI handle.
 
+Packaged builds keep a small CUA dependency island under
+`app.asar.unpacked/cua-runtime`. CUA resolves its platform-specific `.node` and
+shared-library files relative to its ESM entry point, so keeping the complete
+island on the real filesystem avoids development-path leaks and ASAR loader
+failures. Each macOS or Windows release must be built on its matching target.
+
 ## Future backend
 
 A cloud backend is optional and should not operate the desktop directly. It may provide authentication, model-provider credential isolation, policy synchronization, billing, and encrypted task synchronization. The desktop remains the authority for local approvals and native actions.

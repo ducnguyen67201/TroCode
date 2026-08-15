@@ -14,6 +14,7 @@ Implemented:
 - Typed task lifecycle with guarded transitions.
 - Capability, resource-scope, and approval policy evaluation.
 - Lazy CUA native runtime discovery and explicit permission onboarding.
+- Platform-specific, focused-window push-to-talk voice transcription.
 - Goal preview and lifecycle activity UI.
 - Unit tests and cross-platform CI definition.
 
@@ -42,6 +43,12 @@ npm start
 
 Choose **Connect computer** in the application when you are ready to grant desktop permissions. TroCode does not request those permissions during startup.
 
+With the TroCode window focused, hold **Command + Control** on macOS or the
+physical **left Alt + left Control** keys on Windows. Release either key to
+finish the transcript and submit it through the same bounded task pipeline as
+typed input. Voice currently reaches the deterministic goal compiler;
+model-provider integration is still planned.
+
 ## Quality checks
 
 ```bash
@@ -51,6 +58,11 @@ npm run package
 ```
 
 `npm run make` generates a distributable for the current operating system. Production distribution still requires Apple notarization and Windows code signing.
+
+CUA installs a native package for the host OS and CPU, so build each release on
+its target operating system. During packaging, TroCode stages the CUA JavaScript
+SDK and native libraries together outside ASAR; this preserves CUA's relative
+native-library resolution in the packaged application.
 
 ## Architecture
 
