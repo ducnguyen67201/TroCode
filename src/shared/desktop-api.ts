@@ -3,15 +3,18 @@ import type {
   CompanionPosition,
   CompanionState,
   ConfigureVoiceRequest,
+  CreateVoiceCallRequest,
   CuaStatus,
   DecideApprovalRequest,
   RecordVoiceTranscriptRequest,
   RespondToInteractionRequest,
   SteerTaskRequest,
   SubmitTaskRequest,
+  SystemPermission,
   TaskSnapshot,
   TaskUpdate,
-  VoiceSession,
+  VoiceCallAnswer,
+  VoiceDiagnostic,
   VoiceStatus,
 } from './contracts';
 
@@ -21,12 +24,14 @@ export const IPC_CHANNELS = {
   companionStateChanged: 'companion:state-changed',
   configureVoice: 'voice:configure',
   connectComputer: 'cua:connect',
-  createVoiceSession: 'voice:create-session',
+  createVoiceCall: 'voice:create-call',
   decideApproval: 'task:decide-approval',
   getComputerStatus: 'cua:status',
   getAuthStatus: 'auth:status',
   getVoiceStatus: 'voice:status',
+  openSystemPermissionSettings: 'system:open-permission-settings',
   recordVoiceTranscript: 'voice:record-transcript',
+  reportVoiceDiagnostic: 'voice:diagnostic',
   respondToInteraction: 'task:respond',
   setCompanionState: 'companion:set-state',
   startTask: 'task:start',
@@ -41,13 +46,15 @@ export interface DesktopApi {
   cancelTask(taskId: string): Promise<TaskSnapshot>;
   configureVoice(request: ConfigureVoiceRequest): Promise<VoiceStatus>;
   connectComputer(): Promise<CuaStatus>;
-  createVoiceSession(): Promise<VoiceSession>;
+  createVoiceCall(request: CreateVoiceCallRequest): Promise<VoiceCallAnswer>;
   decideApproval(request: DecideApprovalRequest): Promise<TaskSnapshot>;
   getComputerStatus(): Promise<CuaStatus>;
   getAuthStatus(): Promise<AuthStatus>;
   getVoiceStatus(): Promise<VoiceStatus>;
   onTaskUpdate(listener: (update: TaskUpdate) => void): () => void;
+  openSystemPermissionSettings(permission: SystemPermission): Promise<void>;
   recordVoiceTranscript(request: RecordVoiceTranscriptRequest): Promise<void>;
+  reportVoiceDiagnostic(diagnostic: VoiceDiagnostic): Promise<void>;
   respondToInteraction(
     request: RespondToInteractionRequest,
   ): Promise<TaskSnapshot>;

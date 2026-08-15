@@ -62,7 +62,7 @@ const EMPTY_COMPUTER_STATUS: CuaStatus = {
 const EMPTY_VOICE_STATUS: VoiceStatus = {
   state: 'not_configured',
   provider: 'openai',
-  model: 'gpt-4o-mini-transcribe',
+  model: 'gpt-realtime-whisper',
   summary: 'Checking the OpenAI voice connection…',
 };
 

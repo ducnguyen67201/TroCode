@@ -41,6 +41,7 @@ function setup(authenticated: boolean): {
   cuaConnect: ReturnType<typeof vi.fn>;
   cuaGetStatus: ReturnType<typeof vi.fn>;
   callOrder: string[];
+  createVoiceCall: ReturnType<typeof vi.fn>;
   openSystemPermissionSettings: ReturnType<typeof vi.fn>;
   requestScreenRecordingAccess: ReturnType<typeof vi.fn>;
   recordVoiceTranscript: ReturnType<typeof vi.fn>;
@@ -108,6 +109,9 @@ function setup(authenticated: boolean): {
   const requestScreenRecordingAccess = vi.fn(async () => {
     callOrder.push('register-screen');
   });
+  const createVoiceCall = vi.fn(async () => ({
+    answerSdp: 'v=0\r\nanswer',
+  }));
   const recordVoiceTranscript = vi.fn(async () => undefined);
   const services = {
     authService,
@@ -118,12 +122,13 @@ function setup(authenticated: boolean): {
     requestScreenRecordingAccess,
     taskRuntime,
     updateCompanionState: vi.fn(),
-    voiceService: {},
+    voiceService: { createCall: createVoiceCall },
   } as unknown as Parameters<typeof registerIpcHandlers>[1];
 
   return {
     authService,
     callOrder,
+    createVoiceCall,
     cuaConnect,
     cuaGetStatus,
     event,
@@ -182,6 +187,26 @@ describe('registerIpcHandlers auth boundary', () => {
     expect(recordVoiceTranscript).toHaveBeenCalledWith({
       text: 'Open YouTube for me',
     });
+    unregister();
+  });
+
+  it('routes realtime voice calls through the main process after authentication', async () => {
+    const { createVoiceCall, event, unregister } = setup(true);
+    const handler = electronMock.handlers.get(IPC_CHANNELS.createVoiceCall);
+
+    await expect(
+      handler?.(event, { offerSdp: 'v=0\r\noffer' }),
+    ).resolves.toEqual({ answerSdp: 'v=0\r\nanswer' });
+    expect(createVoiceCall).toHaveBeenCalledWith({
+      offerSdp: 'v=0\r\noffer',
+    });
+    unregister();
+  });
+
+  it('does not expose legacy voice client-secret sessions to the renderer', () => {
+    const { unregister } = setup(true);
+
+    expect(electronMock.handlers.has('voice:create-session')).toBe(false);
     unregister();
   });
 
@@ -285,6 +310,41 @@ describe('registerIpcHandlers auth boundary', () => {
     expect(cuaGetStatus).not.toHaveBeenCalled();
     expect(requestScreenRecordingAccess).not.toHaveBeenCalled();
     expect(openSystemPermissionSettings).not.toHaveBeenCalled();
+    unregister();
+  });
+
+  it('logs sanitized voice diagnostics from the trusted renderer', async () => {
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    const { event, unregister } = setup(false);
+    const handler = electronMock.handlers.get(
+      IPC_CHANNELS.reportVoiceDiagnostic,
+    );
+
+    expect(handler).toBeDefined();
+    expect(
+      handler?.(event, {
+        error: {
+          message: 'Failed to fetch',
+          name: 'TypeError',
+        },
+        step: 'realtime_call',
+      }),
+    ).toBeUndefined();
+
+    expect(consoleError).toHaveBeenCalledWith(
+      '[voice] OpenAI Realtime connection failed.',
+      {
+        error: {
+          message: 'Failed to fetch',
+          name: 'TypeError',
+        },
+        step: 'realtime_call',
+      },
+    );
+
+    consoleError.mockRestore();
     unregister();
   });
 });

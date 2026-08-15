@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { beginPushToTalkAttemptIfValid } from './use-push-to-talk';
+import {
+  beginPushToTalkAttemptIfValid,
+  logVoiceConnectionFailure,
+  voiceConnectionErrorMessage,
+} from './use-push-to-talk';
 
 describe('push-to-talk attempt lifecycle', () => {
   it('clears stale UI state when a valid attempt begins', () => {
@@ -37,5 +41,33 @@ describe('push-to-talk attempt lifecycle', () => {
       ),
     ).toBe(false);
     expect(onAttemptStart).not.toHaveBeenCalled();
+  });
+});
+
+describe('voice connection diagnostics', () => {
+  it('turns renderer fetch failures into an actionable voice message', () => {
+    expect(voiceConnectionErrorMessage(new TypeError('Failed to fetch'))).toBe(
+      'TroCode could not reach OpenAI voice. Check network access to api.openai.com and try again.',
+    );
+  });
+
+  it('logs the failed voice connection step without exposing secrets', () => {
+    const error = new TypeError('Failed to fetch');
+    const logger = {
+      error: vi.fn(),
+    };
+
+    logVoiceConnectionFailure('realtime_call', error, logger);
+
+    expect(logger.error).toHaveBeenCalledWith(
+      '[voice] OpenAI Realtime connection failed.',
+      {
+        error: {
+          message: 'Failed to fetch',
+          name: 'TypeError',
+        },
+        step: 'realtime_call',
+      },
+    );
   });
 });

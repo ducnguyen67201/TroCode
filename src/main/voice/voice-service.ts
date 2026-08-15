@@ -2,15 +2,17 @@ import { z } from 'zod';
 
 import {
   ConfigureVoiceRequestSchema,
-  VoiceSessionSchema,
+  CreateVoiceCallRequestSchema,
+  VoiceCallAnswerSchema,
   VoiceStatusSchema,
-  type VoiceSession,
+  type VoiceCallAnswer,
   type VoiceStatus,
 } from '../../shared/contracts';
 
 const OPENAI_REALTIME_CLIENT_SECRETS_URL =
   'https://api.openai.com/v1/realtime/client_secrets';
-const VOICE_MODEL = 'gpt-4o-mini-transcribe' as const;
+const OPENAI_REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
+const VOICE_MODEL = 'gpt-realtime-whisper' as const;
 const CLIENT_SECRET_TTL_SECONDS = 60;
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -32,13 +34,6 @@ export interface VoiceCredentialStore {
   write(apiKey: string): Promise<void>;
 }
 
-interface VoiceServiceOptions {
-  credentialStore: VoiceCredentialStore;
-  diagnosticLogger?: VoiceDiagnosticLogger;
-  environmentApiKey?: string;
-  fetchImpl?: typeof fetch;
-}
-
 type VoiceDiagnosticProperties = Record<
   string,
   string | number | boolean
@@ -48,6 +43,14 @@ type VoiceDiagnosticLogger = (
   event: string,
   properties?: VoiceDiagnosticProperties,
 ) => void;
+
+interface VoiceServiceOptions {
+  credentialStore: VoiceCredentialStore;
+  diagnosticLogger?: VoiceDiagnosticLogger;
+  environmentApiKey?: string;
+  fetchImpl?: typeof fetch;
+  logger?: Pick<Console, 'error'>;
+}
 
 const SECRET_PATTERN = /\b(?:ek|sk)[-_][a-z0-9._-]+/gi;
 
@@ -84,6 +87,65 @@ function readyStatus(): VoiceStatus {
   });
 }
 
+function transcriptionSessionConfig(): Record<string, unknown> {
+  return {
+    type: 'transcription',
+    audio: {
+      input: {
+        noise_reduction: { type: 'far_field' },
+        transcription: {
+          model: VOICE_MODEL,
+        },
+        turn_detection: null,
+      },
+    },
+  };
+}
+
+function errorCode(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null || !('code' in value)) {
+    return undefined;
+  }
+
+  const code = (value as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+function serializeVoiceError(error: unknown): {
+  cause?: { code?: string; message: string; name?: string };
+  message: string;
+  name?: string;
+} {
+  if (!(error instanceof Error)) {
+    return { message: String(error) };
+  }
+
+  const serialized: {
+    cause?: { code?: string; message: string; name?: string };
+    message: string;
+    name?: string;
+  } = {
+    message: error.message,
+    name: error.name,
+  };
+
+  const cause = error.cause;
+  if (cause instanceof Error) {
+    serialized.cause = {
+      code: errorCode(cause),
+      message: cause.message,
+      name: cause.name,
+    };
+  } else if (cause !== undefined) {
+    serialized.cause = {
+      code: errorCode(cause),
+      message: String(cause),
+    };
+  }
+
+  return serialized;
+}
+
 export class VoiceService {
   private readonly credentialStore: VoiceCredentialStore;
 
@@ -93,16 +155,20 @@ export class VoiceService {
 
   private readonly fetchImpl: typeof fetch;
 
+  private readonly logger: Pick<Console, 'error'>;
+
   constructor({
     credentialStore,
     diagnosticLogger = defaultVoiceDiagnosticLogger,
     environmentApiKey = process.env.OPENAI_API_KEY,
     fetchImpl = fetch,
+    logger = console,
   }: VoiceServiceOptions) {
     this.credentialStore = credentialStore;
     this.diagnosticLogger = diagnosticLogger;
     this.environmentApiKey = environmentApiKey?.trim() || undefined;
     this.fetchImpl = fetchImpl;
+    this.logger = logger;
   }
 
   async getStatus(): Promise<VoiceStatus> {
@@ -141,23 +207,24 @@ export class VoiceService {
 
     // Validate model access before persisting the credential. The returned
     // short-lived secret is intentionally discarded.
-    await this.requestClientSecret(apiKey);
+    await this.validateRealtimeAccess(apiKey);
     await this.credentialStore.write(apiKey);
     this.diagnosticLogger('configure.ready');
     return readyStatus();
   }
 
-  async createSession(): Promise<VoiceSession> {
-    this.diagnosticLogger('session.create-start');
+  async createCall(input: unknown): Promise<VoiceCallAnswer> {
+    this.diagnosticLogger('call.create-start');
     const apiKey = await this.readApiKey();
     if (!apiKey) {
-      this.diagnosticLogger('session.missing-credential');
+      this.diagnosticLogger('call.missing-credential');
       throw new Error(
         'OPENAI_API_KEY is missing from Doppler. Add it and restart TroCode.',
       );
     }
 
-    return this.requestClientSecret(apiKey);
+    const { offerSdp } = CreateVoiceCallRequestSchema.parse(input);
+    return this.requestRealtimeCall(apiKey, offerSdp);
   }
 
   private async readApiKey(): Promise<string | null> {
@@ -175,7 +242,7 @@ export class VoiceService {
     return storedApiKey;
   }
 
-  private async requestClientSecret(apiKey: string): Promise<VoiceSession> {
+  private async validateRealtimeAccess(apiKey: string): Promise<void> {
     this.diagnosticLogger('client-secret.request-start', {
       model: VOICE_MODEL,
       timeoutMs: REQUEST_TIMEOUT_MS,
@@ -193,18 +260,7 @@ export class VoiceService {
             anchor: 'created_at',
             seconds: CLIENT_SECRET_TTL_SECONDS,
           },
-          session: {
-            type: 'transcription',
-            audio: {
-              input: {
-                noise_reduction: { type: 'far_field' },
-                transcription: {
-                  model: VOICE_MODEL,
-                },
-                turn_detection: null,
-              },
-            },
-          },
+          session: transcriptionSessionConfig(),
         }),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
@@ -244,15 +300,81 @@ export class VoiceService {
       throw new Error(detail || 'OpenAI rejected the voice connection.');
     }
 
-    const secret = OpenAIClientSecretResponseSchema.parse(responseBody);
+    OpenAIClientSecretResponseSchema.parse(responseBody);
     this.diagnosticLogger('client-secret.ready', {
-      expiresAt: secret.expires_at,
       model: VOICE_MODEL,
     });
-    return VoiceSessionSchema.parse({
-      clientSecret: secret.value,
-      expiresAt: secret.expires_at,
+  }
+
+  private async requestRealtimeCall(
+    apiKey: string,
+    offerSdp: string,
+  ): Promise<VoiceCallAnswer> {
+    this.diagnosticLogger('call.request-start', {
       model: VOICE_MODEL,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+    });
+    const formData = new FormData();
+    formData.set('sdp', offerSdp);
+    formData.set('session', JSON.stringify(transcriptionSessionConfig()));
+
+    let response: Response;
+    try {
+      response = await this.fetchImpl(OPENAI_REALTIME_CALLS_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: formData,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (error) {
+      this.diagnosticLogger(
+        'call.request-failed',
+        diagnosticErrorProperties(error),
+      );
+      this.logger.error('[voice] OpenAI Realtime call request failed.', {
+        error: serializeVoiceError(error),
+      });
+      throw new Error(
+        error instanceof Error && error.name === 'TimeoutError'
+          ? 'OpenAI voice connection timed out.'
+          : 'TroCode could not reach OpenAI voice.',
+        { cause: error },
+      );
+    }
+
+    this.diagnosticLogger('call.response', {
+      ok: response.ok,
+      status: response.status,
+    });
+
+    const responseText = await response.text();
+    if (!response.ok) {
+      let responseBody: unknown;
+      try {
+        responseBody = JSON.parse(responseText);
+      } catch {
+        responseBody = null;
+      }
+
+      const apiError = OpenAIErrorResponseSchema.safeParse(responseBody);
+      const detail = apiError.success
+        ? apiError.data.error?.message
+        : undefined;
+      this.diagnosticLogger('call.rejected', {
+        status: response.status,
+      });
+      throw new Error(
+        detail || 'OpenAI rejected the realtime voice connection.',
+      );
+    }
+
+    this.diagnosticLogger('call.ready', {
+      model: VOICE_MODEL,
+    });
+    return VoiceCallAnswerSchema.parse({
+      answerSdp: responseText,
     });
   }
 }

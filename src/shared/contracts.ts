@@ -339,7 +339,7 @@ export const SystemPermissionSchema = z.enum([
 export const VoiceStatusSchema = z.object({
   state: z.enum(['not_configured', 'ready', 'unavailable', 'error']),
   provider: z.literal('openai'),
-  model: z.literal('gpt-4o-mini-transcribe'),
+  model: z.literal('gpt-realtime-whisper'),
   summary: z.string().min(1),
 });
 
@@ -370,10 +370,27 @@ export const RecordVoiceTranscriptRequestSchema = z.object({
   text: z.string().trim().min(1).max(8_000),
 });
 
-export const VoiceSessionSchema = z.object({
-  clientSecret: z.string().min(1).max(2_048),
-  expiresAt: z.number().int().positive(),
-  model: z.literal('gpt-4o-mini-transcribe'),
+export const CreateVoiceCallRequestSchema = z.object({
+  offerSdp: z.string().min(1).max(200_000),
+});
+
+export const VoiceCallAnswerSchema = z.object({
+  answerSdp: z.string().min(1).max(200_000),
+});
+
+export const VoiceDiagnosticSchema = z.object({
+  error: z.object({
+    message: z.string().min(1).max(2_000),
+    name: z.string().min(1).max(200).optional(),
+  }),
+  step: z.enum([
+    'client_session',
+    'data_channel',
+    'microphone',
+    'peer_connection',
+    'realtime_call',
+    'remote_description',
+  ]),
 });
 
 export const AuthUserSchema = z.object({
@@ -397,6 +414,9 @@ export type CompanionPosition = z.infer<typeof CompanionPositionSchema>;
 export type CompanionState = z.infer<typeof CompanionStateSchema>;
 export type ConfigureVoiceRequest = z.infer<
   typeof ConfigureVoiceRequestSchema
+>;
+export type CreateVoiceCallRequest = z.infer<
+  typeof CreateVoiceCallRequestSchema
 >;
 export type CuaStatus = z.infer<typeof CuaStatusSchema>;
 export type ConsumeApprovalGrantRequest = z.infer<
@@ -427,5 +447,6 @@ export type TaskMessage = z.infer<typeof TaskMessageSchema>;
 export type TaskPhase = z.infer<typeof TaskPhaseSchema>;
 export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>;
 export type TaskUpdate = z.infer<typeof TaskUpdateSchema>;
-export type VoiceSession = z.infer<typeof VoiceSessionSchema>;
+export type VoiceCallAnswer = z.infer<typeof VoiceCallAnswerSchema>;
+export type VoiceDiagnostic = z.infer<typeof VoiceDiagnosticSchema>;
 export type VoiceStatus = z.infer<typeof VoiceStatusSchema>;
