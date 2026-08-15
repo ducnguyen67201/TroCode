@@ -96,8 +96,8 @@ For a machine that is not linked yet, run:
 doppler setup --project tro-app --config dev
 ```
 
-Use `npm run start:local` only when intentionally testing with an ignored
-`.env.local` or `.env` file. Copy `.env.example` as the starting template; never
+All normal start and release scripts run through the explicit Doppler
+`tro-app/dev` configuration. Copy `.env.example` only as a reference; never
 commit a populated environment file.
 
 ### Product analytics
@@ -154,9 +154,10 @@ npm run test:coverage
 npm run package
 ```
 
-`npm run make` generates a distributable for the current operating system. Production distribution still requires Apple notarization and Windows code signing.
-Use `npm run package:doppler` when validating a package with the Google OAuth
-client configuration injected into the main bundle.
+`npm run make` generates a distributable for the current operating system. The
+start, package, make, and publish scripts all inject Doppler configuration.
+Production distribution still requires Apple notarization and Windows code
+signing.
 
 CUA installs a native package for the host OS and CPU, so build each release on
 its target operating system. During packaging, TroCode stages the CUA JavaScript

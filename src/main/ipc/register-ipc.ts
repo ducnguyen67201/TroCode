@@ -2,9 +2,11 @@ import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 
 import {
   CompanionStateSchema,
+  SystemPermissionSchema,
   TaskUpdateSchema,
   type AuthUser,
   type CompanionState,
+  type SystemPermission,
 } from '../../shared/contracts';
 import { IPC_CHANNELS } from '../../shared/desktop-api';
 import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
@@ -19,6 +21,9 @@ interface IpcServices {
   executionCoordinator: TaskExecutionCoordinator;
   onAuthSignedIn?(user: AuthUser): Promise<void> | void;
   onAuthSignedOut?(): Promise<void> | void;
+  openSystemPermissionSettings(
+    permission: SystemPermission,
+  ): Promise<unknown> | unknown;
   taskRuntime: TaskRuntime;
   updateCompanionState(state: CompanionState): void;
   voiceService: VoiceService;
@@ -58,6 +63,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.getComputerStatus,
     IPC_CHANNELS.getAuthStatus,
     IPC_CHANNELS.getVoiceStatus,
+    IPC_CHANNELS.openSystemPermissionSettings,
     IPC_CHANNELS.respondToInteraction,
     IPC_CHANNELS.setCompanionState,
     IPC_CHANNELS.startTask,
@@ -134,6 +140,16 @@ export function registerIpcHandlers(
     await assertAuthorizedSender(event, mainWindow, services.authService);
     return services.cuaService.connect();
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.openSystemPermissionSettings,
+    async (event, input: unknown) => {
+      await assertAuthorizedSender(event, mainWindow, services.authService);
+      await services.openSystemPermissionSettings(
+        SystemPermissionSchema.parse(input),
+      );
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.getVoiceStatus, async (event) => {
     await assertAuthorizedSender(event, mainWindow, services.authService);

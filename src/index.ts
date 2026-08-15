@@ -12,6 +12,7 @@ import { LocalOAuthBrowserFlow } from './main/auth/local-oauth-browser-flow';
 import { placeCompanionNearCursor } from './main/companion/companion-position';
 import { CuaService } from './main/cua/cua-service';
 import { registerIpcHandlers } from './main/ipc/register-ipc';
+import { systemPermissionSettingsUrl } from './main/system-permission-settings';
 import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-store';
 import { VoiceService } from './main/voice/voice-service';
 import {
@@ -215,7 +216,7 @@ const createWindow = (): void => {
   }
 
   const nextMainWindow = new BrowserWindow({
-    backgroundColor: '#0d1117',
+    backgroundColor: '#f3f3ef',
     height: 820,
     minHeight: 680,
     minWidth: 960,
@@ -240,6 +241,10 @@ const createWindow = (): void => {
     executionCoordinator,
     onAuthSignedIn: identifyAnalyticsUser,
     onAuthSignedOut: async () => analyticsService?.resetUser(),
+    openSystemPermissionSettings: async (permission) =>
+      shell.openExternal(systemPermissionSettingsUrl(permission), {
+        activate: true,
+      }),
     taskRuntime,
     updateCompanionState,
     voiceService,

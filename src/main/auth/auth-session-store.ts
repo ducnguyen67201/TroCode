@@ -33,27 +33,29 @@ export class EncryptedAuthSessionStore implements AuthSessionStore {
       throw error;
     }
 
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) {
       throw new Error('Operating-system credential encryption is unavailable.');
     }
 
-    const decrypted = safeStorage.decryptString(
+    const decrypted = await safeStorage.decryptStringAsync(
       Buffer.from(encoded, 'base64'),
     );
-    return StoredAuthSessionSchema.parse(JSON.parse(decrypted));
+    const session = StoredAuthSessionSchema.parse(JSON.parse(decrypted.result));
+    if (decrypted.shouldReEncrypt) await this.write(session);
+    return session;
   }
 
   async write(session: AuthSession): Promise<void> {
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) {
       throw new Error('Operating-system credential encryption is unavailable.');
     }
 
     const validated = StoredAuthSessionSchema.parse(session);
     const destination = sessionPath();
     await mkdir(path.dirname(destination), { recursive: true });
-    const encrypted = safeStorage
-      .encryptString(JSON.stringify(validated))
-      .toString('base64');
+    const encrypted = (
+      await safeStorage.encryptStringAsync(JSON.stringify(validated))
+    ).toString('base64');
     await writeFile(destination, encrypted, { encoding: 'utf8', mode: 0o600 });
   }
 

@@ -720,6 +720,19 @@ export function App({
     }
   }, []);
 
+  const openScreenRecordingSettings = useCallback(async () => {
+    setPermissionError(null);
+    try {
+      await window.tro.openSystemPermissionSettings('screen_recording');
+    } catch (settingsError) {
+      setPermissionError(
+        settingsError instanceof Error
+          ? settingsError.message
+          : 'TroCode could not open Screen Recording settings.',
+      );
+    }
+  }, []);
+
   const startTask = useCallback(async () => {
     if (
       !snapshot ||
@@ -755,6 +768,9 @@ export function App({
         isChecking={isCheckingPermissions}
         isRequesting={isRequestingPermissions}
         onEnable={() => void enablePermissions()}
+        onOpenScreenRecordingSettings={() =>
+          void openScreenRecordingSettings()
+        }
         onRefresh={() => void refreshPermissions()}
       />
     );

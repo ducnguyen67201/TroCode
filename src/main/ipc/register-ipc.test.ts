@@ -37,6 +37,7 @@ function setup(authenticated: boolean): {
   executionCoordinator: {
     cancelActiveTasks: ReturnType<typeof vi.fn>;
   };
+  openSystemPermissionSettings: ReturnType<typeof vi.fn>;
   submit: ReturnType<typeof vi.fn>;
   unregister: () => void;
 } {
@@ -75,10 +76,12 @@ function setup(authenticated: boolean): {
   const executionCoordinator = {
     cancelActiveTasks: vi.fn(() => []),
   };
+  const openSystemPermissionSettings = vi.fn(async () => undefined);
   const services = {
     authService,
     cuaService: {},
     executionCoordinator,
+    openSystemPermissionSettings,
     taskRuntime,
     updateCompanionState: vi.fn(),
     voiceService: {},
@@ -88,6 +91,7 @@ function setup(authenticated: boolean): {
     authService,
     event,
     executionCoordinator,
+    openSystemPermissionSettings,
     submit,
     unregister: registerIpcHandlers(mainWindow, services),
   };
@@ -135,6 +139,19 @@ describe('registerIpcHandlers auth boundary', () => {
       user: null,
     });
     expect(executionCoordinator.cancelActiveTasks).toHaveBeenCalledOnce();
+    unregister();
+  });
+
+  it('opens the requested macOS permission pane for authenticated users', async () => {
+    const { event, openSystemPermissionSettings, unregister } = setup(true);
+    const handler = electronMock.handlers.get(
+      IPC_CHANNELS.openSystemPermissionSettings,
+    );
+
+    await expect(handler?.(event, 'screen_recording')).resolves.toBeUndefined();
+    expect(openSystemPermissionSettings).toHaveBeenCalledWith(
+      'screen_recording',
+    );
     unregister();
   });
 });

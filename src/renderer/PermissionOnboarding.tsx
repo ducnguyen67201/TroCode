@@ -13,6 +13,7 @@ interface PermissionOnboardingProps {
   isChecking: boolean;
   isRequesting: boolean;
   onEnable(): void;
+  onOpenScreenRecordingSettings(): void;
   onRefresh(): void;
 }
 
@@ -55,6 +56,7 @@ export function PermissionOnboarding({
   isChecking,
   isRequesting,
   onEnable,
+  onOpenScreenRecordingSettings,
   onRefresh,
 }: PermissionOnboardingProps) {
   const hasBlockedPermission = Object.values(checklist).some(
@@ -100,12 +102,27 @@ export function PermissionOnboarding({
                   <strong>{permission.name}</strong>
                   <span>{permission.description}</span>
                 </span>
-                <span
-                  aria-label={`${permission.name}: ${permissionStateLabel(state)}`}
-                  className={`permission-state permission-state--${permissionTone(state)}`}
-                >
-                  <span aria-hidden="true" />
-                  {permissionStateLabel(state)}
+                <span className="permission-list__status">
+                  <span
+                    aria-label={`${permission.name}: ${permissionStateLabel(state)}`}
+                    className={`permission-state permission-state--${permissionTone(state)}`}
+                  >
+                    <span aria-hidden="true" />
+                    {permissionStateLabel(state)}
+                  </span>
+                  {permission.key === 'screenRecording' &&
+                    state !== 'granted' &&
+                    state !== 'not_required' &&
+                    state !== 'checking' && (
+                      <button
+                        className="permission-settings-button"
+                        disabled={isRequesting}
+                        onClick={onOpenScreenRecordingSettings}
+                        type="button"
+                      >
+                        Open settings
+                      </button>
+                    )}
                 </span>
               </li>
             );

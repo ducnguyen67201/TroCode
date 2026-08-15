@@ -29,7 +29,7 @@ function completionPage(success: boolean): string {
   const message = success
     ? 'You can close this tab and return to TroCode.'
     : 'Return to TroCode and try signing in again.';
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>${title}</title><style>body{background:#0d1117;color:#f5f7fb;font:16px system-ui;margin:0;display:grid;min-height:100vh;place-items:center}.card{border:1px solid #303845;border-radius:18px;padding:32px;max-width:460px;background:#151b24}h1{margin-top:0;color:#b6ff62}p{color:#aab4c3}</style></head><body><main class="card"><h1>${title}</h1><p>${message}</p></main></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>${title}</title><style>body{background:#f3f3ef;color:#252521;font:16px system-ui;margin:0;display:grid;min-height:100vh;place-items:center}.card{border:1px solid #d5d5ce;border-radius:18px;padding:32px;max-width:460px;background:#fff;box-shadow:0 24px 70px rgba(51,48,38,.12)}h1{margin-top:0;color:#765600}p{color:#62625c}</style></head><body><main class="card"><h1>${title}</h1><p>${message}</p></main></body></html>`;
 }
 
 export class LocalOAuthBrowserFlow implements OAuthBrowserFlow {
