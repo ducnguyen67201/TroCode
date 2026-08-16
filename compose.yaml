@@ -1,0 +1,27 @@
+name: trocode-local
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: trocode
+      POSTGRES_PASSWORD: "${TROCODE_POSTGRES_PASSWORD:?Set TROCODE_POSTGRES_PASSWORD in Doppler}"
+      POSTGRES_USER: trocode
+    ports:
+      - "127.0.0.1:54320:5432"
+    volumes:
+      - trocode_postgres_data:/var/lib/postgresql/data
+      - ./migrations/001_task_history.sql:/docker-entrypoint-initdb.d/001_task_history.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+
+volumes:
+  trocode_postgres_data:

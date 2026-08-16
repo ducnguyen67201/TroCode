@@ -7,6 +7,15 @@ import {
 } from '../../shared/contracts';
 
 const CoordinateSchema = z.number().int().nonnegative().max(100_000);
+export const MAX_GUIDANCE_SEQUENCE_LENGTH = 20;
+export const PLANNER_COORDINATE_MAX = 1_000;
+
+export const DesktopCoordinateSpaceSchema = z.object({
+  screenHeight: z.number().int().positive().max(100_000),
+  screenWidth: z.number().int().positive().max(100_000),
+  screenshotHeight: z.number().int().positive().max(100_000),
+  screenshotWidth: z.number().int().positive().max(100_000),
+});
 
 export const DesktopObservationSchema = z.object({
   observationId: z.string().uuid(),
@@ -20,6 +29,7 @@ export const DesktopObservationSchema = z.object({
       dataBase64: z.string().min(1).max(40_000_000),
     })
     .optional(),
+  coordinateSpace: DesktopCoordinateSpaceSchema.optional(),
   degraded: z.boolean(),
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
 });
@@ -37,6 +47,11 @@ export const DesktopCommandSchema = z.discriminatedUnion('kind', [
     y: CoordinateSchema,
     button: z.enum(['left', 'right', 'middle']).default('left'),
     count: z.number().int().min(1).max(2).default(1),
+  }),
+  z.object({
+    kind: z.literal('point'),
+    x: CoordinateSchema,
+    y: CoordinateSchema,
   }),
   z.object({
     kind: z.literal('type_text'),
@@ -66,6 +81,14 @@ const EmailSendPayloadSchema = z.object({
   attachments: z.array(z.string().min(1).max(2_000)).max(50).optional(),
 });
 
+const GuidanceSequenceSchema = z.object({
+  index: z.number().int().min(1).max(MAX_GUIDANCE_SEQUENCE_LENGTH),
+  total: z.number().int().min(1).max(MAX_GUIDANCE_SEQUENCE_LENGTH),
+}).refine((sequence) => sequence.index <= sequence.total, {
+  message: 'The guidance sequence index cannot exceed its total.',
+  path: ['index'],
+});
+
 const SENSITIVE_POINTER_INTENTS = new Set([
   'delete',
   'download',
@@ -87,6 +110,7 @@ export const DesktopActionDecisionSchema = z
     capability: CapabilitySchema,
     description: z.string().min(1).max(2_000),
     target: z.string().max(8_000).optional(),
+    guidanceSequence: GuidanceSequenceSchema.optional(),
     sendPayload: EmailSendPayloadSchema.optional(),
     command: DesktopCommandSchema,
   })
@@ -106,6 +130,20 @@ export const DesktopActionDecisionSchema = z
         path: ['sendPayload'],
       });
     }
+    if (decision.command.kind === 'point' && !decision.guidanceSequence) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Visual guidance points require an ordered sequence.',
+        path: ['guidanceSequence'],
+      });
+    }
+    if (decision.command.kind !== 'point' && decision.guidanceSequence) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Only visual guidance points may declare a sequence.',
+        path: ['guidanceSequence'],
+      });
+    }
 
     const allowed = (() => {
       switch (decision.command.kind) {
@@ -113,6 +151,11 @@ export const DesktopActionDecisionSchema = z
           return decision.intent === 'open_url' && decision.capability === 'browser';
         case 'type_text':
           return decision.intent === 'type_text';
+        case 'point':
+          return (
+            decision.intent === 'guide' &&
+            decision.capability === 'computer_use'
+          );
         case 'scroll':
           return decision.intent === 'scroll';
         case 'click':
@@ -146,7 +189,7 @@ export const DesktopStepDecisionSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('complete'),
-    summary: z.string().min(1).max(2_000),
+    summary: z.string().min(1).max(8_000),
   }),
   z.object({
     kind: z.literal('blocked'),
@@ -164,8 +207,61 @@ export type DesktopActionDecision = z.infer<
 >;
 export type DesktopActionOutcome = z.infer<typeof DesktopActionOutcomeSchema>;
 export type DesktopCommand = z.infer<typeof DesktopCommandSchema>;
+export type DesktopCoordinateSpace = z.infer<
+  typeof DesktopCoordinateSpaceSchema
+>;
 export type DesktopObservation = z.infer<typeof DesktopObservationSchema>;
 export type DesktopStepDecision = z.infer<typeof DesktopStepDecisionSchema>;
+
+function mapScreenshotAxis(
+  value: number,
+  screenshotExtent: number,
+  screenExtent: number,
+): number {
+  return Math.min(
+    screenExtent - 1,
+    Math.max(0, Math.round((value / screenshotExtent) * screenExtent)),
+  );
+}
+
+export function mapScreenshotPointToDesktop(
+  point: { x: number; y: number },
+  coordinateSpace: DesktopCoordinateSpace | undefined,
+): { x: number; y: number } {
+  if (!coordinateSpace) return { x: point.x, y: point.y };
+
+  return {
+    x: mapScreenshotAxis(
+      point.x,
+      coordinateSpace.screenshotWidth,
+      coordinateSpace.screenWidth,
+    ),
+    y: mapScreenshotAxis(
+      point.y,
+      coordinateSpace.screenshotHeight,
+      coordinateSpace.screenHeight,
+    ),
+  };
+}
+
+export function mapNormalizedPointToScreenshot(
+  point: { x: number; y: number },
+  coordinateSpace: DesktopCoordinateSpace,
+): { x: number; y: number } {
+  const mapAxis = (value: number, extent: number): number =>
+    Math.min(
+      extent - 1,
+      Math.max(
+        0,
+        Math.round((value / PLANNER_COORDINATE_MAX) * extent),
+      ),
+    );
+
+  return {
+    x: mapAxis(point.x, coordinateSpace.screenshotWidth),
+    y: mapAxis(point.y, coordinateSpace.screenshotHeight),
+  };
+}
 
 function commandParameters(
   command: DesktopCommand,
@@ -178,6 +274,12 @@ function commandParameters(
         button: command.button,
         command: command.kind,
         count: String(command.count),
+        x: String(command.x),
+        y: String(command.y),
+      };
+    case 'point':
+      return {
+        command: command.kind,
         x: String(command.x),
         y: String(command.y),
       };

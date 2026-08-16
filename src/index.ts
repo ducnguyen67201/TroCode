@@ -11,8 +11,15 @@ import {
 import path from 'node:path';
 
 import type { DesktopCommand } from './main/agent/execution-contracts';
-import { TaskExecutionCoordinator } from './main/agent/execution-coordinator';
+import {
+  TaskExecutionCoordinator,
+  type DesktopPresentation,
+} from './main/agent/execution-coordinator';
 import { registerGlobalTaskCancelShortcut } from './main/agent/global-task-cancel-shortcut';
+import {
+  MACOS_VISION_OCR_HELPER_NAME,
+  MacOSVisionGrounder,
+} from './main/agent/macos-vision-grounder';
 import { GptRealtimePlanner } from './main/agent/realtime-planner';
 import { TaskRuntime } from './main/agent/task-runtime';
 import { FileAnalyticsIdentityStore } from './main/analytics/analytics-identity-store';
@@ -26,11 +33,14 @@ import {
   interpolateCompanionPosition,
   placeCompanionForBrowserNavigation,
   placeCompanionNearCursor,
+  placeGuidanceCallout,
   shouldUseCompanionOverlay,
   type Point,
   type Rectangle,
 } from './main/companion/companion-position';
 import { CuaService } from './main/cua/cua-service';
+import { TaskHistoryService } from './main/history/task-history-service';
+import { PostgresTaskHistoryStore } from './main/history/task-history-store';
 import { registerIpcHandlers } from './main/ipc/register-ipc';
 import { EncryptedMembershipActivationStore } from './main/membership/membership-activation-store';
 import { MembershipService } from './main/membership/membership-service';
@@ -52,8 +62,10 @@ import {
 import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-store';
 import { VoiceService } from './main/voice/voice-service';
 import {
+  CompanionGuidanceSchema,
   TaskUpdateSchema,
   type AuthUser,
+  type CompanionGuidance,
   type CompanionState,
   type TaskSnapshot,
 } from './shared/contracts';
@@ -85,10 +97,19 @@ const hasSingleInstanceLock = initializeSingleInstance(app, () => {
   if (app.isReady()) {
     createWindow();
     createCompanionWindow();
+    createGuidanceWindow();
   }
 });
 
 const taskRuntime = new TaskRuntime();
+const databaseUrl = process.env.DATABASE_URL?.trim() ?? '';
+const taskHistoryService = new TaskHistoryService({
+  onError: (error) => {
+    console.error('[task-history] PostgreSQL persistence failed.', error);
+  },
+  store: databaseUrl ? new PostgresTaskHistoryStore(databaseUrl) : null,
+});
+taskRuntime.on('task-update', taskHistoryService.recordTaskUpdate);
 const oauthBrowserFlow = new LocalOAuthBrowserFlow({
   openExternal: async (url) => shell.openExternal(url, { activate: true }),
 });
@@ -117,16 +138,38 @@ const voiceService = new VoiceService({
 const realtimePlanner = new GptRealtimePlanner({
   credentialStore: voiceCredentialStore,
 });
+const visionGrounder = new MacOSVisionGrounder({
+  executablePath: macOSVisionOcrHelperPath(),
+});
 const executionCoordinator = new TaskExecutionCoordinator({
   cua: cuaService,
   planner: realtimePlanner,
+  pointGrounder: (decision, observation, signal) =>
+    visionGrounder.ground(decision, observation, signal),
   runtime: taskRuntime,
   openExternal: async (url) => shell.openExternal(url, { activate: true }),
   prepareDesktop: async () => {
     const window = mainWindow;
-    if (!window || window.isDestroyed() || !window.isVisible()) return;
-    window.hide();
+    if (window && !window.isDestroyed() && window.isVisible()) window.hide();
+
+    const restoreCompanion = Boolean(
+      companionWindow &&
+        !companionWindow.isDestroyed() &&
+        companionWindow.isVisible(),
+    );
+    if (restoreCompanion) companionWindow?.hide();
+    if (guidanceWindow && !guidanceWindow.isDestroyed()) guidanceWindow.hide();
     await new Promise<void>((resolve) => setTimeout(resolve, 120));
+
+    return () => {
+      if (
+        restoreCompanion &&
+        companionWindow &&
+        !companionWindow.isDestroyed()
+      ) {
+        companionWindow.showInactive();
+      }
+    };
   },
   presentAction: presentCompanionAction,
 });
@@ -134,6 +177,8 @@ const COMPANION_SIZE = { height: 44, width: 44 } as const;
 const COMPANION_GAP = 8;
 const COMPANION_GLIDE_DURATION_MS = 360;
 const COMPANION_FOLLOW_INTERVAL_MS = 16;
+const GUIDANCE_CALLOUT_SIZE = { height: 136, width: 344 } as const;
+const GUIDANCE_PRESENTATION_MS = 4_200;
 const SHUTDOWN_GRACE_PERIOD_MS = 2_000;
 
 interface CompanionGlide {
@@ -148,11 +193,13 @@ interface CompanionGlide {
 
 let mainWindow: BrowserWindow | null = null;
 let companionWindow: BrowserWindow | null = null;
+let guidanceWindow: BrowserWindow | null = null;
 let analyticsService: AnalyticsService | null = null;
 let companionState: CompanionState = 'idle';
 let companionFollowTimer: ReturnType<typeof setInterval> | null = null;
 let companionGlide: CompanionGlide | null = null;
 let companionPinnedPosition: Point | null = null;
+let activeCompanionGuidance: CompanionGuidance | null = null;
 let lastCompanionPosition: Point | null = null;
 let forcedExitTimer: ReturnType<typeof setTimeout> | null = null;
 let unregisterIpcHandlers: (() => void) | null = null;
@@ -242,10 +289,57 @@ function cancelCompanionGlide(error?: Error): void {
 function resetCompanionPresentation(): void {
   cancelCompanionGlide();
   companionPinnedPosition = null;
+  hideGuidanceCallout();
   positionCompanion();
 }
 
-function companionTargetForCommand(command: DesktopCommand): Point | null {
+function sendCompanionGuidance(): void {
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) return;
+  guidanceWindow.webContents.send(
+    IPC_CHANNELS.companionGuidanceChanged,
+    activeCompanionGuidance,
+  );
+}
+
+function hideGuidanceCallout(): void {
+  activeCompanionGuidance = null;
+  sendCompanionGuidance();
+  if (guidanceWindow && !guidanceWindow.isDestroyed()) guidanceWindow.hide();
+}
+
+function showGuidanceCallout(
+  target: Point,
+  presentation: DesktopPresentation,
+): void {
+  if (!presentation.message) return;
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) {
+    createGuidanceWindow();
+  }
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) return;
+
+  const display = screen.getDisplayNearestPoint(target);
+  const position = placeGuidanceCallout(
+    target,
+    display.bounds,
+    GUIDANCE_CALLOUT_SIZE,
+    COMPANION_SIZE,
+  );
+  activeCompanionGuidance = CompanionGuidanceSchema.parse({
+    message: presentation.message.slice(0, 240),
+    side: position.x < target.x ? 'left' : 'right',
+    ...(presentation.target
+      ? { target: presentation.target.slice(0, 80) }
+      : {}),
+  });
+  guidanceWindow.setBounds({ ...position, ...GUIDANCE_CALLOUT_SIZE }, false);
+  sendCompanionGuidance();
+  guidanceWindow.showInactive();
+}
+
+function companionTargetForCommand(
+  command: DesktopCommand,
+  presentation?: DesktopPresentation,
+): Point | null {
   if (command.kind === 'open_url') {
     const cursor = screen.getCursorScreenPoint();
     const display = screen.getDisplayNearestPoint(cursor);
@@ -256,8 +350,17 @@ function companionTargetForCommand(command: DesktopCommand): Point | null {
     );
   }
 
-  if (command.kind !== 'click' && command.kind !== 'scroll') return null;
-  const pointerPosition = { x: command.x, y: command.y };
+  if (
+    command.kind !== 'click' &&
+    command.kind !== 'point' &&
+    command.kind !== 'scroll'
+  ) {
+    return null;
+  }
+  const pointerPosition = presentation?.screenPoint ?? {
+    x: command.x,
+    y: command.y,
+  };
   const display = screen.getDisplayNearestPoint(pointerPosition);
   return placeCompanionNearCursor(
     pointerPosition,
@@ -270,17 +373,39 @@ function companionTargetForCommand(command: DesktopCommand): Point | null {
 async function presentCompanionAction(
   command: DesktopCommand,
   signal: AbortSignal,
+  presentation?: DesktopPresentation,
 ): Promise<void> {
-  const to = companionTargetForCommand(command);
+  const isGuidancePoint = command.kind === 'point';
+  const previousCompanionState = companionState;
+  const to = companionTargetForCommand(command, presentation);
   if (!to || !companionWindow || companionWindow.isDestroyed()) {
     return;
   }
+  if (command.kind === 'point') {
+    console.info(
+      '[companion] point.presentation',
+      JSON.stringify({
+        cuaScreenshotPoint: { x: command.x, y: command.y },
+        overlayScreenPoint: presentation?.screenPoint ?? null,
+        companionWindowPosition: to,
+      }),
+    );
+  }
   if (signal.aborted) throw createAbortError();
+  if (isGuidancePoint) updateCompanionState('guiding');
 
   const from = getCurrentCompanionScreenPosition();
   if (pointEqual(from, to)) {
     companionPinnedPosition = to;
     positionCompanion();
+    if (isGuidancePoint) {
+      await finishGuidancePresentation(
+        command,
+        presentation,
+        previousCompanionState,
+        signal,
+      );
+    }
     return;
   }
 
@@ -299,9 +424,61 @@ async function presentCompanionAction(
     signal.addEventListener('abort', abortListener, { once: true });
     positionCompanion();
   });
+
+  if (isGuidancePoint) {
+    await finishGuidancePresentation(
+      command,
+      presentation,
+      previousCompanionState,
+      signal,
+    );
+  }
+}
+
+async function finishGuidancePresentation(
+  command: Extract<DesktopCommand, { kind: 'point' }>,
+  presentation: DesktopPresentation | undefined,
+  previousCompanionState: CompanionState,
+  signal: AbortSignal,
+): Promise<void> {
+  if (presentation?.message) {
+    showGuidanceCallout(
+      presentation.screenPoint ?? { x: command.x, y: command.y },
+      presentation,
+    );
+  }
+  try {
+    await waitForCompanionPresentation(
+      signal,
+      presentation?.message ? GUIDANCE_PRESENTATION_MS : 650,
+    );
+  } finally {
+    hideGuidanceCallout();
+    if (companionState === 'guiding') {
+      updateCompanionState(previousCompanionState);
+    }
+  }
+}
+
+function waitForCompanionPresentation(
+  signal: AbortSignal,
+  durationMs: number,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', handleAbort);
+      resolve();
+    }, durationMs);
+    const handleAbort = (): void => {
+      clearTimeout(timer);
+      reject(createAbortError());
+    };
+    signal.addEventListener('abort', handleAbort, { once: true });
+  });
 }
 
 async function identifyAnalyticsUser(user: AuthUser): Promise<void> {
+  taskHistoryService.setCurrentOwner(user.id);
   await analyticsService?.identifyUser({
     email: user.email,
     loginMethod: 'oauth',
@@ -333,6 +510,7 @@ function beginShutdown(exitCode = 0): void {
 
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
   if (companionWindow && !companionWindow.isDestroyed()) companionWindow.hide();
+  if (guidanceWindow && !guidanceWindow.isDestroyed()) guidanceWindow.hide();
 
   forcedExitTimer = setTimeout(
     () => finishShutdown(exitCode),
@@ -341,9 +519,12 @@ function beginShutdown(exitCode = 0): void {
   forcedExitTimer.unref?.();
 
   const analyticsShutdown = analyticsService?.shutdown() ?? Promise.resolve();
-  const executionShutdown = executionCoordinator
-    .shutdown()
-    .then(() => cuaService.shutdown());
+  const executionShutdown = executionCoordinator.shutdown().finally(() =>
+    Promise.allSettled([
+      cuaService.shutdown(),
+      taskHistoryService.shutdown(),
+    ]),
+  );
   void Promise.allSettled([executionShutdown, analyticsShutdown]).finally(
     () => finishShutdown(exitCode),
   );
@@ -462,6 +643,16 @@ function macOSVoiceShortcutHelperPath(): string {
       );
 }
 
+function macOSVisionOcrHelperPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, MACOS_VISION_OCR_HELPER_NAME)
+    : path.join(
+        app.getAppPath(),
+        '.generated-native',
+        MACOS_VISION_OCR_HELPER_NAME,
+      );
+}
+
 function ensureBackgroundTray(): void {
   if (backgroundTray) return;
 
@@ -534,7 +725,10 @@ const createWindow = (): void => {
     executionCoordinator,
     membershipService,
     onAuthSignedIn: identifyAnalyticsUser,
-    onAuthSignedOut: async () => analyticsService?.resetUser(),
+    onAuthSignedOut: async () => {
+      taskHistoryService.setCurrentOwner(null);
+      await analyticsService?.resetUser();
+    },
     openSystemPermissionSettings: async (permission) =>
       shell.openExternal(systemPermissionSettingsUrl(permission), {
         activate: true,
@@ -544,6 +738,7 @@ const createWindow = (): void => {
     },
     requestScreenRecordingAccess: registerScreenRecordingHost,
     taskRuntime,
+    taskHistoryService,
     updateCompanionState,
     voiceService,
   });
@@ -739,6 +934,47 @@ const createCompanionWindow = (): void => {
   );
 };
 
+const createGuidanceWindow = (): void => {
+  if (guidanceWindow && !guidanceWindow.isDestroyed()) return;
+
+  guidanceWindow = new BrowserWindow({
+    alwaysOnTop: true,
+    backgroundColor: '#00000000',
+    focusable: false,
+    frame: false,
+    hasShadow: false,
+    height: GUIDANCE_CALLOUT_SIZE.height,
+    resizable: false,
+    show: false,
+    skipTaskbar: true,
+    transparent: true,
+    width: GUIDANCE_CALLOUT_SIZE.width,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
+      sandbox: true,
+      webSecurity: true,
+    },
+  });
+
+  guidanceWindow.setIgnoreMouseEvents(true, { forward: true });
+  guidanceWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  guidanceWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  guidanceWindow.webContents.on('did-finish-load', sendCompanionGuidance);
+  guidanceWindow.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+  guidanceWindow.on('closed', () => {
+    guidanceWindow = null;
+    activeCompanionGuidance = null;
+  });
+
+  const guidanceUrl = new URL(MAIN_WINDOW_WEBPACK_ENTRY);
+  guidanceUrl.searchParams.set('mode', 'guidance');
+  void guidanceWindow.loadURL(guidanceUrl.toString());
+};
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -763,11 +999,13 @@ if (hasSingleInstanceLock) {
     await Promise.all([
       analyticsService.start(),
       cuaService.connectIfPermitted(),
+      taskHistoryService.start(),
     ]);
     const authStatus = await authService.getStatus();
     if (authStatus.user) await identifyAnalyticsUser(authStatus.user);
     createWindow();
     createCompanionWindow();
+    createGuidanceWindow();
     ensureBackgroundTray();
     ensureGlobalTaskCancelShortcut();
     ensureGlobalVoiceShortcut();
@@ -784,6 +1022,7 @@ if (hasSingleInstanceLock) {
     // dock icon is clicked and there are no other windows open.
     createWindow();
     createCompanionWindow();
+    createGuidanceWindow();
   });
 
   const exitDevelopmentProcess = (): void => {

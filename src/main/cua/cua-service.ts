@@ -4,15 +4,24 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type * as CuaDriverSdk from '@trycua/cua-driver';
+import { z } from 'zod';
 
 import type { CuaStatus } from '../../shared/contracts';
 import {
   DesktopActionOutcomeSchema,
+  DesktopCoordinateSpaceSchema,
   DesktopObservationSchema,
   type DesktopActionOutcome,
   type DesktopCommand,
   type DesktopObservation,
 } from '../agent/execution-contracts';
+
+const DesktopStateMetadataSchema = z.object({
+  screen_height: z.number().int().positive(),
+  screen_width: z.number().int().positive(),
+  screenshot_height: z.number().int().positive(),
+  screenshot_width: z.number().int().positive(),
+}).passthrough();
 
 type CuaModule = typeof CuaDriverSdk;
 type Driver = ReturnType<CuaModule['CuaDriver']['create']> & {
@@ -63,6 +72,65 @@ function getSupportedPlatform(): CuaStatus['platform'] {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown CUA initialization error.';
+}
+
+function coordinateSpaceFromDesktopState(
+  structuredJson: string | undefined,
+) {
+  if (!structuredJson) return undefined;
+
+  try {
+    const metadata = DesktopStateMetadataSchema.safeParse(
+      JSON.parse(structuredJson),
+    );
+    if (!metadata.success) return undefined;
+
+    return DesktopCoordinateSpaceSchema.parse({
+      screenHeight: metadata.data.screen_height,
+      screenWidth: metadata.data.screen_width,
+      screenshotHeight: metadata.data.screenshot_height,
+      screenshotWidth: metadata.data.screenshot_width,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+interface CuaResultDiagnostic {
+  action?: {
+    delivery?: { mode: number };
+    effect: number;
+    route: number;
+  };
+  degraded: boolean;
+  errorCode?: string;
+  isError: boolean;
+}
+
+function logCuaResult(
+  event: string,
+  taskId: string,
+  command: DesktopCommand,
+  result: CuaResultDiagnostic,
+): void {
+  console.info(
+    `[cua] ${event}`,
+    JSON.stringify({
+      taskId,
+      command: command.kind,
+      ...(command.kind === 'click' ||
+      command.kind === 'point' ||
+      command.kind === 'scroll'
+        ? { x: command.x, y: command.y, inputCoordinates: 'screenshot_pixels' }
+        : {}),
+      isError: result.isError,
+      errorCode: result.errorCode ?? null,
+      degraded: result.degraded,
+      effect: result.action?.effect ?? null,
+      route: result.action?.route ?? null,
+      deliveryMode: result.action?.delivery?.mode ?? null,
+    }),
+  );
 }
 
 export function shouldAutoConnect(status: CuaStatus): boolean {
@@ -179,6 +247,16 @@ export class CuaService {
     if (!started.active) {
       throw new Error(`CUA did not activate task session ${taskId}.`);
     }
+    console.info(
+      '[cua] session.started',
+      JSON.stringify({
+        taskId,
+        captureScope: started.state?.captureScope ?? null,
+        effectiveScope: started.state?.effectiveScope ?? null,
+        desktopUnlocked: started.state?.desktopUnlocked ?? null,
+        revived: started.revived ?? null,
+      }),
+    );
     this.activeSessions.add(taskId);
   }
 
@@ -200,6 +278,18 @@ export class CuaService {
     }
 
     const image = result.images[0];
+    const coordinateSpace = coordinateSpaceFromDesktopState(
+      result.structuredJson,
+    );
+    console.info(
+      '[cua] observation.captured',
+      JSON.stringify({
+        taskId,
+        degraded: result.degraded,
+        hasScreenshot: Boolean(image),
+        coordinateSpace: coordinateSpace ?? null,
+      }),
+    );
     const fingerprintSource = image
       ? Buffer.from(image.dataBase64, 'base64')
       : Buffer.from(
@@ -223,6 +313,7 @@ export class CuaService {
             },
           }
         : {}),
+      ...(coordinateSpace ? { coordinateSpace } : {}),
       degraded: result.degraded,
       fingerprint: createHash('sha256').update(fingerprintSource).digest('hex'),
     });
@@ -237,8 +328,8 @@ export class CuaService {
     const cua = await this.loadModule();
     const driver = this.requireDriver();
     const asyncOptions = signal ? { signal } : undefined;
-    const movePointer = async (x: number, y: number) =>
-      driver.moveCursor(
+    const movePointer = async (x: number, y: number) => {
+      const movement = await driver.moveCursor(
         cua.MoveCursorInput.new({
           session: taskId,
           scope: cua.DesktopScope.Desktop,
@@ -247,6 +338,9 @@ export class CuaService {
         }),
         asyncOptions,
       );
+      logCuaResult('pointer.move-result', taskId, command, movement);
+      return movement;
+    };
 
     const result = await (async () => {
       switch (command.kind) {
@@ -256,7 +350,7 @@ export class CuaService {
           const movement = await movePointer(command.x, command.y);
           if (
             movement.isError ||
-            movement.action?.effect !== cua.ActionEffect.Confirmed
+            movement.action?.effect === cua.ActionEffect.Refused
           ) {
             return movement;
           }
@@ -278,6 +372,8 @@ export class CuaService {
             asyncOptions,
           );
         }
+        case 'point':
+          return movePointer(command.x, command.y);
         case 'type_text':
           return driver.typeText(
             cua.TypeTextInput.new({
@@ -310,7 +406,7 @@ export class CuaService {
           const movement = await movePointer(command.x, command.y);
           if (
             movement.isError ||
-            movement.action?.effect !== cua.ActionEffect.Confirmed
+            movement.action?.effect === cua.ActionEffect.Refused
           ) {
             return movement;
           }
@@ -335,6 +431,7 @@ export class CuaService {
         }
       }
     })();
+    logCuaResult('command.result', taskId, command, result);
 
     if (result.isError) {
       return DesktopActionOutcomeSchema.parse({
@@ -355,6 +452,13 @@ export class CuaService {
       return DesktopActionOutcomeSchema.parse({
         status: 'failed',
         summary: result.text || 'CUA refused the desktop action.',
+      });
+    }
+    if (command.kind === 'point') {
+      return DesktopActionOutcomeSchema.parse({
+        status: 'confirmed',
+        summary:
+          result.text || 'CUA delivered the non-clicking pointer guidance.',
       });
     }
 

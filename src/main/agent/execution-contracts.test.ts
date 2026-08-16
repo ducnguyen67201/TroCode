@@ -4,10 +4,69 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DesktopStepDecisionSchema,
+  mapNormalizedPointToScreenshot,
+  mapScreenshotPointToDesktop,
   proposedActionForDecision,
 } from './execution-contracts';
 
 describe('desktop execution contracts', () => {
+  it('keeps enough response room for a multi-question worksheet', () => {
+    expect(
+      DesktopStepDecisionSchema.safeParse({
+        kind: 'complete',
+        summary: 'Answer and explanation. '.repeat(150),
+      }).success,
+    ).toBe(true);
+  });
+
+  it('allows a guide to point without granting a click', () => {
+    const decision = DesktopStepDecisionSchema.parse({
+      kind: 'action',
+      observationId: randomUUID(),
+      intent: 'guide',
+      capability: 'computer_use',
+      description: 'Notice the word “now” in question 2.',
+      target: 'Question 2',
+      guidanceSequence: { index: 2, total: 16 },
+      command: { kind: 'point', x: 990, y: 714 },
+    });
+
+    if (decision.kind !== 'action') throw new Error('Expected an action.');
+    expect(proposedActionForDecision(decision)).toMatchObject({
+      action: 'guide',
+      capability: 'computer_use',
+      parameters: { command: 'point', x: '990', y: '714' },
+    });
+    expect(
+      DesktopStepDecisionSchema.safeParse({
+        ...decision,
+        intent: 'click_element',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('maps Retina screenshot pixels only for the Electron overlay', () => {
+    expect(
+      mapScreenshotPointToDesktop({ x: 1_980, y: 1_428 }, {
+        screenHeight: 1_117,
+        screenWidth: 1_728,
+        screenshotHeight: 2_234,
+        screenshotWidth: 3_456,
+      }),
+    ).toEqual({ x: 990, y: 714 });
+  });
+
+  it('maps model-normalized coordinates into CUA screenshot pixels', () => {
+    expect(
+      mapNormalizedPointToScreenshot({ x: 580, y: 150 }, {
+        screenHeight: 1_117,
+        screenWidth: 1_728,
+        screenshotHeight: 2_234,
+        screenshotWidth: 3_456,
+      }),
+    ).toEqual({ x: 2_004, y: 335 });
+  });
+
   it('binds exact click coordinates into policy input while observation stays runtime-scoped', () => {
     const observationId = randomUUID();
     const decision = DesktopStepDecisionSchema.parse({

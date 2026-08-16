@@ -17,6 +17,7 @@ import type {
   ForgePlatform,
 } from '@electron-forge/shared-types';
 
+import { MACOS_VISION_OCR_HELPER_NAME } from './src/main/agent/macos-vision-grounder';
 import {
   TROCODE_APP_BUNDLE_ID,
   TROCODE_EXECUTABLE_NAME,
@@ -44,8 +45,17 @@ const MACOS_VOICE_SHORTCUT_BINARY = path.resolve(
   '.generated-native',
   MACOS_VOICE_SHORTCUT_HELPER_NAME,
 );
+const MACOS_VISION_OCR_SOURCE = path.resolve(
+  __dirname,
+  'native/macos-vision-ocr.swift',
+);
+const MACOS_VISION_OCR_BINARY = path.resolve(
+  __dirname,
+  '.generated-native',
+  MACOS_VISION_OCR_HELPER_NAME,
+);
 
-async function compileMacOSVoiceShortcutHelper(
+async function compileMacOSNativeHelpers(
   platform: ForgePlatform,
   arch: ForgeArch,
 ): Promise<void> {
@@ -56,15 +66,20 @@ async function compileMacOSVoiceShortcutHelper(
 
   await mkdir(path.dirname(MACOS_VOICE_SHORTCUT_BINARY), { recursive: true });
   const targetArchitecture = arch === 'x64' ? 'x86_64' : 'arm64';
-  await executeFile('xcrun', [
-    'swiftc',
-    '-O',
-    '-target',
-    `${targetArchitecture}-apple-macosx13.0`,
-    MACOS_VOICE_SHORTCUT_SOURCE,
-    '-o',
-    MACOS_VOICE_SHORTCUT_BINARY,
-  ]);
+  for (const [source, binary] of [
+    [MACOS_VOICE_SHORTCUT_SOURCE, MACOS_VOICE_SHORTCUT_BINARY],
+    [MACOS_VISION_OCR_SOURCE, MACOS_VISION_OCR_BINARY],
+  ]) {
+    await executeFile('xcrun', [
+      'swiftc',
+      '-O',
+      '-target',
+      `${targetArchitecture}-apple-macosx13.0`,
+      source,
+      '-o',
+      binary,
+    ]);
+  }
 }
 
 function nativeCuaPackage(platform: ForgePlatform, arch: ForgeArch): string {
@@ -112,7 +127,7 @@ const config: ForgeConfig = {
     extraResource: [
       APP_ICON_PNG,
       ...(process.platform === 'darwin'
-        ? [MACOS_VOICE_SHORTCUT_BINARY]
+        ? [MACOS_VOICE_SHORTCUT_BINARY, MACOS_VISION_OCR_BINARY]
         : []),
     ],
     helperBundleId: TROCODE_HELPER_BUNDLE_ID,
@@ -140,7 +155,7 @@ const config: ForgeConfig = {
   },
   hooks: {
     generateAssets: async (_forgeConfig, platform, arch) => {
-      await compileMacOSVoiceShortcutHelper(platform, arch);
+      await compileMacOSNativeHelpers(platform, arch);
     },
     packageAfterCopy: async (_forgeConfig, buildPath, _version, platform, arch) => {
       await stageCuaRuntime(buildPath, platform, arch);

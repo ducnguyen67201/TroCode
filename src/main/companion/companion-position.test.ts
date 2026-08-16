@@ -6,6 +6,7 @@ import {
   placeCompanionForBrowserNavigation,
   placeCompanionInOverlay,
   placeCompanionNearCursor,
+  placeGuidanceCallout,
   shouldUseCompanionOverlay,
 } from './companion-position';
 
@@ -48,6 +49,27 @@ describe('cursor companion placement', () => {
         COMPANION,
       ),
     ).toEqual({ x: -712, y: -20 });
+  });
+
+  it('places a teaching callout beside the pointer and flips at display edges', () => {
+    const callout = { height: 104, width: 320 };
+
+    expect(
+      placeGuidanceCallout(
+        { x: 400, y: 300 },
+        DISPLAY,
+        callout,
+        COMPANION,
+      ),
+    ).toEqual({ x: 456, y: 279 });
+    expect(
+      placeGuidanceCallout(
+        { x: 1190, y: 790 },
+        DISPLAY,
+        callout,
+        COMPANION,
+      ),
+    ).toEqual({ x: 858, y: 674 });
   });
 
   it('builds one overlay covering every display', () => {

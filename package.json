@@ -6,7 +6,11 @@
   "main": ".webpack/main",
   "private": true,
   "scripts": {
-    "start": "doppler run --project tro-app --config dev -- npm exec -- electron-forge start",
+    "start": "npm run db:up && doppler run --project tro-app --config dev -- npm exec -- electron-forge start",
+    "db:down": "doppler run --project tro-app --config dev -- docker compose down",
+    "db:logs": "doppler run --project tro-app --config dev -- docker compose logs --tail=100 postgres",
+    "db:ps": "doppler run --project tro-app --config dev -- docker compose ps",
+    "db:up": "doppler run --project tro-app --config dev -- docker compose up -d --wait --wait-timeout 60 postgres",
     "package": "doppler run --project tro-app --config dev -- npm exec -- electron-forge package",
     "make": "doppler run --project tro-app --config dev -- npm exec -- electron-forge make",
     "publish": "doppler run --project tro-app --config dev -- npm exec -- electron-forge publish",
@@ -41,6 +45,7 @@
     "@electron-forge/plugin-webpack": "^7.11.2",
     "@electron/fuses": "^1.8.0",
     "@types/node": "^26.2.0",
+    "@types/pg": "^8.21.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@types/ws": "^8.18.1",
@@ -66,6 +71,7 @@
   "dependencies": {
     "@trycua/cua-driver": "^0.19.3",
     "electron-squirrel-startup": "^1.0.1",
+    "pg": "^8.23.0",
     "posthog-node": "^5.49.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

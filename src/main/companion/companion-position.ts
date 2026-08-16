@@ -91,6 +91,31 @@ export function placeCompanionForBrowserNavigation(
   );
 }
 
+export function placeGuidanceCallout(
+  target: Point,
+  displayBounds: Rectangle,
+  calloutSize: Size,
+  companionSize: Size,
+  gap = 12,
+): Point {
+  const displayRight = displayBounds.x + displayBounds.width;
+  const displayBottom = displayBounds.y + displayBounds.height;
+  let x = target.x + companionSize.width + gap;
+  let y = target.y - Math.round(calloutSize.height * 0.2);
+
+  if (x + calloutSize.width > displayRight) {
+    x = target.x - calloutSize.width - gap;
+  }
+  if (y + calloutSize.height > displayBottom) {
+    y = target.y - calloutSize.height - gap;
+  }
+
+  return {
+    x: Math.round(clamp(x, displayBounds.x, displayRight - calloutSize.width)),
+    y: Math.round(clamp(y, displayBounds.y, displayBottom - calloutSize.height)),
+  };
+}
+
 export function getVirtualDisplayBounds(displays: readonly Rectangle[]): Rectangle {
   if (displays.length === 0) {
     return { height: 0, width: 0, x: 0, y: 0 };

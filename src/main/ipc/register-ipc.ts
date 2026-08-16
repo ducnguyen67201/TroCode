@@ -18,6 +18,7 @@ import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
 import type { TaskRuntime } from '../agent/task-runtime';
 import type { GoogleAuthService } from '../auth/google-auth-service';
 import type { CuaService } from '../cua/cua-service';
+import type { TaskHistoryService } from '../history/task-history-service';
 import type { MembershipService } from '../membership/membership-service';
 import type { AppPreferencesService } from '../preferences/app-preferences-service';
 import type { VoiceService } from '../voice/voice-service';
@@ -38,6 +39,7 @@ interface IpcServices {
   ): Promise<void> | void;
   requestScreenRecordingAccess(): Promise<unknown> | unknown;
   taskRuntime: TaskRuntime;
+  taskHistoryService: TaskHistoryService;
   updateCompanionState(state: CompanionState): void;
   voiceService: VoiceService;
 }
@@ -91,6 +93,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.getComputerStatus,
     IPC_CHANNELS.getAuthStatus,
     IPC_CHANNELS.getMembershipStatus,
+    IPC_CHANNELS.getTaskHistory,
     IPC_CHANNELS.getVoiceStatus,
     IPC_CHANNELS.openSystemPermissionSettings,
     IPC_CHANNELS.recordVoiceTranscript,
@@ -152,6 +155,15 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.getAppPreferences, async (event) => {
     await assertAuthorizedSender(event, mainWindow, services.authService);
     return services.appPreferencesService.get();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getTaskHistory, async (event) => {
+    const user = await assertAuthorizedSender(
+      event,
+      mainWindow,
+      services.authService,
+    );
+    return services.taskHistoryService.load(user.id);
   });
 
   ipcMain.handle(

@@ -115,7 +115,13 @@ describe('CUA task sessions', () => {
       getDesktopState: vi.fn(async () => ({
         text: 'Chrome — Gmail',
         images: [{ mimeType: 'image/png', dataBase64: 'aW1hZ2U=' }],
-        structuredJson: '{"window":"Gmail"}',
+        structuredJson: JSON.stringify({
+          window: 'Gmail',
+          screen_height: 1_117,
+          screen_width: 1_728,
+          screenshot_height: 2_234,
+          screenshot_width: 3_456,
+        }),
         isError: false,
         degraded: false,
         rawJson: '{}',
@@ -138,6 +144,12 @@ describe('CUA task sessions', () => {
       taskId,
       text: 'Chrome — Gmail',
       screenshot: { mimeType: 'image/png', dataBase64: 'aW1hZ2U=' },
+      coordinateSpace: {
+        screenHeight: 1_117,
+        screenWidth: 1_728,
+        screenshotHeight: 2_234,
+        screenshotWidth: 3_456,
+      },
       degraded: false,
     });
     expect(observation.fingerprint).toMatch(/^[a-f0-9]{64}$/);
@@ -213,16 +225,92 @@ describe('CUA task sessions', () => {
     expect(actionOrder).toEqual(['move', 'click']);
   });
 
-  it('does not click when CUA cannot confirm pointer movement', async () => {
+  it('can point for visual guidance without clicking', async () => {
     const taskId = randomUUID();
     const driver = {
       isAvailable: vi.fn(() => true),
       startSession: vi.fn(async () => ({ active: true })),
       moveCursor: vi.fn(async () => ({
-        text: 'Pointer movement could not be confirmed.',
+        text: 'Moved the real desktop pointer to (495, 357).',
         images: [],
         isError: false,
-        action: { effect: 3 },
+        action: { effect: 2 },
+        degraded: false,
+        rawJson: '{}',
+      })),
+      click: vi.fn(),
+    };
+    const service = new CuaService();
+    Reflect.set(service, 'cuaModule', fakeCuaModule());
+    Reflect.set(service, 'driver', driver);
+
+    await service.startTaskSession(taskId);
+    await expect(
+      service.executeCommand(taskId, { kind: 'point', x: 990, y: 714 }),
+    ).resolves.toEqual({
+      status: 'confirmed',
+      summary: 'Moved the real desktop pointer to (495, 357).',
+    });
+
+    expect(driver.moveCursor).toHaveBeenCalledWith(
+      { session: taskId, scope: 0, x: 990, y: 714 },
+      undefined,
+    );
+    expect(driver.click).not.toHaveBeenCalled();
+  });
+
+  it('continues to an exact-coordinate click after an unverifiable pointer move', async () => {
+    const taskId = randomUUID();
+    const driver = {
+      isAvailable: vi.fn(() => true),
+      startSession: vi.fn(async () => ({ active: true })),
+      moveCursor: vi.fn(async () => ({
+        text: 'Moved the real desktop pointer to (7, 13.5).',
+        images: [],
+        isError: false,
+        action: { effect: 2 },
+        degraded: false,
+        rawJson: '{}',
+      })),
+      click: vi.fn(async () => ({
+        text: 'Clicked the target.',
+        images: [],
+        isError: false,
+        action: { effect: 0 },
+        degraded: false,
+        rawJson: '{}',
+      })),
+    };
+    const service = new CuaService();
+    Reflect.set(service, 'cuaModule', fakeCuaModule());
+    Reflect.set(service, 'driver', driver);
+
+    await service.startTaskSession(taskId);
+    await expect(
+      service.executeCommand(taskId, {
+        kind: 'click',
+        x: 14,
+        y: 27,
+        button: 'left',
+        count: 1,
+      }),
+    ).resolves.toEqual({
+      status: 'confirmed',
+      summary: 'Clicked the target.',
+    });
+    expect(driver.click).toHaveBeenCalledOnce();
+  });
+
+  it('does not click after the driver refuses pointer movement', async () => {
+    const taskId = randomUUID();
+    const driver = {
+      isAvailable: vi.fn(() => true),
+      startSession: vi.fn(async () => ({ active: true })),
+      moveCursor: vi.fn(async () => ({
+        text: 'Desktop pointer movement was refused.',
+        images: [],
+        isError: false,
+        action: { effect: 4 },
         degraded: false,
         rawJson: '{}',
       })),
@@ -242,8 +330,8 @@ describe('CUA task sessions', () => {
         count: 1,
       }),
     ).resolves.toEqual({
-      status: 'unknown',
-      summary: 'Pointer movement could not be confirmed.',
+      status: 'failed',
+      summary: 'Desktop pointer movement was refused.',
     });
     expect(driver.click).not.toHaveBeenCalled();
   });

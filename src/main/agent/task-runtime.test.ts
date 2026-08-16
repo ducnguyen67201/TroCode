@@ -81,6 +81,10 @@ describe('task runtime', () => {
     });
     runtime.start({ taskId: ready.taskId });
     runtime.beginObservation(ready.taskId, 'The worksheet is visible.');
+    runtime.recordGuidance(
+      ready.taskId,
+      'Look at the word “now” in question 2.',
+    );
     runtime.beginVerification(ready.taskId, 'The guidance is grounded.');
 
     const completed = runtime.complete(
@@ -93,6 +97,11 @@ describe('task runtime', () => {
       role: 'assistant',
       kind: 'answer',
       text: 'Dùng hiện tại tiếp diễn cho hành động đang xảy ra ngay bây giờ.',
+    });
+    expect(completed.messages.at(-2)).toMatchObject({
+      role: 'assistant',
+      kind: 'answer',
+      text: 'Look at the word “now” in question 2.',
     });
   });
 

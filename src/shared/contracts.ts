@@ -315,6 +315,15 @@ export const TaskUpdateSchema = z
     }
   });
 
+export const TaskHistorySchema = z.object({
+  events: z.array(TaskEventSchema),
+  persistence: z.object({
+    mode: z.enum(['postgres', 'session_only']),
+    summary: z.string().min(1).max(500),
+  }),
+  snapshots: z.array(TaskSnapshotSchema),
+});
+
 export const CuaStatusSchema = z.object({
   state: z.enum(['disconnected', 'permission_required', 'ready', 'error']),
   available: z.boolean(),
@@ -376,6 +385,7 @@ export const VoiceStatusSchema = z.object({
 
 export const CompanionStateSchema = z.enum([
   'idle',
+  'guiding',
   'listening',
   'processing',
   'sending',
@@ -385,6 +395,12 @@ export const CompanionStateSchema = z.enum([
 export const CompanionPositionSchema = z.object({
   x: z.number().int().min(0).max(100_000),
   y: z.number().int().min(0).max(100_000),
+});
+
+export const CompanionGuidanceSchema = z.object({
+  message: z.string().trim().min(1).max(240),
+  side: z.enum(['left', 'right']),
+  target: z.string().trim().min(1).max(80).optional(),
 });
 
 export const ConfigureVoiceRequestSchema = z.object({
@@ -465,6 +481,7 @@ export type ActivateMembershipRequest = z.infer<
 >;
 export type CompanionPosition = z.infer<typeof CompanionPositionSchema>;
 export type CompanionState = z.infer<typeof CompanionStateSchema>;
+export type CompanionGuidance = z.infer<typeof CompanionGuidanceSchema>;
 export type ConfigureVoiceRequest = z.infer<
   typeof ConfigureVoiceRequestSchema
 >;
@@ -498,6 +515,7 @@ export type SystemPermission = z.infer<typeof SystemPermissionSchema>;
 export type SteerTaskRequest = z.infer<typeof SteerTaskRequestSchema>;
 export type SubmitTaskRequest = z.infer<typeof SubmitTaskRequestSchema>;
 export type TaskEvent = z.infer<typeof TaskEventSchema>;
+export type TaskHistory = z.infer<typeof TaskHistorySchema>;
 export type TaskMessage = z.infer<typeof TaskMessageSchema>;
 export type TaskPhase = z.infer<typeof TaskPhaseSchema>;
 export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>;

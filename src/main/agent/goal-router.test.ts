@@ -36,6 +36,24 @@ describe('goal router', () => {
     expect(goal.capabilities).toContain('computer_use');
   });
 
+  it('treats solve-this educational requests as visual guidance', () => {
+    for (const request of [
+      'Tôi giải bài tập tính này',
+      'Giải bài tập toán này',
+      'Solve this math problem',
+      'Giúp tôi ở bài tập tiếng Anh này.',
+      'Vợ hãy giúp tôi giải bài này.',
+    ]) {
+      const goal = compileGoal(request);
+
+      expect(goal.domain).toBe('education');
+      expect(goal.interactionMode).toBe('guide');
+      expect(goal.capabilities).toEqual(
+        expect.arrayContaining(['computer_use', 'conversation']),
+      );
+    }
+  });
+
   it('treats explicit outcome verbs as action requests', () => {
     expect(inferInteractionMode('Open YouTube for me')).toBe('act');
     expect(inferInteractionMode('Reply to Alex in Gmail')).toBe('act');

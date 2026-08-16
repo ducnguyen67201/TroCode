@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 
-import type { TaskEvent, TaskSnapshot } from '../shared/contracts';
+import type { TaskEvent, TaskHistory, TaskSnapshot } from '../shared/contracts';
 
 import { createInsightsSummary } from './insights';
 
@@ -51,9 +51,11 @@ function EmptyCapabilities() {
 
 export function InsightsPage({
   events,
+  persistence,
   tasks,
 }: {
   events: readonly TaskEvent[];
+  persistence: TaskHistory['persistence'];
   tasks: readonly TaskSnapshot[];
 }) {
   const summary = useMemo(
@@ -66,16 +68,21 @@ export function InsightsPage({
     <div className="insights-page">
       <header className="insights-heading">
         <div>
-          <p className="eyebrow">Current app session</p>
+          <p className="eyebrow">
+            {persistence.mode === 'postgres'
+              ? 'Saved task history'
+              : 'Current app session'}
+          </p>
           <h1>Insights</h1>
           <p>
-            A private, on-device view of how TroCode is working across your
-            tasks. Only counts and lifecycle activity are summarized here.
+            {persistence.mode === 'postgres'
+              ? 'A view of how TroCode is working across your saved tasks and lifecycle activity.'
+              : 'A private, session-only view of how TroCode is working across your tasks.'}
           </p>
         </div>
         <span className="session-badge">
           <span aria-hidden="true" />
-          Live session
+          {persistence.mode === 'postgres' ? 'Across sessions' : 'Live session'}
         </span>
       </header>
 

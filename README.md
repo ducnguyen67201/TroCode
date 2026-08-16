@@ -37,6 +37,9 @@ Implemented:
   secrets cross into the renderer.
 - PostHog product analytics for app activity, task funnels, and completed voice
   transcripts so dictated prompts can be reviewed later.
+- Account-scoped PostgreSQL task history that saves the latest validated task
+  snapshot and immutable lifecycle events, then restores History and Insights
+  after restart.
 - Goal preview, automatic execution, always-available Stop/Escape cancellation,
   conversation, clarification, approval, and lifecycle activity UI.
 - Unit tests and cross-platform CI definition.
@@ -45,7 +48,7 @@ Not implemented yet:
 
 - Accessibility-first element targeting and production application allowlists.
 - Direct Gmail/Calendar connectors and app-specific independent verifiers.
-- Persistent task and trajectory storage.
+- Persistent screenshot-rich execution trajectory storage.
 - Production capability manifests, signing, notarization, and update delivery.
 
 When a compiled goal reaches `ready`, TroCode automatically creates the
@@ -59,6 +62,7 @@ card before anything is dispatched.
 
 - Node.js 24 or newer.
 - npm 11 or newer.
+- Docker Desktop with Docker Compose v2 for local PostgreSQL.
 - macOS 13+ or a supported 64-bit Windows environment for CUA.
 - macOS development requires Accessibility and Screen Recording permissions.
 
@@ -68,6 +72,11 @@ card before anything is dispatched.
 npm install
 npm start
 ```
+
+`npm start` starts the loopback-only PostgreSQL container, waits for its health
+check, and then launches Electron. The named Docker volume keeps task history
+between container restarts. Use `npm run db:down` to stop the container without
+deleting its data.
 
 On first launch, sign in with Google, then use the one-time permission screen to
 enable Microphone, Accessibility, and Screen Recording. TroCode moves into the
@@ -125,6 +134,26 @@ doppler setup --project tro-app --config dev
 All normal start and release scripts run through the explicit Doppler
 `tro-app/dev` configuration. Copy `.env.example` only as a reference; never
 commit a populated environment file.
+
+### PostgreSQL task history
+
+Local development uses PostgreSQL 17 from [`compose.yaml`](compose.yaml), bound
+only to `127.0.0.1:54320`. `TROCODE_POSTGRES_PASSWORD` and the matching
+`DATABASE_URL` live in Doppler's `tro-app/dev` config; they are injected into
+Compose and Electron only at runtime. The named `trocode_postgres_data` volume
+preserves records, while [`migrations/001_task_history.sql`](migrations/001_task_history.sql)
+initializes a new database. TroCode also verifies the schema idempotently when
+it starts and keys every query by the verified Google user ID.
+
+The URL is intentionally not added to Webpack's `DefinePlugin`, so database
+credentials are not compiled into the desktop bundle or exposed through
+preload. Deployment database configuration remains separate from this local
+Compose setup.
+
+When `DATABASE_URL` is absent or PostgreSQL cannot initialize, the app remains
+usable and labels History as **Session only**. Task requests, conversation
+messages, goal scope, and lifecycle outcomes are stored; raw screenshots and
+OAuth/model credentials are not part of the task snapshot contract.
 
 ### Production memberships
 

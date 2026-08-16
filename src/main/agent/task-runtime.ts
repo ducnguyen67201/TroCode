@@ -159,6 +159,22 @@ export class TaskRuntime extends EventEmitter {
     });
   }
 
+  recordGuidance(taskId: string, guidance: string): TaskSnapshot {
+    const snapshot = this.getTask(taskId);
+    const timestamp = this.timestamp();
+    return this.record(
+      appendMessage(
+        snapshot,
+        { kind: 'answer', role: 'assistant', text: guidance },
+        timestamp,
+      ),
+      {
+        summary: guidance,
+        nextActions: ['Follow the visible pointer to the referenced item.'],
+      },
+    );
+  }
+
   beginAllowedAction(taskId: string, action: ProposedAction): TaskSnapshot {
     const snapshot = this.getTask(taskId);
     if (!snapshot.goal) throw new Error('Desktop action requires a compiled goal.');

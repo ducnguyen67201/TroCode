@@ -94,6 +94,8 @@ const ACT_TERMS = [
 const GUIDE_PREFIXES = [
   'can you show',
   'cách ',
+  'giai ',
+  'giải ',
   'help me learn',
   'how can i',
   'how do i',
@@ -104,7 +106,10 @@ const GUIDE_PREFIXES = [
   'làm sao',
   'làm thế nào',
   'show me how',
+  'solve ',
   'teach me',
+  'toi giai ',
+  'tôi giải ',
 ] as const;
 
 const ANSWER_PREFIXES = [
@@ -154,7 +159,7 @@ const VISUAL_SURFACE_TERMS = [
 ] as const;
 
 const VISUAL_REFERENCE_PATTERNS = [
-  /\bthis\s+(?:document|exercise|image|page|picture|problem|question|screen|worksheet)\b/u,
+  /\bthis\s+(?:(?:english|math)\s+)?(?:document|exercise|image|page|picture|problem|question|screen|worksheet)\b/u,
   /(?:bai(?: tap)?|cau hoi|cua so|hinh|man hinh|tai lieu|trang).{0,60}nay/u,
   /(?:bài(?: tập)?|câu hỏi|cửa sổ|hình|màn hình|tài liệu|trang).{0,60}này/u,
 ] as const;
@@ -184,7 +189,10 @@ export function inferDomain(request: string): Domain {
   return bestMatch && bestMatch.score > 0 ? bestMatch.domain : 'general';
 }
 
-export function inferInteractionMode(request: string): InteractionMode {
+export function inferInteractionMode(
+  request: string,
+  domain = inferDomain(request),
+): InteractionMode {
   const normalizedRequest = request.toLowerCase().trim();
 
   if (GUIDE_PREFIXES.some((prefix) => normalizedRequest.startsWith(prefix))) {
@@ -197,6 +205,10 @@ export function inferInteractionMode(request: string): InteractionMode {
 
   if (ACT_TERMS.some((term) => includesTerm(normalizedRequest, term))) {
     return 'act';
+  }
+
+  if (domain === 'education' && refersToVisualSurface(normalizedRequest)) {
+    return 'guide';
   }
 
   return 'mixed';
@@ -322,7 +334,7 @@ function createSuccessCriteria(mode: InteractionMode, request: string) {
 export function compileGoal(request: string): GoalSpec {
   const normalizedRequest = request.trim();
   const domain = inferDomain(normalizedRequest);
-  const interactionMode = inferInteractionMode(normalizedRequest);
+  const interactionMode = inferInteractionMode(normalizedRequest, domain);
 
   return {
     id: randomUUID(),
@@ -341,8 +353,10 @@ export function compileGoal(request: string): GoalSpec {
       alwaysConfirm: inferSensitiveActions(normalizedRequest),
     },
     limits: {
-      maxSteps: interactionMode === 'act' ? 30 : 12,
-      maxMinutes: interactionMode === 'act' ? 10 : 5,
+      maxSteps:
+        interactionMode === 'act' ? 30 : interactionMode === 'guide' ? 24 : 12,
+      maxMinutes:
+        interactionMode === 'act' || interactionMode === 'guide' ? 10 : 5,
     },
   };
 }

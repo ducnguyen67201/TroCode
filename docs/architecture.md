@@ -16,6 +16,7 @@ flowchart LR
     PRELOAD -->|"validated IPC"| MAIN["Electron main"]
     MAIN --> AUTH["Google OAuth + encrypted session"]
     MAIN --> MEMBERSHIP["Signed membership verifier"]
+    MAIN --> HISTORY["Account-scoped PostgreSQL task history"]
     MAIN --> COORD["Execution coordinator"]
     COORD --> GOAL["Goal runtime"]
     COORD --> RT["GPT Realtime planner"]
@@ -46,6 +47,12 @@ voice effects in packaged builds. It owns task state, hosts GPT Realtime and CUA
 sessions, serializes execution, and controls application shutdown. Renderer
 navigation and new-window creation are denied. OAuth tokens, the API key, and
 raw screenshots remain main-process-only.
+
+Every validated task update is queued to an optional PostgreSQL store under the
+verified Google user ID. The latest snapshot is upserted while lifecycle events
+are append-only and idempotent. History reads cross a narrow, authenticated IPC
+method and are schema-validated again in preload. PostgreSQL credentials remain
+main-process runtime configuration and are never exposed to the renderer.
 
 ### Membership verifier
 
@@ -95,4 +102,9 @@ failures. Each macOS or Windows release must be built on its matching target.
 
 ## Future backend
 
-A cloud backend is optional and should not operate the desktop directly. It may provide authentication, model-provider credential isolation, policy synchronization, billing, and encrypted task synchronization. The desktop remains the authority for local approvals and native actions.
+The current direct PostgreSQL adapter provides task-trail durability for the
+foundation. A production cloud backend should replace direct database access
+when TroCode needs credential isolation, retention controls, encrypted task
+synchronization, policy synchronization, or billing. It must not operate the
+desktop directly; the desktop remains the authority for local approvals and
+native actions.

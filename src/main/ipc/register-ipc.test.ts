@@ -43,6 +43,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   callOrder: string[];
   createVoiceCall: ReturnType<typeof vi.fn>;
   getAppPreferences: ReturnType<typeof vi.fn>;
+  getTaskHistory: ReturnType<typeof vi.fn>;
   membershipService: {
     activate: ReturnType<typeof vi.fn>;
     assertActive: ReturnType<typeof vi.fn>;
@@ -143,6 +144,14 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   }));
   const recordVoiceTranscript = vi.fn(async () => undefined);
   const getAppPreferences = vi.fn(async () => ({ primaryLanguage: null }));
+  const getTaskHistory = vi.fn(async () => ({
+    events: [],
+    persistence: {
+      mode: 'postgres',
+      summary: 'Task history is saved to PostgreSQL.',
+    },
+    snapshots: [],
+  }));
   const updateAppPreferences = vi.fn(async (input: unknown) => input);
   const services = {
     appPreferencesService: {
@@ -157,6 +166,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     recordVoiceTranscript,
     requestScreenRecordingAccess,
     taskRuntime,
+    taskHistoryService: { load: getTaskHistory },
     updateCompanionState: vi.fn(),
     voiceService: { createCall: createVoiceCall },
   } as unknown as Parameters<typeof registerIpcHandlers>[1];
@@ -170,6 +180,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     event,
     executionCoordinator,
     getAppPreferences,
+    getTaskHistory,
     membershipService,
     openSystemPermissionSettings,
     recordVoiceTranscript,
@@ -246,6 +257,18 @@ describe('registerIpcHandlers auth boundary', () => {
     expect(updateAppPreferences).toHaveBeenCalledWith({
       primaryLanguage: 'vi',
     });
+    unregister();
+  });
+
+  it('loads only the signed-in user task history', async () => {
+    const { event, getTaskHistory, unregister } = setup(true);
+
+    await expect(
+      electronMock.handlers.get(IPC_CHANNELS.getTaskHistory)?.(event),
+    ).resolves.toMatchObject({
+      persistence: { mode: 'postgres' },
+    });
+    expect(getTaskHistory).toHaveBeenCalledWith('user-id');
     unregister();
   });
 

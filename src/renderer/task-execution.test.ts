@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  approvalSafeguardMessage,
   isTaskCancellable,
   shouldAutoStartTask,
   shouldStopTaskForEscape,
 } from './task-execution';
 
 describe('task execution presentation policy', () => {
+  it('distinguishes a potential approval gate from a pending approval', () => {
+    expect(approvalSafeguardMessage('blocked')).toContain(
+      'No sensitive action is awaiting approval',
+    );
+    expect(approvalSafeguardMessage('awaiting_approval')).toContain(
+      'exact action shown below',
+    );
+  });
+
   it('auto-starts a ready task once execution dependencies are available', () => {
     expect(
       shouldAutoStartTask({ phase: 'ready' }, {

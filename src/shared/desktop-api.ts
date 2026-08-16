@@ -2,6 +2,7 @@ import type {
   ActivateMembershipRequest,
   AppPreferences,
   AuthStatus,
+  CompanionGuidance,
   CompanionPosition,
   CompanionState,
   ConfigureVoiceRequest,
@@ -14,6 +15,7 @@ import type {
   SteerTaskRequest,
   SubmitTaskRequest,
   SystemPermission,
+  TaskHistory,
   TaskSnapshot,
   TaskUpdate,
   UpdateAppPreferencesRequest,
@@ -27,6 +29,7 @@ export const IPC_CHANNELS = {
   activateMembership: 'membership:activate',
   cancelTask: 'task:cancel',
   companionPositionChanged: 'companion:position-changed',
+  companionGuidanceChanged: 'companion:guidance-changed',
   companionStateChanged: 'companion:state-changed',
   configureVoice: 'voice:configure',
   connectComputer: 'cua:connect',
@@ -36,6 +39,7 @@ export const IPC_CHANNELS = {
   getComputerStatus: 'cua:status',
   getAuthStatus: 'auth:status',
   getMembershipStatus: 'membership:status',
+  getTaskHistory: 'task:history',
   getVoiceStatus: 'voice:status',
   openSystemPermissionSettings: 'system:open-permission-settings',
   recordVoiceTranscript: 'voice:record-transcript',
@@ -64,6 +68,7 @@ export interface DesktopApi {
   getAppPreferences(): Promise<AppPreferences>;
   getComputerStatus(): Promise<CuaStatus>;
   getMembershipStatus(): Promise<MembershipStatus>;
+  getTaskHistory(): Promise<TaskHistory>;
   getAuthStatus(): Promise<AuthStatus>;
   getVoiceStatus(): Promise<VoiceStatus>;
   onTaskUpdate(listener: (update: TaskUpdate) => void): () => void;
@@ -86,6 +91,9 @@ export interface DesktopApi {
 }
 
 export interface CompanionApi {
+  onGuidanceChange(
+    listener: (guidance: CompanionGuidance | null) => void,
+  ): () => void;
   onPositionChange(listener: (position: CompanionPosition) => void): () => void;
   onStateChange(listener: (state: CompanionState) => void): () => void;
 }

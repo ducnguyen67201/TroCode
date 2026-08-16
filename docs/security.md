@@ -45,8 +45,19 @@ Screenshots, URLs, document text, file paths, and typed input may contain privat
 data. Do not write them to analytics logs. Completed voice transcripts are the
 explicit exception: TroCode stores their text in PostHog so the team can review
 dictated prompts. Access and retention must be controlled in the PostHog
-project. Trajectory storage should be opt-in, encrypted locally, and have a
-clear retention policy.
+project. Task-history persistence is enabled only when the operator configures
+`DATABASE_URL`. It stores task requests, conversations, goal scope, and
+lifecycle outcomes under the verified Google user ID, but not raw screenshots,
+OAuth tokens, or model-provider credentials. Hosted connections must use TLS,
+a least-privilege database role, access controls, and an explicit retention
+policy. Rich screenshot or document trajectory storage remains out of scope and
+should be opt-in and encrypted.
+
+Local PostgreSQL binds only to `127.0.0.1:54320`, receives its generated
+password from Doppler at container startup, and persists data in a named Docker
+volume. The password and `DATABASE_URL` are not committed or compiled into the
+application. Production database credentials and network policy are deliberately
+separate from this development setup.
 
 PostHog runs only in the trusted Electron main process. Its event surface is an
 explicit allowlist of application lifecycle, task lifecycle, platform, version,

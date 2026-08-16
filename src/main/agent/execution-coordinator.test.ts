@@ -60,7 +60,8 @@ describe('task execution coordinator', () => {
     const presentAction = vi.fn(async () => {
       actionOrder.push('present');
     });
-    const prepareDesktop = vi.fn(async () => undefined);
+    const restoreDesktopPresentation = vi.fn();
+    const prepareDesktop = vi.fn(async () => restoreDesktopPresentation);
     const planner: DesktopPlanner = {
       start: vi.fn(async () => undefined),
       end: vi.fn(async () => undefined),
@@ -100,6 +101,7 @@ describe('task execution coordinator', () => {
     );
     expect(actionOrder).toEqual(['open', 'present']);
     expect(prepareDesktop).toHaveBeenCalledTimes(2);
+    expect(restoreDesktopPresentation).toHaveBeenCalledTimes(2);
     expect(cua.observe).toHaveBeenCalledTimes(2);
     expect(cua.executeCommand).not.toHaveBeenCalled();
   });
@@ -205,6 +207,7 @@ describe('task execution coordinator', () => {
     expect(presentAction).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'click', x: 812, y: 744 }),
       expect.any(AbortSignal),
+      { screenPoint: { x: 812, y: 744 } },
     );
     expect(actionOrder).toEqual(['present', 'execute']);
   });
@@ -416,6 +419,116 @@ describe('task execution coordinator', () => {
     expect(runtime.getSnapshot(ready.taskId).phase).toBe('blocked');
     expect(openExternal).not.toHaveBeenCalled();
     expect(cua.executeCommand).not.toHaveBeenCalled();
+  });
+
+  it('illustrates a screen-grounded guide with a point but never clicks', async () => {
+    const runtime = new TaskRuntime();
+    const cua = new FakeCua();
+    cua.observe.mockImplementation(async (taskId: string) => ({
+      observationId: randomUUID(),
+      taskId,
+      capturedAt: new Date().toISOString(),
+      text: 'A Retina desktop observation',
+      screenshot: { mimeType: 'image/png', dataBase64: 'aW1hZ2U=' },
+      coordinateSpace: {
+        screenHeight: 1_117,
+        screenWidth: 1_728,
+        screenshotHeight: 2_234,
+        screenshotWidth: 3_456,
+      },
+      degraded: false,
+      fingerprint: 'f'.repeat(64),
+    }));
+    const presentAction = vi.fn(async () => undefined);
+    const pointGrounder = vi.fn(async () => ({
+      matchedText: '2. What he (do)',
+      point: { x: 1_730, y: 800 },
+      source: 'macos_vision_text',
+    }));
+    const planner: DesktopPlanner = {
+      start: vi.fn(async () => undefined),
+      end: vi.fn(async () => undefined),
+      decide: vi
+        .fn()
+        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => ({
+          kind: 'action',
+          observationId: input.observation.observationId,
+          intent: 'guide',
+          capability: 'computer_use',
+          description: 'Notice that “now” signals an action in progress.',
+          target: 'Question 2',
+          guidanceSequence: { index: 1, total: 1 },
+          command: { kind: 'point', x: 1_980, y: 1_428 },
+        }))
+        .mockImplementationOnce(async () => ({
+          kind: 'complete',
+          summary:
+            'Câu 2 dùng hiện tại tiếp diễn vì có “now”: What is he doing now? He is watering flowers in the garden.',
+        })),
+    };
+    const coordinator = new TaskExecutionCoordinator({
+      runtime,
+      cua,
+      planner,
+      pointGrounder,
+      presentAction,
+    });
+    const ready = runtime.submit({
+      text: 'Làm sao để làm bài tập tiếng Anh này?',
+    });
+
+    expect(ready.goal?.interactionMode).toBe('guide');
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    const completed = runtime.getSnapshot(ready.taskId);
+    expect(completed.phase).toBe('completed');
+    expect(completed.progress?.currentStep).toBe(1);
+    expect(presentAction).toHaveBeenCalledWith(
+      { kind: 'point', x: 1_730, y: 800 },
+      expect.any(AbortSignal),
+      {
+        message: 'Notice that “now” signals an action in progress.',
+        screenPoint: { x: 865, y: 400 },
+        target: '1 / 1 · Question 2',
+      },
+    );
+    expect(cua.executeCommand).toHaveBeenCalledWith(
+      ready.taskId,
+      { kind: 'point', x: 1_730, y: 800 },
+      expect.any(AbortSignal),
+    );
+    expect(pointGrounder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: { kind: 'point', x: 1_980, y: 1_428 },
+        target: 'Question 2',
+      }),
+      expect.objectContaining({
+        coordinateSpace: expect.objectContaining({ screenshotWidth: 3_456 }),
+      }),
+      expect.any(AbortSignal),
+    );
+    expect(completed.messages.at(-2)?.text).toBe(
+      'Notice that “now” signals an action in progress.',
+    );
+    expect(completed.messages.at(-1)?.text).toContain(
+      'What is he doing now?',
+    );
+    expect(planner.decide).toHaveBeenNthCalledWith(
+      2,
+      ready.taskId,
+      expect.objectContaining({
+        guidancePoints: [
+          {
+            description: 'Notice that “now” signals an action in progress.',
+            sequenceIndex: 1,
+            sequenceTotal: 1,
+            target: 'Question 2',
+          },
+        ],
+      }),
+      expect.any(AbortSignal),
+    );
   });
 
   it('aborts an in-flight action at the task deadline and marks its outcome unknown', async () => {

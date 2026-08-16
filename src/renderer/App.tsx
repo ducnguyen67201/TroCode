@@ -16,6 +16,7 @@ import type {
   PendingInteraction,
   PrimaryLanguage,
   TaskEvent,
+  TaskHistory,
   TaskSnapshot,
   VoiceStatus,
 } from '../shared/contracts';
@@ -46,6 +47,7 @@ import {
 } from './push-to-talk';
 import { SettingsPage } from './SettingsPage';
 import {
+  approvalSafeguardMessage,
   isTaskCancellable,
   shouldAutoStartTask,
   shouldStopTaskForEscape,
@@ -104,6 +106,36 @@ function appendUniqueEvent(
   )
     ? currentEvents
     : [...currentEvents, event];
+}
+
+function mergeTaskSnapshots(
+  currentSnapshots: Record<string, TaskSnapshot>,
+  incomingSnapshots: readonly TaskSnapshot[],
+): Record<string, TaskSnapshot> {
+  const mergedSnapshots = { ...currentSnapshots };
+  for (const snapshot of incomingSnapshots) {
+    const current = mergedSnapshots[snapshot.taskId];
+    if (!current || current.updatedAt < snapshot.updatedAt) {
+      mergedSnapshots[snapshot.taskId] = snapshot;
+    }
+  }
+  return mergedSnapshots;
+}
+
+function mergeTaskEvents(
+  currentEvents: readonly TaskEvent[],
+  incomingEvents: readonly TaskEvent[],
+): TaskEvent[] {
+  const eventIds = new Set(currentEvents.map((event) => event.eventId));
+  const mergedEvents = [...currentEvents];
+  for (const event of incomingEvents) {
+    if (eventIds.has(event.eventId)) continue;
+    eventIds.add(event.eventId);
+    mergedEvents.push(event);
+  }
+  return mergedEvents.sort((left, right) =>
+    left.timestamp.localeCompare(right.timestamp),
+  );
 }
 
 function NavigationIcon({
@@ -253,6 +285,7 @@ function LiveTaskRail({
   canStart,
   goal,
   isStarting,
+  lastEvent,
   onRetry,
   phase,
   progress,
@@ -262,6 +295,7 @@ function LiveTaskRail({
   canStart: boolean;
   goal: GoalSpec | null;
   isStarting: boolean;
+  lastEvent: TaskEvent | null;
   onRetry: () => void;
   phase: TaskSnapshot['phase'];
   progress: TaskSnapshot['progress'];
@@ -335,12 +369,22 @@ function LiveTaskRail({
               <div className="guardrail">
                 <span aria-hidden="true">◆</span>
                 <p>
-                  Sensitive actions require approval. TroCode cannot expand its
+                  {approvalSafeguardMessage(phase)} TroCode cannot expand its
                   own capability or resource scope.
                 </p>
               </div>
             </div>
           </details>
+        )}
+
+        {phase === 'blocked' && lastEvent && (
+          <div className="live-task-blocked" role="alert">
+            <strong>Why TroCode stopped</strong>
+            <p>{lastEvent.summary}</p>
+            {lastEvent.nextActions[0] && (
+              <span>{lastEvent.nextActions[0]}</span>
+            )}
+          </div>
         )}
 
         {phase === 'ready' && (
@@ -575,6 +619,12 @@ export function App({
   const [sessionSnapshots, setSessionSnapshots] = useState<
     Record<string, TaskSnapshot>
   >({});
+  const [taskPersistence, setTaskPersistence] = useState<
+    TaskHistory['persistence']
+  >({
+    mode: 'session_only',
+    summary: 'Loading saved task history…',
+  });
   const [computerStatus, setComputerStatus] = useState<CuaStatus>(
     EMPTY_COMPUTER_STATUS,
   );
@@ -714,6 +764,24 @@ export function App({
         appendUniqueEvent(currentEvents, update.event),
       );
     });
+
+    void window.tro
+      .getTaskHistory()
+      .then((history) => {
+        setSessionSnapshots((currentSnapshots) =>
+          mergeTaskSnapshots(currentSnapshots, history.snapshots),
+        );
+        setSessionEvents((currentEvents) =>
+          mergeTaskEvents(currentEvents, history.events),
+        );
+        setTaskPersistence(history.persistence);
+      })
+      .catch(() => {
+        setTaskPersistence({
+          mode: 'session_only',
+          summary: 'Saved history could not be loaded; this session is temporary.',
+        });
+      });
 
     void window.tro
       .getVoiceStatus()
@@ -1520,11 +1588,13 @@ export function App({
               setActiveView('agent');
               if (!hasLiveTask) void resetTask();
             }}
+            persistence={taskPersistence}
             tasks={sessionTaskSnapshots}
           />
         ) : activeView === 'insights' ? (
           <InsightsPage
             events={sessionEvents}
+            persistence={taskPersistence}
             tasks={sessionTaskSnapshots}
           />
         ) : activeView === 'settings' ? (
@@ -1626,6 +1696,7 @@ export function App({
                 canStart={executionReady}
                 goal={snapshot.goal}
                 isStarting={isSubmitting}
+                lastEvent={snapshot.lastEvent}
                 onRetry={() => void startTask(snapshot.taskId)}
                 phase={snapshot.phase}
                 progress={snapshot.progress}

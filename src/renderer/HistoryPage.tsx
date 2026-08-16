@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 
-import type { TaskEvent, TaskSnapshot } from '../shared/contracts';
+import type { TaskEvent, TaskHistory, TaskSnapshot } from '../shared/contracts';
 
 import { createHistoryEntries } from './history';
 
@@ -27,11 +27,13 @@ export function HistoryPage({
   events,
   hasLiveTask,
   onOpenAgent,
+  persistence,
   tasks,
 }: {
   events: readonly TaskEvent[];
   hasLiveTask: boolean;
   onOpenAgent: () => void;
+  persistence: TaskHistory['persistence'];
   tasks: readonly TaskSnapshot[];
 }) {
   const entries = useMemo(
@@ -43,16 +45,21 @@ export function HistoryPage({
     <div className="history-page">
       <header className="history-heading">
         <div>
-          <p className="eyebrow">Current app session</p>
+          <p className="eyebrow">
+            {persistence.mode === 'postgres'
+              ? 'Saved task history'
+              : 'Current app session'}
+          </p>
           <h1>Task trail</h1>
           <p>
-            A quiet record of finished work, kept only for this open session.
-            Closing TroCode clears this trail.
+            {persistence.mode === 'postgres'
+              ? 'A durable record of finished work, restored when you reopen TroCode.'
+              : persistence.summary}
           </p>
         </div>
         <span className="session-badge">
           <span aria-hidden="true" />
-          Session only
+          {persistence.mode === 'postgres' ? 'Saved' : 'Session only'}
         </span>
       </header>
 
@@ -84,7 +91,7 @@ export function HistoryPage({
           </button>
         </section>
       ) : (
-        <ol className="history-trail" aria-label="Finished tasks this session">
+        <ol className="history-trail" aria-label="Finished task history">
           {entries.map((entry, index) => {
             const progress = entry.progress
               ? `${entry.progress.currentStep} of ${entry.progress.maxSteps} steps`

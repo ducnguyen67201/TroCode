@@ -5,6 +5,7 @@ import './index.css';
 import { AuthGate } from './renderer/AuthGate';
 import { BrandMark } from './renderer/BrandMark';
 import { CursorCompanion } from './renderer/CursorCompanion';
+import { GuidanceCallout } from './renderer/GuidanceCallout';
 
 function DesktopBridgeUnavailable() {
   return (
@@ -30,23 +31,28 @@ function DesktopBridgeUnavailable() {
 }
 
 const rootElement = document.getElementById('root');
-const isCompanionWindow =
-  new URLSearchParams(window.location.search).get('mode') === 'companion';
+const rendererMode = new URLSearchParams(window.location.search).get('mode');
+const isCompanionWindow = rendererMode === 'companion';
+const isGuidanceWindow = rendererMode === 'guidance';
+const isAuxiliaryWindow = isCompanionWindow || isGuidanceWindow;
 
 if (!rootElement) throw new Error('The application root element is missing.');
 
 if (isCompanionWindow) document.documentElement.classList.add('companion-mode');
+if (isGuidanceWindow) document.documentElement.classList.add('guidance-mode');
 
-const hasDesktopBridge = isCompanionWindow
+const hasDesktopBridge = isAuxiliaryWindow
   ? typeof window.troCompanion !== 'undefined'
   : typeof window.tro !== 'undefined';
 
 createRoot(rootElement).render(
   <StrictMode>
     {!hasDesktopBridge ? (
-      isCompanionWindow ? null : (
+      isAuxiliaryWindow ? null : (
         <DesktopBridgeUnavailable />
       )
+    ) : isGuidanceWindow ? (
+      <GuidanceCallout />
     ) : isCompanionWindow ? (
       <CursorCompanion />
     ) : (

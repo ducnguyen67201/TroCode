@@ -6,6 +6,7 @@ import {
   AuthStatusSchema,
   CompanionPositionSchema,
   CancelTaskRequestSchema,
+  CompanionGuidanceSchema,
   CompanionStateSchema,
   ConfigureVoiceRequestSchema,
   CreateVoiceCallRequestSchema,
@@ -18,6 +19,7 @@ import {
   SteerTaskRequestSchema,
   SubmitTaskRequestSchema,
   SystemPermissionSchema,
+  TaskHistorySchema,
   TaskSnapshotSchema,
   TaskUpdateSchema,
   UpdateAppPreferencesRequestSchema,
@@ -75,6 +77,13 @@ const desktopApi: DesktopApi = {
       IPC_CHANNELS.getAppPreferences,
     );
     return AppPreferencesSchema.parse(response);
+  },
+
+  async getTaskHistory() {
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.getTaskHistory,
+    );
+    return TaskHistorySchema.parse(response);
   },
 
   async updateAppPreferences(input) {
@@ -227,6 +236,22 @@ const desktopApi: DesktopApi = {
 };
 
 const companionApi: CompanionApi = {
+  onGuidanceChange(listener) {
+    const eventHandler = (
+      _event: Electron.IpcRendererEvent,
+      value: unknown,
+    ): void => {
+      listener(CompanionGuidanceSchema.nullable().parse(value));
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.companionGuidanceChanged, eventHandler);
+    return () =>
+      ipcRenderer.removeListener(
+        IPC_CHANNELS.companionGuidanceChanged,
+        eventHandler,
+      );
+  },
+
   onPositionChange(listener) {
     const eventHandler = (
       _event: Electron.IpcRendererEvent,
