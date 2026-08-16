@@ -38,6 +38,11 @@ export function CursorCompanion() {
           <i />
           <i />
         </span>
+        <span className="cursor-companion__processing" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
         <span className="cursor-companion__error" aria-hidden="true">
           !
         </span>

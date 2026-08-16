@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {
+  ActivateMembershipRequestSchema,
   AppPreferencesSchema,
   AuthStatusSchema,
   CompanionPositionSchema,
@@ -10,6 +11,7 @@ import {
   CreateVoiceCallRequestSchema,
   CuaStatusSchema,
   DecideApprovalRequestSchema,
+  MembershipStatusSchema,
   RecordVoiceTranscriptRequestSchema,
   RespondToInteractionRequestSchema,
   StartTaskRequestSchema,
@@ -31,6 +33,22 @@ import {
 } from './shared/desktop-api';
 
 const desktopApi: DesktopApi = {
+  async getMembershipStatus() {
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.getMembershipStatus,
+    );
+    return MembershipStatusSchema.parse(response);
+  },
+
+  async activateMembership(input) {
+    const request = ActivateMembershipRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.activateMembership,
+      request,
+    );
+    return MembershipStatusSchema.parse(response);
+  },
+
   async getAuthStatus() {
     const response: unknown = await ipcRenderer.invoke(
       IPC_CHANNELS.getAuthStatus,

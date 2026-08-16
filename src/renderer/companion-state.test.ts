@@ -7,6 +7,7 @@ import { getCompanionState } from './companion-state';
 describe('cursor companion state', () => {
   it('accepts only supported IPC state values', () => {
     expect(CompanionStateSchema.parse('sending')).toBe('sending');
+    expect(CompanionStateSchema.parse('processing')).toBe('processing');
     expect(() => CompanionStateSchema.parse('busy')).toThrow();
   });
 
@@ -26,14 +27,14 @@ describe('cursor companion state', () => {
     }
   });
 
-  it('shows sending while transcription or task submission is in flight', () => {
+  it('distinguishes voice processing from task submission', () => {
     expect(
       getCompanionState({
         hasError: false,
         isSending: false,
         voiceStatus: 'processing',
       }),
-    ).toBe('sending');
+    ).toBe('processing');
     expect(
       getCompanionState({
         hasError: false,

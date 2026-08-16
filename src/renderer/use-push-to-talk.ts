@@ -16,11 +16,11 @@ import {
 import {
   closeRealtimeVoiceTransport,
   logRealtimeVoiceDiagnostic,
-  openRealtimeVoiceTransport,
   readOutboundAudioStats,
   type OutboundAudioStats,
   type RealtimeVoiceTransport,
 } from './realtime-voice-transport';
+import { WarmRealtimeVoiceTransport } from './warm-realtime-voice-transport';
 
 export type VoiceInputStatus =
   | 'connecting'
@@ -44,6 +44,8 @@ type VoiceTurnPhase =
   | 'microphone'
   | 'processing'
   | 'realtime_call';
+
+type VoiceActivationMode = 'global-hold' | 'local-hold';
 
 interface UsePushToTalkOptions {
   disabled?: boolean;
@@ -73,6 +75,8 @@ interface ActiveVoiceTurn {
 
 const AUDIO_COMMIT_FLUSH_MS = 150;
 const MINIMUM_AUDIO_CAPTURE_MS = 250;
+const QUEUED_RELEASE_GRACE_MS = 750;
+const QUEUED_RELEASE_SETTLE_MS = 150;
 const TRANSCRIPT_TIMEOUT_MS = 20_000;
 
 interface PushToTalkAttemptReadiness {
@@ -87,6 +91,12 @@ interface VoiceShortcutEventHandlers {
   beginListening(): unknown;
   finishListening(): void;
   isListening: boolean;
+}
+
+interface LocalVoiceReleaseState {
+  activationMode: VoiceActivationMode | null;
+  isListening: boolean;
+  isLocalChordHeld: boolean;
 }
 
 export function beginPushToTalkAttemptIfValid(
@@ -123,6 +133,16 @@ export function handleVoiceShortcutEvent(
   }
 
   if (event.action === 'released' && isListening) finishListening();
+}
+
+export function shouldFinishVoiceOnLocalRelease({
+  activationMode,
+  isListening,
+  isLocalChordHeld,
+}: LocalVoiceReleaseState): boolean {
+  return (
+    activationMode === 'local-hold' && isListening && !isLocalChordHeld
+  );
 }
 
 export function canCommitInputAudioBuffer(
@@ -223,7 +243,14 @@ export function usePushToTalk({
     enabled && platform !== 'unsupported' ? 'idle' : 'unavailable',
   );
   const activeTurnRef = useRef<ActiveVoiceTurn | null>(null);
+  const activationModeRef = useRef<VoiceActivationMode | null>(null);
   const attemptStartedAtRef = useRef<number | null>(null);
+  const connectingStreamRef = useRef<MediaStream | null>(null);
+  const finishListeningRef = useRef<() => void>(() => undefined);
+  const queuedReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const releaseRequestedAtRef = useRef<number | null>(null);
   const voicePhaseRef = useRef<VoiceTurnPhase>('idle');
   const voiceAttemptRef = useRef(0);
   const pressedCodesRef = useRef(new Set<string>());
@@ -234,6 +261,23 @@ export function usePushToTalk({
   const onErrorRef = useRef(onError);
   const onTranscriptChangeRef = useRef(onTranscriptChange);
   const onTranscriptSubmitRef = useRef(onTranscriptSubmit);
+  const [warmTransport] = useState(
+    () =>
+      new WarmRealtimeVoiceTransport({
+        onWarmFailure: (error) => {
+          voiceTurnDiagnostic('warm-connection-failed', {
+            message: voiceConnectionErrorMessage(error).slice(0, 300),
+          });
+        },
+      }),
+  );
+
+  const clearQueuedReleaseTimer = useCallback((): void => {
+    if (queuedReleaseTimerRef.current) {
+      clearTimeout(queuedReleaseTimerRef.current);
+    }
+    queuedReleaseTimerRef.current = null;
+  }, []);
 
   useEffect(() => {
     disabledRef.current = disabled;
@@ -259,25 +303,37 @@ export function usePushToTalk({
         message: message.slice(0, 300),
       });
       activeTurnRef.current = null;
+      activationModeRef.current = null;
       chordHeldRef.current = false;
+      releaseRequestedAtRef.current = null;
+      clearQueuedReleaseTimer();
       attemptStartedAtRef.current = null;
       voicePhaseRef.current = 'idle';
       closeVoiceTurn(turn);
+      warmTransport.replenish();
       setStatus(enabledRef.current ? 'idle' : 'unavailable');
       onErrorRef.current(message);
     },
-    [],
+    [clearQueuedReleaseTimer, warmTransport],
   );
 
   const cancel = useCallback(() => {
     voiceAttemptRef.current += 1;
     pressedCodesRef.current.clear();
+    activationModeRef.current = null;
     chordHeldRef.current = false;
+    releaseRequestedAtRef.current = null;
+    clearQueuedReleaseTimer();
     attemptStartedAtRef.current = null;
     voicePhaseRef.current = 'idle';
 
     const turn = activeTurnRef.current;
     activeTurnRef.current = null;
+    const connectingStream = connectingStreamRef.current;
+    connectingStreamRef.current = null;
+    if (connectingStream) {
+      for (const track of connectingStream.getTracks()) track.stop();
+    }
     if (turn) {
       if (!turn.committed && turn.transport.channel.readyState === 'open') {
         turn.transport.channel.send(
@@ -290,32 +346,44 @@ export function usePushToTalk({
       }
       closeVoiceTurn(turn);
     }
+    warmTransport.replenish();
 
     setStatus(
       enabledRef.current && platform !== 'unsupported'
         ? 'idle'
         : 'unavailable',
     );
-  }, [platform]);
+  }, [clearQueuedReleaseTimer, platform, warmTransport]);
 
   const stopVoice = useCallback(() => {
     voiceAttemptRef.current += 1;
     pressedCodesRef.current.clear();
+    activationModeRef.current = null;
     chordHeldRef.current = false;
+    releaseRequestedAtRef.current = null;
+    clearQueuedReleaseTimer();
     attemptStartedAtRef.current = null;
     voicePhaseRef.current = 'idle';
 
     const turn = activeTurnRef.current;
     activeTurnRef.current = null;
+    const connectingStream = connectingStreamRef.current;
+    connectingStreamRef.current = null;
+    if (connectingStream) {
+      for (const track of connectingStream.getTracks()) track.stop();
+    }
     if (turn) closeVoiceTurn(turn);
-  }, []);
+  }, [clearQueuedReleaseTimer]);
 
   const shutdown = useCallback(() => {
+    warmTransport.stop();
     stopVoice();
     setStatus('unavailable');
-  }, [stopVoice]);
+  }, [stopVoice, warmTransport]);
 
-  const beginListening = useCallback(async () => {
+  const beginListening = useCallback(async (
+    activationMode: VoiceActivationMode = 'local-hold',
+  ) => {
     if (!beginPushToTalkAttemptIfValid(
       {
         disabled: disabledRef.current,
@@ -329,7 +397,10 @@ export function usePushToTalk({
       return;
     }
 
+    activationModeRef.current = activationMode;
     chordHeldRef.current = true;
+    releaseRequestedAtRef.current = null;
+    clearQueuedReleaseTimer();
     const voiceAttempt = voiceAttemptRef.current + 1;
     voiceAttemptRef.current = voiceAttempt;
     attemptStartedAtRef.current = Date.now();
@@ -341,6 +412,7 @@ export function usePushToTalk({
     let pendingTransport: RealtimeVoiceTransport | null = null;
     let pendingTurn: ActiveVoiceTurn | null = null;
     let connectionStep: VoiceConnectionStep = 'microphone';
+    let microphoneCaptureStartedAt: number | null = null;
 
     try {
       pendingStream = await navigator.mediaDevices.getUserMedia({
@@ -352,6 +424,8 @@ export function usePushToTalk({
       });
 
       const stream = pendingStream;
+      connectingStreamRef.current = stream;
+      microphoneCaptureStartedAt = Date.now();
       const audioTrack = stream.getAudioTracks()[0];
       if (!audioTrack) {
         throw new Error('No microphone audio track is available.');
@@ -364,6 +438,9 @@ export function usePushToTalk({
       });
 
       if (voiceAttemptRef.current !== voiceAttempt || !chordHeldRef.current) {
+        if (connectingStreamRef.current === stream) {
+          connectingStreamRef.current = null;
+        }
         for (const track of stream.getTracks()) track.stop();
         return;
       }
@@ -371,31 +448,50 @@ export function usePushToTalk({
       setStatus('connecting');
       connectionStep = 'realtime_call';
       voicePhaseRef.current = 'realtime_call';
-      const transport = await openRealtimeVoiceTransport({ audioTrack });
+      const transport = await warmTransport.take();
       pendingTransport = transport;
 
       if (voiceAttemptRef.current !== voiceAttempt || !chordHeldRef.current) {
+        if (connectingStreamRef.current === stream) {
+          connectingStreamRef.current = null;
+        }
         closeRealtimeVoiceTransport(transport);
+        warmTransport.replenish();
         for (const track of stream.getTracks()) track.stop();
         return;
       }
 
-      const outboundAudioAtStart = readOutboundAudioStats(transport.sender)
-        .then((stats) => {
-          voiceTurnDiagnostic('outbound-baseline', {
-            attempt: voiceAttempt,
-            bytesSent: stats.bytesSent,
-            packetsSent: stats.packetsSent,
-          });
-          return stats;
-        })
-        .catch((error: unknown) => {
-          voiceTurnDiagnostic('outbound-stats-unavailable', {
-            attempt: voiceAttempt,
-            message: voiceConnectionErrorMessage(error).slice(0, 300),
-          });
-          return null;
+      connectionStep = 'peer_connection';
+      await transport.sender.replaceTrack(audioTrack);
+
+      clearQueuedReleaseTimer();
+      const releaseWasQueued = releaseRequestedAtRef.current !== null;
+      const outboundAudioAtStart = releaseWasQueued
+        ? Promise.resolve({ bytesSent: 0, packetsSent: 0 })
+        : readOutboundAudioStats(transport.sender)
+            .then((stats) => {
+              voiceTurnDiagnostic('outbound-baseline', {
+                attempt: voiceAttempt,
+                bytesSent: stats.bytesSent,
+                packetsSent: stats.packetsSent,
+              });
+              return stats;
+            })
+            .catch((error: unknown) => {
+              voiceTurnDiagnostic('outbound-stats-unavailable', {
+                attempt: voiceAttempt,
+                message: voiceConnectionErrorMessage(error).slice(0, 300),
+              });
+              return null;
+            });
+      if (releaseWasQueued) {
+        voiceTurnDiagnostic('outbound-baseline', {
+          attempt: voiceAttempt,
+          bytesSent: 0,
+          packetsSent: 0,
+          queuedRelease: true,
         });
+      }
 
       // Register the turn synchronously after the data channel opens. Awaiting
       // RTP stats here leaves a window where key-up sees no active turn and
@@ -412,6 +508,9 @@ export function usePushToTalk({
       };
       pendingTurn = turn;
       activeTurnRef.current = turn;
+      if (connectingStreamRef.current === stream) {
+        connectingStreamRef.current = null;
+      }
       pendingTransport = null;
 
       transport.channel.addEventListener('message', (event) => {
@@ -454,9 +553,14 @@ export function usePushToTalk({
           committed: turn.committed,
         });
         activeTurnRef.current = null;
+        activationModeRef.current = null;
+        chordHeldRef.current = false;
+        releaseRequestedAtRef.current = null;
+        clearQueuedReleaseTimer();
         attemptStartedAtRef.current = null;
         voicePhaseRef.current = 'idle';
         closeVoiceTurn(turn);
+        warmTransport.replenish();
         setStatus(enabledRef.current ? 'idle' : 'unavailable');
 
         if (shouldSubmit) {
@@ -485,12 +589,27 @@ export function usePushToTalk({
         }
       });
 
-      turn.audioCaptureStartedAt = Date.now();
+      turn.audioCaptureStartedAt = releaseWasQueued
+        ? microphoneCaptureStartedAt
+        : Date.now();
       voicePhaseRef.current = 'listening';
       voiceTurnDiagnostic('listening', {
         attempt: voiceAttempt,
       });
       setStatus('listening');
+      if (releaseWasQueued) {
+        voiceTurnDiagnostic('queued-release-settling', {
+          attempt: voiceAttempt,
+          settleMs: QUEUED_RELEASE_SETTLE_MS,
+        });
+        await delay(QUEUED_RELEASE_SETTLE_MS);
+        if (
+          activeTurnRef.current === turn &&
+          releaseRequestedAtRef.current !== null
+        ) {
+          finishListeningRef.current();
+        }
+      }
     } catch (error) {
       if (pendingTurn && activeTurnRef.current === pendingTurn) {
         activeTurnRef.current = null;
@@ -501,9 +620,16 @@ export function usePushToTalk({
           for (const track of pendingStream.getTracks()) track.stop();
         }
       }
+      warmTransport.replenish();
 
       if (voiceAttemptRef.current !== voiceAttempt) return;
+      if (connectingStreamRef.current === pendingStream) {
+        connectingStreamRef.current = null;
+      }
+      activationModeRef.current = null;
       chordHeldRef.current = false;
+      releaseRequestedAtRef.current = null;
+      clearQueuedReleaseTimer();
       attemptStartedAtRef.current = null;
       voicePhaseRef.current = 'idle';
       setStatus(enabledRef.current ? 'idle' : 'unavailable');
@@ -531,7 +657,7 @@ export function usePushToTalk({
         });
       onErrorRef.current(voiceConnectionErrorMessage(error));
     }
-  }, [failTurn, platform]);
+  }, [clearQueuedReleaseTimer, failTurn, platform, warmTransport]);
 
   const finishListening = useCallback(() => {
     if (!chordHeldRef.current) return;
@@ -541,7 +667,6 @@ export function usePushToTalk({
       releasedAt - (attemptStartedAtRef.current ?? releasedAt),
     );
     const phase = voicePhaseRef.current;
-    chordHeldRef.current = false;
 
     const turn = activeTurnRef.current;
     voiceTurnDiagnostic('release-requested', {
@@ -550,6 +675,55 @@ export function usePushToTalk({
       heldMs,
       phase,
     });
+    if (!turn && phase === 'realtime_call') {
+      activationModeRef.current = null;
+      releaseRequestedAtRef.current = releasedAt;
+      clearQueuedReleaseTimer();
+      voiceTurnDiagnostic('release-queued', {
+        attempt: voiceAttemptRef.current,
+        heldMs,
+        phase,
+      });
+
+      const queuedAttempt = voiceAttemptRef.current;
+      queuedReleaseTimerRef.current = setTimeout(() => {
+        if (
+          voiceAttemptRef.current !== queuedAttempt ||
+          releaseRequestedAtRef.current !== releasedAt ||
+          activeTurnRef.current
+        ) {
+          return;
+        }
+
+        voiceTurnDiagnostic('release-queue-timeout', {
+          attempt: queuedAttempt,
+          graceMs: QUEUED_RELEASE_GRACE_MS,
+        });
+        voiceAttemptRef.current += 1;
+        activationModeRef.current = null;
+        chordHeldRef.current = false;
+        releaseRequestedAtRef.current = null;
+        attemptStartedAtRef.current = null;
+        voicePhaseRef.current = 'idle';
+        const connectingStream = connectingStreamRef.current;
+        connectingStreamRef.current = null;
+        if (connectingStream) {
+          for (const track of connectingStream.getTracks()) track.stop();
+        }
+        queuedReleaseTimerRef.current = null;
+        setStatus(enabledRef.current ? 'idle' : 'unavailable');
+        onErrorRef.current(
+          'Voice did not finish connecting in time. Try the shortcut again.',
+        );
+      }, QUEUED_RELEASE_GRACE_MS);
+      return;
+    }
+
+    activationModeRef.current = null;
+    chordHeldRef.current = false;
+    releaseRequestedAtRef.current = null;
+    clearQueuedReleaseTimer();
+
     if (!turn || turn.transport.channel.readyState !== 'open') {
       voiceTurnDiagnostic('release-before-listening', {
         attempt: voiceAttemptRef.current,
@@ -562,6 +736,7 @@ export function usePushToTalk({
       if (turn) {
         activeTurnRef.current = null;
         closeVoiceTurn(turn);
+        warmTransport.replenish();
       }
       setStatus(enabledRef.current ? 'idle' : 'unavailable');
       onErrorRef.current(
@@ -584,6 +759,7 @@ export function usePushToTalk({
         reason: 'capture-too-short',
       });
       closeVoiceTurn(turn);
+      warmTransport.replenish();
       setStatus(enabledRef.current ? 'idle' : 'unavailable');
       onErrorRef.current(
         `Voice input was too short. Hold ${pushToTalkShortcutName(platform)}, speak, then release.`,
@@ -645,6 +821,7 @@ export function usePushToTalk({
           reason: 'no-outbound-audio',
         });
         closeVoiceTurn(turn);
+        warmTransport.replenish();
         setStatus(enabledRef.current ? 'idle' : 'unavailable');
         onErrorRef.current(
           `Microphone audio did not reach OpenAI. Hold ${pushToTalkShortcutName(platform)}, speak, then release.`,
@@ -665,6 +842,7 @@ export function usePushToTalk({
       turn.transport.channel.send(
         JSON.stringify({ type: 'input_audio_buffer.commit' }),
       );
+      warmTransport.replenish();
       voiceTurnDiagnostic('buffer-committed', {
         attempt: turn.attempt,
         flushMs: AUDIO_COMMIT_FLUSH_MS,
@@ -679,18 +857,29 @@ export function usePushToTalk({
       });
       failTurn(turn, voiceConnectionErrorMessage(error));
     });
-  }, [failTurn, platform]);
+  }, [clearQueuedReleaseTimer, failTurn, platform, warmTransport]);
+
+  useEffect(() => {
+    finishListeningRef.current = finishListening;
+  }, [finishListening]);
 
   useEffect(() => {
     enabledRef.current = enabled;
-    if (!enabled || platform === 'unsupported') stopVoice();
-  }, [enabled, platform, stopVoice]);
+    if (enabled && platform !== 'unsupported') {
+      warmTransport.start();
+      return;
+    }
+
+    warmTransport.stop();
+    stopVoice();
+  }, [enabled, platform, stopVoice, warmTransport]);
 
   useEffect(
     () => {
       const unsubscribe = window.tro.onVoiceShortcut((event) => {
         handleVoiceShortcutEvent(event, {
-          beginListening: () => void beginListening(),
+          beginListening: () =>
+            void beginListening('global-hold'),
           finishListening,
           isListening: chordHeldRef.current,
         });
@@ -715,15 +904,16 @@ export function usePushToTalk({
 
       if (event.repeat || !isPushToTalkChord(platform, pressedCodes)) return;
       event.preventDefault();
-      void beginListening();
+      void beginListening('local-hold');
     };
 
     const handleKeyUp = (event: KeyboardEvent): void => {
       pressedCodes.delete(event.code);
-      if (
-        !chordHeldRef.current ||
-        isPushToTalkChord(platform, pressedCodes)
-      ) {
+      if (!shouldFinishVoiceOnLocalRelease({
+        activationMode: activationModeRef.current,
+        isListening: chordHeldRef.current,
+        isLocalChordHeld: isPushToTalkChord(platform, pressedCodes),
+      })) {
         return;
       }
       event.preventDefault();
@@ -732,7 +922,7 @@ export function usePushToTalk({
 
     const handleBlur = (): void => {
       pressedCodes.clear();
-      finishListening();
+      if (activationModeRef.current === 'local-hold') finishListening();
     };
 
     window.addEventListener('keydown', handleKeyDown);

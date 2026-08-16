@@ -290,7 +290,11 @@ Task awaiting approval        -> dictate edits or choose deny; approval still us
 Task completed or cancelled   -> create a new goal
 ```
 
-The existing hold-to-talk shortcut can remain while the TroCode window is focused. For use while Gmail is focused, add a system-wide toggle shortcut, with a configurable default such as Command/Control+Shift+Space. A toggle is more dependable than a modifier-only hold gesture because system-wide shortcut APIs report presses rather than reliable key-release events.
+The **Command + Control** hold-to-talk shortcut works both inside TroCode and
+system-wide on macOS. A small bundled native helper observes the combined
+session modifier state and forwards only press/release transitions to the
+trusted Electron main process. Windows uses **Ctrl + Alt + Space** as its
+system-wide hold shortcut.
 
 Voice capture is never continuously open. The UI shows an unmistakable listening state, live transcript, stop control, and typed fallback. Transcription is abstracted behind a provider interface so the current browser recognition implementation can later be replaced without changing task contracts.
 
@@ -368,7 +372,7 @@ This phase makes the conversation model real without granting desktop action aut
 
 - Publish task presentation state to the companion through restricted IPC.
 - Add captions, local text-to-speech, mute/repeat, and Stop.
-- Add the configurable global toggle-to-talk shortcut and typed fallback.
+- Add the configurable global hold-to-talk shortcut and typed fallback.
 - Test focus changes, microphone denial, shortcut collision, and accessibility.
 
 ### Phase 3: agent and policy loop — implemented vertical slice
@@ -411,4 +415,4 @@ The design is ready for broad use only when tests prove:
 - The companion speaks only short status and clarification prompts.
 - The agent observes after every navigation, click, submit, or focus change.
 - Direct integrations are preferred, while visible CUA remains available when needed.
-- The global microphone shortcut is a configurable toggle, never always-on listening.
+- The global microphone shortcut is hold-to-talk, never always-on listening.

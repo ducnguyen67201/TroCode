@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type { VoiceShortcutEvent } from '../../shared/contracts';
 import { IPC_CHANNELS } from '../../shared/desktop-api';
 
 import {
@@ -140,7 +141,54 @@ describe('registerGlobalVoiceShortcut', () => {
     );
   });
 
-  it('does not register a global voice shortcut outside Windows', () => {
+  it('forwards system-wide macOS modifier press and release events', () => {
+    const registry = {
+      register: vi.fn(),
+      unregister: vi.fn(),
+    };
+    const send = vi.fn();
+    const stopWatching = vi.fn();
+    const shortcutListeners: Array<
+      (event: VoiceShortcutEvent) => void
+    > = [];
+    const watchForMacOSShortcut = vi.fn(
+      (listener: (event: VoiceShortcutEvent) => void) => {
+        shortcutListeners.push(listener);
+        return stopWatching;
+      },
+    );
+    const unregister = registerGlobalVoiceShortcut({
+      getTarget: () => ({
+        isDestroyed: () => false,
+        isFocused: () => false,
+        webContents: { send },
+      }),
+      logger: { warn: vi.fn() },
+      platform: 'darwin',
+      registry,
+      watchForMacOSShortcut,
+    });
+
+    expect(registry.register).not.toHaveBeenCalled();
+    expect(watchForMacOSShortcut).toHaveBeenCalledOnce();
+
+    shortcutListeners[0]?.({ action: 'pressed', source: 'global' });
+    shortcutListeners[0]?.({ action: 'released', source: 'global' });
+
+    expect(send).toHaveBeenNthCalledWith(1, IPC_CHANNELS.voiceShortcut, {
+      action: 'pressed',
+      source: 'global',
+    });
+    expect(send).toHaveBeenNthCalledWith(2, IPC_CHANNELS.voiceShortcut, {
+      action: 'released',
+      source: 'global',
+    });
+
+    unregister();
+    expect(stopWatching).toHaveBeenCalledOnce();
+  });
+
+  it('does not register a global voice shortcut on unsupported platforms', () => {
     const registry = {
       register: vi.fn(),
       unregister: vi.fn(),
@@ -149,7 +197,7 @@ describe('registerGlobalVoiceShortcut', () => {
     const unregister = registerGlobalVoiceShortcut({
       getTarget: () => null,
       logger: { warn: vi.fn() },
-      platform: 'darwin',
+      platform: 'linux',
       registry,
       waitForRelease: vi.fn(async () => undefined),
     });

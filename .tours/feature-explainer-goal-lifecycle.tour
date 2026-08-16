@@ -1,0 +1,73 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "From User Request to Verified Goal",
+  "description": "Follow a typed or spoken request through goal compilation, bounded desktop execution, fresh observations, and the completion signal shown in TroCode.",
+  "steps": [
+    {
+      "file": "src/renderer/App.tsx",
+      "line": 716,
+      "title": "One Input Router",
+      "description": "Typed submissions and completed voice transcripts converge on sendInput. It keeps clarification answers attached to their task, treats input during execution as steering, and otherwise submits a new request; the gotcha is that starting a new request cancels any active non-terminal task."
+    },
+    {
+      "file": "src/preload.ts",
+      "line": 71,
+      "title": "Validated Renderer Boundary",
+      "description": "The sandboxed renderer can only call the narrow preload API. Both the request and returned snapshot are schema-parsed around IPC, so malformed renderer data cannot silently become trusted task state."
+    },
+    {
+      "file": "src/main/agent/task-runtime.ts",
+      "line": 90,
+      "title": "A Request Becomes a Task",
+      "description": "TaskRuntime creates a UUID-scoped snapshot, records the user message, and moves idle to interpreting. A one-word request pauses in clarifying; otherwise compilation is immediate, which means a vague request of two or more words can still reach goal review."
+    },
+    {
+      "file": "src/main/agent/goal-router.ts",
+      "line": 284,
+      "title": "Deterministic Goal Compilation",
+      "description": "compileGoal currently uses keyword rules to infer domain, answer/guide/act/mixed mode, capabilities, allowed domains, approval classes, and budgets. The original request becomes the objective, while action-like goals receive a generic observable-outcome criterion."
+    },
+    {
+      "file": "src/shared/contracts.ts",
+      "line": 84,
+      "title": "Goal Means Outcome Plus Proof",
+      "description": "GoalSpec is the immutable authority envelope: objective, success criteria with verifier descriptions, granted capabilities, resource scope, approval rules, and step/time limits. This is the contract the planner may route within but may not widen."
+    },
+    {
+      "file": "src/renderer/App.tsx",
+      "line": 243,
+      "title": "The User Observes the Goal",
+      "description": "The Compiled goal card exposes the objective, mode, domain, action budget, capabilities, and first success criterion before execution. Nothing runs while the task is ready; Start task is the explicit handoff into the observe-act-verify loop."
+    },
+    {
+      "file": "src/main/agent/execution-coordinator.ts",
+      "line": 180,
+      "title": "Serialized Bounded Execution",
+      "description": "The coordinator owns one loop, abort signal, deadline, planner session, and CUA session per task. Each iteration checks terminal state, pending interactions, time, actions, and steering before it admits another observation or action."
+    },
+    {
+      "file": "src/main/cua/cua-service.ts",
+      "line": 185,
+      "title": "Fresh Desktop Evidence",
+      "description": "CUA captures a task-scoped desktop state containing text, optional structured state, an optional screenshot, a unique observation ID, and a content fingerprint. Coordinates and decisions are tied to this fresh observation rather than reused after the screen may have changed."
+    },
+    {
+      "file": "src/main/agent/realtime-planner.ts",
+      "line": 93,
+      "title": "One Typed Decision per Observation",
+      "description": "GPT Realtime must return exactly one parsed action, question, completion, or blocked result. It receives the goal and success criteria and is explicitly told to mark complete only when the latest screenshot visibly proves the requested outcome; host policy still independently checks scope and approvals."
+    },
+    {
+      "file": "src/main/agent/execution-coordinator.ts",
+      "line": 287,
+      "title": "The Fulfillment Gate",
+      "description": "A planner completion first moves the lifecycle into verifying and only then into completed. A successful action alone never completes the task: the loop re-observes after it, while failed or unknown effects block without automatic retry. The current limitation is that completion proof is the planner's judgment of fresh desktop evidence, not yet an app-specific independent verifier."
+    },
+    {
+      "file": "src/renderer/App.tsx",
+      "line": 308,
+      "title": "Lifecycle Is Visible",
+      "description": "Every runtime transition emits a typed task update that the renderer accumulates into Task activity. The user can watch interpreting, ready, planning, observing, acting, verifying, and finally completed—or see awaiting input, approval, blocked, failed, or cancelled instead."
+    }
+  ]
+}

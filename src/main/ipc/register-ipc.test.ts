@@ -27,7 +27,7 @@ vi.mock('electron', () => ({
   },
 }));
 
-function setup(authenticated: boolean): {
+function setup(authenticated: boolean, membershipActive = authenticated): {
   authService: {
     assertSignedIn: ReturnType<typeof vi.fn>;
     getStatus: ReturnType<typeof vi.fn>;
@@ -43,6 +43,11 @@ function setup(authenticated: boolean): {
   callOrder: string[];
   createVoiceCall: ReturnType<typeof vi.fn>;
   getAppPreferences: ReturnType<typeof vi.fn>;
+  membershipService: {
+    activate: ReturnType<typeof vi.fn>;
+    assertActive: ReturnType<typeof vi.fn>;
+    getStatus: ReturnType<typeof vi.fn>;
+  };
   openSystemPermissionSettings: ReturnType<typeof vi.fn>;
   requestScreenRecordingAccess: ReturnType<typeof vi.fn>;
   recordVoiceTranscript: ReturnType<typeof vi.fn>;
@@ -69,6 +74,7 @@ function setup(authenticated: boolean): {
   const authService = {
     assertSignedIn: vi.fn(async () => {
       if (!authenticated) throw new Error('Sign in with Google first.');
+      return { id: 'user-id', email: 'user@example.com', name: 'User' };
     }),
     getStatus: vi.fn(async () => ({ state: 'signed_out' })),
     signIn: vi.fn(async () => ({
@@ -76,6 +82,27 @@ function setup(authenticated: boolean): {
       user: { id: 'user-id', email: 'user@example.com', name: 'User' },
     })),
     signOut: vi.fn(async () => ({ state: 'signed_out', user: null })),
+  };
+  const membershipService = {
+    activate: vi.fn(async () => ({
+      expiresAt: '2026-09-15T08:00:00.000Z',
+      referenceCode: 'TRC-AAAA-BBBB-CCCC',
+      required: true,
+      state: 'active',
+      summary: 'Membership active.',
+    })),
+    assertActive: vi.fn(async () => {
+      if (!membershipActive) {
+        throw new Error('An active membership is required to use TroCode.');
+      }
+    }),
+    getStatus: vi.fn(async () => ({
+      expiresAt: null,
+      referenceCode: 'TRC-AAAA-BBBB-CCCC',
+      required: true,
+      state: 'inactive',
+      summary: 'Enter an activation code to continue.',
+    })),
   };
   const taskRuntime = {
     off: vi.fn(),
@@ -125,6 +152,7 @@ function setup(authenticated: boolean): {
     authService,
     cuaService: { connect: cuaConnect, getStatus: cuaGetStatus },
     executionCoordinator,
+    membershipService,
     openSystemPermissionSettings,
     recordVoiceTranscript,
     requestScreenRecordingAccess,
@@ -142,6 +170,7 @@ function setup(authenticated: boolean): {
     event,
     executionCoordinator,
     getAppPreferences,
+    membershipService,
     openSystemPermissionSettings,
     recordVoiceTranscript,
     requestScreenRecordingAccess,
@@ -169,6 +198,18 @@ describe('registerIpcHandlers auth boundary', () => {
       'Sign in with Google first.',
     );
     expect(authService.assertSignedIn).toHaveBeenCalledOnce();
+    expect(submit).not.toHaveBeenCalled();
+    unregister();
+  });
+
+  it('rejects protected task IPC when signed in without an active membership', async () => {
+    const { event, membershipService, submit, unregister } = setup(true, false);
+    const handler = electronMock.handlers.get(IPC_CHANNELS.submitTask);
+
+    await expect(handler?.(event, { text: 'Open YouTube' })).rejects.toThrow(
+      'active membership',
+    );
+    expect(membershipService.assertActive).toHaveBeenCalledOnce();
     expect(submit).not.toHaveBeenCalled();
     unregister();
   });
@@ -205,6 +246,29 @@ describe('registerIpcHandlers auth boundary', () => {
     expect(updateAppPreferences).toHaveBeenCalledWith({
       primaryLanguage: 'vi',
     });
+    unregister();
+  });
+
+  it('inspects and activates membership after authentication', async () => {
+    const { event, membershipService, unregister } = setup(true, false);
+    const activationCode = `${'a'.repeat(80)}.${'b'.repeat(86)}`;
+
+    await expect(
+      electronMock.handlers.get(IPC_CHANNELS.getMembershipStatus)?.(event),
+    ).resolves.toMatchObject({ state: 'inactive' });
+    await expect(
+      electronMock.handlers
+        .get(IPC_CHANNELS.activateMembership)
+        ?.(event, { code: `  ${activationCode}  ` }),
+    ).resolves.toMatchObject({ state: 'active' });
+
+    expect(membershipService.getStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'user-id' }),
+    );
+    expect(membershipService.activate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'user-id' }),
+      activationCode,
+    );
     unregister();
   });
 
@@ -246,6 +310,31 @@ describe('registerIpcHandlers auth boundary', () => {
     expect(createVoiceCall).toHaveBeenCalledWith({
       offerSdp: 'v=0\r\noffer',
     });
+    unregister();
+  });
+
+  it('rejects realtime voice calls without an active membership', async () => {
+    const { createVoiceCall, event, unregister } = setup(true, false);
+    const handler = electronMock.handlers.get(IPC_CHANNELS.createVoiceCall);
+
+    await expect(
+      handler?.(event, { offerSdp: 'v=0\r\noffer' }),
+    ).rejects.toThrow('active membership');
+    expect(createVoiceCall).not.toHaveBeenCalled();
+    unregister();
+  });
+
+  it('keeps computer permission onboarding available before membership', async () => {
+    const { cuaGetStatus, event, membershipService, unregister } = setup(
+      true,
+      false,
+    );
+
+    await expect(
+      electronMock.handlers.get(IPC_CHANNELS.getComputerStatus)?.(event),
+    ).resolves.toMatchObject({ state: 'permission_required' });
+    expect(cuaGetStatus).toHaveBeenCalledOnce();
+    expect(membershipService.assertActive).not.toHaveBeenCalled();
     unregister();
   });
 

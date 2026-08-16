@@ -12,6 +12,7 @@ import type {
   AuthUser,
   CuaStatus,
   GoalSpec,
+  MembershipStatus,
   PendingInteraction,
   PrimaryLanguage,
   TaskEvent,
@@ -26,6 +27,8 @@ import {
   isPrimaryLanguageSetupComplete,
   primaryLanguageLabel,
 } from './language-options';
+import { membershipAllowsAccess } from './membership';
+import { MembershipGate } from './MembershipGate';
 import {
   createPermissionChecklist,
   inspectMicrophonePermission,
@@ -147,7 +150,7 @@ function voiceStatusMessage(
     case 'connecting':
       return 'Connecting to OpenAI voice…';
     case 'listening':
-      return 'Listening… Release either key to send.';
+      return 'Listening… Release the voice shortcut to send.';
     case 'processing':
       return 'Finishing transcript…';
     case 'requesting_permission':
@@ -157,6 +160,9 @@ function voiceStatusMessage(
     case 'idle': {
       const globalShortcut = globalPushToTalkShortcutName(platform);
       if (globalShortcut) {
+        if (platform === 'macos') {
+          return `Voice ready. Hold ${globalShortcut} to talk from any app.`;
+        }
         return `Voice ready. Hold ${pushToTalkShortcutName(platform)} to talk, or hold ${globalShortcut} globally.`;
       }
       return `Voice ready. Hold ${pushToTalkShortcutName(platform)} to talk.`;
@@ -490,6 +496,11 @@ export function App({
   const [microphonePermission, setMicrophonePermission] =
     useState<PermissionState>('checking');
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [membershipStatus, setMembershipStatus] =
+    useState<MembershipStatus | null>(null);
+  const [membershipError, setMembershipError] = useState<string | null>(null);
+  const [isCheckingMembership, setIsCheckingMembership] = useState(true);
+  const [isActivatingMembership, setIsActivatingMembership] = useState(false);
   const [transientCursorError, dispatchTransientCursorError] = useReducer(
     transientCursorErrorReducer,
     INITIAL_TRANSIENT_CURSOR_ERROR_STATE,
@@ -498,6 +509,7 @@ export function App({
   const activeTaskIdRef = useRef<string | null>(null);
   const isSendingRef = useRef(false);
   const permissionRefreshIdRef = useRef(0);
+  const membershipRefreshIdRef = useRef(0);
   const spokenInteractionIdRef = useRef<string | null>(null);
 
   const clearError = useCallback(() => {
@@ -689,6 +701,79 @@ export function App({
   );
   const languageSetupComplete =
     isPrimaryLanguageSetupComplete(appPreferences, preferencesLoaded);
+  const membershipAccessAllowed = membershipAllowsAccess(membershipStatus);
+
+  const refreshMembership = useCallback(async () => {
+    const refreshId = membershipRefreshIdRef.current + 1;
+    membershipRefreshIdRef.current = refreshId;
+    setIsCheckingMembership(true);
+    setMembershipError(null);
+    try {
+      const nextStatus = await window.tro.getMembershipStatus();
+      if (membershipRefreshIdRef.current !== refreshId) return;
+      setMembershipStatus(nextStatus);
+    } catch (membershipStatusError) {
+      if (membershipRefreshIdRef.current !== refreshId) return;
+      setMembershipStatus(null);
+      setMembershipError(
+        membershipStatusError instanceof Error
+          ? membershipStatusError.message
+          : 'TroCode could not check your membership.',
+      );
+    } finally {
+      if (membershipRefreshIdRef.current === refreshId) {
+        setIsCheckingMembership(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!permissionSetupComplete || !languageSetupComplete) return;
+
+    const handleWindowFocus = (): void => {
+      void refreshMembership();
+    };
+    queueMicrotask(() => void refreshMembership());
+    window.addEventListener('focus', handleWindowFocus);
+    return () => {
+      membershipRefreshIdRef.current += 1;
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, [languageSetupComplete, permissionSetupComplete, refreshMembership]);
+
+  useEffect(() => {
+    if (membershipStatus?.state !== 'active' || !membershipStatus.expiresAt) {
+      return;
+    }
+
+    const remainingMs = Date.parse(membershipStatus.expiresAt) - Date.now();
+    if (remainingMs <= 0) {
+      queueMicrotask(() => void refreshMembership());
+      return;
+    }
+
+    const expiryTimer = setTimeout(
+      () => void refreshMembership(),
+      Math.min(remainingMs, 2_147_483_647),
+    );
+    return () => clearTimeout(expiryTimer);
+  }, [membershipStatus, refreshMembership]);
+
+  const activateMembership = useCallback(async (code: string) => {
+    setIsActivatingMembership(true);
+    setMembershipError(null);
+    try {
+      setMembershipStatus(await window.tro.activateMembership({ code }));
+    } catch (activationError) {
+      setMembershipError(
+        activationError instanceof Error
+          ? activationError.message
+          : 'TroCode could not activate this membership code.',
+      );
+    } finally {
+      setIsActivatingMembership(false);
+    }
+  }, []);
 
   const saveSettings = useCallback(async () => {
     setIsSavingPreferences(true);
@@ -860,11 +945,13 @@ export function App({
   const { platform: voicePlatform, status: voiceStatus } = usePushToTalk({
     disabled:
       !permissionSetupComplete ||
+      !membershipAccessAllowed ||
       isSubmitting ||
       pendingInteraction?.kind === 'approval',
     enabled:
       permissionSetupComplete &&
       languageSetupComplete &&
+      membershipAccessAllowed &&
       voiceProviderStatus.state === 'ready',
     onAttemptStart: clearError,
     onError: reportError,
@@ -1015,6 +1102,21 @@ export function App({
         onRefresh={() => void refreshPermissions()}
         permissionsComplete={permissionSetupComplete}
         primaryLanguage={languageDraft}
+      />
+    );
+  }
+
+  if (!membershipAccessAllowed) {
+    return (
+      <MembershipGate
+        error={membershipError}
+        isActivating={isActivatingMembership}
+        isChecking={isCheckingMembership}
+        isSigningOut={isSigningOut}
+        onActivate={(code) => void activateMembership(code)}
+        onRefresh={() => void refreshMembership()}
+        onSignOut={onSignOut}
+        status={membershipStatus}
       />
     );
   }

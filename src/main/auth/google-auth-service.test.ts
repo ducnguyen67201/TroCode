@@ -145,7 +145,7 @@ describe('GoogleAuthService', () => {
       state: 'signed_in',
       user: TEST_USER,
     });
-    await expect(service.assertSignedIn()).resolves.toBeUndefined();
+    await expect(service.assertSignedIn()).resolves.toEqual(TEST_USER);
     await expect(service.signOut()).resolves.toMatchObject({
       state: 'signed_out',
       user: null,

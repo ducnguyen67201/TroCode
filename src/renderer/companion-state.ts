@@ -13,7 +13,8 @@ export function getCompanionState({
   isSending,
   voiceStatus,
 }: CompanionStateInput): CompanionState {
-  if (voiceStatus === 'processing' || isSending) return 'sending';
+  if (voiceStatus === 'processing') return 'processing';
+  if (isSending) return 'sending';
 
   if (
     voiceStatus === 'connecting' ||

@@ -1,4 +1,5 @@
 import type {
+  ActivateMembershipRequest,
   AppPreferences,
   AuthStatus,
   CompanionPosition,
@@ -7,6 +8,7 @@ import type {
   CreateVoiceCallRequest,
   CuaStatus,
   DecideApprovalRequest,
+  MembershipStatus,
   RecordVoiceTranscriptRequest,
   RespondToInteractionRequest,
   SteerTaskRequest,
@@ -22,6 +24,7 @@ import type {
 } from './contracts';
 
 export const IPC_CHANNELS = {
+  activateMembership: 'membership:activate',
   cancelTask: 'task:cancel',
   companionPositionChanged: 'companion:position-changed',
   companionStateChanged: 'companion:state-changed',
@@ -32,6 +35,7 @@ export const IPC_CHANNELS = {
   getAppPreferences: 'preferences:get',
   getComputerStatus: 'cua:status',
   getAuthStatus: 'auth:status',
+  getMembershipStatus: 'membership:status',
   getVoiceStatus: 'voice:status',
   openSystemPermissionSettings: 'system:open-permission-settings',
   recordVoiceTranscript: 'voice:record-transcript',
@@ -49,6 +53,9 @@ export const IPC_CHANNELS = {
 } as const;
 
 export interface DesktopApi {
+  activateMembership(
+    request: ActivateMembershipRequest,
+  ): Promise<MembershipStatus>;
   cancelTask(taskId: string): Promise<TaskSnapshot>;
   configureVoice(request: ConfigureVoiceRequest): Promise<VoiceStatus>;
   connectComputer(): Promise<CuaStatus>;
@@ -56,6 +63,7 @@ export interface DesktopApi {
   decideApproval(request: DecideApprovalRequest): Promise<TaskSnapshot>;
   getAppPreferences(): Promise<AppPreferences>;
   getComputerStatus(): Promise<CuaStatus>;
+  getMembershipStatus(): Promise<MembershipStatus>;
   getAuthStatus(): Promise<AuthStatus>;
   getVoiceStatus(): Promise<VoiceStatus>;
   onTaskUpdate(listener: (update: TaskUpdate) => void): () => void;

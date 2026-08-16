@@ -113,6 +113,7 @@ export function globalPushToTalkShortcutName(
   platform: PushToTalkPlatform,
 ): string | null {
   if (platform === 'windows') return 'Ctrl + Alt + Space';
+  if (platform === 'macos') return 'Command + Control';
   return null;
 }
 

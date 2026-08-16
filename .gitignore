@@ -92,3 +92,10 @@ typings/
 
 # Electron-Forge
 out/
+
+# Generated native desktop helpers
+.generated-native/
+
+# Membership signing secrets
+trocode-membership-private.pem
+.membership-keys/

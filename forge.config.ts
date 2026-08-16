@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process';
 import { cp, mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { MakerDeb } from '@electron-forge/maker-deb';
@@ -20,6 +22,7 @@ import {
   TROCODE_EXECUTABLE_NAME,
   TROCODE_HELPER_BUNDLE_ID,
 } from './src/main/app-identity';
+import { MACOS_VOICE_SHORTCUT_HELPER_NAME } from './src/main/voice/macos-voice-shortcut-watcher';
 import { mainConfig } from './webpack.main.config';
 import { rendererConfig } from './webpack.renderer.config';
 
@@ -31,6 +34,38 @@ const APP_ICON_BASENAME = path.resolve(
 const APP_ICON_PNG = `${APP_ICON_BASENAME}.png`;
 const APP_ICON_ICO = `${APP_ICON_BASENAME}.ico`;
 const MACOS_SIGNING_IDENTITY = process.env.TROCODE_MACOS_SIGNING_IDENTITY?.trim();
+const executeFile = promisify(execFile);
+const MACOS_VOICE_SHORTCUT_SOURCE = path.resolve(
+  __dirname,
+  'native/macos-global-voice-shortcut.swift',
+);
+const MACOS_VOICE_SHORTCUT_BINARY = path.resolve(
+  __dirname,
+  '.generated-native',
+  MACOS_VOICE_SHORTCUT_HELPER_NAME,
+);
+
+async function compileMacOSVoiceShortcutHelper(
+  platform: ForgePlatform,
+  arch: ForgeArch,
+): Promise<void> {
+  if (platform !== 'darwin') return;
+  if (arch !== 'arm64' && arch !== 'x64') {
+    throw new Error(`macOS voice shortcut helper does not support ${arch}.`);
+  }
+
+  await mkdir(path.dirname(MACOS_VOICE_SHORTCUT_BINARY), { recursive: true });
+  const targetArchitecture = arch === 'x64' ? 'x86_64' : 'arm64';
+  await executeFile('xcrun', [
+    'swiftc',
+    '-O',
+    '-target',
+    `${targetArchitecture}-apple-macosx13.0`,
+    MACOS_VOICE_SHORTCUT_SOURCE,
+    '-o',
+    MACOS_VOICE_SHORTCUT_BINARY,
+  ]);
+}
 
 function nativeCuaPackage(platform: ForgePlatform, arch: ForgeArch): string {
   if (arch !== 'arm64' && arch !== 'x64') {
@@ -74,7 +109,12 @@ const config: ForgeConfig = {
   packagerConfig: {
     appBundleId: TROCODE_APP_BUNDLE_ID,
     executableName: TROCODE_EXECUTABLE_NAME,
-    extraResource: APP_ICON_PNG,
+    extraResource: [
+      APP_ICON_PNG,
+      ...(process.platform === 'darwin'
+        ? [MACOS_VOICE_SHORTCUT_BINARY]
+        : []),
+    ],
     helperBundleId: TROCODE_HELPER_BUNDLE_ID,
     icon: APP_ICON_BASENAME,
     osxSign:
@@ -95,10 +135,13 @@ const config: ForgeConfig = {
     },
     extendInfo: {
       NSMicrophoneUsageDescription:
-        'TroCode uses the microphone while you hold Command and Control for voice input.',
+        'TroCode uses the microphone only during a voice turn started with a voice shortcut.',
     },
   },
   hooks: {
+    generateAssets: async (_forgeConfig, platform, arch) => {
+      await compileMacOSVoiceShortcutHelper(platform, arch);
+    },
     packageAfterCopy: async (_forgeConfig, buildPath, _version, platform, arch) => {
       await stageCuaRuntime(buildPath, platform, arch);
     },

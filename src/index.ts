@@ -1,4 +1,13 @@
-import { app, BrowserWindow, globalShortcut, screen, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  globalShortcut,
+  Menu,
+  nativeImage,
+  screen,
+  shell,
+  Tray,
+} from 'electron';
 import path from 'node:path';
 
 import type { DesktopCommand } from './main/agent/execution-contracts';
@@ -10,6 +19,7 @@ import { AnalyticsService } from './main/analytics/analytics-service';
 import { EncryptedAuthSessionStore } from './main/auth/auth-session-store';
 import { GoogleAuthService } from './main/auth/google-auth-service';
 import { LocalOAuthBrowserFlow } from './main/auth/local-oauth-browser-flow';
+import { keepWindowAliveForBackgroundVoice } from './main/background-app-lifecycle';
 import {
   getVirtualDisplayBounds,
   interpolateCompanionPosition,
@@ -20,6 +30,8 @@ import {
 } from './main/companion/companion-position';
 import { CuaService } from './main/cua/cua-service';
 import { registerIpcHandlers } from './main/ipc/register-ipc';
+import { EncryptedMembershipActivationStore } from './main/membership/membership-activation-store';
+import { MembershipService } from './main/membership/membership-service';
 import {
   AppPreferencesService,
   FileAppPreferencesStore,
@@ -31,6 +43,10 @@ import {
 } from './main/single-instance';
 import { systemPermissionSettingsUrl } from './main/system-permission-settings';
 import { registerGlobalVoiceShortcut } from './main/voice/global-voice-shortcut';
+import {
+  MACOS_VOICE_SHORTCUT_HELPER_NAME,
+  watchMacOSGlobalVoiceShortcut,
+} from './main/voice/macos-voice-shortcut-watcher';
 import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-store';
 import { VoiceService } from './main/voice/voice-service';
 import {
@@ -79,6 +95,11 @@ const authService = new GoogleAuthService({
   clientId: process.env.GOOGLE_OAUTH_CLIENT_ID,
   clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
   sessionStore: new EncryptedAuthSessionStore(),
+});
+const membershipService = new MembershipService({
+  publicKey: process.env.TROCODE_MEMBERSHIP_PUBLIC_KEY,
+  required: app.isPackaged,
+  store: new EncryptedMembershipActivationStore(),
 });
 const cuaService = new CuaService();
 const appPreferencesService = new AppPreferencesService(
@@ -134,6 +155,8 @@ let lastCompanionPosition: Point | null = null;
 let forcedExitTimer: ReturnType<typeof setTimeout> | null = null;
 let unregisterIpcHandlers: (() => void) | null = null;
 let unregisterGlobalVoiceShortcut: (() => void) | null = null;
+let removeMainWindowCloseBehavior: (() => void) | null = null;
+let backgroundTray: Tray | null = null;
 let isShuttingDown = false;
 
 function stopCompanionFollowing(): void {
@@ -286,6 +309,8 @@ function beginShutdown(exitCode = 0): void {
   stopCompanionFollowing();
   unregisterGlobalVoiceShortcut?.();
   unregisterGlobalVoiceShortcut = null;
+  backgroundTray?.destroy();
+  backgroundTray = null;
   oauthBrowserFlow.shutdown();
   unregisterIpcHandlers?.();
   unregisterIpcHandlers = null;
@@ -389,6 +414,56 @@ function ensureGlobalVoiceShortcut(): void {
     getTarget: () => mainWindow,
     platform: process.platform,
     registry: globalShortcut,
+    watchForMacOSShortcut:
+      process.platform === 'darwin'
+        ? (listener) =>
+            watchMacOSGlobalVoiceShortcut({
+              executablePath: macOSVoiceShortcutHelperPath(),
+              onEvent: listener,
+            })
+        : undefined,
+  });
+}
+
+function macOSVoiceShortcutHelperPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, MACOS_VOICE_SHORTCUT_HELPER_NAME)
+    : path.join(
+        app.getAppPath(),
+        '.generated-native',
+        MACOS_VOICE_SHORTCUT_HELPER_NAME,
+      );
+}
+
+function ensureBackgroundTray(): void {
+  if (backgroundTray) return;
+
+  const trayIcon = nativeImage
+    .createFromPath(runtimeAppIconPath())
+    .resize({ height: 18, width: 18 });
+  backgroundTray = new Tray(trayIcon);
+  backgroundTray.setToolTip('TroCode');
+  backgroundTray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        click: () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            revealWindow(mainWindow);
+            return;
+          }
+          createWindow();
+        },
+        label: 'Show TroCode',
+      },
+      { type: 'separator' },
+      {
+        click: () => beginShutdown(),
+        label: 'Quit TroCode',
+      },
+    ]),
+  );
+  backgroundTray.on('double-click', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) revealWindow(mainWindow);
   });
 }
 
@@ -408,6 +483,7 @@ const createWindow = (): void => {
     title: 'TroCode',
     width: 1280,
     webPreferences: {
+      backgroundThrottling: false,
       contextIsolation: true,
       nodeIntegration: false,
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
@@ -417,6 +493,11 @@ const createWindow = (): void => {
   });
   mainWindow = nextMainWindow;
   configureMicrophonePermissions(nextMainWindow);
+  removeMainWindowCloseBehavior?.();
+  removeMainWindowCloseBehavior = keepWindowAliveForBackgroundVoice(
+    nextMainWindow,
+    { isShuttingDown: () => isShuttingDown },
+  );
 
   unregisterIpcHandlers?.();
   unregisterIpcHandlers = registerIpcHandlers(nextMainWindow, {
@@ -424,6 +505,7 @@ const createWindow = (): void => {
     authService,
     cuaService,
     executionCoordinator,
+    membershipService,
     onAuthSignedIn: identifyAnalyticsUser,
     onAuthSignedOut: async () => analyticsService?.resetUser(),
     openSystemPermissionSettings: async (permission) =>
@@ -449,10 +531,11 @@ const createWindow = (): void => {
   nextMainWindow.once('ready-to-show', () => nextMainWindow.show());
 
   nextMainWindow.on('closed', () => {
+    removeMainWindowCloseBehavior?.();
+    removeMainWindowCloseBehavior = null;
     mainWindow = null;
     unregisterIpcHandlers?.();
     unregisterIpcHandlers = null;
-    app.quit();
   });
 
   nextMainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -658,11 +741,13 @@ if (hasSingleInstanceLock) {
     if (authStatus.user) await identifyAnalyticsUser(authStatus.user);
     createWindow();
     createCompanionWindow();
+    ensureBackgroundTray();
     ensureGlobalVoiceShortcut();
   });
 
   app.on('window-all-closed', () => {
-    app.quit();
+    // The renderer is TroCode's background voice host. Explicit Quit remains
+    // available from the application menu and tray.
   });
 
   app.on('activate', () => {

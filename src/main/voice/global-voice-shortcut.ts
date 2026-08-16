@@ -54,9 +54,13 @@ interface GlobalVoiceShortcutOptions {
   platform: NodeJS.Platform;
   registry: GlobalShortcutRegistry;
   waitForRelease?: VoiceShortcutReleaseWatcher;
+  watchForMacOSShortcut?: VoiceShortcutWatcher;
 }
 
 type VoiceShortcutReleaseWatcher = (signal: AbortSignal) => Promise<void>;
+type VoiceShortcutWatcher = (
+  listener: (event: VoiceShortcutEvent) => void,
+) => () => void;
 
 function encodedPowerShellCommand(script: string): string {
   return Buffer.from(script, 'utf16le').toString('base64');
@@ -123,11 +127,8 @@ export function registerGlobalVoiceShortcut({
   platform,
   registry,
   waitForRelease = waitForWindowsGlobalVoiceShortcutRelease,
+  watchForMacOSShortcut,
 }: GlobalVoiceShortcutOptions): () => void {
-  if (platform !== 'win32') return () => undefined;
-
-  let releaseController: AbortController | null = null;
-
   const sendVoiceShortcutEvent = (
     event: VoiceShortcutEvent,
     options: { allowFocused: boolean },
@@ -139,6 +140,21 @@ export function registerGlobalVoiceShortcut({
     target.webContents.send(IPC_CHANNELS.voiceShortcut, event);
     return true;
   };
+
+  if (platform === 'darwin') {
+    if (!watchForMacOSShortcut) {
+      logger.warn('[voice] macOS global voice shortcut helper is unavailable.');
+      return () => undefined;
+    }
+
+    return watchForMacOSShortcut((event) => {
+      sendVoiceShortcutEvent(event, { allowFocused: false });
+    });
+  }
+
+  if (platform !== 'win32') return () => undefined;
+
+  let releaseController: AbortController | null = null;
 
   const registered = registry.register(WINDOWS_GLOBAL_VOICE_SHORTCUT, () => {
     if (releaseController) return;

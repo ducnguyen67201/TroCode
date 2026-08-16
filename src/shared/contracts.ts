@@ -377,6 +377,7 @@ export const VoiceStatusSchema = z.object({
 export const CompanionStateSchema = z.enum([
   'idle',
   'listening',
+  'processing',
   'sending',
   'error',
 ]);
@@ -442,11 +443,26 @@ export const AuthStatusSchema = z.object({
   summary: z.string().min(1).max(1_000),
 });
 
+export const MembershipStatusSchema = z.object({
+  state: z.enum(['bypassed', 'inactive', 'active', 'expired', 'error']),
+  required: z.boolean(),
+  referenceCode: z.string().regex(/^TRC-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/),
+  expiresAt: z.string().datetime().nullable(),
+  summary: z.string().min(1).max(1_000),
+});
+
+export const ActivateMembershipRequestSchema = z.object({
+  code: z.string().trim().min(40).max(4_096),
+});
+
 export type Capability = z.infer<typeof CapabilitySchema>;
 export type ActionApprovalGrant = z.infer<typeof ActionApprovalGrantSchema>;
 export type AppPreferences = z.infer<typeof AppPreferencesSchema>;
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
 export type AuthUser = z.infer<typeof AuthUserSchema>;
+export type ActivateMembershipRequest = z.infer<
+  typeof ActivateMembershipRequestSchema
+>;
 export type CompanionPosition = z.infer<typeof CompanionPositionSchema>;
 export type CompanionState = z.infer<typeof CompanionStateSchema>;
 export type ConfigureVoiceRequest = z.infer<
@@ -465,6 +481,7 @@ export type DecideApprovalRequest = z.infer<
 export type Domain = z.infer<typeof DomainSchema>;
 export type GoalSpec = z.infer<typeof GoalSpecSchema>;
 export type InteractionMode = z.infer<typeof InteractionModeSchema>;
+export type MembershipStatus = z.infer<typeof MembershipStatusSchema>;
 export type PendingInteraction = z.infer<typeof PendingInteractionSchema>;
 export type PrimaryLanguage = z.infer<typeof PrimaryLanguageSchema>;
 export type ProposedAction = z.infer<typeof ProposedActionSchema>;

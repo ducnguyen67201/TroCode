@@ -42,6 +42,9 @@ export const mainConfig: Configuration = {
       'process.env.POSTHOG_PROJECT_TOKEN': JSON.stringify(
         process.env.POSTHOG_PROJECT_TOKEN ?? '',
       ),
+      'process.env.TROCODE_MEMBERSHIP_PUBLIC_KEY': JSON.stringify(
+        process.env.TROCODE_MEMBERSHIP_PUBLIC_KEY ?? '',
+      ),
     }),
   ],
   resolve: {

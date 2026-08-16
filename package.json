@@ -11,6 +11,8 @@
     "make": "doppler run --project tro-app --config dev -- npm exec -- electron-forge make",
     "publish": "doppler run --project tro-app --config dev -- npm exec -- electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
+    "membership:keygen": "node scripts/membership-codes.mjs keygen",
+    "membership:issue": "node scripts/membership-codes.mjs issue",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

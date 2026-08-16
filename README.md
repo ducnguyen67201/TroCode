@@ -20,6 +20,8 @@ Implemented:
   claims, and an operating-system-encrypted one-time local session.
 - A post-login permission checklist for Microphone, Accessibility, and Screen
   Recording that automatically rechecks when TroCode regains focus.
+- A production-only membership gate after permission onboarding, with
+  account-bound, time-limited activation codes verified by Ed25519 signatures.
 - Automatic CUA initialization after explicit first-run permission onboarding.
 - Task-scoped CUA sessions with bounded screenshots, typed clicks, text entry,
   keypresses, scrolling, and session cleanup.
@@ -29,8 +31,8 @@ Implemented:
   cancellation, safe steering, and no automatic retry after an unknown result.
 - Direct HTTPS navigation for allowed domains and exact, revalidated approval
   before consequential CUA actions such as Send.
-- Platform-specific, focused-window push-to-talk through OpenAI Realtime using
-  `gpt-4o-mini-transcribe`.
+- Focused-window push-to-talk plus system-wide background voice shortcuts
+  through OpenAI Realtime using `gpt-4o-mini-transcribe`.
 - Doppler-injected OpenAI voice setup; only short-lived Realtime session
   secrets cross into the renderer.
 - PostHog product analytics for app activity, task funnels, and completed voice
@@ -42,7 +44,6 @@ Not implemented yet:
 
 - Accessibility-first element targeting and production application allowlists.
 - Direct Gmail/Calendar connectors and app-specific independent verifiers.
-- System-wide voice capture while another application has focus.
 - Persistent task and trajectory storage.
 - Production capability manifests, signing, notarization, and update delivery.
 
@@ -122,6 +123,40 @@ All normal start and release scripts run through the explicit Doppler
 `tro-app/dev` configuration. Copy `.env.example` only as a reference; never
 commit a populated environment file.
 
+### Production memberships
+
+Membership checks are bypassed by raw local development (`npm start`) and are
+required whenever Electron is running a packaged build. A packaged build fails
+closed when `TROCODE_MEMBERSHIP_PUBLIC_KEY` is missing or invalid.
+
+Generate the signing keys once. Keep the private key outside this repository
+and never place it in Doppler or the application bundle:
+
+```bash
+npm run membership:keygen -- \
+  --private-key /secure/location/trocode-membership-private.pem \
+  --public-key /secure/location/trocode-membership-public.txt
+```
+
+The command prints `TROCODE_MEMBERSHIP_PUBLIC_KEY=...`. Put that public value in
+the environment used to package TroCode. After a user finishes permissions,
+their membership screen shows a reference such as `TRC-AAAA-BBBB-CCCC`. Issue
+an activation for the desired number of days:
+
+```bash
+npm run membership:issue -- \
+  --private-key /secure/location/trocode-membership-private.pem \
+  --reference TRC-AAAA-BBBB-CCCC \
+  --days 30
+```
+
+Send the printed activation code to that user. It is signed for only that
+Google account reference, is encrypted locally after entry, and stops granting
+task and voice access at its signed expiry. Issued offline codes cannot be
+revoked before expiry; use short durations or replace this verifier with an
+authenticated membership service when immediate revocation or authoritative
+server time is required.
+
 ### Product analytics
 
 Set the PostHog project token and ingestion host in Doppler, or in an ignored
@@ -139,21 +174,25 @@ Typed task text, messages other than completed voice transcripts, screenshots,
 URLs, document contents, file paths, credentials, and approval descriptions are
 not added to analytics events.
 
-Closing the TroCode window or pressing **Command+Q** stops the cursor companion,
-shuts down CUA, and exits the application. If native shutdown does not respond,
-TroCode forces a process exit after a short grace period.
+Closing the TroCode window hides it while TroCode stays available from the menu
+bar or system tray for background voice input. Choose **Quit TroCode** there, or
+press **Command+Q** on macOS, to stop the cursor companion, shut down CUA, and
+exit. If native shutdown does not respond, TroCode forces a process exit after
+a short grace period.
 
 With the TroCode window focused, hold **Command + Control** on macOS or the
 physical **left Alt + left Control** keys on Windows. Release either key to
 finish the transcript and submit it through the same bounded task pipeline as
-typed input. When TroCode has asked a clarification, the next transcript answers
-that same task rather than creating another one. Short pending prompts are also
-spoken locally.
+typed input. The same **Command + Control** hold gesture works system-wide on
+macOS; on Windows, hold **Ctrl + Alt + Space** globally and release it to finish.
+The cursor companion shows audio bars while listening and a processing spinner
+after release until the transcript returns. When TroCode has asked a
+clarification, the next transcript answers that same task rather than creating
+another one. Short pending prompts are also spoken locally.
 
 When `OPENAI_API_KEY` is injected by Doppler, TroCode enables voice and planning
 automatically at launch. The renderer never asks for or receives the long-lived
-API key; only short-lived voice session secrets come back. System-wide voice
-capture while another application is focused is still planned.
+API key; only short-lived voice session secrets come back.
 
 ### First Gmail execution test
 
@@ -164,8 +203,8 @@ capture while another application is focused is still planned.
    email from my work account to me@example.com with subject "TroCode test"
    and body "The desktop loop works", then send it after I approve.`
 4. Review the compiled goal and choose **Start task**.
-5. If TroCode needs a material detail, answer in the same task. Voice input
-   currently requires bringing the TroCode window back into focus.
+5. If TroCode needs a material detail, answer in the same task from the main
+   window or with the system-wide voice shortcut.
 6. Before Send, confirm the approval card's account, recipients, subject, body,
    target, and exact command. Send is dispatched once only after the button is
    approved and the latest observation produces the same payload.

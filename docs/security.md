@@ -24,6 +24,13 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
   requests Microphone, Accessibility, and Screen Recording and blocks the
   workspace until the grants and CUA runtime are ready. Later launches
   initialize automatically while the operating-system grants remain enabled.
+- Packaged builds require an active membership after permission onboarding.
+  The renderer can inspect and submit membership codes only through narrow,
+  schema-validated IPC. The main process verifies an Ed25519 signature, binds
+  the signed payload to a reference derived from the verified Google user ID,
+  checks its expiry, and rechecks membership before task and voice operations.
+  Local development bypasses this gate; packaged builds fail closed if the
+  public verification key is absent.
 - No task executes merely because it was described as a question.
 - `guide` mode observes and explains; it does not act.
 - Consequential actions require explicit approval.
@@ -53,6 +60,12 @@ bundle. Doppler injects the developer-owned OpenAI key into the Electron main
 process at runtime, and only short-lived Realtime client secrets cross into the
 renderer. A production service may replace this with an authenticated cloud
 gateway.
+
+The membership signing private key is an administrative secret and must never
+be added to the repository, Doppler application runtime, analytics, or a
+release bundle. Only the Ed25519 public key is compiled into packaged builds.
+Offline activation codes support account binding and expiry but not immediate
+revocation or authoritative time; those require an authenticated backend.
 
 ## Release requirements
 

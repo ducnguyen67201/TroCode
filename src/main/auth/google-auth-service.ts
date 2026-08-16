@@ -127,11 +127,12 @@ export class GoogleAuthService {
     });
   }
 
-  async assertSignedIn(): Promise<void> {
+  async assertSignedIn(): Promise<AuthUser> {
     const status = await this.getStatus();
-    if (status.state !== 'signed_in') {
+    if (status.state !== 'signed_in' || !status.user) {
       throw new Error('Sign in with Google before using TroCode.');
     }
+    return status.user;
   }
 
   private async performSignIn(): Promise<AuthStatus> {

@@ -1,6 +1,7 @@
 import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 
 import {
+  ActivateMembershipRequestSchema,
   CompanionStateSchema,
   RecordVoiceTranscriptRequestSchema,
   SystemPermissionSchema,
@@ -17,6 +18,7 @@ import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
 import type { TaskRuntime } from '../agent/task-runtime';
 import type { GoogleAuthService } from '../auth/google-auth-service';
 import type { CuaService } from '../cua/cua-service';
+import type { MembershipService } from '../membership/membership-service';
 import type { AppPreferencesService } from '../preferences/app-preferences-service';
 import type { VoiceService } from '../voice/voice-service';
 
@@ -25,6 +27,7 @@ interface IpcServices {
   authService: GoogleAuthService;
   cuaService: CuaService;
   executionCoordinator: TaskExecutionCoordinator;
+  membershipService: MembershipService;
   onAuthSignedIn?(user: AuthUser): Promise<void> | void;
   onAuthSignedOut?(): Promise<void> | void;
   openSystemPermissionSettings(
@@ -43,9 +46,22 @@ async function assertAuthorizedSender(
   event: IpcMainInvokeEvent,
   mainWindow: BrowserWindow,
   authService: GoogleAuthService,
-): Promise<void> {
+): Promise<AuthUser> {
   assertTrustedSender(event, mainWindow);
-  await authService.assertSignedIn();
+  return authService.assertSignedIn();
+}
+
+async function assertMembershipAuthorizedSender(
+  event: IpcMainInvokeEvent,
+  mainWindow: BrowserWindow,
+  services: Pick<IpcServices, 'authService' | 'membershipService'>,
+): Promise<void> {
+  const user = await assertAuthorizedSender(
+    event,
+    mainWindow,
+    services.authService,
+  );
+  await services.membershipService.assertActive(user);
 }
 
 function assertTrustedSender(
@@ -65,6 +81,7 @@ export function registerIpcHandlers(
   services: IpcServices,
 ): () => void {
   const channels = [
+    IPC_CHANNELS.activateMembership,
     IPC_CHANNELS.cancelTask,
     IPC_CHANNELS.configureVoice,
     IPC_CHANNELS.connectComputer,
@@ -73,6 +90,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.getAppPreferences,
     IPC_CHANNELS.getComputerStatus,
     IPC_CHANNELS.getAuthStatus,
+    IPC_CHANNELS.getMembershipStatus,
     IPC_CHANNELS.getVoiceStatus,
     IPC_CHANNELS.openSystemPermissionSettings,
     IPC_CHANNELS.recordVoiceTranscript,
@@ -109,6 +127,28 @@ export function registerIpcHandlers(
     return status;
   });
 
+  ipcMain.handle(IPC_CHANNELS.getMembershipStatus, async (event) => {
+    const user = await assertAuthorizedSender(
+      event,
+      mainWindow,
+      services.authService,
+    );
+    return services.membershipService.getStatus(user);
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.activateMembership,
+    async (event, input: unknown) => {
+      const user = await assertAuthorizedSender(
+        event,
+        mainWindow,
+        services.authService,
+      );
+      const request = ActivateMembershipRequestSchema.parse(input);
+      return services.membershipService.activate(user, request.code);
+    },
+  );
+
   ipcMain.handle(IPC_CHANNELS.getAppPreferences, async (event) => {
     await assertAuthorizedSender(event, mainWindow, services.authService);
     return services.appPreferencesService.get();
@@ -125,36 +165,36 @@ export function registerIpcHandlers(
   );
 
   ipcMain.handle(IPC_CHANNELS.submitTask, async (event, input: unknown) => {
-    await assertAuthorizedSender(event, mainWindow, services.authService);
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
     return services.taskRuntime.submit(input);
   });
 
   ipcMain.handle(IPC_CHANNELS.cancelTask, async (event, input: unknown) => {
-    await assertAuthorizedSender(event, mainWindow, services.authService);
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
     return services.executionCoordinator.cancel(input);
   });
 
   ipcMain.handle(IPC_CHANNELS.startTask, async (event, input: unknown) => {
-    await assertAuthorizedSender(event, mainWindow, services.authService);
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
     return services.executionCoordinator.start(input);
   });
 
   ipcMain.handle(IPC_CHANNELS.respondToInteraction, async (event, input: unknown) => {
-    await assertAuthorizedSender(event, mainWindow, services.authService);
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
     const snapshot = services.taskRuntime.respondToInteraction(input);
     services.executionCoordinator.resume(snapshot.taskId);
     return snapshot;
   });
 
   ipcMain.handle(IPC_CHANNELS.decideApproval, async (event, input: unknown) => {
-    await assertAuthorizedSender(event, mainWindow, services.authService);
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
     const snapshot = services.taskRuntime.decideApproval(input);
     services.executionCoordinator.resume(snapshot.taskId);
     return snapshot;
   });
 
   ipcMain.handle(IPC_CHANNELS.steerTask, async (event, input: unknown) => {
-    await assertAuthorizedSender(event, mainWindow, services.authService);
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
     const snapshot = services.taskRuntime.steer(input);
     services.executionCoordinator.resume(snapshot.taskId);
     return snapshot;
@@ -209,21 +249,21 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(IPC_CHANNELS.configureVoice, async (event, input: unknown) => {
-    await assertAuthorizedSender(event, mainWindow, services.authService);
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
     return services.voiceService.configure(input);
   });
 
   ipcMain.handle(
     IPC_CHANNELS.recordVoiceTranscript,
     async (event, input: unknown) => {
-      await assertAuthorizedSender(event, mainWindow, services.authService);
+      await assertMembershipAuthorizedSender(event, mainWindow, services);
       const request = RecordVoiceTranscriptRequestSchema.parse(input);
       await services.recordVoiceTranscript(request);
     },
   );
 
   ipcMain.handle(IPC_CHANNELS.createVoiceCall, async (event, input: unknown) => {
-    await assertAuthorizedSender(event, mainWindow, services.authService);
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
     return services.voiceService.createCall(input);
   });
 

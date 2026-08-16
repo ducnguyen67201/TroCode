@@ -15,6 +15,7 @@ flowchart LR
     UI["React renderer"] -->|"DesktopApi only"| PRELOAD["Sandboxed preload"]
     PRELOAD -->|"validated IPC"| MAIN["Electron main"]
     MAIN --> AUTH["Google OAuth + encrypted session"]
+    MAIN --> MEMBERSHIP["Signed membership verifier"]
     MAIN --> COORD["Execution coordinator"]
     COORD --> GOAL["Goal runtime"]
     COORD --> RT["GPT Realtime planner"]
@@ -26,7 +27,8 @@ flowchart LR
 ### Renderer
 
 The renderer owns presentation state. It gates the workspace behind Google
-sign-in and a required post-login permission checklist, then can submit a
+sign-in, a required post-login permission checklist, and production membership,
+then can submit a
 request, answer a pending clarification, decide an exact approval, queue
 steering, cancel a task, subscribe to typed task updates, inspect CUA status,
 and initiate permission onboarding. It has no direct system access and never
@@ -39,10 +41,23 @@ The preload exposes a fixed set of task and CUA operations through `contextBridg
 ### Main process
 
 The main process verifies the sending `webContents`, enforces a signed-in
-session on task, voice, and CUA IPC, owns task state, hosts GPT Realtime and CUA
+session on task, voice, and CUA IPC, and enforces active membership on task and
+voice effects in packaged builds. It owns task state, hosts GPT Realtime and CUA
 sessions, serializes execution, and controls application shutdown. Renderer
 navigation and new-window creation are denied. OAuth tokens, the API key, and
 raw screenshots remain main-process-only.
+
+### Membership verifier
+
+After permissions are complete, packaged builds show a user-specific reference
+code until a matching activation code is entered. Activation payloads contain
+the reference, issue time, and expiry. They are signed offline with an Ed25519
+private key held by the administrator and verified in the trusted main process
+with the bundled public key. Accepted codes are stored with Electron
+`safeStorage`. Development builds bypass membership; production configuration
+fails closed. This offline design deliberately has no early-revocation path, so
+short validity periods are appropriate until a cloud membership service is
+introduced.
 
 ### Goal runtime
 

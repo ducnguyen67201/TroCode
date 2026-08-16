@@ -41,7 +41,9 @@ describe('push-to-talk helpers', () => {
     expect(globalPushToTalkShortcutName('windows')).toBe(
       'Ctrl + Alt + Space',
     );
-    expect(globalPushToTalkShortcutName('macos')).toBeNull();
+    expect(globalPushToTalkShortcutName('macos')).toBe(
+      'Command + Control',
+    );
   });
 
   it('combines final and interim speech results', () => {

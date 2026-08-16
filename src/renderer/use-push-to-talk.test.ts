@@ -6,6 +6,7 @@ import {
   canCommitInputAudioBuffer,
   hasNewOutboundAudio,
   logVoiceConnectionFailure,
+  shouldFinishVoiceOnLocalRelease,
   usePushToTalk,
   voiceConnectionErrorMessage,
 } from './use-push-to-talk';
@@ -72,7 +73,7 @@ describe('push-to-talk attempt lifecycle', () => {
     expect(onAttemptStart).toHaveBeenCalledOnce();
   });
 
-  it('opens one microphone-backed transport per shortcut hold and closes it after transcription', async () => {
+  it('uses a microphone-free warm transport and replenishes it after transcription', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
     const audioTrack = {
@@ -140,7 +141,8 @@ describe('push-to-talk attempt lifecycle', () => {
     });
     await flushMicrotasks();
 
-    expect(transportHarness.openTransport).not.toHaveBeenCalled();
+    expect(transportHarness.openTransport).toHaveBeenCalledOnce();
+    expect(transportHarness.openTransport).toHaveBeenCalledWith();
     expect(getUserMedia).not.toHaveBeenCalled();
 
     fakeWindow.dispatchEvent(
@@ -161,8 +163,7 @@ describe('push-to-talk attempt lifecycle', () => {
 
     expect(getUserMedia).toHaveBeenCalledOnce();
     expect(transportHarness.openTransport).toHaveBeenCalledOnce();
-    expect(transportHarness.openTransport).toHaveBeenCalledWith({ audioTrack });
-    expect(sender.replaceTrack).not.toHaveBeenCalledWith(audioTrack);
+    expect(sender.replaceTrack).toHaveBeenCalledWith(audioTrack);
 
     await vi.advanceTimersByTimeAsync(300);
     fakeWindow.dispatchEvent(
@@ -187,12 +188,13 @@ describe('push-to-talk attempt lifecycle', () => {
     );
 
     expect(onTranscriptSubmit).toHaveBeenCalledWith('send the transcript');
-    expect(transportHarness.openTransport).toHaveBeenCalledOnce();
+    await flushMicrotasks();
+    expect(transportHarness.openTransport).toHaveBeenCalledTimes(2);
     expect(channel.close).toHaveBeenCalledOnce();
     expect(connection.close).toHaveBeenCalledOnce();
   });
 
-  it('logs the connection phase when the shortcut is released before listening', async () => {
+  it('queues release while the realtime transport is still connecting', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
     const consoleInfo = vi
@@ -218,7 +220,21 @@ describe('push-to-talk attempt lifecycle', () => {
       connectionState: 'connected' as RTCPeerConnectionState,
     }) as unknown as RTCPeerConnection;
     const sender = {
-      getStats: vi.fn(),
+      getStats: vi.fn(async () => ({
+        forEach: (
+          callback: (stats: RTCOutboundRtpStreamStats) => void,
+        ): void => {
+          callback({
+            bytesSent: 256,
+            id: 'audio-outbound',
+            kind: 'audio',
+            packetsSent: 2,
+            ssrc: 1,
+            timestamp: 1_600,
+            type: 'outbound-rtp',
+          } as RTCOutboundRtpStreamStats);
+        },
+      })),
       replaceTrack: vi.fn(async () => undefined),
     } as unknown as RTCRtpSender;
     const transport = { channel, connection, sender };
@@ -243,9 +259,10 @@ describe('push-to-talk attempt lifecycle', () => {
     });
     vi.stubGlobal('window', fakeWindow);
 
+    const onError = vi.fn();
     usePushToTalk({
       onAttemptStart: vi.fn(),
-      onError: vi.fn(),
+      onError,
       onTranscriptChange: vi.fn(),
       onTranscriptSubmit: vi.fn(),
     });
@@ -274,11 +291,21 @@ describe('push-to-talk attempt lifecycle', () => {
     );
 
     expect(consoleInfo).toHaveBeenCalledWith(
-      '[voice:renderer] turn.release-before-listening {"attempt":1,"heldMs":600,"phase":"realtime_call"}',
+      '[voice:renderer] turn.release-queued {"attempt":1,"heldMs":600,"phase":"realtime_call"}',
     );
+    expect(onError).not.toHaveBeenCalled();
 
     resolveTransport(transport);
     await flushMicrotasks();
+
+    expect(channel.close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(300);
+    await flushMicrotasks();
+
+    expect(channel.send).toHaveBeenCalledWith(
+      JSON.stringify({ type: 'input_audio_buffer.commit' }),
+    );
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it('does not clear UI state when the attempt is invalid', () => {
@@ -353,6 +380,23 @@ describe('voice connection diagnostics', () => {
 });
 
 describe('global voice shortcut events', () => {
+  it('lets only the matching local hold release finish a local turn', () => {
+    expect(
+      shouldFinishVoiceOnLocalRelease({
+        activationMode: 'global-hold',
+        isListening: true,
+        isLocalChordHeld: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldFinishVoiceOnLocalRelease({
+        activationMode: 'local-hold',
+        isListening: true,
+        isLocalChordHeld: false,
+      }),
+    ).toBe(true);
+  });
+
   it('starts listening when the global press arrives while inactive', () => {
     const beginListening = vi.fn();
     const finishListening = vi.fn();
