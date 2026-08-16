@@ -18,6 +18,24 @@ describe('goal router', () => {
     );
   });
 
+  it('grounds Vietnamese how-to questions about the visible screen', () => {
+    const goal = compileGoal('Làm sao để làm bài tập tiếng Anh này?');
+
+    expect(goal.domain).toBe('education');
+    expect(goal.interactionMode).toBe('guide');
+    expect(goal.capabilities).toEqual(
+      expect.arrayContaining(['computer_use', 'conversation']),
+    );
+  });
+
+  it('accepts Vietnamese screen questions when text input omits diacritics', () => {
+    const goal = compileGoal('Lam sao de lam bai tap tieng Anh nay?');
+
+    expect(goal.domain).toBe('education');
+    expect(goal.interactionMode).toBe('guide');
+    expect(goal.capabilities).toContain('computer_use');
+  });
+
   it('treats explicit outcome verbs as action requests', () => {
     expect(inferInteractionMode('Open YouTube for me')).toBe('act');
     expect(inferInteractionMode('Reply to Alex in Gmail')).toBe('act');

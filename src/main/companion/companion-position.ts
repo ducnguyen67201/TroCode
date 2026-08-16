@@ -68,6 +68,29 @@ export function placeCompanionNearCursor(
   };
 }
 
+export function placeCompanionForBrowserNavigation(
+  displayBounds: Rectangle,
+  companionSize: Size,
+  gap = 8,
+): Point {
+  const toolbarTarget = {
+    x: displayBounds.x + Math.round(displayBounds.width / 2),
+    y:
+      displayBounds.y +
+      Math.min(
+        88,
+        Math.max(48, Math.round(displayBounds.height * 0.08)),
+      ),
+  };
+
+  return placeCompanionNearCursor(
+    toolbarTarget,
+    displayBounds,
+    companionSize,
+    gap,
+  );
+}
+
 export function getVirtualDisplayBounds(displays: readonly Rectangle[]): Rectangle {
   if (displays.length === 0) {
     return { height: 0, width: 0, x: 0, y: 0 };

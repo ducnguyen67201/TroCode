@@ -22,6 +22,7 @@ import type {
 
 import { BrandMark } from './BrandMark';
 import { getCompanionState } from './companion-state';
+import { HistoryPage } from './HistoryPage';
 import { InsightsPage } from './InsightsPage';
 import {
   isPrimaryLanguageSetupComplete,
@@ -92,7 +93,7 @@ const STEERABLE_PHASES = new Set([
   'blocked',
 ]);
 
-type ActiveView = 'agent' | 'insights' | 'settings';
+type ActiveView = 'agent' | 'history' | 'insights' | 'settings';
 
 function appendUniqueEvent(
   currentEvents: TaskEvent[],
@@ -108,7 +109,7 @@ function appendUniqueEvent(
 function NavigationIcon({
   name,
 }: {
-  name: 'activity' | 'agent' | 'insights' | 'settings';
+  name: 'activity' | 'agent' | 'history' | 'insights' | 'settings';
 }) {
   if (name === 'agent') {
     return (
@@ -123,6 +124,16 @@ function NavigationIcon({
     return (
       <svg aria-hidden="true" viewBox="0 0 24 24">
         <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+      </svg>
+    );
+  }
+
+  if (name === 'history') {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M4.5 6.5h10M4.5 12h7M4.5 17.5h5" />
+        <path d="M18.5 10v4.5l2.5 1.5" />
+        <circle cx="18.5" cy="14.5" r="4" />
       </svg>
     );
   }
@@ -237,89 +248,170 @@ function VoiceShortcut({ platform }: { platform: PushToTalkPlatform }) {
   );
 }
 
-function GoalPreview({
+function LiveTaskRail({
   autoStartFailed,
   canStart,
   goal,
   isStarting,
   onRetry,
   phase,
+  progress,
+  request,
 }: {
   autoStartFailed: boolean;
   canStart: boolean;
-  goal: GoalSpec;
+  goal: GoalSpec | null;
   isStarting: boolean;
   onRetry: () => void;
   phase: TaskSnapshot['phase'];
+  progress: TaskSnapshot['progress'];
+  request: string;
 }) {
+  const progressLabel = progress
+    ? `${progress.currentStep} / ${progress.maxSteps}`
+    : phase === 'interpreting'
+      ? 'Scoping'
+      : 'Not started';
+  const progressPercentage = progress
+    ? Math.min(
+        100,
+        Math.round((progress.currentStep / progress.maxSteps) * 100),
+      )
+    : 0;
+
   return (
-    <section className="goal-card" aria-labelledby="goal-heading">
-      <div className="goal-title-row">
-        <div>
-          <p className="eyebrow">Compiled goal</p>
-          <h2 id="goal-heading">{goal.objective}</h2>
-        </div>
-        <span className="mode-badge">{goal.interactionMode}</span>
+    <section
+      aria-labelledby="live-task-heading"
+      className={`live-task-rail live-task-rail--${phase}`}
+    >
+      <div className="live-task-rail__signal" aria-hidden="true">
+        <span />
       </div>
-
-      <div className="goal-grid">
-        <div>
-          <span className="field-label">Domain</span>
-          <strong>{goal.domain}</strong>
+      <div className="live-task-rail__body">
+        <div className="live-task-rail__header">
+          <div>
+            <p className="eyebrow">Live task · {formatLabel(phase)}</p>
+            <h2 id="live-task-heading">{goal?.objective ?? request}</h2>
+          </div>
+          <div
+            aria-label={`Progress ${progressLabel}`}
+            className="live-task-rail__progress"
+          >
+            <span>{progressLabel}</span>
+            <i aria-hidden="true">
+              <span style={{ width: `${progressPercentage}%` }} />
+            </i>
+          </div>
         </div>
-        <div>
-          <span className="field-label">Step budget</span>
-          <strong>{goal.limits.maxSteps} actions</strong>
+
+        <div className="live-task-rail__summary">
+          <span>{goal ? formatLabel(goal.interactionMode) : 'Defining interaction'}</span>
+          <span aria-hidden="true">·</span>
+          <span>
+            {goal
+              ? `${goal.capabilities.length} ${goal.capabilities.length === 1 ? 'capability' : 'capabilities'} in scope`
+              : 'Capability scope pending'}
+          </span>
         </div>
-      </div>
 
-      <div className="goal-section">
-        <span className="field-label">Capabilities</span>
-        <div className="tag-list">
-          {goal.capabilities.map((capability) => (
-            <span className="tag" key={capability}>
-              {formatLabel(capability)}
-            </span>
-          ))}
-        </div>
-      </div>
+        {goal && (
+          <details className="live-task-details">
+            <summary>Scope & safeguards</summary>
+            <div className="live-task-details__content">
+              <div>
+                <span className="field-label">Capabilities</span>
+                <div className="tag-list">
+                  {goal.capabilities.map((capability) => (
+                    <span className="tag" key={capability}>
+                      {formatLabel(capability)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <span className="field-label">Success looks like</span>
+                <p>{goal.successCriteria[0]?.description}</p>
+              </div>
+              <div className="guardrail">
+                <span aria-hidden="true">◆</span>
+                <p>
+                  Sensitive actions require approval. TroCode cannot expand its
+                  own capability or resource scope.
+                </p>
+              </div>
+            </div>
+          </details>
+        )}
 
-      <div className="goal-section">
-        <span className="field-label">Success</span>
-        <p>{goal.successCriteria[0]?.description}</p>
+        {phase === 'ready' && (
+          <div className="live-task-rail__start">
+            <p aria-live="polite">
+              {!canStart
+                ? 'Waiting for OpenAI Realtime and the CUA Driver before starting.'
+                : autoStartFailed
+                  ? 'TroCode could not start automatically. You can try again.'
+                  : isStarting
+                    ? 'Starting automatically… Press Escape at any time to stop.'
+                    : 'Ready. Starting automatically… Press Escape at any time to stop.'}
+            </p>
+            {autoStartFailed && (
+              <button
+                className="primary-button"
+                disabled={!canStart || isStarting}
+                onClick={onRetry}
+                type="button"
+              >
+                {isStarting ? 'Starting…' : 'Try again'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
+    </section>
+  );
+}
 
-      <div className="guardrail">
-        <span aria-hidden="true">◆</span>
+function TerminalOutcome({
+  onViewHistory,
+  snapshot,
+}: {
+  onViewHistory: () => void;
+  snapshot: TaskSnapshot;
+}) {
+  const heading =
+    snapshot.phase === 'completed'
+      ? 'Outcome reached'
+      : snapshot.phase === 'cancelled'
+        ? 'Task stopped safely'
+        : 'Task needs attention';
+
+  return (
+    <section
+      aria-labelledby="terminal-heading"
+      className={`terminal-outcome terminal-outcome--${snapshot.phase}`}
+    >
+      <span className="terminal-outcome__mark" aria-hidden="true">
+        {snapshot.phase === 'completed'
+          ? '✓'
+          : snapshot.phase === 'cancelled'
+            ? '–'
+            : '!'}
+      </span>
+      <div>
+        <p className="eyebrow">{formatLabel(snapshot.phase)}</p>
+        <h2 id="terminal-heading">{heading}</h2>
         <p>
-          Sensitive actions require approval. The goal cannot expand its own
-          capability or resource scope.
+          {snapshot.lastEvent?.summary ??
+            'The task finished. Its conversation and activity are available in History.'}
         </p>
       </div>
-
-      {phase === 'ready' && (
-        <div className="goal-start">
-          <p aria-live="polite">
-            {!canStart
-              ? 'Waiting for OpenAI Realtime and the CUA Driver before starting.'
-              : autoStartFailed
-                ? 'TroCode could not start automatically. You can try again.'
-                : isStarting
-                  ? 'Starting automatically… Press Escape at any time to stop.'
-                  : 'Ready. Starting automatically… Press Escape at any time to stop.'}
-          </p>
-          {autoStartFailed && (
-            <button
-              className="primary-button"
-              disabled={!canStart || isStarting}
-              onClick={onRetry}
-              type="button"
-            >
-              {isStarting ? 'Starting…' : 'Try again'}
-            </button>
-          )}
-        </div>
-      )}
+      <button
+        className="terminal-outcome__link"
+        onClick={onViewHistory}
+        type="button"
+      >
+        View task trail <span aria-hidden="true">→</span>
+      </button>
     </section>
   );
 }
@@ -711,6 +803,45 @@ export function App({
     () => (snapshot ? formatLabel(snapshot.phase) : 'No active task'),
     [snapshot],
   );
+  const isTerminalTask = snapshot
+    ? TERMINAL_PHASES.has(snapshot.phase)
+    : false;
+  const hasLiveTask = snapshot !== null && !isTerminalTask;
+  const sessionTaskSnapshots = Object.values(sessionSnapshots);
+  const historyTaskCount = sessionTaskSnapshots.filter((task) =>
+    TERMINAL_PHASES.has(task.phase),
+  ).length;
+  const hero = pendingInteraction
+    ? {
+        state: 'interaction',
+        eyebrow: 'Your move',
+        heading: 'A decision is waiting.',
+        description:
+          'Review the request below. TroCode will hold position until you answer or approve the exact action.',
+      }
+    : hasLiveTask
+      ? {
+          state: 'active',
+          eyebrow: 'In motion',
+          heading: 'Keep the outcome in view.',
+          description:
+            'Follow the live signal, steer the next safe step, or stop the task at any time.',
+        }
+      : isTerminalTask
+        ? {
+            state: 'terminal',
+            eyebrow: 'Outcome recorded',
+            heading: 'What should we do next?',
+            description:
+              'The finished task is now in your session trail. Start another outcome whenever you are ready.',
+          }
+        : {
+            state: 'empty',
+            eyebrow: 'Outcome first',
+            heading: 'What should we accomplish?',
+            description:
+              'Describe the finish line. TroCode will define a bounded scope, choose its tools, and verify the result.',
+          };
   const permissionChecklist = useMemo(
     () =>
       createPermissionChecklist(
@@ -863,7 +994,7 @@ export function App({
           });
         } else {
           if (snapshot && !TERMINAL_PHASES.has(snapshot.phase)) {
-            await window.tro.cancelTask(snapshot.taskId);
+            recordSnapshot(await window.tro.cancelTask(snapshot.taskId));
           }
           activeTaskIdRef.current = null;
           setEvents([]);
@@ -951,7 +1082,7 @@ export function App({
         activeSnapshot &&
         !TERMINAL_PHASES.has(activeSnapshot.phase)
       ) {
-        await window.tro.cancelTask(activeSnapshot.taskId);
+        recordSnapshot(await window.tro.cancelTask(activeSnapshot.taskId));
       }
 
       activeTaskIdRef.current = null;
@@ -1262,6 +1393,18 @@ export function App({
             Agent
           </button>
           <button
+            aria-current={activeView === 'history' ? 'page' : undefined}
+            className={`nav-item ${
+              activeView === 'history' ? 'nav-item--active' : ''
+            }`}
+            onClick={() => setActiveView('history')}
+            type="button"
+          >
+            <NavigationIcon name="history" />
+            History
+            <span className="nav-count">{historyTaskCount}</span>
+          </button>
+          <button
             aria-current={activeView === 'insights' ? 'page' : undefined}
             className={`nav-item ${
               activeView === 'insights' ? 'nav-item--active' : ''
@@ -1285,27 +1428,29 @@ export function App({
           </button>
         </nav>
 
-        <nav aria-label="Observe">
-          <span className="nav-label">Observe</span>
-          <button
-            className="nav-item"
-            onClick={() => {
-              setActiveView('agent');
-              window.setTimeout(
-                () =>
-                  document
-                    .getElementById('activity')
-                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
-                0,
-              );
-            }}
-            type="button"
-          >
-            <NavigationIcon name="activity" />
-            Live activity
-            <span className="nav-count">{events.length}</span>
-          </button>
-        </nav>
+        {hasLiveTask && (
+          <nav aria-label="Observe">
+            <span className="nav-label">Observe</span>
+            <button
+              className="nav-item"
+              onClick={() => {
+                setActiveView('agent');
+                window.setTimeout(
+                  () =>
+                    document
+                      .getElementById('activity')
+                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+                  0,
+                );
+              }}
+              type="button"
+            >
+              <NavigationIcon name="activity" />
+              Live activity
+              <span className="nav-count">{events.length}</span>
+            </button>
+          </nav>
+        )}
 
         <div className="sidebar-footer">
           <span className="safety-indicator" aria-hidden="true" />
@@ -1322,6 +1467,8 @@ export function App({
             <span className="topbar-kicker">
               {activeView === 'agent'
                 ? 'General-purpose agent'
+                : activeView === 'history'
+                  ? 'Session task record'
                 : activeView === 'insights'
                   ? 'Private on-device summary'
                   : 'Personal preferences'}
@@ -1329,6 +1476,8 @@ export function App({
             <strong>
               {activeView === 'agent'
                 ? taskPhase
+                : activeView === 'history'
+                  ? `${historyTaskCount} finished ${historyTaskCount === 1 ? 'task' : 'tasks'}`
                 : activeView === 'insights'
                   ? 'Insights overview'
                   : 'Voice and language'}
@@ -1363,10 +1512,20 @@ export function App({
           </div>
         </header>
 
-        {activeView === 'insights' ? (
+        {activeView === 'history' ? (
+          <HistoryPage
+            events={sessionEvents}
+            hasLiveTask={hasLiveTask}
+            onOpenAgent={() => {
+              setActiveView('agent');
+              if (!hasLiveTask) void resetTask();
+            }}
+            tasks={sessionTaskSnapshots}
+          />
+        ) : activeView === 'insights' ? (
           <InsightsPage
             events={sessionEvents}
-            tasks={Object.values(sessionSnapshots)}
+            tasks={sessionTaskSnapshots}
           />
         ) : activeView === 'settings' ? (
           <SettingsPage
@@ -1385,17 +1544,14 @@ export function App({
         ) : (
         <div className="content-grid" id="task">
           <section className="task-column">
-            <div className="hero-copy">
-              <p className="eyebrow">Outcome first</p>
-              <h1>What should we accomplish?</h1>
-              <p>
-                TroCode turns a request into a bounded goal, selects the right
-                capabilities, and verifies the result before it stops.
-              </p>
+            <div className={`hero-copy hero-copy--${hero.state}`}>
+              <p className="eyebrow">{hero.eyebrow}</p>
+              <h1>{hero.heading}</h1>
+              <p>{hero.description}</p>
             </div>
 
             <form
-              className="task-composer"
+              className={`task-composer ${hasLiveTask || pendingInteraction ? 'task-composer--compact' : ''}`}
               onSubmit={(event) => {
                 event.preventDefault();
                 void sendInput();
@@ -1426,7 +1582,7 @@ export function App({
                       ? 'Pause, stop, or change the next step…'
                       : 'Open YouTube for me, research a topic, fix code, or guide me through an app…'
                 }
-                rows={4}
+                rows={hasLiveTask || pendingInteraction ? 2 : 4}
                 value={input}
               />
               <div className="composer-footer">
@@ -1464,6 +1620,19 @@ export function App({
               </div>
             )}
 
+            {hasLiveTask && snapshot && (
+              <LiveTaskRail
+                autoStartFailed={autoStartFailedTaskId === snapshot.taskId}
+                canStart={executionReady}
+                goal={snapshot.goal}
+                isStarting={isSubmitting}
+                onRetry={() => void startTask(snapshot.taskId)}
+                phase={snapshot.phase}
+                progress={snapshot.progress}
+                request={snapshot.request}
+              />
+            )}
+
             {error && (
               <div className="error-banner" role="alert">
                 <strong>Something needs attention</strong>
@@ -1480,15 +1649,11 @@ export function App({
               />
             )}
 
-            {snapshot && <Conversation snapshot={snapshot} />}
-            {snapshot?.goal && (
-              <GoalPreview
-                autoStartFailed={autoStartFailedTaskId === snapshot.taskId}
-                canStart={executionReady}
-                goal={snapshot.goal}
-                isStarting={isSubmitting}
-                onRetry={() => void startTask(snapshot.taskId)}
-                phase={snapshot.phase}
+            {hasLiveTask && snapshot && <Conversation snapshot={snapshot} />}
+            {isTerminalTask && snapshot && (
+              <TerminalOutcome
+                onViewHistory={() => setActiveView('history')}
+                snapshot={snapshot}
               />
             )}
           </section>
@@ -1502,16 +1667,18 @@ export function App({
               status={voiceProviderStatus}
             />
 
-            <section className="activity-card" id="activity" aria-labelledby="activity-heading">
-              <div className="section-heading-row">
-                <div>
-                  <p className="eyebrow">Live lifecycle</p>
-                  <h2 id="activity-heading">Task activity</h2>
+            {hasLiveTask && (
+              <section className="activity-card" id="activity" aria-labelledby="activity-heading">
+                <div className="section-heading-row">
+                  <div>
+                    <p className="eyebrow">Live lifecycle</p>
+                    <h2 id="activity-heading">Task activity</h2>
+                  </div>
+                  <span className="event-count">{events.length}</span>
                 </div>
-                <span className="event-count">{events.length}</span>
-              </div>
-              <ActivityList events={events} />
-            </section>
+                <ActivityList events={events} />
+              </section>
+            )}
           </aside>
         </div>
         )}

@@ -98,6 +98,7 @@ function fakeCuaModule() {
     EndSessionInput: recordFactory(),
     GetDesktopStateInput: recordFactory(),
     HotkeyInput: recordFactory(),
+    MoveCursorInput: recordFactory(),
     PressKeyInput: recordFactory(),
     ScrollInput: recordFactory(),
     StartSessionInput: recordFactory(),
@@ -146,19 +147,34 @@ describe('CUA task sessions', () => {
     );
   });
 
-  it('dispatches a typed click and reports confirmed delivery', async () => {
+  it('moves the real pointer before dispatching a typed click', async () => {
     const taskId = randomUUID();
+    const actionOrder: string[] = [];
     const driver = {
       isAvailable: vi.fn(() => true),
       startSession: vi.fn(async () => ({ active: true })),
-      click: vi.fn(async () => ({
-        text: 'Clicked.',
-        images: [],
-        isError: false,
-        action: { effect: 0 },
-        degraded: false,
-        rawJson: '{}',
-      })),
+      moveCursor: vi.fn(async () => {
+        actionOrder.push('move');
+        return {
+          text: 'Pointer moved.',
+          images: [],
+          isError: false,
+          action: { effect: 0 },
+          degraded: false,
+          rawJson: '{}',
+        };
+      }),
+      click: vi.fn(async () => {
+        actionOrder.push('click');
+        return {
+          text: 'Clicked.',
+          images: [],
+          isError: false,
+          action: { effect: 0 },
+          degraded: false,
+          rawJson: '{}',
+        };
+      }),
     };
     const service = new CuaService();
     Reflect.set(service, 'cuaModule', fakeCuaModule());
@@ -174,6 +190,15 @@ describe('CUA task sessions', () => {
         count: 1,
       }),
     ).resolves.toEqual({ status: 'confirmed', summary: 'Clicked.' });
+    expect(driver.moveCursor).toHaveBeenCalledWith(
+      {
+        session: taskId,
+        scope: 0,
+        x: 14,
+        y: 27,
+      },
+      undefined,
+    );
     expect(driver.click).toHaveBeenCalledWith(
       {
         session: taskId,
@@ -185,5 +210,96 @@ describe('CUA task sessions', () => {
       },
       undefined,
     );
+    expect(actionOrder).toEqual(['move', 'click']);
+  });
+
+  it('does not click when CUA cannot confirm pointer movement', async () => {
+    const taskId = randomUUID();
+    const driver = {
+      isAvailable: vi.fn(() => true),
+      startSession: vi.fn(async () => ({ active: true })),
+      moveCursor: vi.fn(async () => ({
+        text: 'Pointer movement could not be confirmed.',
+        images: [],
+        isError: false,
+        action: { effect: 3 },
+        degraded: false,
+        rawJson: '{}',
+      })),
+      click: vi.fn(),
+    };
+    const service = new CuaService();
+    Reflect.set(service, 'cuaModule', fakeCuaModule());
+    Reflect.set(service, 'driver', driver);
+
+    await service.startTaskSession(taskId);
+    await expect(
+      service.executeCommand(taskId, {
+        kind: 'click',
+        x: 14,
+        y: 27,
+        button: 'left',
+        count: 1,
+      }),
+    ).resolves.toEqual({
+      status: 'unknown',
+      summary: 'Pointer movement could not be confirmed.',
+    });
+    expect(driver.click).not.toHaveBeenCalled();
+  });
+
+  it('moves the real pointer before scrolling at a screen coordinate', async () => {
+    const taskId = randomUUID();
+    const actionOrder: string[] = [];
+    const confirmedResult = {
+      text: 'Confirmed.',
+      images: [],
+      isError: false,
+      action: { effect: 0 },
+      degraded: false,
+      rawJson: '{}',
+    };
+    const driver = {
+      isAvailable: vi.fn(() => true),
+      startSession: vi.fn(async () => ({ active: true })),
+      moveCursor: vi.fn(async () => {
+        actionOrder.push('move');
+        return confirmedResult;
+      }),
+      scroll: vi.fn(async () => {
+        actionOrder.push('scroll');
+        return confirmedResult;
+      }),
+    };
+    const service = new CuaService();
+    Reflect.set(service, 'cuaModule', fakeCuaModule());
+    Reflect.set(service, 'driver', driver);
+
+    await service.startTaskSession(taskId);
+    await expect(
+      service.executeCommand(taskId, {
+        kind: 'scroll',
+        x: 320,
+        y: 480,
+        direction: 'down',
+        amount: 3,
+      }),
+    ).resolves.toEqual({ status: 'confirmed', summary: 'Confirmed.' });
+    expect(driver.moveCursor).toHaveBeenCalledWith(
+      { session: taskId, scope: 0, x: 320, y: 480 },
+      undefined,
+    );
+    expect(driver.scroll).toHaveBeenCalledWith(
+      {
+        session: taskId,
+        scope: 0,
+        x: 320,
+        y: 480,
+        direction: 1,
+        amount: 3n,
+      },
+      undefined,
+    );
+    expect(actionOrder).toEqual(['move', 'scroll']);
   });
 });

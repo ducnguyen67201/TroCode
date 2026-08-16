@@ -10,7 +10,12 @@ import type {
 
 const DOMAIN_TERMS: Readonly<Record<Domain, readonly string[]>> = {
   education: [
+    'bai tap',
+    'bài tập',
     'explain',
+    'giai',
+    'giải',
+    'học',
     'learn',
     'lesson',
     'math',
@@ -18,6 +23,9 @@ const DOMAIN_TERMS: Readonly<Record<Domain, readonly string[]>> = {
     'solve',
     'student',
     'teach',
+    'tieng anh',
+    'tiếng anh',
+    'toán',
   ],
   productivity: [
     'calendar',
@@ -85,9 +93,16 @@ const ACT_TERMS = [
 
 const GUIDE_PREFIXES = [
   'can you show',
+  'cách ',
   'help me learn',
   'how can i',
   'how do i',
+  'hướng dẫn',
+  'huong dan',
+  'lam sao',
+  'lam the nao',
+  'làm sao',
+  'làm thế nào',
   'show me how',
   'teach me',
 ] as const;
@@ -127,8 +142,32 @@ const BASE_APPROVALS: readonly SensitiveAction[] = [
   'install',
 ];
 
+const VISUAL_SURFACE_TERMS = [
+  'app',
+  'browser',
+  'click',
+  'screen',
+  'website',
+  'youtube',
+  'màn hình',
+  'trang này',
+] as const;
+
+const VISUAL_REFERENCE_PATTERNS = [
+  /\bthis\s+(?:document|exercise|image|page|picture|problem|question|screen|worksheet)\b/u,
+  /(?:bai(?: tap)?|cau hoi|cua so|hinh|man hinh|tai lieu|trang).{0,60}nay/u,
+  /(?:bài(?: tập)?|câu hỏi|cửa sổ|hình|màn hình|tài liệu|trang).{0,60}này/u,
+] as const;
+
 function includesTerm(request: string, term: string): boolean {
   return request.includes(term);
+}
+
+function refersToVisualSurface(request: string): boolean {
+  return (
+    VISUAL_SURFACE_TERMS.some((term) => includesTerm(request, term)) ||
+    VISUAL_REFERENCE_PATTERNS.some((pattern) => pattern.test(request))
+  );
 }
 
 export function inferDomain(request: string): Domain {
@@ -208,20 +247,19 @@ function inferCapabilities(
 
   if (includesTerm(normalizedRequest, 'gmail')) capabilities.add('browser');
 
-  const refersToVisualSurface = [
-    'app',
-    'browser',
-    'click',
-    'screen',
-    'website',
-    'youtube',
-  ].some((term) => includesTerm(normalizedRequest, term));
+  const refersToVisibleScreen = refersToVisualSurface(normalizedRequest);
 
-  if (refersToVisualSurface || mode === 'act') {
+  if (refersToVisibleScreen || mode === 'act') {
     capabilities.add('computer_use');
   }
 
-  if (includesTerm(normalizedRequest, 'youtube') || refersToVisualSurface) {
+  const refersToBrowser = [
+    'browser',
+    'website',
+    'youtube',
+    'trang này',
+  ].some((term) => includesTerm(normalizedRequest, term));
+  if (refersToBrowser) {
     capabilities.add('browser');
   }
 

@@ -74,6 +74,28 @@ describe('task runtime', () => {
     ]);
   });
 
+  it('keeps a completed guide response in the task conversation', () => {
+    const runtime = new TaskRuntime();
+    const ready = runtime.submit({
+      text: 'Làm sao để làm bài tập tiếng Anh này?',
+    });
+    runtime.start({ taskId: ready.taskId });
+    runtime.beginObservation(ready.taskId, 'The worksheet is visible.');
+    runtime.beginVerification(ready.taskId, 'The guidance is grounded.');
+
+    const completed = runtime.complete(
+      ready.taskId,
+      'Dùng hiện tại tiếp diễn cho hành động đang xảy ra ngay bây giờ.',
+    );
+
+    expect(completed.phase).toBe('completed');
+    expect(completed.messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      kind: 'answer',
+      text: 'Dùng hiện tại tiếp diễn cho hành động đang xảy ra ngay bây giờ.',
+    });
+  });
+
   it('rejects stale clarification responses without consuming the pending input', () => {
     const runtime = new TaskRuntime();
     const submitted = runtime.submit({ text: 'help' });

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getVirtualDisplayBounds,
   interpolateCompanionPosition,
+  placeCompanionForBrowserNavigation,
   placeCompanionInOverlay,
   placeCompanionNearCursor,
   shouldUseCompanionOverlay,
@@ -34,6 +35,19 @@ describe('cursor companion placement', () => {
         COMPANION,
       ),
     ).toEqual({ x: -1430, y: -90 });
+  });
+
+  it('places browser navigation feedback near the active display toolbar', () => {
+    expect(
+      placeCompanionForBrowserNavigation(DISPLAY, COMPANION),
+    ).toEqual({ x: 608, y: 72 });
+
+    expect(
+      placeCompanionForBrowserNavigation(
+        { height: 900, width: 1440, x: -1440, y: -100 },
+        COMPANION,
+      ),
+    ).toEqual({ x: -712, y: -20 });
   });
 
   it('builds one overlay covering every display', () => {

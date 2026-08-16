@@ -195,7 +195,22 @@ export class TaskRuntime extends EventEmitter {
   }
 
   complete(taskId: string, summary: string): TaskSnapshot {
-    return this.move(this.getTask(taskId), 'completed', {
+    const snapshot = this.getTask(taskId);
+    const completedWithResponse = appendMessage(
+      snapshot,
+      {
+        kind:
+          snapshot.goal?.interactionMode === 'answer' ||
+          snapshot.goal?.interactionMode === 'guide'
+            ? 'answer'
+            : 'status',
+        role: 'assistant',
+        text: summary,
+      },
+      this.timestamp(),
+    );
+
+    return this.move(completedWithResponse, 'completed', {
       summary,
       nextActions: [],
     });

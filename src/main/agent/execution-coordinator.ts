@@ -413,16 +413,16 @@ export class TaskExecutionCoordinator {
     command: DesktopCommand,
     signal: AbortSignal,
   ): Promise<DesktopActionOutcome> {
-    await this.presentAction(command, signal);
-
     if (command.kind === 'open_url') {
       await this.openExternal(command.url);
+      await this.presentAction(command, signal);
       return {
         status: 'confirmed',
         summary: 'The browser accepted the HTTPS navigation request.',
       };
     }
 
+    await this.presentAction(command, signal);
     return this.cua.executeCommand(taskId, command, signal);
   }
 

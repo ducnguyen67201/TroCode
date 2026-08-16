@@ -237,12 +237,30 @@ export class CuaService {
     const cua = await this.loadModule();
     const driver = this.requireDriver();
     const asyncOptions = signal ? { signal } : undefined;
+    const movePointer = async (x: number, y: number) =>
+      driver.moveCursor(
+        cua.MoveCursorInput.new({
+          session: taskId,
+          scope: cua.DesktopScope.Desktop,
+          x,
+          y,
+        }),
+        asyncOptions,
+      );
 
     const result = await (async () => {
       switch (command.kind) {
         case 'open_url':
           throw new Error('URL navigation is handled outside the CUA driver.');
         case 'click': {
+          const movement = await movePointer(command.x, command.y);
+          if (
+            movement.isError ||
+            movement.action?.effect !== cua.ActionEffect.Confirmed
+          ) {
+            return movement;
+          }
+
           const button = {
             left: cua.ClickButton.Left,
             middle: cua.ClickButton.Middle,
@@ -289,6 +307,14 @@ export class CuaService {
             asyncOptions,
           );
         case 'scroll': {
+          const movement = await movePointer(command.x, command.y);
+          if (
+            movement.isError ||
+            movement.action?.effect !== cua.ActionEffect.Confirmed
+          ) {
+            return movement;
+          }
+
           const direction = {
             down: cua.ScrollDirection.Down,
             left: cua.ScrollDirection.Left,

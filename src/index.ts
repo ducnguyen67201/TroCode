@@ -24,6 +24,7 @@ import { keepWindowAliveForBackgroundVoice } from './main/background-app-lifecyc
 import {
   getVirtualDisplayBounds,
   interpolateCompanionPosition,
+  placeCompanionForBrowserNavigation,
   placeCompanionNearCursor,
   shouldUseCompanionOverlay,
   type Point,
@@ -244,28 +245,38 @@ function resetCompanionPresentation(): void {
   positionCompanion();
 }
 
-function pointerPositionForCommand(command: DesktopCommand): Point | null {
+function companionTargetForCommand(command: DesktopCommand): Point | null {
+  if (command.kind === 'open_url') {
+    const cursor = screen.getCursorScreenPoint();
+    const display = screen.getDisplayNearestPoint(cursor);
+    return placeCompanionForBrowserNavigation(
+      display.workArea,
+      COMPANION_SIZE,
+      COMPANION_GAP,
+    );
+  }
+
   if (command.kind !== 'click' && command.kind !== 'scroll') return null;
-  return { x: command.x, y: command.y };
+  const pointerPosition = { x: command.x, y: command.y };
+  const display = screen.getDisplayNearestPoint(pointerPosition);
+  return placeCompanionNearCursor(
+    pointerPosition,
+    display.bounds,
+    COMPANION_SIZE,
+    COMPANION_GAP,
+  );
 }
 
 async function presentCompanionAction(
   command: DesktopCommand,
   signal: AbortSignal,
 ): Promise<void> {
-  const pointerPosition = pointerPositionForCommand(command);
-  if (!pointerPosition || !companionWindow || companionWindow.isDestroyed()) {
+  const to = companionTargetForCommand(command);
+  if (!to || !companionWindow || companionWindow.isDestroyed()) {
     return;
   }
   if (signal.aborted) throw createAbortError();
 
-  const display = screen.getDisplayNearestPoint(pointerPosition);
-  const to = placeCompanionNearCursor(
-    pointerPosition,
-    display.bounds,
-    COMPANION_SIZE,
-    COMPANION_GAP,
-  );
   const from = getCurrentCompanionScreenPosition();
   if (pointEqual(from, to)) {
     companionPinnedPosition = to;

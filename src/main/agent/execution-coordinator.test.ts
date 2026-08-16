@@ -53,7 +53,13 @@ describe('task execution coordinator', () => {
   it('opens Gmail, re-observes, and completes without visual retry', async () => {
     const runtime = new TaskRuntime();
     const cua = new FakeCua();
-    const openExternal = vi.fn(async () => undefined);
+    const actionOrder: string[] = [];
+    const openExternal = vi.fn(async () => {
+      actionOrder.push('open');
+    });
+    const presentAction = vi.fn(async () => {
+      actionOrder.push('present');
+    });
     const prepareDesktop = vi.fn(async () => undefined);
     const planner: DesktopPlanner = {
       start: vi.fn(async () => undefined),
@@ -79,6 +85,7 @@ describe('task execution coordinator', () => {
       planner,
       openExternal,
       prepareDesktop,
+      presentAction,
     });
     const ready = runtime.submit({ text: 'Open Gmail for me' });
 
@@ -87,6 +94,11 @@ describe('task execution coordinator', () => {
 
     expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
     expect(openExternal).toHaveBeenCalledOnce();
+    expect(presentAction).toHaveBeenCalledWith(
+      { kind: 'open_url', url: 'https://mail.google.com/' },
+      expect.any(AbortSignal),
+    );
+    expect(actionOrder).toEqual(['open', 'present']);
     expect(prepareDesktop).toHaveBeenCalledTimes(2);
     expect(cua.observe).toHaveBeenCalledTimes(2);
     expect(cua.executeCommand).not.toHaveBeenCalled();
