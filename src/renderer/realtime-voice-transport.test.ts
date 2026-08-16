@@ -29,13 +29,19 @@ class FakePeerConnection extends EventTarget {
 
   readonly order: string[] = [];
 
-  microphoneTrack: MediaStreamTrack | null = null;
+  senderTrack: MediaStreamTrack | null = null;
+
+  senderStreams: MediaStream[] = [];
 
   readonly replaceTrack = vi.fn(async () => undefined);
 
-  addTrack(track: MediaStreamTrack): RTCRtpSender {
+  addTrack(
+    track: MediaStreamTrack,
+    ...streams: MediaStream[]
+  ): RTCRtpSender {
     this.order.push('add-track');
-    this.microphoneTrack = track;
+    this.senderTrack = track;
+    this.senderStreams = streams;
     return { replaceTrack: this.replaceTrack } as unknown as RTCRtpSender;
   }
 
@@ -72,16 +78,30 @@ class FakePeerConnection extends EventTarget {
   }
 }
 
+function createPlaceholderAudio() {
+  const track = { kind: 'audio' } as MediaStreamTrack;
+  const stream = {
+    getAudioTracks: () => [track],
+  } as unknown as MediaStream;
+  return {
+    release: vi.fn(),
+    stream,
+    track,
+  };
+}
+
 describe('realtime voice transport', () => {
-  it('preconnects an audio sender without attaching a microphone track', async () => {
+  it('preconnects a live silent sender without attaching the microphone', async () => {
     const connection = new FakePeerConnection();
     const diagnosticLogger = vi.fn();
+    const placeholderAudio = createPlaceholderAudio();
     const createVoiceCall = vi.fn(async (request) => {
       expect(request).toEqual({ offerSdp: 'test-offer-sdp' });
       return { answerSdp: 'test-answer-sdp' };
     });
 
     const transport = await openRealtimeVoiceTransport({
+      createPlaceholderAudio: () => placeholderAudio,
       createVoiceCall,
       createPeerConnection: () =>
         connection as unknown as RTCPeerConnection,
@@ -90,13 +110,19 @@ describe('realtime voice transport', () => {
 
     expect(connection.order).toEqual([
       'create-data-channel',
-      'add-transceiver',
+      'add-track',
       'create-offer',
       'set-local-description',
       'set-remote-description',
     ]);
+    expect(connection.senderTrack).toBe(placeholderAudio.track);
+    expect(connection.senderStreams).toEqual([placeholderAudio.stream]);
     expect(connection.replaceTrack).not.toHaveBeenCalled();
     expect(isRealtimeVoiceTransportReady(transport)).toBe(true);
+    expect(diagnosticLogger).toHaveBeenCalledWith('transport.create', {
+      audioTrackAttached: false,
+      placeholderAudioAttached: true,
+    });
     expect(diagnosticLogger.mock.calls.map(([event]) => event)).toEqual([
       'transport.create',
       'transport.offer-created',
@@ -127,7 +153,7 @@ describe('realtime voice transport', () => {
       diagnosticLogger,
     });
 
-    expect(connection.microphoneTrack).toBe(microphoneTrack);
+    expect(connection.senderTrack).toBe(microphoneTrack);
     expect(connection.order).toEqual([
       'create-data-channel',
       'add-track',
@@ -137,6 +163,7 @@ describe('realtime voice transport', () => {
     ]);
     expect(diagnosticLogger).toHaveBeenCalledWith('transport.create', {
       audioTrackAttached: true,
+      placeholderAudioAttached: false,
     });
   });
 
@@ -154,6 +181,15 @@ describe('realtime voice transport', () => {
             type: 'outbound-rtp',
           } as RTCOutboundRtpStreamStats);
           callback({
+            bytesSent: 1_024,
+            id: 'legacy-audio-outbound',
+            mediaType: 'audio',
+            packetsSent: 4,
+            ssrc: 3,
+            timestamp: 1_000,
+            type: 'outbound-rtp',
+          } as unknown as RTCStats);
+          callback({
             bytesSent: 8_192,
             id: 'video-outbound',
             kind: 'video',
@@ -167,16 +203,18 @@ describe('realtime voice transport', () => {
     } as unknown as RTCRtpSender;
 
     await expect(readOutboundAudioStats(sender)).resolves.toEqual({
-      bytesSent: 4_096,
-      packetsSent: 12,
+      bytesSent: 5_120,
+      packetsSent: 16,
     });
   });
 
   it('closes the prepared transport when the main-process call fails', async () => {
     const connection = new FakePeerConnection();
+    const placeholderAudio = createPlaceholderAudio();
 
     await expect(
       openRealtimeVoiceTransport({
+        createPlaceholderAudio: () => placeholderAudio,
         createVoiceCall: vi.fn(async () => {
           throw new Error('OpenAI rejected the realtime voice connection.');
         }),
@@ -187,14 +225,17 @@ describe('realtime voice transport', () => {
 
     expect(connection.connectionState).toBe('closed');
     expect(connection.channel.readyState).toBe('closed');
+    expect(placeholderAudio.release).toHaveBeenCalledOnce();
   });
 
   it('logs a sanitized main-process call failure before closing the transport', async () => {
     const connection = new FakePeerConnection();
     const diagnosticLogger = vi.fn();
+    const placeholderAudio = createPlaceholderAudio();
 
     await expect(
       openRealtimeVoiceTransport({
+        createPlaceholderAudio: () => placeholderAudio,
         createVoiceCall: vi.fn(async () => {
           throw new TypeError('Failed to fetch');
         }),
@@ -218,14 +259,18 @@ describe('realtime voice transport', () => {
 
   it('closes an established transport explicitly', async () => {
     const connection = new FakePeerConnection();
+    const placeholderAudio = createPlaceholderAudio();
     const transport = await openRealtimeVoiceTransport({
+      createPlaceholderAudio: () => placeholderAudio,
       createVoiceCall: vi.fn(async () => ({ answerSdp: 'answer' })),
       createPeerConnection: () =>
         connection as unknown as RTCPeerConnection,
     });
 
     closeRealtimeVoiceTransport(transport);
+    closeRealtimeVoiceTransport(transport);
 
     expect(isRealtimeVoiceTransportReady(transport)).toBe(false);
+    expect(placeholderAudio.release).toHaveBeenCalledOnce();
   });
 });

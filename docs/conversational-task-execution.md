@@ -40,7 +40,7 @@ This is not a long prerecorded click script. It is a bounded loop that observes 
 The current implementation supports:
 
 ```text
-voice or text -> compile GoalSpec -> user presses Start
+voice or text -> compile GoalSpec -> automatically start when dependencies are ready
   -> start GPT Realtime + CUA task sessions
   -> fresh screenshot -> one typed model decision -> host policy
   -> one admitted action -> fresh screenshot -> verify or continue
@@ -50,7 +50,10 @@ The first slice uses desktop screenshots and coordinate actions when required.
 It does not yet prefer stable accessibility element handles or use a Gmail API.
 The main window yields the foreground before each observation and returns for a
 question, exact approval, completion, or safe stop, so interacting with TroCode
-does not leave its own approval screen covering the Gmail target.
+does not leave its own approval screen covering the Gmail target. A visible
+**Stop task** control is available in the window, and **Escape** is registered
+by the trusted main process while any task is nonterminal so cancellation still
+works when another application has focus.
 The cursor companion follows the physical pointer while idle. After policy and
 any exact approval admit a coordinate action, it glides to that action target
 without moving the real pointer, then returns to pointer-following when TroCode
@@ -99,7 +102,7 @@ stateDiagram-v2
     interpreting --> clarifying: goal is underspecified
     clarifying --> interpreting: user answers
     interpreting --> ready: valid GoalSpec
-    ready --> planning: user starts execution
+    ready --> planning: dependencies ready; execution starts automatically
     planning --> observing
     observing --> acting: safe action admitted
     acting --> observing: screen may have changed
@@ -409,7 +412,8 @@ The design is ready for broad use only when tests prove:
 
 ## Recommended product defaults
 
-- Automatic execution begins only after the user reviews the compiled goal.
+- Automatic execution begins as soon as the compiled goal and execution
+  dependencies are ready; **Stop task** and **Escape** remain available.
 - Clarifications can be answered by voice or text.
 - Consequential approvals use a visible button, not casual speech.
 - The companion speaks only short status and clarification prompts.

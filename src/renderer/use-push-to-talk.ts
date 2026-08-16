@@ -462,7 +462,21 @@ export function usePushToTalk({
       }
 
       connectionStep = 'peer_connection';
+      if (transport.releasePlaceholderAudio) {
+        transport.channel.send(
+          JSON.stringify({ type: 'input_audio_buffer.clear' }),
+        );
+        voiceTurnDiagnostic('buffer-cleared', {
+          attempt: voiceAttempt,
+          reason: 'warm-placeholder',
+        });
+      }
       await transport.sender.replaceTrack(audioTrack);
+      transport.releasePlaceholderAudio?.();
+      voiceTurnDiagnostic('microphone-attached', {
+        attempt: voiceAttempt,
+        senderHasTrack: Boolean(transport.sender.track),
+      });
 
       clearQueuedReleaseTimer();
       const releaseWasQueued = releaseRequestedAtRef.current !== null;

@@ -87,6 +87,7 @@ describe('push-to-talk attempt lifecycle', () => {
       getTracks: () => [audioTrack],
     } as unknown as MediaStream;
     let statsReadCount = 0;
+    const replaceTrack = vi.fn(async () => undefined);
     const sender = {
       getStats: vi.fn(async () => ({
         forEach: (
@@ -104,18 +105,25 @@ describe('push-to-talk attempt lifecycle', () => {
           statsReadCount += 1;
         },
       })),
-      replaceTrack: vi.fn(async () => undefined),
+      replaceTrack,
     } as unknown as RTCRtpSender;
+    const sendVoiceEvent = vi.fn();
     const channel = Object.assign(new EventTarget(), {
       close: vi.fn(),
       readyState: 'open' as RTCDataChannelState,
-      send: vi.fn(),
+      send: sendVoiceEvent,
     }) as unknown as RTCDataChannel;
     const connection = Object.assign(new EventTarget(), {
       close: vi.fn(),
       connectionState: 'connected' as RTCPeerConnectionState,
     }) as unknown as RTCPeerConnection;
-    const transport = { channel, connection, sender };
+    const releasePlaceholderAudio = vi.fn();
+    const transport = {
+      channel,
+      connection,
+      releasePlaceholderAudio,
+      sender,
+    };
     const getUserMedia = vi.fn(async () => stream);
     const onTranscriptSubmit = vi.fn();
     const fakeWindow = Object.assign(new EventTarget(), {
@@ -163,7 +171,16 @@ describe('push-to-talk attempt lifecycle', () => {
 
     expect(getUserMedia).toHaveBeenCalledOnce();
     expect(transportHarness.openTransport).toHaveBeenCalledOnce();
-    expect(sender.replaceTrack).toHaveBeenCalledWith(audioTrack);
+    expect(sendVoiceEvent).toHaveBeenCalledWith(
+      JSON.stringify({ type: 'input_audio_buffer.clear' }),
+    );
+    expect(
+      sendVoiceEvent.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    ).toBeLessThan(
+      replaceTrack.mock.invocationCallOrder[0] ?? Number.NEGATIVE_INFINITY,
+    );
+    expect(replaceTrack).toHaveBeenCalledWith(audioTrack);
+    expect(releasePlaceholderAudio).toHaveBeenCalledOnce();
 
     await vi.advanceTimersByTimeAsync(300);
     fakeWindow.dispatchEvent(

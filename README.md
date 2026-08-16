@@ -37,7 +37,8 @@ Implemented:
   secrets cross into the renderer.
 - PostHog product analytics for app activity, task funnels, and completed voice
   transcripts so dictated prompts can be reviewed later.
-- Goal preview, conversation, clarification, approval, and lifecycle activity UI.
+- Goal preview, automatic execution, always-available Stop/Escape cancellation,
+  conversation, clarification, approval, and lifecycle activity UI.
 - Unit tests and cross-platform CI definition.
 
 Not implemented yet:
@@ -47,9 +48,11 @@ Not implemented yet:
 - Persistent task and trajectory storage.
 - Production capability manifests, signing, notarization, and update delivery.
 
-The UI stops at `ready` so the user can review the compiled goal. **Start task**
-then creates task-scoped GPT Realtime and CUA sessions. The loop observes after
-every admitted action, and consequential actions pause on an exact approval
+When a compiled goal reaches `ready`, TroCode automatically creates the
+task-scoped GPT Realtime and CUA sessions. The visible **Stop task** control and
+the system-wide **Escape** shortcut cancel a nonterminal task, including while
+the main window is hidden for desktop work. The loop observes after every
+admitted action, and consequential actions still pause on an exact approval
 card before anything is dispatched.
 
 ## Requirements
@@ -202,7 +205,8 @@ API key; only short-lived voice session secrets come back.
 3. Enter a complete bounded request, for example: `Open Gmail, compose an
    email from my work account to me@example.com with subject "TroCode test"
    and body "The desktop loop works", then send it after I approve.`
-4. Review the compiled goal and choose **Start task**.
+4. Review the compiled goal as TroCode starts it automatically. Press
+   **Escape** or choose **Stop task** to cancel at any time.
 5. If TroCode needs a material detail, answer in the same task from the main
    window or with the system-wide voice shortcut.
 6. Before Send, confirm the approval card's account, recipients, subject, body,

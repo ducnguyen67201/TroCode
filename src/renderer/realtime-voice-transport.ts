@@ -8,7 +8,14 @@ const CONNECTION_TIMEOUT_MS = 12_000;
 export interface RealtimeVoiceTransport {
   channel: RTCDataChannel;
   connection: RTCPeerConnection;
+  releasePlaceholderAudio?: () => void;
   sender: RTCRtpSender;
+}
+
+export interface RealtimeVoicePlaceholderAudio {
+  release(): void;
+  stream: MediaStream;
+  track: MediaStreamTrack;
 }
 
 export interface OutboundAudioStats {
@@ -18,6 +25,7 @@ export interface OutboundAudioStats {
 
 export interface RealtimeVoiceTransportDependencies {
   audioTrack?: MediaStreamTrack;
+  createPlaceholderAudio?: () => RealtimeVoicePlaceholderAudio;
   createVoiceCall?: (
     request: CreateVoiceCallRequest,
   ) => Promise<VoiceCallAnswer>;
@@ -56,13 +64,48 @@ export async function readOutboundAudioStats(
 
   report.forEach((stats: RTCStats) => {
     if (stats.type !== 'outbound-rtp') return;
-    const outbound = stats as RTCOutboundRtpStreamStats;
-    if (outbound.kind !== 'audio') return;
+    const outbound = stats as RTCOutboundRtpStreamStats & {
+      mediaType?: string;
+    };
+    if ((outbound.kind ?? outbound.mediaType) !== 'audio') return;
     totals.bytesSent += outbound.bytesSent ?? 0;
     totals.packetsSent += outbound.packetsSent ?? 0;
   });
 
   return totals;
+}
+
+function createSilentPlaceholderAudio(): RealtimeVoicePlaceholderAudio {
+  const context = new AudioContext();
+  const source = context.createConstantSource();
+  const destination = context.createMediaStreamDestination();
+  source.offset.value = 0;
+  source.connect(destination);
+  source.start();
+  void context.resume().catch(() => undefined);
+
+  const track = destination.stream.getAudioTracks()[0];
+  if (!track) {
+    source.stop();
+    source.disconnect();
+    void context.close().catch(() => undefined);
+    throw new Error('Could not create the warm voice audio sender.');
+  }
+
+  let released = false;
+  return {
+    release: () => {
+      if (released) return;
+      released = true;
+      track.stop();
+      source.stop();
+      source.disconnect();
+      destination.disconnect();
+      void context.close().catch(() => undefined);
+    },
+    stream: destination.stream,
+    track,
+  };
 }
 
 function diagnosticErrorProperties(
@@ -114,6 +157,7 @@ function waitForDataChannelOpen(channel: RTCDataChannel): Promise<void> {
 export function closeRealtimeVoiceTransport(
   transport: RealtimeVoiceTransport,
 ): void {
+  transport.releasePlaceholderAudio?.();
   if (transport.channel.readyState !== 'closed') transport.channel.close();
   if (transport.connection.connectionState !== 'closed') {
     transport.connection.close();
@@ -134,6 +178,7 @@ export function isRealtimeVoiceTransportReady(
 export async function openRealtimeVoiceTransport(
   {
     audioTrack,
+    createPlaceholderAudio = createSilentPlaceholderAudio,
     createVoiceCall = (request) => window.tro.createVoiceCall(request),
     createPeerConnection = () => new RTCPeerConnection(),
     diagnosticLogger = logRealtimeVoiceDiagnostic,
@@ -141,15 +186,40 @@ export async function openRealtimeVoiceTransport(
 ): Promise<RealtimeVoiceTransport> {
   const connection = createPeerConnection();
   const channel = connection.createDataChannel('oai-events');
-  const sender = audioTrack
-    ? connection.addTrack(audioTrack)
-    : connection.addTransceiver('audio', { direction: 'sendonly' }).sender;
-  const transport = { channel, connection, sender };
-  diagnosticLogger('transport.create', {
-    audioTrackAttached: Boolean(audioTrack),
-  });
+  let placeholderAudio: RealtimeVoicePlaceholderAudio | null = null;
+  let placeholderAudioReleased = false;
+  let transport: RealtimeVoiceTransport | null = null;
+  const releasePlaceholderAudio = (): void => {
+    if (!placeholderAudio || placeholderAudioReleased) return;
+    placeholderAudioReleased = true;
+    placeholderAudio.release();
+  };
 
   try {
+    let sender: RTCRtpSender;
+    if (audioTrack) {
+      sender = connection.addTrack(audioTrack);
+    } else {
+      const createdPlaceholderAudio = createPlaceholderAudio();
+      placeholderAudio = createdPlaceholderAudio;
+      sender = connection.addTrack(
+        createdPlaceholderAudio.track,
+        createdPlaceholderAudio.stream,
+      );
+    }
+    transport = {
+      channel,
+      connection,
+      releasePlaceholderAudio: placeholderAudio
+        ? releasePlaceholderAudio
+        : undefined,
+      sender,
+    };
+    diagnosticLogger('transport.create', {
+      audioTrackAttached: Boolean(audioTrack),
+      placeholderAudioAttached: Boolean(placeholderAudio),
+    });
+
     const offer = await connection.createOffer();
     diagnosticLogger('transport.offer-created', {
       sdpLength: offer.sdp?.length ?? 0,
@@ -181,7 +251,13 @@ export async function openRealtimeVoiceTransport(
       channelState: channel.readyState,
       connectionState: connection.connectionState,
     });
-    closeRealtimeVoiceTransport(transport);
+    if (transport) {
+      closeRealtimeVoiceTransport(transport);
+    } else {
+      releasePlaceholderAudio();
+      if (channel.readyState !== 'closed') channel.close();
+      if (connection.connectionState !== 'closed') connection.close();
+    }
     throw error;
   }
 }

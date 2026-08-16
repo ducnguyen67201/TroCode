@@ -45,6 +45,11 @@ import {
 } from './push-to-talk';
 import { SettingsPage } from './SettingsPage';
 import {
+  isTaskCancellable,
+  shouldAutoStartTask,
+  shouldStopTaskForEscape,
+} from './task-execution';
+import {
   getCompanionErrorVisibility,
   INITIAL_TRANSIENT_CURSOR_ERROR_STATE,
   scheduleTransientCursorErrorDismissal,
@@ -233,16 +238,18 @@ function VoiceShortcut({ platform }: { platform: PushToTalkPlatform }) {
 }
 
 function GoalPreview({
+  autoStartFailed,
   canStart,
   goal,
   isStarting,
-  onStart,
+  onRetry,
   phase,
 }: {
+  autoStartFailed: boolean;
   canStart: boolean;
   goal: GoalSpec;
   isStarting: boolean;
-  onStart: () => void;
+  onRetry: () => void;
   phase: TaskSnapshot['phase'];
 }) {
   return (
@@ -292,19 +299,25 @@ function GoalPreview({
 
       {phase === 'ready' && (
         <div className="goal-start">
-          <p>
-            {canStart
-              ? 'OpenAI and CUA are ready. Starting will begin the observe → act → verify loop.'
-              : 'Connect OpenAI Realtime and the CUA Driver before starting.'}
+          <p aria-live="polite">
+            {!canStart
+              ? 'Waiting for OpenAI Realtime and the CUA Driver before starting.'
+              : autoStartFailed
+                ? 'TroCode could not start automatically. You can try again.'
+                : isStarting
+                  ? 'Starting automatically… Press Escape at any time to stop.'
+                  : 'Ready. Starting automatically… Press Escape at any time to stop.'}
           </p>
-          <button
-            className="primary-button"
-            disabled={!canStart || isStarting}
-            onClick={onStart}
-            type="button"
-          >
-            {isStarting ? 'Starting…' : 'Start task'}
-          </button>
+          {autoStartFailed && (
+            <button
+              className="primary-button"
+              disabled={!canStart || isStarting}
+              onClick={onRetry}
+              type="button"
+            >
+              {isStarting ? 'Starting…' : 'Try again'}
+            </button>
+          )}
         </div>
       )}
     </section>
@@ -489,6 +502,7 @@ export function App({
     null,
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isStoppingTask, setIsStoppingTask] = useState(false);
   const [isCheckingPermissions, setIsCheckingPermissions] = useState(true);
   const [isRequestingPermissions, setIsRequestingPermissions] =
     useState(false);
@@ -501,13 +515,19 @@ export function App({
   const [membershipError, setMembershipError] = useState<string | null>(null);
   const [isCheckingMembership, setIsCheckingMembership] = useState(true);
   const [isActivatingMembership, setIsActivatingMembership] = useState(false);
+  const [autoStartFailedTaskId, setAutoStartFailedTaskId] = useState<
+    string | null
+  >(null);
   const [transientCursorError, dispatchTransientCursorError] = useReducer(
     transientCursorErrorReducer,
     INITIAL_TRANSIENT_CURSOR_ERROR_STATE,
   );
   const error = transientCursorError.message;
   const activeTaskIdRef = useRef<string | null>(null);
+  const latestSnapshotRef = useRef<TaskSnapshot | null>(null);
+  const autoStartAttemptedTaskIdsRef = useRef(new Set<string>());
   const isSendingRef = useRef(false);
+  const isStoppingTaskRef = useRef(false);
   const permissionRefreshIdRef = useRef(0);
   const membershipRefreshIdRef = useRef(0);
   const spokenInteractionIdRef = useRef<string | null>(null);
@@ -521,8 +541,13 @@ export function App({
   }, []);
 
   const recordSnapshot = useCallback((nextSnapshot: TaskSnapshot | null) => {
+    latestSnapshotRef.current = nextSnapshot;
     setSnapshot(nextSnapshot);
-    if (!nextSnapshot) return;
+    if (!nextSnapshot) {
+      autoStartAttemptedTaskIdsRef.current.clear();
+      setAutoStartFailedTaskId(null);
+      return;
+    }
 
     setSessionSnapshots((currentSnapshots) => ({
       ...currentSnapshots,
@@ -702,6 +727,10 @@ export function App({
   const languageSetupComplete =
     isPrimaryLanguageSetupComplete(appPreferences, preferencesLoaded);
   const membershipAccessAllowed = membershipAllowsAccess(membershipStatus);
+  const executionReady =
+    computerStatus.state === 'ready' &&
+    computerStatus.available &&
+    voiceProviderStatus.state === 'ready';
 
   const refreshMembership = useCallback(async () => {
     const refreshId = membershipRefreshIdRef.current + 1;
@@ -1059,31 +1088,105 @@ export function App({
     }
   }, []);
 
-  const startTask = useCallback(async () => {
+  const startTask = useCallback(async (taskId: string) => {
+    const activeSnapshot = latestSnapshotRef.current;
     if (
-      !snapshot ||
-      snapshot.phase !== 'ready' ||
+      activeSnapshot?.taskId !== taskId ||
+      activeSnapshot.phase !== 'ready' ||
       isSendingRef.current
-    ) {
-      return;
-    }
+    ) return;
 
     isSendingRef.current = true;
     clearError();
+    setAutoStartFailedTaskId(null);
     setIsSubmitting(true);
     try {
-      recordSnapshot(await window.tro.startTask(snapshot.taskId));
+      const startedSnapshot = await window.tro.startTask(taskId);
+      const latestSnapshot = latestSnapshotRef.current;
+      if (
+        latestSnapshot?.taskId === taskId &&
+        !TERMINAL_PHASES.has(latestSnapshot.phase)
+      ) {
+        recordSnapshot(startedSnapshot);
+      }
     } catch (startError) {
-      reportError(
-        startError instanceof Error
-          ? startError.message
-          : 'The task could not start.',
-      );
+      const latestSnapshot = latestSnapshotRef.current;
+      if (
+        latestSnapshot?.taskId === taskId &&
+        latestSnapshot.phase === 'ready'
+      ) {
+        setAutoStartFailedTaskId(taskId);
+        reportError(
+          startError instanceof Error
+            ? startError.message
+            : 'The task could not start.',
+        );
+      }
     } finally {
       isSendingRef.current = false;
       setIsSubmitting(false);
     }
-  }, [clearError, recordSnapshot, reportError, snapshot]);
+  }, [clearError, recordSnapshot, reportError]);
+
+  const stopTask = useCallback(async () => {
+    const activeSnapshot = latestSnapshotRef.current;
+    if (
+      !activeSnapshot ||
+      !isTaskCancellable(activeSnapshot) ||
+      isStoppingTaskRef.current
+    ) return;
+
+    isStoppingTaskRef.current = true;
+    clearError();
+    setIsStoppingTask(true);
+    try {
+      const cancelledSnapshot = await window.tro.cancelTask(
+        activeSnapshot.taskId,
+      );
+      if (activeTaskIdRef.current === activeSnapshot.taskId) {
+        recordSnapshot(cancelledSnapshot);
+      }
+    } catch (cancelError) {
+      reportError(
+        cancelError instanceof Error
+          ? cancelError.message
+          : 'The current task could not be cancelled.',
+      );
+    } finally {
+      isStoppingTaskRef.current = false;
+      setIsStoppingTask(false);
+    }
+  }, [clearError, recordSnapshot, reportError]);
+
+  useEffect(() => {
+    if (
+      !snapshot ||
+      !shouldAutoStartTask(snapshot, {
+        executionReady,
+        isBusy: isSubmitting,
+      }) ||
+      autoStartAttemptedTaskIdsRef.current.has(snapshot.taskId)
+    ) {
+      return;
+    }
+
+    autoStartAttemptedTaskIdsRef.current.add(snapshot.taskId);
+    const taskId = snapshot.taskId;
+    queueMicrotask(() => void startTask(taskId));
+  }, [executionReady, isSubmitting, snapshot, startTask]);
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent): void => {
+      if (!shouldStopTaskForEscape(event, latestSnapshotRef.current)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      void stopTask();
+    };
+
+    window.addEventListener('keydown', handleEscape, true);
+    return () => window.removeEventListener('keydown', handleEscape, true);
+  }, [stopTask]);
 
   if (!permissionSetupComplete || !languageSetupComplete) {
     return (
@@ -1232,6 +1335,16 @@ export function App({
             </strong>
           </div>
           <div className="topbar-actions">
+            {isTaskCancellable(snapshot) && (
+              <button
+                className="stop-task-button"
+                disabled={isStoppingTask}
+                onClick={() => void stopTask()}
+                type="button"
+              >
+                {isStoppingTask ? 'Stopping…' : 'Stop task'} <kbd>Esc</kbd>
+              </button>
+            )}
             <span className="prototype-pill">Foundation · v0.1</span>
             <span className="account-chip" title={currentUser.email}>
               <span className="account-avatar" aria-hidden="true">
@@ -1370,14 +1483,11 @@ export function App({
             {snapshot && <Conversation snapshot={snapshot} />}
             {snapshot?.goal && (
               <GoalPreview
-                canStart={
-                  computerStatus.state === 'ready' &&
-                  computerStatus.available &&
-                  voiceProviderStatus.state === 'ready'
-                }
+                autoStartFailed={autoStartFailedTaskId === snapshot.taskId}
+                canStart={executionReady}
                 goal={snapshot.goal}
                 isStarting={isSubmitting}
-                onStart={() => void startTask()}
+                onRetry={() => void startTask(snapshot.taskId)}
                 phase={snapshot.phase}
               />
             )}

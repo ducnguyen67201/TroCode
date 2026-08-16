@@ -67,6 +67,10 @@ release bundle. Only the Ed25519 public key is compiled into packaged builds.
 Offline activation codes support account binding and expiry but not immediate
 revocation or authoritative time; those require an authenticated backend.
 
+Every nonterminal task exposes a renderer **Stop task** control, and the trusted
+main process registers **Escape** system-wide while work is active. Cancelling
+does not widen authority or bypass exact-action approvals.
+
 ## Release requirements
 
 Before distributing the application:
@@ -74,8 +78,7 @@ Before distributing the application:
 1. Define a strict Content Security Policy without development localhost exceptions.
 2. Generate per-skill CUA capability manifests.
 3. Add approval UI with exact target and consequence descriptions.
-4. Add an always-available cancel control and keyboard shortcut.
-5. Sign and notarize macOS builds.
-6. Sign Windows installers.
-7. Run dependency, secret, and packaged-application security checks.
-8. Test permission upgrades, revocation, and app restarts on clean machines.
+4. Sign and notarize macOS builds.
+5. Sign Windows installers.
+6. Run dependency, secret, and packaged-application security checks.
+7. Test permission upgrades, revocation, and app restarts on clean machines.

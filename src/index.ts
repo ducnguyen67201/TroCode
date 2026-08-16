@@ -12,6 +12,7 @@ import path from 'node:path';
 
 import type { DesktopCommand } from './main/agent/execution-contracts';
 import { TaskExecutionCoordinator } from './main/agent/execution-coordinator';
+import { registerGlobalTaskCancelShortcut } from './main/agent/global-task-cancel-shortcut';
 import { GptRealtimePlanner } from './main/agent/realtime-planner';
 import { TaskRuntime } from './main/agent/task-runtime';
 import { FileAnalyticsIdentityStore } from './main/analytics/analytics-identity-store';
@@ -154,6 +155,7 @@ let companionPinnedPosition: Point | null = null;
 let lastCompanionPosition: Point | null = null;
 let forcedExitTimer: ReturnType<typeof setTimeout> | null = null;
 let unregisterIpcHandlers: (() => void) | null = null;
+let unregisterGlobalTaskCancelShortcut: (() => void) | null = null;
 let unregisterGlobalVoiceShortcut: (() => void) | null = null;
 let removeMainWindowCloseBehavior: (() => void) | null = null;
 let backgroundTray: Tray | null = null;
@@ -307,6 +309,8 @@ function beginShutdown(exitCode = 0): void {
   if (isShuttingDown) return;
   isShuttingDown = true;
   stopCompanionFollowing();
+  unregisterGlobalTaskCancelShortcut?.();
+  unregisterGlobalTaskCancelShortcut = null;
   unregisterGlobalVoiceShortcut?.();
   unregisterGlobalVoiceShortcut = null;
   backgroundTray?.destroy();
@@ -422,6 +426,18 @@ function ensureGlobalVoiceShortcut(): void {
               onEvent: listener,
             })
         : undefined,
+  });
+}
+
+function ensureGlobalTaskCancelShortcut(): void {
+  if (unregisterGlobalTaskCancelShortcut) return;
+
+  unregisterGlobalTaskCancelShortcut = registerGlobalTaskCancelShortcut({
+    cancelTask: (taskId) => {
+      executionCoordinator.cancel({ taskId });
+    },
+    registry: globalShortcut,
+    updates: taskRuntime,
   });
 }
 
@@ -742,6 +758,7 @@ if (hasSingleInstanceLock) {
     createWindow();
     createCompanionWindow();
     ensureBackgroundTray();
+    ensureGlobalTaskCancelShortcut();
     ensureGlobalVoiceShortcut();
   });
 
