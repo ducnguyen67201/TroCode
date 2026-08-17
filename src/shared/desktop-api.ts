@@ -15,6 +15,7 @@ import type {
   MembershipStatus,
   RecordVoiceTranscriptRequest,
   RespondToInteractionRequest,
+  SetVoiceAudioDuckingRequest,
   SteerTaskRequest,
   SubmitTaskRequest,
   SystemPermission,
@@ -56,6 +57,7 @@ export const IPC_CHANNELS = {
   respondToInteraction: 'task:respond',
   setCompanionState: 'companion:set-state',
   setCompanionVoiceActivity: 'companion:set-voice-activity',
+  setVoiceAudioDucking: 'voice:set-audio-ducking',
   startTask: 'task:start',
   signInWithGoogle: 'auth:sign-in-google',
   signOutGoogle: 'auth:sign-out-google',
@@ -99,6 +101,7 @@ export interface DesktopApi {
   setCompanionVoiceActivity(
     activity: CompanionVoiceActivity | null,
   ): Promise<void>;
+  setVoiceAudioDucking(request: SetVoiceAudioDuckingRequest): Promise<void>;
   startTask(taskId: string): Promise<TaskSnapshot>;
   signInWithGoogle(): Promise<AuthStatus>;
   signOutGoogle(): Promise<AuthStatus>;

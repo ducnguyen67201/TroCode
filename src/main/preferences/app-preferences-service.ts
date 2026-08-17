@@ -10,6 +10,7 @@ import {
 
 const EMPTY_PREFERENCES: AppPreferences = {
   appLanguage: 'en',
+  muteSystemAudioWhileSpeaking: false,
   primaryLanguage: null,
 };
 

@@ -58,6 +58,7 @@ interface UsePushToTalkOptions {
 
 interface PushToTalkState {
   cancel(): void;
+  isHolding: boolean;
   platform: PushToTalkPlatform;
   status: VoiceInputStatus;
 }
@@ -143,6 +144,13 @@ export function shouldFinishVoiceOnLocalRelease({
   return (
     activationMode === 'local-hold' && isListening && !isLocalChordHeld
   );
+}
+
+export function shouldMuteSystemAudioForVoice(
+  enabled: boolean,
+  isHolding: boolean,
+): boolean {
+  return enabled && isHolding;
 }
 
 export function canCommitInputAudioBuffer(
@@ -242,6 +250,7 @@ export function usePushToTalk({
   const [status, setStatus] = useState<VoiceInputStatus>(() =>
     enabled && platform !== 'unsupported' ? 'idle' : 'unavailable',
   );
+  const [isHolding, setIsHolding] = useState(false);
   const activeTurnRef = useRef<ActiveVoiceTurn | null>(null);
   const activationModeRef = useRef<VoiceActivationMode | null>(null);
   const attemptStartedAtRef = useRef<number | null>(null);
@@ -305,6 +314,7 @@ export function usePushToTalk({
       activeTurnRef.current = null;
       activationModeRef.current = null;
       chordHeldRef.current = false;
+      setIsHolding(false);
       releaseRequestedAtRef.current = null;
       clearQueuedReleaseTimer();
       attemptStartedAtRef.current = null;
@@ -322,6 +332,7 @@ export function usePushToTalk({
     pressedCodesRef.current.clear();
     activationModeRef.current = null;
     chordHeldRef.current = false;
+    setIsHolding(false);
     releaseRequestedAtRef.current = null;
     clearQueuedReleaseTimer();
     attemptStartedAtRef.current = null;
@@ -360,6 +371,7 @@ export function usePushToTalk({
     pressedCodesRef.current.clear();
     activationModeRef.current = null;
     chordHeldRef.current = false;
+    queueMicrotask(() => setIsHolding(false));
     releaseRequestedAtRef.current = null;
     clearQueuedReleaseTimer();
     attemptStartedAtRef.current = null;
@@ -399,6 +411,7 @@ export function usePushToTalk({
 
     activationModeRef.current = activationMode;
     chordHeldRef.current = true;
+    setIsHolding(true);
     releaseRequestedAtRef.current = null;
     clearQueuedReleaseTimer();
     const voiceAttempt = voiceAttemptRef.current + 1;
@@ -653,6 +666,7 @@ export function usePushToTalk({
       }
       activationModeRef.current = null;
       chordHeldRef.current = false;
+      setIsHolding(false);
       releaseRequestedAtRef.current = null;
       clearQueuedReleaseTimer();
       attemptStartedAtRef.current = null;
@@ -686,6 +700,7 @@ export function usePushToTalk({
 
   const finishListening = useCallback(() => {
     if (!chordHeldRef.current) return;
+    setIsHolding(false);
     const releasedAt = Date.now();
     const heldMs = Math.max(
       0,
@@ -964,6 +979,7 @@ export function usePushToTalk({
 
   return {
     cancel,
+    isHolding,
     platform,
     status:
       !enabled || platform === 'unsupported' ? 'unavailable' : status,

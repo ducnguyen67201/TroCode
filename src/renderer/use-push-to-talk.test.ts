@@ -7,6 +7,7 @@ import {
   hasNewOutboundAudio,
   logVoiceConnectionFailure,
   shouldFinishVoiceOnLocalRelease,
+  shouldMuteSystemAudioForVoice,
   usePushToTalk,
   voiceConnectionErrorMessage,
 } from './use-push-to-talk';
@@ -483,5 +484,13 @@ describe('global voice shortcut events', () => {
 
     expect(beginListening).not.toHaveBeenCalled();
     expect(finishListening).not.toHaveBeenCalled();
+  });
+});
+
+describe('system audio ducking lifecycle', () => {
+  it('mutes only while the preference is enabled and the shortcut is held', () => {
+    expect(shouldMuteSystemAudioForVoice(true, true)).toBe(true);
+    expect(shouldMuteSystemAudioForVoice(true, false)).toBe(false);
+    expect(shouldMuteSystemAudioForVoice(false, true)).toBe(false);
   });
 });

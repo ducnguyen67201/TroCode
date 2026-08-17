@@ -52,6 +52,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     getStatus: ReturnType<typeof vi.fn>;
   };
   restartAndInstallUpdate: ReturnType<typeof vi.fn>;
+  setVoiceAudioDucking: ReturnType<typeof vi.fn>;
   openSystemPermissionSettings: ReturnType<typeof vi.fn>;
   requestScreenRecordingAccess: ReturnType<typeof vi.fn>;
   recordVoiceTranscript: ReturnType<typeof vi.fn>;
@@ -174,6 +175,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   }));
   const restartAndInstallUpdate = vi.fn(async () => undefined);
   const updateCompanionVoiceActivity = vi.fn();
+  const setVoiceAudioDucking = vi.fn(async () => undefined);
   const services = {
     appUpdateService: {
       checkForUpdates,
@@ -192,6 +194,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     openSystemPermissionSettings,
     recordVoiceTranscript,
     requestScreenRecordingAccess,
+    systemAudioDuckingService: { setActive: setVoiceAudioDucking },
     taskRuntime,
     taskHistoryService: { load: getTaskHistory },
     updateCompanionState: vi.fn(),
@@ -214,6 +217,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     openSystemPermissionSettings,
     recordVoiceTranscript,
     restartAndInstallUpdate,
+    setVoiceAudioDucking,
     requestScreenRecordingAccess,
     submit,
     updateAppPreferences,
@@ -323,11 +327,16 @@ describe('registerIpcHandlers auth boundary', () => {
       electronMock.handlers
         .get(IPC_CHANNELS.updateAppPreferences)
         ?.(event, { primaryLanguage: 'vi' }),
-    ).resolves.toEqual({ appLanguage: 'en', primaryLanguage: 'vi' });
+    ).resolves.toEqual({
+      appLanguage: 'en',
+      muteSystemAudioWhileSpeaking: false,
+      primaryLanguage: 'vi',
+    });
 
     expect(getAppPreferences).toHaveBeenCalledOnce();
     expect(updateAppPreferences).toHaveBeenCalledWith({
       appLanguage: 'en',
+      muteSystemAudioWhileSpeaking: false,
       primaryLanguage: 'vi',
     });
     unregister();
@@ -432,6 +441,31 @@ describe('registerIpcHandlers auth boundary', () => {
       offerSdp: 'v=0\r\noffer',
     });
     unregister();
+  });
+
+  it('mutes system audio for an active member and always permits restoration', async () => {
+    const active = setup(true);
+    const activeHandler = electronMock.handlers.get(
+      IPC_CHANNELS.setVoiceAudioDucking,
+    );
+
+    await expect(
+      activeHandler?.(active.event, { active: true }),
+    ).resolves.toBeUndefined();
+    expect(active.setVoiceAudioDucking).toHaveBeenCalledWith(true);
+    expect(active.membershipService.assertActive).toHaveBeenCalledOnce();
+    active.unregister();
+
+    const signedOut = setup(false);
+    const restoreHandler = electronMock.handlers.get(
+      IPC_CHANNELS.setVoiceAudioDucking,
+    );
+    await expect(
+      restoreHandler?.(signedOut.event, { active: false }),
+    ).resolves.toBeUndefined();
+    expect(signedOut.setVoiceAudioDucking).toHaveBeenCalledWith(false);
+    expect(signedOut.authService.assertSignedIn).not.toHaveBeenCalled();
+    signedOut.unregister();
   });
 
   it('rejects realtime voice calls without an active membership', async () => {

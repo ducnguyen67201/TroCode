@@ -22,13 +22,16 @@ interface SettingsPageProps {
   hasChanges: boolean;
   isSaving: boolean;
   isUpdatingApp: boolean;
+  muteSystemAudioWhileSpeaking: boolean;
   onAppLanguageChange(language: AppLanguage): void;
   onCheckForUpdates(): void;
   onLanguageChange(language: PrimaryLanguage): void;
+  onMuteSystemAudioWhileSpeakingChange(enabled: boolean): void;
   onRestartAndInstall(): void;
   onSave(): void;
   primaryLanguage: PrimaryLanguage;
   saveMessage: string | null;
+  systemAudioMuteSupported: boolean;
 }
 
 function appUpdateActionLabel(
@@ -65,13 +68,16 @@ export function SettingsPage({
   hasChanges,
   isSaving,
   isUpdatingApp,
+  muteSystemAudioWhileSpeaking,
   onAppLanguageChange,
   onCheckForUpdates,
   onLanguageChange,
+  onMuteSystemAudioWhileSpeakingChange,
   onRestartAndInstall,
   onSave,
   primaryLanguage,
   saveMessage,
+  systemAudioMuteSupported,
 }: SettingsPageProps) {
   const t = (message: string, replacements?: Record<string, string | number>) =>
     translate(appLanguage, message, replacements);
@@ -179,6 +185,27 @@ export function SettingsPage({
             'TroCode sends this as a transcription hint so short or noisy speech is less likely to be interpreted as an unexpected language or script.',
           )}
         </p>
+
+        <label className="settings-toggle">
+          <input
+            checked={muteSystemAudioWhileSpeaking}
+            disabled={!systemAudioMuteSupported}
+            onChange={(event) =>
+              onMuteSystemAudioWhileSpeakingChange(event.target.checked)
+            }
+            type="checkbox"
+          />
+          <span>
+            <strong>{t('Mute other audio while speaking')}</strong>
+            <small>
+              {systemAudioMuteSupported
+                ? t(
+                    'Mute system output while you hold the voice shortcut, then restore its previous mute state when you release.',
+                  )
+                : t('System audio muting is currently available on macOS.')}
+            </small>
+          </span>
+        </label>
 
         {(error || saveMessage) && (
           <p

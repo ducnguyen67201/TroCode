@@ -60,6 +60,7 @@ import {
   MACOS_VOICE_SHORTCUT_HELPER_NAME,
   watchMacOSGlobalVoiceShortcut,
 } from './main/voice/macos-voice-shortcut-watcher';
+import { createSystemAudioDuckingService } from './main/voice/system-audio-ducking-service';
 import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-store';
 import { VoiceService } from './main/voice/voice-service';
 import {
@@ -135,6 +136,7 @@ const appPreferencesService = new AppPreferencesService(
     path.join(app.getPath('userData'), 'app-preferences.json'),
   ),
 );
+const systemAudioDuckingService = createSystemAudioDuckingService();
 const voiceCredentialStore = new EncryptedVoiceCredentialStore();
 const voiceService = new VoiceService({
   credentialStore: voiceCredentialStore,
@@ -606,6 +608,7 @@ function prepareApplicationShutdown(): Promise<void> {
   }
 
   const analyticsShutdown = analyticsService?.shutdown() ?? Promise.resolve();
+  const systemAudioShutdown = systemAudioDuckingService.setActive(false);
   const executionShutdown = executionCoordinator.shutdown().finally(() =>
     Promise.allSettled([
       cuaService.shutdown(),
@@ -615,6 +618,7 @@ function prepareApplicationShutdown(): Promise<void> {
   shutdownPromise = Promise.allSettled([
     executionShutdown,
     analyticsShutdown,
+    systemAudioShutdown,
   ]).then(() => undefined);
   return shutdownPromise;
 }
@@ -832,6 +836,9 @@ const createWindow = (): void => {
     onAuthSignedIn: identifyAnalyticsUser,
     onAuthSignedOut: async () => {
       taskHistoryService.setCurrentOwner(null);
+      await systemAudioDuckingService.setActive(false).catch((error: unknown) => {
+        console.error('[voice] Could not restore system audio after sign-out.', error);
+      });
       await analyticsService?.resetUser();
     },
     openSystemPermissionSettings: async (permission) =>
@@ -842,6 +849,7 @@ const createWindow = (): void => {
       await analyticsService?.trackVoiceTranscript(input);
     },
     requestScreenRecordingAccess: registerScreenRecordingHost,
+    systemAudioDuckingService,
     taskRuntime,
     taskHistoryService,
     updateCompanionState,
@@ -864,6 +872,9 @@ const createWindow = (): void => {
     mainWindow = null;
     unregisterIpcHandlers?.();
     unregisterIpcHandlers = null;
+    void systemAudioDuckingService.setActive(false).catch((error: unknown) => {
+      console.error('[voice] Could not restore system audio after closing.', error);
+    });
   });
 
   nextMainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

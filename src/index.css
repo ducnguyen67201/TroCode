@@ -2287,6 +2287,46 @@ h1 {
   max-width: 440px;
 }
 
+.settings-toggle {
+  align-items: flex-start;
+  background: rgba(255, 255, 255, 0.46);
+  border: 1px solid rgba(30, 38, 34, 0.1);
+  border-radius: 16px;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 14px 16px;
+}
+
+.settings-toggle input {
+  accent-color: #237a57;
+  height: 18px;
+  margin: 2px 0 0;
+  width: 18px;
+}
+
+.settings-toggle:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.settings-toggle span {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-toggle strong {
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.settings-toggle small {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
 .settings-section-divider {
   height: 1px;
   margin: 24px 0;
