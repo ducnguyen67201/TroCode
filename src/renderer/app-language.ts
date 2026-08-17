@@ -26,10 +26,12 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
     'Góc nhìn riêng tư chỉ trong phiên về cách TroCode hoạt động trên các tác vụ của bạn.',
   'A useful assistant answer or an evidence-backed tool result.':
     'Câu trả lời hữu ích từ trợ lý hoặc kết quả công cụ có bằng chứng.',
+  Act: 'Thực hiện',
   'A view of how TroCode is working across your saved tasks and lifecycle activity.':
     'Góc nhìn về cách TroCode hoạt động trên các tác vụ đã lưu và vòng đời của chúng.',
   'About TroCode': 'Về TroCode',
   Accessibility: 'Trợ năng',
+  act: 'thực hiện',
   'Activate membership': 'Kích hoạt tư cách thành viên',
   'Activate your TroCode membership': 'Kích hoạt tư cách thành viên TroCode',
   Activating: 'Đang kích hoạt',
@@ -48,6 +50,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Across sessions': 'Qua nhiều phiên',
   'Answer below by voice or text. Your response will continue this task.':
     'Trả lời bên dưới bằng giọng nói hoặc văn bản. Phản hồi của bạn sẽ tiếp tục tác vụ này.',
+  Answer: 'Trả lời',
+  answer: 'trả lời',
   'Answer TroCode to continue this task': 'Trả lời TroCode để tiếp tục tác vụ',
   'App controls will use {appLanguage}; new voice turns will use {spokenLanguage}.':
     'Giao diện ứng dụng sẽ dùng {appLanguage}; lượt nói mới sẽ dùng {spokenLanguage}.',
@@ -67,6 +71,10 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Choose the language used for navigation, settings, and other TroCode controls.':
     'Chọn ngôn ngữ dùng cho điều hướng, cài đặt và các thành phần điều khiển khác của TroCode.',
   'Choose how you talk with TroCode': 'Chọn cách bạn trò chuyện với TroCode',
+  'Choose your spoken language, then give TroCode the macOS permissions it needs to hear your request, use the computer, and confirm the result. You stay in control and can revoke permissions in System Settings at any time.':
+    'Chọn ngôn ngữ nói, sau đó cấp cho TroCode các quyền macOS cần thiết để nghe yêu cầu, sử dụng máy tính và xác nhận kết quả. Bạn luôn nắm quyền kiểm soát và có thể thu hồi quyền trong Cài đặt hệ thống bất cứ lúc nào.',
+  'Compile or run a task and its behavior will appear here.':
+    'Biên dịch hoặc chạy một tác vụ và cách hoạt động của tác vụ sẽ xuất hiện tại đây.',
   Connected: 'Đã kết nối',
   'Connect computer': 'Kết nối máy tính',
   Connecting: 'Đang kết nối',
@@ -106,7 +114,10 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Finished tasks will settle here.': 'Tác vụ đã kết thúc sẽ xuất hiện ở đây.',
   'Finish setup': 'Hoàn tất thiết lập',
   'Finishing transcript…': 'Đang hoàn tất bản ghi âm…',
+  'Finishing setup…': 'Đang hoàn tất thiết lập…',
   'General-purpose agent': 'Trợ lý đa năng',
+  Guide: 'Hướng dẫn',
+  guide: 'hướng dẫn',
   History: 'Lịch sử',
   'How TroCode helped': 'TroCode đã hỗ trợ như thế nào',
   'In motion': 'Đang thực hiện',
@@ -150,6 +161,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'No tool calls': 'Không có lần gọi công cụ',
   'No tool calls yet': 'Chưa có lần gọi công cụ',
   'No active task': 'Không có tác vụ đang chạy',
+  'No task behavior yet': 'Chưa có hoạt động tác vụ',
   'Not compiled': 'Chưa biên dịch',
   'Not started': 'Chưa bắt đầu',
   'Not connected': 'Chưa kết nối',
@@ -160,6 +172,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Open task record': 'Mở bản ghi tác vụ',
   'Open permission settings': 'Mở cài đặt quyền',
   'OpenAI Realtime': 'OpenAI Realtime',
+  'One-time setup': 'Thiết lập một lần',
   'Personal preferences': 'Tùy chọn cá nhân',
   Preferences: 'Tùy chọn',
   'Primary language': 'Ngôn ngữ chính',
@@ -173,6 +186,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Save preferences': 'Lưu tùy chọn',
   'Saving…': 'Đang lưu…',
   'Screen Recording': 'Ghi màn hình',
+  Scoping: 'Đang xác định phạm vi',
   'Select and copy the code': 'Chọn và sao chép mã',
   'Send your reference code to the TroCode team. When your access is approved, paste the activation code you receive below.':
     'Gửi mã tham chiếu cho đội ngũ TroCode. Khi quyền truy cập được phê duyệt, hãy dán mã kích hoạt bạn nhận được vào bên dưới.',
@@ -196,6 +210,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Starting automatically… Press Escape at any time to stop.':
     'Đang tự động bắt đầu… Nhấn Escape bất cứ lúc nào để dừng.',
   'Starting…': 'Đang bắt đầu…',
+  'Steps observed': 'Số bước đã ghi nhận',
   'Steer the active task': 'Điều hướng tác vụ đang chạy',
   'Steering is reviewed at the next safe boundary.':
     'Chỉ dẫn sẽ được xem xét tại ranh giới an toàn tiếp theo.',
@@ -210,6 +225,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'TASK COMPLETION RATE': 'TỶ LỆ HOÀN THÀNH TÁC VỤ',
   'TASKS OBSERVED': 'TÁC VỤ ĐÃ GHI NHẬN',
   'Task details': 'Chi tiết tác vụ',
+  'Task behavior': 'Hoạt động tác vụ',
   'Task events will appear here.': 'Sự kiện tác vụ sẽ xuất hiện ở đây.',
   'Task in motion': 'Tác vụ đang thực hiện',
   'Task needs attention': 'Tác vụ cần chú ý',
@@ -241,6 +257,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'TroCode needs your input': 'TroCode cần phản hồi của bạn',
   'TroCode sends this as a transcription hint so short or noisy speech is less likely to be interpreted as an unexpected language or script.':
     'TroCode gửi lựa chọn này làm gợi ý phiên âm để lời nói ngắn hoặc có tạp âm ít bị nhận diện nhầm thành ngôn ngữ hay hệ chữ khác.',
+  'TroCode registers itself with macOS for Screen Recording. If System Settings opens, switch on the TroCode row—you should not need the + button. Then return here and we’ll connect automatically. Screen Recording may require restarting TroCode once.':
+    'TroCode tự đăng ký với macOS để ghi màn hình. Nếu Cài đặt hệ thống mở ra, hãy bật TroCode trong danh sách—bạn không cần dùng nút +. Sau đó quay lại đây và chúng tôi sẽ tự động kết nối. Quyền ghi màn hình có thể yêu cầu khởi động lại TroCode một lần.',
   'Updates unavailable': 'Không thể cập nhật',
   'Updates as your agent works': 'Cập nhật khi trợ lý làm việc',
   Unavailable: 'Không khả dụng',
@@ -290,6 +308,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
     'Nhập hoặc giữ phím tắt giọng nói để trả lời…',
   'Waiting for the OpenAI agent provider before starting.':
     'Đang chờ nhà cung cấp trợ lý OpenAI trước khi bắt đầu.',
+  'Waiting for OpenAI Realtime and the CUA Driver before starting.':
+    'Đang chờ OpenAI Realtime và trình điều khiển CUA trước khi bắt đầu.',
   'Open YouTube for me': 'Mở YouTube giúp tôi',
   'Open YouTube for me, research a topic, fix code, or guide me through an app…':
     'Mở YouTube giúp tôi, nghiên cứu một chủ đề, sửa mã hoặc hướng dẫn tôi dùng một ứng dụng…',
@@ -313,6 +333,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Quick setup': 'Thiết lập nhanh',
   'Ready when the agent needs to inspect or operate an application.':
     'Sẵn sàng khi trợ lý cần xem hoặc điều khiển một ứng dụng.',
+  ready: 'sẵn sàng',
   'Ready. Starting automatically… Press Escape at any time to stop.':
     'Sẵn sàng. Đang tự động bắt đầu… Nhấn Escape bất cứ lúc nào để dừng.',
   'Renew your TroCode membership': 'Gia hạn tư cách thành viên TroCode',
