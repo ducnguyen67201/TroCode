@@ -3,9 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 import {
+  ActivateMembershipRequestSchema,
   AgentTaskContractV3Schema,
   CompanionSpeechPlaybackReportSchema,
   CompanionSpeechSchema,
+  MembershipStatusSchema,
   TaskHistorySchema,
   TaskProgressSchema,
 } from './contracts';
@@ -86,6 +88,21 @@ describe('shared task contracts', () => {
         source: 'elevenlabs',
       }),
     ).toThrow();
+  });
+
+  it('accepts hosted access-code membership contracts', () => {
+    expect(
+      MembershipStatusSchema.parse({
+        expiresAt: null,
+        referenceCode: null,
+        required: true,
+        state: 'inactive',
+        summary: 'Enter an access code to continue.',
+      }),
+    ).toMatchObject({ referenceCode: null, state: 'inactive' });
+    expect(ActivateMembershipRequestSchema.parse({ code: 'CODEA' })).toEqual({
+      code: 'CODEA',
+    });
   });
 
   it('parses v3 contract and tool-call progress', () => {

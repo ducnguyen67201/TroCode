@@ -716,13 +716,16 @@ export const AuthStatusSchema = z.object({
 export const MembershipStatusSchema = z.object({
   state: z.enum(['bypassed', 'inactive', 'active', 'expired', 'error']),
   required: z.boolean(),
-  referenceCode: z.string().regex(/^TRC-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/),
+  referenceCode: z
+    .string()
+    .regex(/^TRC-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/)
+    .nullable(),
   expiresAt: z.string().datetime().nullable(),
   summary: z.string().min(1).max(1_000),
 });
 
 export const ActivateMembershipRequestSchema = z.object({
-  code: z.string().trim().min(40).max(4_096),
+  code: z.string().trim().min(4).max(4_096),
 });
 
 export type Capability = z.infer<typeof CapabilitySchema>;

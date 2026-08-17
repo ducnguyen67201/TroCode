@@ -218,13 +218,36 @@ usable and labels History as **Session only**. Task requests, conversation
 messages, goal scope, and lifecycle outcomes are stored; raw screenshots and
 OAuth/model credentials are not part of the task snapshot contract.
 
-### Production memberships
+### Production access codes
 
-Membership checks are bypassed by raw local development (`npm start`). Hosted
-packaged builds use the revocable Google-backed device session and allow access
-after sign-in. Packaged builds without `TROCODE_API_BASE_URL` retain the offline
-activation gate and fail closed when `TROCODE_MEMBERSHIP_PUBLIC_KEY` is missing
-or invalid.
+Access checks are bypassed by raw local development (`npm start`). Every
+packaged build requires a code after Google sign-in and permission onboarding.
+
+Hosted builds configured with `TROCODE_API_BASE_URL` store shared access codes
+and account redemptions in PostgreSQL. Create codes with the administrator CLI;
+do not insert them manually:
+
+```bash
+doppler run --project tro-app --config prd -- \
+  npm run access-code:create -- \
+  --code CODEA \
+  --max-users 10 \
+  --label "Private beta batch A"
+```
+
+Omit `--code CODEA` to generate a strong random code. The command applies
+pending API migrations, stores only a keyed HMAC digest of the code, and prints
+the code once for secure distribution. `CODEA --max-users 10` admits at most ten
+distinct Google accounts. Each account is permanently linked to its first code;
+when a code is full, existing linked accounts retain access while new accounts
+are rejected.
+
+The API checks access again before proxying model, realtime voice, or speech
+requests, so bypassing the renderer does not bypass the quota.
+
+Packaged builds without `TROCODE_API_BASE_URL` use the offline signed-membership
+fallback and fail closed when `TROCODE_MEMBERSHIP_PUBLIC_KEY` is missing or
+invalid.
 
 Generate the signing keys once. Keep the private key outside this repository
 and never place it in Doppler or the application bundle:
@@ -236,9 +259,9 @@ npm run membership:keygen -- \
 ```
 
 The command prints `TROCODE_MEMBERSHIP_PUBLIC_KEY=...`. Put that public value in
-the environment used to package TroCode. After a user finishes permissions,
-their membership screen shows a reference such as `TRC-AAAA-BBBB-CCCC`. Issue
-an activation for the desired number of days:
+the environment used to package the offline build. After a user finishes
+permissions, their membership screen shows a reference such as
+`TRC-AAAA-BBBB-CCCC`. Issue an activation for the desired number of days:
 
 ```bash
 npm run membership:issue -- \

@@ -51,7 +51,10 @@ import { TaskHistoryService } from './main/history/task-history-service';
 import { PostgresTaskHistoryStore } from './main/history/task-history-store';
 import { registerIpcHandlers } from './main/ipc/register-ipc';
 import { EncryptedMembershipActivationStore } from './main/membership/membership-activation-store';
-import { MembershipService } from './main/membership/membership-service';
+import {
+  MembershipService,
+  membershipRequiredForBuild,
+} from './main/membership/membership-service';
 import {
   AppPreferencesService,
   FileAppPreferencesStore,
@@ -152,8 +155,13 @@ const authService = new GoogleAuthService({
   sessionStore: authSessionStore,
 });
 const membershipService = new MembershipService({
+  accessTokenProvider: () => authService.getAccessToken(),
+  apiBaseUrl: trocodeApiBaseUrl,
   publicKey: process.env.TROCODE_MEMBERSHIP_PUBLIC_KEY,
-  required: app.isPackaged && !trocodeApiBaseUrl,
+  required: membershipRequiredForBuild({
+    apiBaseUrl: trocodeApiBaseUrl,
+    isPackaged: app.isPackaged,
+  }),
   store: new EncryptedMembershipActivationStore(),
 });
 const cuaService = new CuaService();

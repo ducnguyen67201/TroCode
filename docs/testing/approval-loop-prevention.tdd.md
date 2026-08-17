@@ -23,7 +23,7 @@ No plan file was supplied. The journeys were derived from the reported desktop a
    - Evidence: 1 intended failure because the instruction was absent.
    - GREEN: the focused agent test passed after adding the instruction.
 4. Verified repository and package gates.
-   - `npm run check`: PASS — lint, typecheck, 59 Vitest files / 360 tests, 2 release metadata tests, and 9 API tests.
+   - `npm run check`: PASS after merging current `main` — lint, typecheck, 59 Vitest files / 364 tests, 6 script tests, and 15 API tests.
    - `npm run package`: PASS — Electron Forge packaged the arm64 macOS application.
 
 ## Test specification
@@ -39,7 +39,7 @@ No plan file was supplied. The journeys were derived from the reported desktop a
 
 ## Coverage and known gaps
 
-`npm run test:coverage` passed all 360 Vitest tests with 81.16% statements, 84.36% lines, 88.03% functions, and 69.95% branches. The changed policy module is covered at 97.67% statements / 88.88% branches; the coordinator remains above 80% line coverage. The repository's aggregate branch coverage is below 80% and is not enforced by the current test configuration.
+`npm run test:coverage` passed all 364 Vitest tests with 81.16% statements, 84.36% lines, 88.03% functions, and 69.95% branches. The changed policy module is covered at 97.67% statements / 88.88% branches; the coordinator remains above 80% line coverage. The repository's aggregate branch coverage is below 80% and is not enforced by the current test configuration.
 
 No E2E test was added because the defect is enforced at pure policy and coordinator boundaries with mocked CUA dispatch; the complete packaged application gate passed.
 
