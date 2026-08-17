@@ -1,0 +1,241 @@
+name: Windows build and release
+
+on:
+  workflow_dispatch:
+    inputs:
+      require_signing:
+        description: Fail unless Windows code-signing secrets are configured
+        required: true
+        type: boolean
+        default: false
+      publish_release:
+        description: Publish a signed release or an unsigned SignPath application prerelease
+        required: true
+        type: boolean
+        default: false
+      allow_unsigned_signpath_prerelease:
+        description: Acknowledge Windows warnings and publish an unsigned prerelease for the SignPath application
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dopplerhq/cli-action@v4
+
+      - name: Validate build credentials
+        shell: pwsh
+        env:
+          ALLOW_UNSIGNED_PRERELEASE: ${{ inputs.allow_unsigned_signpath_prerelease }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release }}
+          REQUIRE_SIGNING: ${{ inputs.require_signing }}
+        run: |
+          if (-not $env:DOPPLER_TOKEN) {
+            Write-Error 'Missing required repository secret: DOPPLER_TOKEN'
+            exit 1
+          }
+
+          $hasCertificate = [bool]$env:WINDOWS_CERTIFICATE_PFX_BASE64
+          $hasPassword = [bool]$env:WINDOWS_CERTIFICATE_PASSWORD
+          if ($hasCertificate -xor $hasPassword) {
+            Write-Error 'Configure both Windows signing secrets, or neither of them.'
+            exit 1
+          }
+
+          $signingEnabled = $hasCertificate -and $hasPassword
+          if (($env:REQUIRE_SIGNING -eq 'true') -and -not $signingEnabled) {
+            Write-Error 'This run requires WINDOWS_CERTIFICATE_PFX_BASE64 and WINDOWS_CERTIFICATE_PASSWORD.'
+            exit 1
+          }
+
+          if ($env:PUBLISH_RELEASE -eq 'true') {
+            if (-not $signingEnabled -and $env:ALLOW_UNSIGNED_PRERELEASE -ne 'true') {
+              Write-Error 'Unsigned publishing is permitted only for the acknowledged SignPath application prerelease.'
+              exit 1
+            }
+            if ($env:GITHUB_REF -ne 'refs/heads/main') {
+              Write-Error 'Customer releases can only be published from main.'
+              exit 1
+            }
+          }
+
+          $unsignedPrerelease = (-not $signingEnabled) -and ($env:PUBLISH_RELEASE -eq 'true')
+          "TROCODE_SIGN_WINDOWS=$($signingEnabled.ToString().ToLowerInvariant())" >> $env:GITHUB_ENV
+          "TROCODE_PUBLISH_RELEASE=$($env:PUBLISH_RELEASE.ToLowerInvariant())" >> $env:GITHUB_ENV
+          "TROCODE_UNSIGNED_PRERELEASE=$($unsignedPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_ENV
+
+      - run: npm ci
+      - run: npm audit --omit=dev
+      - run: npm run check
+
+      - name: Configure Windows code signing
+        if: env.TROCODE_SIGN_WINDOWS == 'true'
+        shell: pwsh
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'trocode-signing.pfx'
+          try {
+            $certificateBytes = [Convert]::FromBase64String(
+              $env:WINDOWS_CERTIFICATE_PFX_BASE64
+            )
+          } catch {
+            Write-Error 'WINDOWS_CERTIFICATE_PFX_BASE64 is not valid Base64.'
+            exit 1
+          }
+          [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
+          "TROCODE_WINDOWS_CERTIFICATE_FILE=$certificatePath" >> $env:GITHUB_ENV
+
+      - name: Build Windows x64 installer
+        shell: pwsh
+        env:
+          TROCODE_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          doppler run `
+            --preserve-env="TROCODE_WINDOWS_CERTIFICATE_FILE,TROCODE_WINDOWS_CERTIFICATE_PASSWORD" `
+            --project tro-app `
+            --config prd `
+            -- npm exec -- electron-forge make --arch=x64
+
+      - name: Constrain unsigned SignPath sample metadata
+        if: env.TROCODE_SIGN_WINDOWS != 'true'
+        shell: pwsh
+        run: |
+          $artifactDirectory = 'out\make\squirrel.windows\x64'
+          $installer = Get-ChildItem $artifactDirectory -Filter '*Setup.exe' -File |
+            Select-Object -First 1
+          if (-not $installer) {
+            Write-Error "Squirrel installer not found in $artifactDirectory"
+            exit 1
+          }
+          $version = node -p "require('./package.json').version"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/windows-release-metadata.mjs `
+            --file $installer.FullName `
+            --kind installer `
+            --version $version
+
+      - name: Verify artifacts and write SHA-256 checksums
+        shell: pwsh
+        run: |
+          $artifactDirectory = 'out\make\squirrel.windows\x64'
+          if (-not (Test-Path $artifactDirectory -PathType Container)) {
+            Write-Error "Expected artifact directory not found: $artifactDirectory"
+            exit 1
+          }
+
+          $installer = Get-ChildItem $artifactDirectory -Filter '*Setup.exe' -File |
+            Select-Object -First 1
+          $package = Get-ChildItem $artifactDirectory -Filter '*-full.nupkg' -File |
+            Select-Object -First 1
+          $releases = Join-Path $artifactDirectory 'RELEASES'
+          if (-not $installer -or -not $package -or -not (Test-Path $releases -PathType Leaf)) {
+            Write-Error 'The Squirrel installer, full package, or RELEASES manifest is missing.'
+            exit 1
+          }
+
+          if ($env:TROCODE_SIGN_WINDOWS -eq 'true') {
+            $signature = Get-AuthenticodeSignature $installer.FullName
+            if ($signature.Status -ne 'Valid') {
+              Write-Error "Installer signature is not valid: $($signature.Status)"
+              exit 1
+            }
+          }
+
+          $checksumPath = Join-Path $artifactDirectory 'SHA256SUMS.txt'
+          $checksumLines = Get-ChildItem $artifactDirectory -File |
+            Where-Object Name -ne 'SHA256SUMS.txt' |
+            Sort-Object Name |
+            ForEach-Object {
+              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+            }
+          Set-Content -Path $checksumPath -Value $checksumLines -Encoding ascii
+
+          $version = node -p "require('./package.json').version"
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$') {
+            Write-Error "package.json contains an invalid release version: $version"
+            exit 1
+          }
+          "TROCODE_RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+
+          "### Windows x64 build" >> $env:GITHUB_STEP_SUMMARY
+          "- Signed: $env:TROCODE_SIGN_WINDOWS" >> $env:GITHUB_STEP_SUMMARY
+          "- Installer: $($installer.Name)" >> $env:GITHUB_STEP_SUMMARY
+          "- Download the artifact named **TroCode-Windows-x64-$env:GITHUB_RUN_NUMBER** below." >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Publish GitHub Release for app and web updates
+        if: env.TROCODE_PUBLISH_RELEASE == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = if ($env:TROCODE_UNSIGNED_PRERELEASE -eq 'true') {
+            "v$env:TROCODE_RELEASE_VERSION-signpath-bootstrap.$env:GITHUB_RUN_NUMBER"
+          } else {
+            "v$env:TROCODE_RELEASE_VERSION"
+          }
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Error "GitHub Release $tag already exists. Bump package.json before publishing."
+            exit 1
+          }
+
+          $artifactDirectory = 'out\make\squirrel.windows\x64'
+          $assets = @(
+            (Get-ChildItem $artifactDirectory -Filter '*Setup.exe' -File | Select-Object -First 1).FullName
+            (Get-ChildItem $artifactDirectory -Filter '*-full.nupkg' -File | Select-Object -First 1).FullName
+            (Join-Path $artifactDirectory 'RELEASES')
+            (Join-Path $artifactDirectory 'SHA256SUMS.txt')
+          )
+          $releaseTitle = if ($env:TROCODE_UNSIGNED_PRERELEASE -eq 'true') {
+            "TroCode $env:TROCODE_RELEASE_VERSION unsigned SignPath sample"
+          } else {
+            "TroCode $env:TROCODE_RELEASE_VERSION"
+          }
+          $releaseArguments = @(
+            'release', 'create', $tag
+            $assets
+            '--repo', $env:GITHUB_REPOSITORY
+            '--target', $env:GITHUB_SHA
+            '--title', $releaseTitle
+            '--generate-notes'
+          )
+          if ($env:TROCODE_UNSIGNED_PRERELEASE -eq 'true') {
+            $releaseArguments += @(
+              '--prerelease'
+              '--notes'
+              'Unsigned artifact sample for the SignPath Foundation application. Windows will warn during installation; this is not a trusted customer release.'
+            )
+          }
+          gh @releaseArguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          "- Published release: **$tag**" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload Windows installer and update metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: TroCode-Windows-x64-${{ github.run_number }}
+          path: out/make/squirrel.windows/x64/*
+          if-no-files-found: error
+          retention-days: 30

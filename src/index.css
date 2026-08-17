@@ -1047,7 +1047,8 @@ html.voice-island-mode #root {
 
 .cursor-companion__listening,
 .cursor-companion__processing,
-.cursor-companion__error {
+.cursor-companion__error,
+.cursor-companion__completed {
   position: absolute;
   z-index: 3;
   right: 0;
@@ -1114,6 +1115,23 @@ html.voice-island-mode #root {
   line-height: 1;
 }
 
+.cursor-companion__completed {
+  border-color: rgba(42, 130, 75, 0.78);
+  background: #2f8a50;
+  color: #fff;
+}
+
+.cursor-companion__completed svg {
+  width: 10px;
+  height: 10px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+}
+
 .cursor-companion--listening .cursor-companion__ring {
   border-color: rgba(214, 170, 33, 0.76);
   opacity: 1;
@@ -1155,22 +1173,26 @@ html.voice-island-mode #root {
   animation: companion-sending-spin 0.72s linear infinite;
 }
 
-.cursor-companion--processing .cursor-companion__ring {
+.cursor-companion--processing .cursor-companion__ring,
+.cursor-companion--working .cursor-companion__ring {
   border-top-color: #f4c467;
   border-right-color: rgba(244, 196, 103, 0.28);
   opacity: 1;
   animation: companion-sending-spin 0.72s linear infinite;
 }
 
-.cursor-companion--processing .cursor-companion__processing {
+.cursor-companion--processing .cursor-companion__processing,
+.cursor-companion--working .cursor-companion__processing {
   display: flex;
 }
 
-.cursor-companion--processing img {
+.cursor-companion--processing img,
+.cursor-companion--working img {
   animation: companion-sending-breathe 0.9s ease-in-out infinite;
 }
 
-.cursor-companion--processing .cursor-companion__visual::before {
+.cursor-companion--processing .cursor-companion__visual::before,
+.cursor-companion--working .cursor-companion__visual::before {
   background: radial-gradient(
     circle,
     rgba(255, 236, 191, 0.42) 0%,
@@ -1205,6 +1227,31 @@ html.voice-island-mode #root {
     circle,
     rgba(255, 219, 216, 0.42) 0%,
     rgba(185, 71, 63, 0.2) 48%,
+    transparent 74%
+  );
+}
+
+.cursor-companion--completed .cursor-companion__ring {
+  border-color: rgba(47, 138, 80, 0.8);
+  opacity: 1;
+  animation: companion-completed-ring 0.52s ease-out both;
+}
+
+.cursor-companion--completed .cursor-companion__completed {
+  display: flex;
+  animation: companion-completed-pop 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.35)
+    both;
+}
+
+.cursor-companion--completed img {
+  animation: companion-completed-lift 0.42s ease-out both;
+}
+
+.cursor-companion--completed .cursor-companion__visual::before {
+  background: radial-gradient(
+    circle,
+    rgba(202, 244, 214, 0.56) 0%,
+    rgba(47, 138, 80, 0.22) 48%,
     transparent 74%
   );
 }
@@ -1287,6 +1334,36 @@ html.voice-island-mode #root {
   }
 }
 
+@keyframes companion-completed-ring {
+  from {
+    opacity: 0.9;
+    transform: scale(0.82);
+  }
+
+  to {
+    opacity: 0.34;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes companion-completed-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.42);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes companion-completed-lift {
+  50% {
+    transform: translateY(-2px) scale(1.04);
+  }
+}
+
 @keyframes voice-island-enter {
   from {
     opacity: 0;
@@ -1317,6 +1394,13 @@ html.voice-island-mode #root {
 
 @media (prefers-reduced-motion: reduce) {
   .cursor-companion img {
+    animation: none;
+  }
+
+  .cursor-companion__ring,
+  .cursor-companion__listening i,
+  .cursor-companion__processing i,
+  .cursor-companion__completed {
     animation: none;
   }
 

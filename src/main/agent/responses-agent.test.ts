@@ -42,7 +42,73 @@ describe('GptResponsesAgent', () => {
       parallel_tool_calls: false,
       store: false,
     });
+    expect(String(body.instructions)).toContain(
+      'satisfy every requested outcome',
+    );
+    expect(String(body.instructions)).toContain(
+      'A list row, title, subject, snippet, or preview is not the full contents',
+    );
     expect(String(request?.headers)).not.toContain('secret-key');
+  });
+
+  it('adds one trusted completion checkpoint to the same model session', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          output: [
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'Gmail is open.' }],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          output: [
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [
+                {
+                  type: 'output_text',
+                  text: 'The requested email is open and fully read.',
+                },
+              ],
+            },
+          ],
+        }),
+      );
+    const agent = new GptResponsesAgent({
+      credentialStore: { read: vi.fn(async () => 'secret-key') },
+      fetchImpl,
+      model: 'test-model',
+      fallbackModel: 'test-model',
+    });
+    await agent.start('task-review', 'Open Gmail and read the latest email.');
+    await agent.sample('task-review', []);
+    agent.requestCompletionReview('task-review');
+    await agent.sample('task-review', []);
+
+    const secondRequest = fetchImpl.mock.calls[1]?.[1];
+    const secondBody = JSON.parse(String(secondRequest?.body)) as {
+      input: Array<Record<string, unknown>>;
+    };
+    expect(secondBody.input).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'developer',
+          content: expect.arrayContaining([
+            expect.objectContaining({
+              type: 'input_text',
+              text: expect.stringContaining('completion checkpoint'),
+            }),
+          ]),
+        }),
+      ]),
+    );
   });
 
   it('preserves response reasoning and appends output by exact call ID', async () => {

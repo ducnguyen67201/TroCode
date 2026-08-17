@@ -103,6 +103,7 @@ export interface AgentModel {
   appendToolOutput(taskId: string, output: AgentToolOutput): void;
   appendUserMessage(taskId: string, text: string): void;
   end(taskId: string): Promise<void>;
+  requestCompletionReview(taskId: string): void;
   sample(
     taskId: string,
     tools: readonly ModelToolSpec[],
@@ -186,6 +187,15 @@ export function toolOutputInputItem(
 export function userMessageInputItem(text: string): Record<string, unknown> {
   return {
     role: 'user',
+    content: [{ type: 'input_text', text }],
+  };
+}
+
+export function developerMessageInputItem(
+  text: string,
+): Record<string, unknown> {
+  return {
+    role: 'developer',
     content: [{ type: 'input_text', text }],
   };
 }

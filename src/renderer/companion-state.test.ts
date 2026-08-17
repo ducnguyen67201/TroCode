@@ -14,6 +14,8 @@ describe('cursor companion state', () => {
     expect(CompanionStateSchema.parse('guiding')).toBe('guiding');
     expect(CompanionStateSchema.parse('sending')).toBe('sending');
     expect(CompanionStateSchema.parse('processing')).toBe('processing');
+    expect(CompanionStateSchema.parse('working')).toBe('working');
+    expect(CompanionStateSchema.parse('completed')).toBe('completed');
     expect(() => CompanionStateSchema.parse('busy')).toThrow();
   });
 
@@ -91,6 +93,8 @@ describe('cursor companion state', () => {
         getCompanionState({
           hasError: false,
           isSending: false,
+          showTaskCompleted: false,
+          taskPhase: null,
           voiceStatus,
         }),
       ).toBe('listening');
@@ -102,6 +106,8 @@ describe('cursor companion state', () => {
       getCompanionState({
         hasError: false,
         isSending: false,
+        showTaskCompleted: false,
+        taskPhase: null,
         voiceStatus: 'processing',
       }),
     ).toBe('processing');
@@ -109,6 +115,8 @@ describe('cursor companion state', () => {
       getCompanionState({
         hasError: false,
         isSending: true,
+        showTaskCompleted: false,
+        taskPhase: null,
         voiceStatus: 'idle',
       }),
     ).toBe('sending');
@@ -119,6 +127,8 @@ describe('cursor companion state', () => {
       getCompanionState({
         hasError: true,
         isSending: false,
+        showTaskCompleted: false,
+        taskPhase: null,
         voiceStatus: 'idle',
       }),
     ).toBe('error');
@@ -126,8 +136,66 @@ describe('cursor companion state', () => {
       getCompanionState({
         hasError: true,
         isSending: false,
+        showTaskCompleted: false,
+        taskPhase: null,
         voiceStatus: 'listening',
       }),
     ).toBe('listening');
+  });
+
+  it('stays visibly active throughout task execution', () => {
+    for (const taskPhase of [
+      'idle',
+      'interpreting',
+      'clarifying',
+      'ready',
+      'planning',
+      'observing',
+      'acting',
+      'verifying',
+    ] as const) {
+      expect(
+        getCompanionState({
+          hasError: false,
+          isSending: false,
+          showTaskCompleted: false,
+          taskPhase,
+          voiceStatus: 'idle',
+        }),
+      ).toBe('working');
+    }
+  });
+
+  it('rests when the task needs attention instead of implying progress', () => {
+    for (const taskPhase of [
+      'awaiting_input',
+      'awaiting_approval',
+      'paused',
+      'blocked',
+      'failed',
+      'cancelled',
+    ] as const) {
+      expect(
+        getCompanionState({
+          hasError: false,
+          isSending: false,
+          showTaskCompleted: false,
+          taskPhase,
+          voiceStatus: 'idle',
+        }),
+      ).toBe('idle');
+    }
+  });
+
+  it('shows the explicit completion feedback after task work ends', () => {
+    expect(
+      getCompanionState({
+        hasError: false,
+        isSending: false,
+        showTaskCompleted: true,
+        taskPhase: 'completed',
+        voiceStatus: 'idle',
+      }),
+    ).toBe('completed');
   });
 });

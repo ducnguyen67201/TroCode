@@ -16,6 +16,7 @@ import { RuntimeToolRegistry } from './runtime-tool-registry';
 import { TaskRuntime } from './task-runtime';
 
 class FakeAgent implements AgentModel {
+  readonly completionReviews: string[] = [];
   readonly outputs: AgentToolOutput[] = [];
   readonly userMessages: string[] = [];
   readonly start = vi.fn(async () => undefined);
@@ -44,6 +45,10 @@ class FakeAgent implements AgentModel {
   appendUserMessage(_taskId: string, text: string): void {
     this.userMessages.push(text);
   }
+
+  requestCompletionReview(taskId: string): void {
+    this.completionReviews.push(taskId);
+  }
 }
 
 function assistant(text: string): AgentTurn {
@@ -66,12 +71,13 @@ function observation(
   taskId: string,
   observationId = randomUUID(),
   fingerprint = 'a'.repeat(64),
+  text = 'Gmail inbox is visible.',
 ): DesktopObservation {
   return {
     observationId,
     taskId,
     capturedAt: '2026-08-17T00:00:00.000Z',
-    text: 'Gmail inbox is visible.',
+    text,
     degraded: false,
     fingerprint,
     coordinateSpace: {
@@ -109,19 +115,21 @@ function setup(turns: AgentTurn[], observations: DesktopObservation[] = []) {
     })),
   };
   const registry = new RuntimeToolRegistry();
+  const openExternal = vi.fn(async () => undefined);
   const coordinator = new TaskExecutionCoordinator({
     agent,
     cua,
+    openExternal,
     runtime,
     toolRegistry: registry,
   });
-  return { agent, coordinator, cua, runtime };
+  return { agent, coordinator, cua, openExternal, runtime };
 }
 
 describe('TaskExecutionCoordinator', () => {
   it.each([
     ['What is 27 × 14?', '27 × 14 = 378.'],
-    ['Dịch câu này sang tiếng Việt.', 'Bản dịch hữu ích.'],
+    ['Dịch “Hello” sang tiếng Việt.', 'Bản dịch hữu ích.'],
     ['Write an eight-bar chord progression.', 'Am7 – D9 – Gmaj7 – Cmaj7'],
   ])('finishes assistant-only work without starting CUA: %s', async (request, answer) => {
     const { agent, coordinator, cua, runtime } = setup([assistant(answer)]);
@@ -136,6 +144,107 @@ describe('TaskExecutionCoordinator', () => {
     });
     expect(cua.startTaskSession).not.toHaveBeenCalled();
     expect(agent.sample).toHaveBeenCalledOnce();
+  });
+
+  it('reviews a generic answer and observes when the request refers to this assignment', async () => {
+    const taskId = randomUUID();
+    const visibleAssignment = observation(
+      taskId,
+      randomUUID(),
+      'a'.repeat(64),
+      'Assignment: solve 3x + 5 = 20.',
+    );
+    const genericAnswer = 'Please send the assignment so I can help.';
+    const solvedAnswer = 'The visible assignment solves to x = 5.';
+    const { agent, coordinator, cua, runtime } = setup(
+      [
+        assistant(genericAnswer),
+        tool('call-assignment-observe', 'observe_desktop', {
+          reason: 'Inspect the assignment already visible on screen.',
+        }),
+        assistant(solvedAnswer),
+      ],
+      [visibleAssignment],
+    );
+    const ready = runtime.submit({ text: 'Help me work on this assignment.' });
+    visibleAssignment.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    const snapshot = runtime.getSnapshot(ready.taskId);
+    expect(agent.completionReviews).toEqual([ready.taskId]);
+    expect(cua.observe).toHaveBeenCalledOnce();
+    expect(snapshot.phase).toBe('completed');
+    expect(snapshot.messages.at(-1)?.text).toBe(solvedAnswer);
+    expect(snapshot.messages.some((message) => message.text === genericAnswer)).toBe(
+      false,
+    );
+  });
+
+  it('reviews inbox previews and continues until the latest email is opened', async () => {
+    const taskId = randomUUID();
+    const inboxObservationId = randomUUID();
+    const inbox = observation(
+      taskId,
+      inboxObservationId,
+      'a'.repeat(64),
+      'Gmail inbox with the newest email in the first row.',
+    );
+    const openedEmail = observation(
+      taskId,
+      randomUUID(),
+      'b'.repeat(64),
+      'The newest email is open with its complete body.',
+    );
+    const { agent, coordinator, cua, openExternal, runtime } = setup(
+      [
+        tool('call-gmail-open', 'open_url', {
+          url: 'https://mail.google.com/',
+          reason: 'Open Gmail.',
+        }),
+        tool('call-inbox-observe', 'observe_desktop', {
+          reason: 'Inspect the Gmail inbox.',
+        }),
+        assistant('Gmail is open and inbox previews are visible.'),
+        tool('call-latest-click', 'control_desktop', {
+          observationId: inboxObservationId,
+          consequence: 'click_element',
+          description: 'Open the newest email in the first inbox row.',
+          target: 'Newest inbox row',
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 180,
+            button: 'left',
+            count: 1,
+          },
+        }),
+        assistant('The newest email is open and its complete body is readable.'),
+      ],
+      [inbox, openedEmail],
+    );
+    const ready = runtime.submit({
+      text: 'Open Gmail and read the latest email.',
+    });
+    inbox.taskId = ready.taskId;
+    openedEmail.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(openExternal).toHaveBeenCalledWith('https://mail.google.com/');
+    expect(agent.completionReviews).toEqual([ready.taskId]);
+    expect(cua.executeCommand).toHaveBeenCalledWith(
+      ready.taskId,
+      expect.objectContaining({ kind: 'click' }),
+      expect.any(AbortSignal),
+    );
+    expect(cua.observe).toHaveBeenCalledTimes(2);
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'completed',
+      progress: { completed: 3 },
+    });
   });
 
   it('runs observe → one desktop action → fresh observation → assistant', async () => {
@@ -159,6 +268,7 @@ describe('TaskExecutionCoordinator', () => {
             count: 1,
           },
         }),
+        assistant('The newest email is open.'),
         assistant('The newest email is open.'),
       ],
       [first, after],
@@ -195,6 +305,7 @@ describe('TaskExecutionCoordinator', () => {
         prompt: 'Who should receive the update?',
         choices: ['Alex', 'Sam'],
       }),
+      assistant('I drafted the update for Alex.'),
       assistant('I drafted the update for Alex.'),
     ]);
     const ready = runtime.submit({ text: 'Draft and send the update.' });
@@ -235,6 +346,7 @@ describe('TaskExecutionCoordinator', () => {
           count: 1,
         },
       }),
+      assistant('I left the email unchanged.'),
       assistant('I left the email unchanged.'),
     ]);
     const ready = runtime.submit({ text: 'Delete that email.' });
@@ -279,6 +391,7 @@ describe('TaskExecutionCoordinator', () => {
           count: 1,
         },
       }),
+      assistant('The screen changed, so I did not delete anything.'),
       assistant('The screen changed, so I did not delete anything.'),
     ]);
     const ready = runtime.submit({ text: 'Delete that email.' });

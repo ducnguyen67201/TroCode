@@ -158,6 +158,13 @@ const config: ForgeConfig = {
       NSMicrophoneUsageDescription:
         'TroCode uses the microphone only during a voice turn started with a voice shortcut.',
     },
+    win32metadata: {
+      CompanyName: 'TroCode',
+      FileDescription: 'TroCode',
+      InternalName: 'TroCode',
+      OriginalFilename: `${TROCODE_EXECUTABLE_NAME}.exe`,
+      ProductName: 'TroCode',
+    },
   },
   hooks: {
     generateAssets: async (_forgeConfig, platform, arch) => {

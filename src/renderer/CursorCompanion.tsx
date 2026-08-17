@@ -46,6 +46,11 @@ export function CursorCompanion() {
         <span className="cursor-companion__error" aria-hidden="true">
           !
         </span>
+        <span className="cursor-companion__completed" aria-hidden="true">
+          <svg focusable="false" viewBox="0 0 16 16">
+            <path d="m3.5 8.1 2.7 2.8 6.3-6.2" />
+          </svg>
+        </span>
       </div>
     </div>
   );

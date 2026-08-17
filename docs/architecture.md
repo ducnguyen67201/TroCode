@@ -13,7 +13,9 @@ flowchart LR
     PRELOAD -->|"Authenticated IPC"| MAIN["Electron main"]
     MAIN --> RUNTIME["Task runtime v3"]
     RUNTIME --> AGENT["Persistent Responses session"]
-    AGENT -->|"Assistant message"| DONE["Task complete"]
+    AGENT -->|"Assistant candidate"| REVIEW["One completion checkpoint when contextual"]
+    REVIEW -->|"Complete"| DONE["Task complete"]
+    REVIEW -->|"More work"| AGENT
     AGENT -->|"One function call"| ROUTER["Trusted tool router"]
     ROUTER --> POLICY["Concrete-action policy"]
     POLICY --> ADAPTERS["Browser, CUA, guidance, interaction adapters"]
@@ -29,11 +31,19 @@ or model-authored authority.
 
 One in-memory Responses session receives the user message and the tool specs
 currently installed by the registry. `tool_choice` is `auto`, parallel calls are
-disabled, and server storage is disabled. An ordinary assistant message ends the
-task. A function call is schema-parsed, normalized to a host-owned internal tool
-identity, policy-checked, executed once, and returned to the same session. Model
-reasoning items that accompany a call are retained only in this bounded
-main-process session so the following tool output has correct continuity.
+disabled, and server storage is disabled. A function call is schema-parsed,
+normalized to a host-owned internal tool identity, policy-checked, executed once,
+and returned to the same session. Model reasoning items that accompany a call are
+retained only in this bounded main-process session so the following tool output
+has correct continuity.
+
+A self-contained assistant message with no tool or visible-context dependency
+ends immediately. If a task used a tool or refers to visible context such as
+“this assignment,” the first assistant candidate stays private and triggers one
+trusted GPT completion checkpoint in the same session. GPT must compare every
+requested outcome with the accumulated evidence and either call the next tool or
+return the final answer. This is a completion invariant, not a capability router:
+it grants no tool, scope, or approval.
 
 Text-only work never creates a CUA session or a synthetic screenshot. Desktop
 observation starts CUA lazily. Coordinate actions must reference the latest
