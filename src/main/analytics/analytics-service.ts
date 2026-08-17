@@ -30,7 +30,9 @@ const TRACKED_PHASES: ReadonlySet<TaskSnapshot['phase']> = new Set([
   'clarifying',
   'ready',
   'awaiting_approval',
+  'awaiting_input',
   'planning',
+  'verifying',
   'completed',
   'failed',
   'cancelled',
@@ -143,7 +145,7 @@ export class AnalyticsService {
     if (!this.identity) return;
 
     this.capture('voice transcription completed', {
-      transcript: transcript.text,
+      character_count: transcript.text.length,
     });
   }
 
@@ -171,20 +173,22 @@ export class AnalyticsService {
 
     const goalProperties: AnalyticsProperties = snapshot.goal
       ? {
-          behavior: snapshot.goal.behavior,
           contract_version: snapshot.goal.schemaVersion,
+          ...(snapshot.goal.schemaVersion === 2
+            ? { legacy_behavior: snapshot.goal.behavior }
+            : {}),
         }
       : {};
 
     if (snapshot.phase === 'ready') {
-      this.capture('goal compiled', goalProperties);
+      this.capture('task ready', goalProperties);
       return;
     }
     if (snapshot.phase === 'planning') {
-      this.capture('task started', goalProperties);
+      this.capture('model sample', goalProperties);
       return;
     }
-    if (snapshot.phase === 'clarifying') {
+    if (snapshot.phase === 'clarifying' || snapshot.phase === 'awaiting_input') {
       this.capture('clarification requested');
       return;
     }
@@ -198,6 +202,13 @@ export class AnalyticsService {
         action_type: action?.action ?? 'unknown',
         operation: toolIdentity?.operation ?? 'unknown',
         tool_id: toolIdentity?.toolId ?? 'unknown',
+      });
+      return;
+    }
+    if (snapshot.phase === 'verifying' && update.event.tool) {
+      this.capture('tool call completed', {
+        operation: update.event.tool.operation,
+        tool_id: update.event.tool.toolId,
       });
       return;
     }

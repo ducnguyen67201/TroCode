@@ -51,17 +51,17 @@ describe('goal lifecycle', () => {
     expect(canTransition('cancelled', 'acting')).toBe(false);
   });
 
-  it('allows a running task to ask for input and always re-observe afterward', () => {
+  it('allows a running task to ask for input and resume the same model turn', () => {
     expect(canTransition('planning', 'awaiting_input')).toBe(true);
     expect(canTransition('observing', 'awaiting_input')).toBe(true);
     expect(canTransition('acting', 'awaiting_input')).toBe(true);
-    expect(canTransition('awaiting_input', 'observing')).toBe(true);
+    expect(canTransition('awaiting_input', 'planning')).toBe(true);
     expect(canTransition('awaiting_input', 'acting')).toBe(false);
   });
 
-  it('re-observes after an approval decision', () => {
+  it('resumes planning after an approval decision before optional re-observation', () => {
     expect(canTransition('observing', 'awaiting_approval')).toBe(true);
-    expect(canTransition('awaiting_approval', 'observing')).toBe(true);
-    expect(canTransition('awaiting_approval', 'acting')).toBe(false);
+    expect(canTransition('awaiting_approval', 'planning')).toBe(true);
+    expect(canTransition('awaiting_approval', 'acting')).toBe(true);
   });
 });

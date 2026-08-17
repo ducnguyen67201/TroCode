@@ -48,7 +48,8 @@ describe('createInsightsSummary', () => {
     expect(summary.taskCount).toBe(0);
     expect(summary.eventCount).toBe(0);
     expect(summary.completionRate).toBe(0);
-    expect(summary.behaviorUsage).toEqual([]);
+    expect(summary.toolUsage).toEqual([]);
+    expect(summary.legacyBehaviorUsage).toEqual([]);
     expect(summary.activityDays).toHaveLength(42);
   });
 
@@ -113,9 +114,38 @@ describe('createInsightsSummary', () => {
     expect(summary.completionRate).toBe(50);
     expect(summary.eventCount).toBe(1);
     expect(summary.stepsObserved).toBe(3);
-    expect(summary.behaviorUsage).toEqual([
+    expect(summary.legacyBehaviorUsage).toEqual([
       { behavior: 'act', count: 2, percentage: 100 },
     ]);
+    expect(summary.toolUsage).toEqual([]);
     expect(summary.currentStreak).toBe(1);
+  });
+
+  it('summarizes v3 tool-call progress and trusted tool event IDs', () => {
+    const task = createSnapshot({
+      taskId: '11111111-1111-4111-8111-111111111111',
+      phase: 'completed',
+      progress: { kind: 'tool_calls', completed: 2, limit: 30 },
+      goal: {
+        schemaVersion: 3,
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        originalRequest: 'Open Gmail.',
+        approvalPolicy: { alwaysConfirm: ['send'] },
+        limits: { maxMinutes: 10, maxToolCalls: 30 },
+      },
+    });
+    const event = createEvent({
+      eventId: '33333333-3333-4333-8333-333333333333',
+      taskId: task.taskId,
+      phase: 'verifying',
+      tool: { toolId: 'desktop.observe', operation: 'observe' },
+    });
+
+    const summary = createInsightsSummary([task], [event]);
+    expect(summary.stepsObserved).toBe(2);
+    expect(summary.toolUsage).toEqual([
+      { toolId: 'desktop.observe', count: 1, percentage: 100 },
+    ]);
+    expect(summary.legacyBehaviorUsage).toEqual([]);
   });
 });

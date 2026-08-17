@@ -1,4 +1,10 @@
-import type { AppPreferences, PrimaryLanguage } from '../shared/contracts';
+import type {
+  AppLanguage,
+  AppPreferences,
+  PrimaryLanguage,
+} from '../shared/contracts';
+
+import { appLocale } from './app-language';
 
 export const PRIMARY_LANGUAGE_OPTIONS = [
   { code: 'en', label: 'English' },
@@ -26,11 +32,24 @@ export const PRIMARY_LANGUAGE_OPTIONS = [
   label: string;
 }>;
 
-export function primaryLanguageLabel(language: PrimaryLanguage): string {
-  return (
+export function primaryLanguageLabel(
+  language: PrimaryLanguage,
+  displayLanguage: AppLanguage = 'en',
+): string {
+  const englishLabel =
     PRIMARY_LANGUAGE_OPTIONS.find((option) => option.code === language)
-      ?.label ?? language
-  );
+      ?.label ?? language;
+  if (displayLanguage === 'en') return englishLabel;
+
+  try {
+    return (
+      new Intl.DisplayNames([appLocale(displayLanguage)], {
+        type: 'language',
+      }).of(language) ?? englishLabel
+    );
+  } catch {
+    return englishLabel;
+  }
 }
 
 export function isPrimaryLanguageSetupComplete(

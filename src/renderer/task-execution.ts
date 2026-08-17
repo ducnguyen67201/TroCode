@@ -16,11 +16,11 @@ export function isTaskCancellable(
 
 export function shouldAutoStartTask(
   snapshot: PhaseSnapshot | null,
-  options: { executionReady: boolean; isBusy: boolean },
+  options: { agentReady: boolean; isBusy: boolean },
 ): boolean {
   return (
     snapshot?.phase === 'ready' &&
-    options.executionReady &&
+    options.agentReady &&
     !options.isBusy
   );
 }

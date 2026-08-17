@@ -25,10 +25,16 @@ describe('primary language options', () => {
   it('requires a persisted language before onboarding completes', () => {
     expect(isPrimaryLanguageSetupComplete(null, false)).toBe(false);
     expect(
-      isPrimaryLanguageSetupComplete({ primaryLanguage: null }, true),
+      isPrimaryLanguageSetupComplete(
+        { appLanguage: 'en', primaryLanguage: null },
+        true,
+      ),
     ).toBe(false);
     expect(
-      isPrimaryLanguageSetupComplete({ primaryLanguage: 'en' }, true),
+      isPrimaryLanguageSetupComplete(
+        { appLanguage: 'en', primaryLanguage: 'en' },
+        true,
+      ),
     ).toBe(true);
   });
 });

@@ -10,25 +10,25 @@ describe('task execution presentation policy', () => {
   it('auto-starts a ready task once execution dependencies are available', () => {
     expect(
       shouldAutoStartTask({ phase: 'ready' }, {
-        executionReady: true,
+        agentReady: true,
         isBusy: false,
       }),
     ).toBe(true);
     expect(
       shouldAutoStartTask({ phase: 'ready' }, {
-        executionReady: false,
+        agentReady: false,
         isBusy: false,
       }),
     ).toBe(false);
     expect(
       shouldAutoStartTask({ phase: 'ready' }, {
-        executionReady: true,
+        agentReady: true,
         isBusy: true,
       }),
     ).toBe(false);
     expect(
       shouldAutoStartTask({ phase: 'planning' }, {
-        executionReady: true,
+        agentReady: true,
         isBusy: false,
       }),
     ).toBe(false);

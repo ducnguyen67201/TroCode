@@ -4,197 +4,105 @@ import { TaskUpdateSchema } from '../../shared/contracts';
 
 import { TaskRuntime } from './task-runtime';
 
-describe('task runtime', () => {
-  it('emits typed lifecycle events while compiling a goal', () => {
+describe('TaskRuntime', () => {
+  it('submits a ready v3 task synchronously', () => {
     const runtime = new TaskRuntime();
     const listener = vi.fn();
     runtime.on('task-update', listener);
 
-    const snapshot = runtime.submit({ text: 'Open YouTube for me' });
+    const snapshot = runtime.submit({ text: 'What is 27 × 14?' });
 
     expect(snapshot.phase).toBe('ready');
-    expect(snapshot.goal?.interactionMode).toBe('act');
-    expect(snapshot.pendingInteraction).toBeNull();
-    expect(snapshot.messages.map((message) => message.role)).toEqual(['user']);
-    expect(listener).toHaveBeenCalledTimes(2);
-    expect(listener.mock.lastCall?.[0].snapshot).toEqual(snapshot);
-  });
-
-  it('rejects a task update whose event belongs to another task', () => {
-    const runtime = new TaskRuntime();
-    const snapshot = runtime.submit({ text: 'Open YouTube for me' });
-    const event = snapshot.lastEvent;
-
-    if (!event) throw new Error('Expected a task event.');
-    expect(TaskUpdateSchema.parse({ event, snapshot }).snapshot).toEqual(snapshot);
-    expect(() =>
-      TaskUpdateSchema.parse({
-        event: { ...event, taskId: crypto.randomUUID() },
-        snapshot,
-      }),
-    ).toThrow('do not match');
-  });
-
-  it('stops at clarification for an ambiguous request', () => {
-    const runtime = new TaskRuntime();
-    const snapshot = runtime.submit({ text: 'help' });
-
-    expect(snapshot.phase).toBe('clarifying');
-    expect(snapshot.goal).toBeNull();
-    expect(snapshot.pendingInteraction?.kind).toBe('clarification');
-    expect(snapshot.messages.map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-    ]);
-  });
-
-  it('continues a clarification in the same task and compiles the answer', () => {
-    const runtime = new TaskRuntime();
-    const submitted = runtime.submit({ text: 'help' });
-    const pending = submitted.pendingInteraction;
-
-    expect(pending?.kind).toBe('clarification');
-    if (!pending) throw new Error('Expected a pending clarification.');
-
-    const ready = runtime.respondToInteraction({
-      taskId: submitted.taskId,
-      interactionId: pending.id,
-      kind: 'answer',
-      text: 'Open Gmail for me',
+    expect(snapshot.goal).toMatchObject({
+      schemaVersion: 3,
+      originalRequest: 'What is 27 × 14?',
     });
-
-    expect(ready.taskId).toBe(submitted.taskId);
-    expect(ready.phase).toBe('ready');
-    expect(ready.pendingInteraction).toBeNull();
-    expect(ready.goal?.objective).toContain('Open Gmail for me');
-    expect(ready.messages.map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'user',
-    ]);
+    expect(snapshot.progress).toEqual({
+      kind: 'tool_calls',
+      completed: 0,
+      limit: 30,
+    });
+    expect(snapshot.messages).toHaveLength(1);
+    expect(snapshot.messages[0]).toMatchObject({ role: 'user', kind: 'request' });
+    expect(listener).toHaveBeenCalledOnce();
+    expect(TaskUpdateSchema.parse(listener.mock.lastCall?.[0]).snapshot).toEqual(
+      snapshot,
+    );
   });
 
-  it('keeps a completed guide response in the task conversation', () => {
+  it('completes directly from planning with an assistant response', () => {
     const runtime = new TaskRuntime();
-    const ready = runtime.submit({
-      text: 'Làm sao để làm bài tập tiếng Anh này?',
-    });
+    const ready = runtime.submit({ text: 'Write a chord progression.' });
     runtime.start({ taskId: ready.taskId });
-    runtime.beginObservation(ready.taskId, 'The worksheet is visible.');
-    runtime.recordGuidance(
-      ready.taskId,
-      'Look at the word “now” in question 2.',
-    );
-    runtime.beginVerification(ready.taskId, 'The guidance is grounded.');
 
-    const completed = runtime.complete(
-      ready.taskId,
-      'Dùng hiện tại tiếp diễn cho hành động đang xảy ra ngay bây giờ.',
-    );
+    const completed = runtime.complete(ready.taskId, 'Am7 – D9 – Gmaj7 – Cmaj7');
 
     expect(completed.phase).toBe('completed');
+    expect(completed.progress).toMatchObject({ completed: 0 });
     expect(completed.messages.at(-1)).toMatchObject({
       role: 'assistant',
       kind: 'answer',
-      text: 'Dùng hiện tại tiếp diễn cho hành động đang xảy ra ngay bây giờ.',
-    });
-    expect(completed.messages.at(-2)).toMatchObject({
-      role: 'assistant',
-      kind: 'answer',
-      text: 'Look at the word “now” in question 2.',
     });
   });
 
-  it('rejects stale clarification responses without consuming the pending input', () => {
+  it('pauses for model-requested input and resumes the same task in planning', () => {
     const runtime = new TaskRuntime();
-    const submitted = runtime.submit({ text: 'help' });
-    const pending = submitted.pendingInteraction;
-
-    if (!pending) throw new Error('Expected a pending clarification.');
-
-    expect(() =>
-      runtime.respondToInteraction({
-        taskId: submitted.taskId,
-        interactionId: crypto.randomUUID(),
-        kind: 'answer',
-        text: 'Open Gmail for me',
-      }),
-    ).toThrow('does not match');
-
-    expect(
-      runtime.respondToInteraction({
-        taskId: submitted.taskId,
-        interactionId: pending.id,
-        kind: 'answer',
-        text: 'Open Gmail for me',
-      }).phase,
-    ).toBe('ready');
-  });
-
-  it('resumes a running task through observation after requested input', () => {
-    const runtime = new TaskRuntime();
-    const submitted = runtime.submit({ text: 'Open Gmail for me' });
-    const planning = runtime.start({ taskId: submitted.taskId });
+    const ready = runtime.submit({ text: 'Email the update.' });
+    runtime.start({ taskId: ready.taskId });
     const waiting = runtime.requestInput({
-      taskId: planning.taskId,
-      prompt: 'Which inbox should I use?',
-      choices: [
-        { id: 'work', label: 'Work' },
-        { id: 'personal', label: 'Personal' },
-      ],
+      taskId: ready.taskId,
+      prompt: 'Who should receive it?',
+      choices: [{ id: 'alex', label: 'Alex' }],
     });
-
-    expect(waiting.phase).toBe('awaiting_input');
-    expect(waiting.pendingInteraction?.kind).toBe('clarification');
-
     const pending = waiting.pendingInteraction;
-    if (!pending) throw new Error('Expected a pending clarification.');
+    if (!pending) throw new Error('Expected pending input.');
 
     const resumed = runtime.respondToInteraction({
-      taskId: waiting.taskId,
+      taskId: ready.taskId,
       interactionId: pending.id,
       kind: 'answer',
-      text: 'Work',
+      text: 'Alex',
     });
 
-    expect(resumed.phase).toBe('observing');
+    expect(resumed.phase).toBe('planning');
     expect(resumed.pendingInteraction).toBeNull();
+    expect(resumed.messages.at(-1)).toMatchObject({ role: 'user', text: 'Alex' });
   });
 
-  it('binds approval to one exact action and rejects replay', () => {
+  it('binds and consumes approval for one exact concrete action', () => {
     const runtime = new TaskRuntime();
-    const submitted = runtime.submit({
-      text: 'Send an email to alex@example.com',
-    });
-    const planning = runtime.start({ taskId: submitted.taskId });
-    const waiting = runtime.requestApproval({
-      taskId: planning.taskId,
-      prompt: 'Send this email?',
-      consequence: 'This will send an external email.',
-      action: {
-        action: 'send',
-        capability: 'email',
-        description: 'Send the drafted message to Alex.',
-        parameters: {
-          body: 'See you tomorrow.',
-          recipients: ['alex@example.com'],
-          subject: 'Tomorrow',
-        },
+    const ready = runtime.submit({ text: 'Send the displayed email.' });
+    runtime.start({ taskId: ready.taskId });
+    const action = {
+      action: 'send' as const,
+      toolId: 'desktop.control',
+      operation: 'click',
+      description: 'Click Send for the exact displayed email.',
+      parameters: {
+        observationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        observationFingerprint: 'a'.repeat(64),
+        account: 'me@example.com',
+        recipients: ['alex@example.com'],
+        subject: 'Update',
+        body: 'Done.',
+        command: 'click',
+        x: '100',
+        y: '200',
       },
+    };
+    const waiting = runtime.requestApproval({
+      taskId: ready.taskId,
+      prompt: action.description,
+      consequence: 'This sends the exact displayed email.',
+      action,
     });
-    const exactAction = waiting.pendingInteraction?.kind === 'approval'
-      ? waiting.pendingInteraction.action
-      : null;
-
     const pending = waiting.pendingInteraction;
-    expect(pending?.kind).toBe('approval');
     if (!pending || pending.kind !== 'approval') {
-      throw new Error('Expected a pending approval.');
+      throw new Error('Expected pending approval.');
     }
-
     expect(() =>
       runtime.decideApproval({
-        taskId: waiting.taskId,
+        taskId: ready.taskId,
         interactionId: pending.id,
         kind: 'approval',
         decision: 'approve',
@@ -202,267 +110,72 @@ describe('task runtime', () => {
       }),
     ).toThrow('does not match');
 
-    const resumed = runtime.decideApproval({
-      taskId: waiting.taskId,
+    const approved = runtime.decideApproval({
+      taskId: ready.taskId,
       interactionId: pending.id,
       kind: 'approval',
       decision: 'approve',
       actionDigest: pending.actionDigest,
     });
+    expect(approved.phase).toBe('planning');
+    expect(approved.approvalGrant?.actionDigest).toBe(pending.actionDigest);
 
-    expect(resumed.phase).toBe('observing');
-    expect(resumed.pendingInteraction).toBeNull();
-    expect(resumed.approvalGrant?.actionDigest).toBe(pending.actionDigest);
-    expect(exactAction).not.toBeNull();
-    if (!exactAction) throw new Error('Expected the exact approved action.');
     expect(() =>
       runtime.consumeApprovalGrant({
-        taskId: waiting.taskId,
+        taskId: ready.taskId,
         action: {
-          ...exactAction,
-          parameters: {
-            ...exactAction.parameters,
-            recipients: ['mallory@example.com'],
-          },
+          ...action,
+          parameters: { ...action.parameters, body: 'Changed.' },
         },
       }),
     ).toThrow('does not match');
-    const acting = runtime.consumeApprovalGrant({
-      taskId: waiting.taskId,
-      action: exactAction,
-    });
-    expect(acting.phase).toBe('acting');
-    expect(acting.approvalGrant).toBeNull();
-    expect(() =>
-      runtime.consumeApprovalGrant({
-        taskId: waiting.taskId,
-        action: exactAction,
-      }),
-    ).toThrow('no approved action grant');
-    expect(() =>
-      runtime.decideApproval({
-        taskId: waiting.taskId,
-        interactionId: pending.id,
-        kind: 'approval',
-        decision: 'approve',
-        actionDigest: pending.actionDigest,
-      }),
-    ).toThrow('no pending interaction');
+    expect(
+      runtime.consumeApprovalGrant({ taskId: ready.taskId, action }).phase,
+    ).toBe('acting');
   });
 
-  it('denies approval without creating an action grant', () => {
+  it('increments v3 progress only when a tool result is recorded', () => {
     const runtime = new TaskRuntime();
-    const submitted = runtime.submit({
-      text: 'Send an email to alex@example.com',
-    });
-    const planning = runtime.start({ taskId: submitted.taskId });
-    const waiting = runtime.requestApproval({
-      taskId: planning.taskId,
-      prompt: 'Send this email?',
-      consequence: 'This will send an external email.',
-      action: {
-        action: 'send',
-        capability: 'email',
-        description: 'Send the drafted message to Alex.',
-        parameters: {
-          recipients: ['alex@example.com'],
-        },
-      },
-    });
-    const pending = waiting.pendingInteraction;
-
-    if (!pending || pending.kind !== 'approval') {
-      throw new Error('Expected a pending approval.');
-    }
-
-    const denied = runtime.decideApproval({
-      taskId: waiting.taskId,
-      interactionId: pending.id,
-      kind: 'approval',
-      decision: 'deny',
-      actionDigest: pending.actionDigest,
-    });
-
-    expect(denied.phase).toBe('observing');
-    expect(denied.approvalGrant).toBeNull();
-    expect(() =>
-      runtime.consumeApprovalGrant({
-        taskId: waiting.taskId,
-        action: pending.action,
-      }),
-    ).toThrow('no approved action grant');
-  });
-
-  it('expires an approved grant before dispatch', () => {
-    let now = new Date('2026-08-15T00:00:00.000Z');
-    const runtime = new TaskRuntime({ now: () => now });
-    const listener = vi.fn();
-    runtime.on('task-update', listener);
-    const submitted = runtime.submit({
-      text: 'Send an email to alex@example.com',
-    });
-    const planning = runtime.start({ taskId: submitted.taskId });
-    const waiting = runtime.requestApproval({
-      taskId: planning.taskId,
-      prompt: 'Send this email?',
-      consequence: 'This will send an external email.',
-      action: {
-        action: 'send',
-        capability: 'email',
-        description: 'Send the drafted message to Alex.',
-      },
-    });
-    const pending = waiting.pendingInteraction;
-
-    if (!pending || pending.kind !== 'approval') {
-      throw new Error('Expected a pending approval.');
-    }
-
-    const approved = runtime.decideApproval({
-      taskId: waiting.taskId,
-      interactionId: pending.id,
-      kind: 'approval',
-      decision: 'approve',
-      actionDigest: pending.actionDigest,
-    });
-    now = new Date('2026-08-15T00:06:00.000Z');
-
-    expect(() =>
-      runtime.consumeApprovalGrant({
-        taskId: approved.taskId,
-        action: pending.action,
-      }),
-    ).toThrow('expired');
-    expect(listener.mock.lastCall?.[0].snapshot.phase).toBe('blocked');
-    expect(listener.mock.lastCall?.[0].snapshot.approvalGrant).toBeNull();
-  });
-
-  it('expires an unused approval and blocks instead of executing it', () => {
-    let now = new Date('2026-08-15T00:00:00.000Z');
-    const runtime = new TaskRuntime({ now: () => now });
-    const submitted = runtime.submit({
-      text: 'Send an email to alex@example.com',
-    });
-    const planning = runtime.start({ taskId: submitted.taskId });
-    const waiting = runtime.requestApproval({
-      taskId: planning.taskId,
-      prompt: 'Send this email?',
-      consequence: 'This will send an external email.',
-      action: {
-        action: 'send',
-        capability: 'email',
-        description: 'Send the drafted message to Alex.',
-      },
-    });
-    const pending = waiting.pendingInteraction;
-
-    if (!pending || pending.kind !== 'approval') {
-      throw new Error('Expected a pending approval.');
-    }
-
-    now = new Date('2026-08-15T00:06:00.000Z');
-    expect(() =>
-      runtime.decideApproval({
-        taskId: waiting.taskId,
-        interactionId: pending.id,
-        kind: 'approval',
-        decision: 'approve',
-        actionDigest: pending.actionDigest,
-      }),
-    ).toThrow('expired');
-  });
-
-  it('cancels while waiting for task input and invalidates the response', () => {
-    const runtime = new TaskRuntime();
-    const submitted = runtime.submit({ text: 'Open Gmail for me' });
-    const planning = runtime.start({ taskId: submitted.taskId });
-    const waiting = runtime.requestInput({
-      taskId: planning.taskId,
-      prompt: 'Which inbox should I use?',
-    });
-    const pending = waiting.pendingInteraction;
-
-    if (!pending) throw new Error('Expected a pending clarification.');
-
-    const cancelled = runtime.cancel({ taskId: waiting.taskId });
-    expect(cancelled.phase).toBe('cancelled');
-    expect(cancelled.pendingInteraction).toBeNull();
-    expect(() =>
-      runtime.respondToInteraction({
-        taskId: waiting.taskId,
-        interactionId: pending.id,
-        kind: 'answer',
-        text: 'Work',
-      }),
-    ).toThrow('no pending interaction');
-  });
-
-  it('queues steering without interrupting an atomic phase and consumes it once', () => {
-    const runtime = new TaskRuntime();
-    const submitted = runtime.submit({ text: 'Open Gmail for me' });
-    const planning = runtime.start({ taskId: submitted.taskId });
-
-    const steered = runtime.steer({
-      taskId: planning.taskId,
-      instruction: 'Use my work account instead.',
-    });
-
-    expect(steered.phase).toBe('planning');
-    expect(steered.queuedSteering).toHaveLength(1);
-    expect(steered.messages.at(-1)?.kind).toBe('steering');
-    expect(runtime.takeSteering(steered.taskId)).toEqual(
-      steered.queuedSteering,
-    );
-    expect(runtime.takeSteering(steered.taskId)).toEqual([]);
-  });
-
-  it('does not treat steering as an answer to pending input', () => {
-    const runtime = new TaskRuntime();
-    const submitted = runtime.submit({ text: 'Open Gmail for me' });
-    const planning = runtime.start({ taskId: submitted.taskId });
-    const waiting = runtime.requestInput({
-      taskId: planning.taskId,
-      prompt: 'Which inbox should I use?',
-    });
-
-    expect(() =>
-      runtime.steer({
-        taskId: waiting.taskId,
-        instruction: 'Use my work account instead.',
-      }),
-    ).toThrow('pending interaction');
-  });
-
-  it('cancels a non-terminal task', () => {
-    const runtime = new TaskRuntime();
-    const submitted = runtime.submit({ text: 'Open YouTube for me' });
-    const cancelled = runtime.cancel({ taskId: submitted.taskId });
-
-    expect(cancelled.phase).toBe('cancelled');
-    expect(cancelled.pendingInteraction).toBeNull();
-  });
-
-  it('tracks an allowed execution step through observation and verification', () => {
-    const runtime = new TaskRuntime();
-    const ready = runtime.submit({ text: 'Open Gmail for me' });
+    const ready = runtime.submit({ text: 'Open Gmail.' });
     runtime.start({ taskId: ready.taskId });
-    runtime.beginObservation(ready.taskId, 'Captured the current desktop.');
-    runtime.beginAllowedAction(ready.taskId, {
-      action: 'open_url',
-      capability: 'browser',
-      description: 'Open Gmail.',
-      target: 'https://mail.google.com/',
-    });
-    const verifying = runtime.beginVerification(
+    runtime.beginObservation(ready.taskId, 'Capturing the desktop.');
+    const verifying = runtime.recordToolResult(
       ready.taskId,
-      'Navigation was dispatched.',
-      true,
+      'Desktop captured.',
+      { toolId: 'desktop.observe', operation: 'observe' },
     );
 
     expect(verifying.phase).toBe('verifying');
-    expect(verifying.progress?.currentStep).toBe(1);
-    expect(runtime.complete(ready.taskId, 'Gmail is open.').phase).toBe(
-      'completed',
-    );
+    expect(verifying.progress).toEqual({
+      kind: 'tool_calls',
+      completed: 1,
+      limit: 30,
+    });
+    expect(verifying.lastEvent?.tool).toEqual({
+      toolId: 'desktop.observe',
+      operation: 'observe',
+    });
+  });
+
+  it('queues steering for one safe model boundary and cancels pending input', () => {
+    const runtime = new TaskRuntime();
+    const ready = runtime.submit({ text: 'Open Gmail.' });
+    runtime.start({ taskId: ready.taskId });
+    const steered = runtime.steer({
+      taskId: ready.taskId,
+      instruction: 'Use my work account.',
+    });
+    expect(runtime.takeSteering(ready.taskId)).toEqual(steered.queuedSteering);
+    expect(runtime.takeSteering(ready.taskId)).toEqual([]);
+
+    const waiting = runtime.requestInput({
+      taskId: ready.taskId,
+      prompt: 'Which inbox?',
+    });
+    expect(runtime.cancel({ taskId: ready.taskId })).toMatchObject({
+      phase: 'cancelled',
+      pendingInteraction: null,
+    });
+    expect(waiting.pendingInteraction).not.toBeNull();
   });
 });

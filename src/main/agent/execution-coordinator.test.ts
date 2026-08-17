@@ -2,776 +2,341 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import type { CuaStatus } from '../../shared/contracts';
+
 import type {
-  DesktopActionOutcome,
-  DesktopCommand,
-  DesktopObservation,
-  DesktopStepDecision,
-} from './execution-contracts';
+  AgentModel,
+  AgentToolOutput,
+  AgentTurn,
+  ModelToolSpec,
+} from './agent-contracts';
+import type { DesktopObservation } from './execution-contracts';
 import { TaskExecutionCoordinator } from './execution-coordinator';
-import type { DesktopPlanner, PlannerStepInput } from './realtime-planner';
+import { RuntimeToolRegistry } from './runtime-tool-registry';
 import { TaskRuntime } from './task-runtime';
 
-class FakeCua {
-  readonly startTaskSession = vi.fn(async () => undefined);
-
-  readonly endTaskSession = vi.fn(async () => undefined);
-
-  readonly executeCommand = vi.fn(
+class FakeAgent implements AgentModel {
+  readonly outputs: AgentToolOutput[] = [];
+  readonly userMessages: string[] = [];
+  readonly start = vi.fn(async () => undefined);
+  readonly end = vi.fn(async () => undefined);
+  readonly sample = vi.fn(
     async (
       _taskId: string,
-      _command: DesktopCommand,
+      _tools: readonly ModelToolSpec[],
       _signal?: AbortSignal,
-    ): Promise<DesktopActionOutcome> => {
+    ): Promise<AgentTurn> => {
       void _taskId;
-      void _command;
+      void _tools;
       void _signal;
-      return {
-        status: 'confirmed',
-        summary: 'CUA confirmed the action.',
-      };
+      const turn = this.turns.shift();
+      if (!turn) throw new Error('Fake agent ran out of turns.');
+      return turn;
     },
   );
 
-  private observationNumber = 0;
+  constructor(private readonly turns: AgentTurn[]) {}
 
-  readonly observe = vi.fn(async (taskId: string): Promise<DesktopObservation> => {
-    this.observationNumber += 1;
-    return {
-      observationId: randomUUID(),
-      taskId,
-      capturedAt: new Date().toISOString(),
-      text: `Desktop observation ${this.observationNumber}`,
-      screenshot: { mimeType: 'image/png', dataBase64: 'aW1hZ2U=' },
-      degraded: false,
-      fingerprint: String(this.observationNumber).padStart(64, '0'),
-    };
-  });
+  appendToolOutput(_taskId: string, output: AgentToolOutput): void {
+    this.outputs.push(output);
+  }
+
+  appendUserMessage(_taskId: string, text: string): void {
+    this.userMessages.push(text);
+  }
 }
 
-describe('task execution coordinator', () => {
-  it('answers a general text task without starting a desktop session', async () => {
-    const runtime = new TaskRuntime();
-    const cua = new FakeCua();
-    const planner: DesktopPlanner = {
-      start: vi.fn(async () => undefined),
-      end: vi.fn(async () => undefined),
-      decide: vi.fn(async (_taskId, input: PlannerStepInput) => {
-        expect(input.observation.screenshot).toBeUndefined();
-        expect(input.observation.text).toContain('Text-only task');
-        return {
-          kind: 'complete',
-          summary: '37 × 19 = 703.',
-        } as const;
-      }),
-    };
-    const coordinator = new TaskExecutionCoordinator({ runtime, cua, planner });
-    const interpreting = runtime.create({ text: 'What is 37 times 19?' });
-    const ready = runtime.applyCompiledIntent(interpreting.taskId, {
-      behavior: 'answer',
-      objective: 'Calculate 37 times 19.',
-      successDescription: 'Return the correct product.',
-    });
+function assistant(text: string): AgentTurn {
+  return { kind: 'assistant_message', responseItems: [], text };
+}
+
+function tool(
+  callId: string,
+  name: string,
+  input: Record<string, unknown>,
+): AgentTurn {
+  return {
+    kind: 'tool_call',
+    responseItems: [],
+    call: { callId, name, arguments: JSON.stringify(input) },
+  };
+}
+
+function observation(
+  taskId: string,
+  observationId = randomUUID(),
+  fingerprint = 'a'.repeat(64),
+): DesktopObservation {
+  return {
+    observationId,
+    taskId,
+    capturedAt: '2026-08-17T00:00:00.000Z',
+    text: 'Gmail inbox is visible.',
+    degraded: false,
+    fingerprint,
+    coordinateSpace: {
+      screenHeight: 500,
+      screenWidth: 1000,
+      screenshotHeight: 1000,
+      screenshotWidth: 2000,
+    },
+    screenshot: { mimeType: 'image/png', dataBase64: 'aGVsbG8=' },
+  };
+}
+
+function setup(turns: AgentTurn[], observations: DesktopObservation[] = []) {
+  const runtime = new TaskRuntime({ toolRegistry: new RuntimeToolRegistry() });
+  const agent = new FakeAgent(turns);
+  const cua = {
+    startTaskSession: vi.fn(async () => undefined),
+    observe: vi.fn(async () => {
+      const next = observations.shift();
+      if (!next) throw new Error('No fake observation available.');
+      return next;
+    }),
+    executeCommand: vi.fn(async () => ({
+      status: 'confirmed' as const,
+      summary: 'The desktop action was confirmed.',
+    })),
+    endTaskSession: vi.fn(async () => undefined),
+    getStatus: vi.fn<() => Promise<CuaStatus>>(async () => ({
+      state: 'ready' as const,
+      available: true,
+      platform: 'darwin' as const,
+      permissions: { accessibility: true, screenRecording: true },
+      summary: 'Ready.',
+      nextActions: [],
+    })),
+  };
+  const registry = new RuntimeToolRegistry();
+  const coordinator = new TaskExecutionCoordinator({
+    agent,
+    cua,
+    runtime,
+    toolRegistry: registry,
+  });
+  return { agent, coordinator, cua, runtime };
+}
+
+describe('TaskExecutionCoordinator', () => {
+  it.each([
+    ['What is 27 × 14?', '27 × 14 = 378.'],
+    ['Dịch câu này sang tiếng Việt.', 'Bản dịch hữu ích.'],
+    ['Write an eight-bar chord progression.', 'Am7 – D9 – Gmaj7 – Cmaj7'],
+  ])('finishes assistant-only work without starting CUA: %s', async (request, answer) => {
+    const { agent, coordinator, cua, runtime } = setup([assistant(answer)]);
+    const ready = runtime.submit({ text: request });
 
     coordinator.start({ taskId: ready.taskId });
     await coordinator.waitForIdle(ready.taskId);
 
-    const completed = runtime.getSnapshot(ready.taskId);
-    expect(completed.phase).toBe('completed');
-    expect(completed.messages.at(-1)).toMatchObject({
-      kind: 'answer',
-      role: 'assistant',
-      text: '37 × 19 = 703.',
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'completed',
+      progress: { kind: 'tool_calls', completed: 0 },
     });
     expect(cua.startTaskSession).not.toHaveBeenCalled();
-    expect(cua.observe).not.toHaveBeenCalled();
-    expect(cua.executeCommand).not.toHaveBeenCalled();
+    expect(agent.sample).toHaveBeenCalledOnce();
   });
 
-  it('opens Gmail, re-observes, and completes without visual retry', async () => {
-    const runtime = new TaskRuntime();
-    const cua = new FakeCua();
-    const actionOrder: string[] = [];
-    const openExternal = vi.fn(async () => {
-      actionOrder.push('open');
-    });
-    const presentAction = vi.fn(async () => {
-      actionOrder.push('present');
-    });
-    const restoreDesktopPresentation = vi.fn();
-    const prepareDesktop = vi.fn(async () => restoreDesktopPresentation);
-    const planner: DesktopPlanner = {
-      start: vi.fn(async () => undefined),
-      end: vi.fn(async () => undefined),
-      decide: vi
-        .fn()
-        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => ({
-          kind: 'action',
-          observationId: input.observation.observationId,
-          intent: 'open_url',
-          capability: 'browser',
-          description: 'Open Gmail.',
-          command: { kind: 'open_url', url: 'https://mail.google.com/' },
-        }))
-        .mockImplementationOnce(async () => ({
-          kind: 'complete',
-          summary: 'Gmail is visible in the browser.',
-        })),
-    };
-    const coordinator = new TaskExecutionCoordinator({
-      runtime,
-      cua,
-      planner,
-      openExternal,
-      prepareDesktop,
-      presentAction,
-    });
-    const ready = runtime.submit({ text: 'Open Gmail for me' });
+  it('runs observe → one desktop action → fresh observation → assistant', async () => {
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+    const first = observation(taskId, observationId, 'a'.repeat(64));
+    const after = observation(taskId, randomUUID(), 'b'.repeat(64));
+    const { agent, coordinator, cua, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect Gmail.' }),
+        tool('call-click', 'control_desktop', {
+          observationId,
+          consequence: 'click_element',
+          description: 'Open the newest email.',
+          target: 'Newest inbox row',
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 250,
+            button: 'left',
+            count: 1,
+          },
+        }),
+        assistant('The newest email is open.'),
+      ],
+      [first, after],
+    );
+    const ready = runtime.submit({ text: 'Open Gmail and read the latest email.' });
+    first.taskId = ready.taskId;
+    after.taskId = ready.taskId;
 
     coordinator.start({ taskId: ready.taskId });
     await coordinator.waitForIdle(ready.taskId);
 
-    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
-    expect(openExternal).toHaveBeenCalledOnce();
-    expect(presentAction).toHaveBeenCalledWith(
-      { kind: 'open_url', url: 'https://mail.google.com/' },
-      expect.any(AbortSignal),
-    );
-    expect(actionOrder).toEqual(['open', 'present']);
-    expect(prepareDesktop).toHaveBeenCalledTimes(2);
-    expect(restoreDesktopPresentation).toHaveBeenCalledTimes(2);
+    expect(cua.startTaskSession).toHaveBeenCalledOnce();
     expect(cua.observe).toHaveBeenCalledTimes(2);
-    expect(cua.executeCommand).not.toHaveBeenCalled();
-  });
-
-  it('waits for exact approval and re-observes before one send click', async () => {
-    const runtime = new TaskRuntime();
-    const cua = new FakeCua();
-    const actionOrder: string[] = [];
-    const presentAction = vi.fn(async () => {
-      actionOrder.push('present');
-    });
-    cua.executeCommand.mockImplementation(async () => {
-      actionOrder.push('execute');
-      return {
-        status: 'confirmed',
-        summary: 'CUA confirmed the action.',
-      };
-    });
-    const planner: DesktopPlanner = {
-      start: vi.fn(async () => undefined),
-      end: vi.fn(async () => undefined),
-      decide: vi
-        .fn()
-        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => ({
-          kind: 'action',
-          observationId: input.observation.observationId,
-          intent: 'send',
-          capability: 'email',
-          description: 'Send the drafted email.',
-          target: 'Gmail Send button',
-          sendPayload: {
-            account: 'me@example.com',
-            recipients: ['me@example.com'],
-            subject: 'TroCode test',
-            body: 'This is the requested test message.',
-          },
-          command: {
-            kind: 'click',
-            x: 812,
-            y: 744,
-            button: 'left',
-            count: 1,
-          },
-        }))
-        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => ({
-          kind: 'action',
-          observationId: input.observation.observationId,
-          intent: 'send',
-          capability: 'email',
-          description: 'Send the drafted email.',
-          target: 'Gmail Send button',
-          sendPayload: {
-            account: 'me@example.com',
-            recipients: ['me@example.com'],
-            subject: 'TroCode test',
-            body: 'This is the requested test message.',
-          },
-          command: {
-            kind: 'click',
-            x: 812,
-            y: 744,
-            button: 'left',
-            count: 1,
-          },
-        }))
-        .mockImplementationOnce(async () => ({
-          kind: 'complete',
-          summary: 'Gmail shows the message was sent.',
-        })),
-    };
-    const coordinator = new TaskExecutionCoordinator({
-      runtime,
-      cua,
-      planner,
-      presentAction,
-    });
-    const ready = runtime.submit({
-      text: 'Open Gmail and send an email to me',
-    });
-
-    coordinator.start({ taskId: ready.taskId });
-    await coordinator.waitForIdle(ready.taskId);
-    const waiting = runtime.getSnapshot(ready.taskId);
-    expect(waiting.phase, waiting.lastEvent?.summary).toBe('awaiting_approval');
-    expect(cua.executeCommand).not.toHaveBeenCalled();
-    expect(presentAction).not.toHaveBeenCalled();
-
-    const approval = waiting.pendingInteraction;
-    if (approval?.kind !== 'approval') throw new Error('Expected approval.');
-    runtime.decideApproval({
-      taskId: ready.taskId,
-      interactionId: approval.id,
-      kind: 'approval',
-      decision: 'approve',
-      actionDigest: approval.actionDigest,
-    });
-    coordinator.resume(ready.taskId);
-    await coordinator.waitForIdle(ready.taskId);
-
-    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
-    expect(cua.observe).toHaveBeenCalledTimes(3);
-    expect(cua.executeCommand).toHaveBeenCalledOnce();
-    expect(presentAction).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'click', x: 812, y: 744 }),
-      expect.any(AbortSignal),
-      { screenPoint: { x: 812, y: 744 } },
-    );
-    expect(actionOrder).toEqual(['present', 'execute']);
-  });
-
-  it('allows visual actions through an in-scope semantic capability', async () => {
-    const runtime = new TaskRuntime();
-    const cua = new FakeCua();
-    const planner: DesktopPlanner = {
-      start: vi.fn(async () => undefined),
-      end: vi.fn(async () => undefined),
-      decide: vi
-        .fn()
-        .mockImplementationOnce(
-          async (
-            _taskId,
-            input: PlannerStepInput,
-          ): Promise<DesktopStepDecision> => ({
-            kind: 'action',
-            observationId: input.observation.observationId,
-            intent: 'click_element',
-            capability: 'email',
-            description: 'Open Gmail.',
-            command: {
-              kind: 'click',
-              x: 400,
-              y: 300,
-              button: 'left',
-              count: 1,
-            },
-          }),
-        )
-        .mockImplementationOnce(async () => ({
-          kind: 'complete',
-          summary: 'Gmail is open.',
-        })),
-    };
-    const coordinator = new TaskExecutionCoordinator({ runtime, cua, planner });
-    const ready = runtime.submit({ text: 'Mở ứng dụng Gmail cho tôi.' });
-
-    expect(ready.goal?.capabilities).toEqual(
-      expect.arrayContaining(['browser', 'email']),
-    );
-    expect(ready.goal?.capabilities).not.toContain('computer_use');
-    coordinator.start({ taskId: ready.taskId });
-    await coordinator.waitForIdle(ready.taskId);
-
-    const completed = runtime.getSnapshot(ready.taskId);
-    expect(completed.phase).toBe('completed');
-    expect(cua.executeCommand).toHaveBeenCalledOnce();
-  });
-
-  it('requests fresh approval when the approved action changes after re-observation', async () => {
-    const runtime = new TaskRuntime();
-    const cua = new FakeCua();
-    const planner: DesktopPlanner = {
-      start: vi.fn(async () => undefined),
-      end: vi.fn(async () => undefined),
-      decide: vi
-        .fn()
-        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => ({
-          kind: 'action',
-          observationId: input.observation.observationId,
-          intent: 'send',
-          capability: 'email',
-          description: 'Send the drafted email.',
-          target: 'Gmail Send button',
-          command: {
-            kind: 'click',
-            x: 812,
-            y: 744,
-            button: 'left',
-            count: 1,
-          },
-        }))
-        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => ({
-          kind: 'action',
-          observationId: input.observation.observationId,
-          intent: 'send',
-          capability: 'email',
-          description: 'Send the edited drafted email.',
-          target: 'Gmail Send button',
-          command: {
-            kind: 'click',
-            x: 815,
-            y: 744,
-            button: 'left',
-            count: 1,
-          },
-        })),
-    };
-    const coordinator = new TaskExecutionCoordinator({ runtime, cua, planner });
-    const ready = runtime.submit({
-      text: 'Open Gmail and send an email to me',
-    });
-
-    coordinator.start({ taskId: ready.taskId });
-    await coordinator.waitForIdle(ready.taskId);
-    const firstWaiting = runtime.getSnapshot(ready.taskId);
-    const firstApproval = firstWaiting.pendingInteraction;
-    if (firstApproval?.kind !== 'approval') throw new Error('Expected approval.');
-
-    runtime.decideApproval({
-      taskId: ready.taskId,
-      interactionId: firstApproval.id,
-      kind: 'approval',
-      decision: 'approve',
-      actionDigest: firstApproval.actionDigest,
-    });
-    coordinator.resume(ready.taskId);
-    await coordinator.waitForIdle(ready.taskId);
-
-    const secondWaiting = runtime.getSnapshot(ready.taskId);
-    const secondApproval = secondWaiting.pendingInteraction;
-    expect(secondWaiting.phase).toBe('awaiting_approval');
-    if (secondApproval?.kind !== 'approval') throw new Error('Expected approval.');
-    expect(secondApproval.actionDigest).not.toBe(firstApproval.actionDigest);
-    expect(cua.executeCommand).not.toHaveBeenCalled();
-  });
-
-  it('re-observes a harmless unknown action outcome without retrying', async () => {
-    const runtime = new TaskRuntime();
-    const cua = new FakeCua();
-    cua.executeCommand.mockResolvedValue({
-      status: 'unknown',
-      summary: 'CUA could not prove whether the click changed the screen.',
-    });
-    const planner: DesktopPlanner = {
-      start: vi.fn(async () => undefined),
-      end: vi.fn(async () => undefined),
-      decide: vi
-        .fn()
-        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => ({
-          kind: 'action',
-          observationId: input.observation.observationId,
-          intent: 'click_element',
-          capability: 'computer_use',
-          description: 'Click the visible button.',
-          command: { kind: 'click', x: 400, y: 300, button: 'left', count: 1 },
-        } as const))
-        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => {
-          expect(input.previousOutcome?.status).toBe('unknown');
-          return {
-            kind: 'complete',
-            summary: 'The requested view is now visible.',
-          } as const;
-        }),
-    };
-    const coordinator = new TaskExecutionCoordinator({ runtime, cua, planner });
-    const ready = runtime.submit({ text: 'Click the button on screen' });
-
-    coordinator.start({ taskId: ready.taskId });
-    await coordinator.waitForIdle(ready.taskId);
-
-    const completed = runtime.getSnapshot(ready.taskId);
-    expect(completed.phase).toBe('completed');
-    expect(cua.executeCommand).toHaveBeenCalledOnce();
-    expect(cua.observe).toHaveBeenCalledTimes(2);
-    expect(planner.decide).toHaveBeenCalledTimes(2);
-  });
-
-  it('still blocks an unknown consequential action without retrying', async () => {
-    const runtime = new TaskRuntime();
-    const cua = new FakeCua();
-    cua.executeCommand.mockResolvedValue({
-      status: 'unknown',
-      summary: 'CUA could not prove whether the message was sent.',
-    });
-    const planner: DesktopPlanner = {
-      start: vi.fn(async () => undefined),
-      end: vi.fn(async () => undefined),
-      decide: vi.fn(
-        async (
-          _taskId,
-          input: PlannerStepInput,
-        ): Promise<DesktopStepDecision> => ({
-          kind: 'action',
-          observationId: input.observation.observationId,
-          intent: 'send',
-          capability: 'email',
-          description: 'Send the displayed message.',
-          target: 'Gmail Send button',
-          sendPayload: {
-            account: 'me@example.com',
-            recipients: ['friend@example.com'],
-            subject: 'Hello',
-            body: 'Hello there.',
-          },
-          command: {
-            kind: 'click',
-            x: 400,
-            y: 300,
-            button: 'left',
-            count: 1,
-          },
-        }),
-      ),
-    };
-    const coordinator = new TaskExecutionCoordinator({ runtime, cua, planner });
-    const ready = runtime.submit({ text: 'Send the displayed email' });
-
-    coordinator.start({ taskId: ready.taskId });
-    await coordinator.waitForIdle(ready.taskId);
-    const waiting = runtime.getSnapshot(ready.taskId);
-    const approval = waiting.pendingInteraction;
-    if (approval?.kind !== 'approval') throw new Error('Expected approval.');
-    runtime.decideApproval({
-      taskId: ready.taskId,
-      interactionId: approval.id,
-      kind: 'approval',
-      decision: 'approve',
-      actionDigest: approval.actionDigest,
-    });
-    coordinator.resume(ready.taskId);
-    await coordinator.waitForIdle(ready.taskId);
-
-    const blocked = runtime.getSnapshot(ready.taskId);
-    expect(blocked.phase).toBe('blocked');
-    expect(blocked.lastEvent?.summary).toContain('will not retry');
-    expect(cua.executeCommand).toHaveBeenCalledOnce();
-  });
-
-  it('fails closed when the model references a stale observation', async () => {
-    const runtime = new TaskRuntime();
-    const cua = new FakeCua();
-    const planner: DesktopPlanner = {
-      start: vi.fn(async () => undefined),
-      end: vi.fn(async () => undefined),
-      decide: vi.fn(async () => ({
-        kind: 'action',
-        observationId: randomUUID(),
-        intent: 'open_url',
-        capability: 'browser',
-        description: 'Open Gmail.',
-        command: { kind: 'open_url', url: 'https://mail.google.com/' },
-      } as const)),
-    };
-    const coordinator = new TaskExecutionCoordinator({
-      runtime,
-      cua,
-      planner,
-      openExternal: vi.fn(async () => undefined),
-    });
-    const ready = runtime.submit({ text: 'Open Gmail for me' });
-
-    coordinator.start({ taskId: ready.taskId });
-    await coordinator.waitForIdle(ready.taskId);
-
-    const failed = runtime.getSnapshot(ready.taskId);
-    expect(failed.phase).toBe('failed');
-    expect(failed.lastEvent?.summary).toContain('stale observation');
-    expect(cua.executeCommand).not.toHaveBeenCalled();
-  });
-
-  it('never turns a how-to guide into permission to operate the desktop', async () => {
-    const runtime = new TaskRuntime();
-    const cua = new FakeCua();
-    const openExternal = vi.fn(async () => undefined);
-    const planner: DesktopPlanner = {
-      start: vi.fn(async () => undefined),
-      end: vi.fn(async () => undefined),
-      decide: vi.fn(
-        async (
-          _taskId,
-          input: PlannerStepInput,
-        ): Promise<DesktopStepDecision> => ({
-          kind: 'action',
-          observationId: input.observation.observationId,
-          intent: 'open_url',
-          capability: 'browser',
-          description: 'Open Gmail.',
-          command: { kind: 'open_url', url: 'https://mail.google.com/' },
-        }),
-      ),
-    };
-    const coordinator = new TaskExecutionCoordinator({
-      runtime,
-      cua,
-      planner,
-      openExternal,
-    });
-    const ready = runtime.submit({ text: 'How do I open Gmail?' });
-
-    expect(ready.goal?.interactionMode).toBe('guide');
-    coordinator.start({ taskId: ready.taskId });
-    await coordinator.waitForIdle(ready.taskId);
-
-    expect(runtime.getSnapshot(ready.taskId).phase).toBe('blocked');
-    expect(openExternal).not.toHaveBeenCalled();
-    expect(cua.executeCommand).not.toHaveBeenCalled();
-  });
-
-  it('illustrates a screen-grounded guide with a point but never clicks', async () => {
-    const runtime = new TaskRuntime();
-    const cua = new FakeCua();
-    cua.observe.mockImplementation(async (taskId: string) => ({
-      observationId: randomUUID(),
-      taskId,
-      capturedAt: new Date().toISOString(),
-      text: 'A Retina desktop observation',
-      screenshot: { mimeType: 'image/png', dataBase64: 'aW1hZ2U=' },
-      coordinateSpace: {
-        screenHeight: 1_117,
-        screenWidth: 1_728,
-        screenshotHeight: 2_234,
-        screenshotWidth: 3_456,
-      },
-      degraded: false,
-      fingerprint: 'f'.repeat(64),
-    }));
-    const presentAction = vi.fn(async () => undefined);
-    const pointGrounder = vi.fn(async () => ({
-      matchedText: '2. What he (do)',
-      point: { x: 1_730, y: 800 },
-      source: 'macos_vision_text',
-    }));
-    const planner: DesktopPlanner = {
-      start: vi.fn(async () => undefined),
-      end: vi.fn(async () => undefined),
-      decide: vi
-        .fn()
-        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => ({
-          kind: 'action',
-          observationId: input.observation.observationId,
-          intent: 'guide',
-          capability: 'computer_use',
-          description: 'Notice that “now” signals an action in progress.',
-          target: 'Question 2',
-          guidanceSequence: { index: 1, total: 1 },
-          command: { kind: 'point', x: 1_980, y: 1_428 },
-        }))
-        .mockImplementationOnce(async () => ({
-          kind: 'complete',
-          summary:
-            'Câu 2 dùng hiện tại tiếp diễn vì có “now”: What is he doing now? He is watering flowers in the garden.',
-        })),
-    };
-    const coordinator = new TaskExecutionCoordinator({
-      runtime,
-      cua,
-      guidanceAutoAdvanceMs: 0,
-      planner,
-      pointGrounder,
-      presentAction,
-    });
-    const ready = runtime.submit({
-      text: 'Làm sao để làm bài tập tiếng Anh này?',
-    });
-
-    expect(ready.goal?.interactionMode).toBe('guide');
-    coordinator.start({ taskId: ready.taskId });
-    await coordinator.waitForIdle(ready.taskId);
-
-    const completed = runtime.getSnapshot(ready.taskId);
-    expect(completed.phase).toBe('completed');
-    expect(completed.progress?.currentStep).toBe(1);
-    expect(presentAction).toHaveBeenCalledWith(
-      { kind: 'point', x: 1_730, y: 800 },
-      expect.any(AbortSignal),
-      {
-        message: 'Notice that “now” signals an action in progress.',
-        screenPoint: { x: 865, y: 400 },
-        target: '1 / 1 · Question 2',
-      },
-    );
     expect(cua.executeCommand).toHaveBeenCalledWith(
       ready.taskId,
-      { kind: 'point', x: 1_730, y: 800 },
+      expect.objectContaining({ kind: 'click', x: 1000, y: 250 }),
       expect.any(AbortSignal),
     );
-    expect(pointGrounder).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: { kind: 'point', x: 1_980, y: 1_428 },
-        target: 'Question 2',
-      }),
-      expect.objectContaining({
-        coordinateSpace: expect.objectContaining({ screenshotWidth: 3_456 }),
-      }),
-      expect.any(AbortSignal),
+    expect(agent.outputs).toHaveLength(2);
+    expect(agent.outputs[1]?.output).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'input_image' }),
+      ]),
     );
-    expect(completed.messages.at(-2)?.text).toBe(
-      'Notice that “now” signals an action in progress.',
-    );
-    expect(completed.messages.at(-1)?.text).toContain(
-      'What is he doing now?',
-    );
-    expect(planner.decide).toHaveBeenNthCalledWith(
-      2,
-      ready.taskId,
-      expect.objectContaining({
-        guidancePoints: [
-          {
-            description: 'Notice that “now” signals an action in progress.',
-            sequenceIndex: 1,
-            sequenceTotal: 1,
-            target: 'Question 2',
-          },
-        ],
-      }),
-      expect.any(AbortSignal),
-    );
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'completed',
+      progress: { completed: 2 },
+    });
   });
 
-  it('pauses a guide and replays previous/next steps without re-planning or spending progress', async () => {
-    const runtime = new TaskRuntime();
-    const cua = new FakeCua();
-    const dismissPresentation = vi.fn();
-    const onGuidancePlaybackChange = vi.fn();
-    const presentAction = vi.fn(async () => undefined);
-    const planner: DesktopPlanner = {
-      start: vi.fn(async () => undefined),
-      end: vi.fn(async () => undefined),
-      decide: vi
-        .fn()
-        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => ({
-          kind: 'action',
-          observationId: input.observation.observationId,
-          intent: 'guide',
-          capability: 'computer_use',
-          description: 'Question 1 uses do with you.',
-          target: 'Question 1',
-          guidanceSequence: { index: 1, total: 2 },
-          command: { kind: 'point', x: 400, y: 300 },
-        }))
-        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => ({
-          kind: 'action',
-          observationId: input.observation.observationId,
-          intent: 'guide',
-          capability: 'computer_use',
-          description: 'Question 2 uses is doing because of now.',
-          target: 'Question 2',
-          guidanceSequence: { index: 2, total: 2 },
-          command: { kind: 'point', x: 420, y: 360 },
-        }))
-        .mockImplementationOnce(async () => ({
-          kind: 'complete',
-          summary: 'Both questions are explained.',
-        })),
-    };
-    const coordinator = new TaskExecutionCoordinator({
-      runtime,
-      cua,
-      dismissPresentation,
-      guidanceAutoAdvanceMs: 60_000,
-      onGuidancePlaybackChange,
-      planner,
-      presentAction,
-    });
-    const ready = runtime.submit({ text: 'Help me solve this worksheet.' });
-
+  it('returns clarification to the same model call before continuing', async () => {
+    const { agent, coordinator, runtime } = setup([
+      tool('call-input', 'request_user_input', {
+        prompt: 'Who should receive the update?',
+        choices: ['Alex', 'Sam'],
+      }),
+      assistant('I drafted the update for Alex.'),
+    ]);
+    const ready = runtime.submit({ text: 'Draft and send the update.' });
     coordinator.start({ taskId: ready.taskId });
-    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(1));
-    expect(coordinator.toggleGuidancePause(ready.taskId)).toBe(true);
-    expect(onGuidancePlaybackChange).toHaveBeenLastCalledWith(
-      ready.taskId,
-      true,
-    );
+    await coordinator.waitForIdle(ready.taskId);
+    const waiting = runtime.getSnapshot(ready.taskId);
+    if (!waiting.pendingInteraction) throw new Error('Expected input.');
 
-    coordinator.nextGuidance(ready.taskId);
-    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(2));
-    coordinator.previousGuidance(ready.taskId);
-    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(3));
-    expect(planner.decide).toHaveBeenCalledTimes(2);
-    expect(presentAction).toHaveBeenLastCalledWith(
-      { kind: 'point', x: 400, y: 300 },
-      expect.any(AbortSignal),
-      expect.objectContaining({ target: '1 / 2 · Question 1' }),
-    );
-
-    coordinator.nextGuidance(ready.taskId);
-    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(4));
-    expect(planner.decide).toHaveBeenCalledTimes(2);
-    coordinator.nextGuidance(ready.taskId);
+    runtime.respondToInteraction({
+      taskId: ready.taskId,
+      interactionId: waiting.pendingInteraction.id,
+      kind: 'answer',
+      text: 'Alex',
+    });
+    coordinator.resume(ready.taskId);
     await coordinator.waitForIdle(ready.taskId);
 
-    const completed = runtime.getSnapshot(ready.taskId);
-    expect(completed.phase).toBe('completed');
-    expect(completed.progress?.currentStep).toBe(2);
-    expect(planner.decide).toHaveBeenCalledTimes(3);
-    expect(dismissPresentation).toHaveBeenCalled();
+    expect(agent.outputs).toContainEqual({
+      callId: 'call-input',
+      output: JSON.stringify({ status: 'confirmed', answer: 'Alex' }),
+    });
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
   });
 
-  it('aborts an in-flight action at the task deadline and marks its outcome unknown', async () => {
-    vi.useFakeTimers();
-    try {
-      const runtime = new TaskRuntime();
-      const cua = new FakeCua();
-      cua.executeCommand.mockImplementation(
-        async (_taskId, _command, signal): Promise<DesktopActionOutcome> =>
-          new Promise((_resolve, reject) => {
-            signal?.addEventListener(
-              'abort',
-              () => {
-                const error = new Error('aborted');
-                error.name = 'AbortError';
-                reject(error);
-              },
-              { once: true },
-            );
-          }),
-      );
-      const planner: DesktopPlanner = {
-        start: vi.fn(async () => undefined),
-        end: vi.fn(async () => undefined),
-        decide: vi.fn(async (_taskId, input: PlannerStepInput) => ({
-          kind: 'action',
-          observationId: input.observation.observationId,
-          intent: 'click_element',
-          capability: 'computer_use',
-          description: 'Click the visible button.',
-          command: { kind: 'click', x: 400, y: 300, button: 'left', count: 1 },
-        } as const)),
-      };
-      const coordinator = new TaskExecutionCoordinator({ runtime, cua, planner });
-      const ready = runtime.submit({ text: 'Click the button on screen' });
+  it('returns an approval denial to GPT without dispatching the action', async () => {
+    const observationId = randomUUID();
+    const { agent, coordinator, cua, runtime } = setup([
+      tool('call-observe', 'observe_desktop', { reason: 'Inspect the inbox.' }),
+      tool('call-delete', 'control_desktop', {
+        observationId,
+        consequence: 'delete',
+        description: 'Delete the selected email.',
+        command: {
+          kind: 'click',
+          x: 900,
+          y: 100,
+          button: 'left',
+          count: 1,
+        },
+      }),
+      assistant('I left the email unchanged.'),
+    ]);
+    const ready = runtime.submit({ text: 'Delete that email.' });
+    const first = observation(ready.taskId, observationId);
+    cua.observe.mockResolvedValueOnce(first);
 
-      coordinator.start({ taskId: ready.taskId });
-      await vi.waitFor(() => expect(cua.executeCommand).toHaveBeenCalledOnce());
-      await vi.advanceTimersByTimeAsync(ready.goal!.limits.maxMinutes * 60_000);
-      await coordinator.waitForIdle(ready.taskId);
-
-      const blocked = runtime.getSnapshot(ready.taskId);
-      expect(blocked.phase).toBe('blocked');
-      expect(blocked.lastEvent?.summary).toContain('outcome is unknown');
-      expect(cua.executeCommand).toHaveBeenCalledOnce();
-    } finally {
-      vi.useRealTimers();
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+    const waiting = runtime.getSnapshot(ready.taskId);
+    if (!waiting.pendingInteraction || waiting.pendingInteraction.kind !== 'approval') {
+      throw new Error('Expected approval.');
     }
+    runtime.decideApproval({
+      taskId: ready.taskId,
+      interactionId: waiting.pendingInteraction.id,
+      kind: 'approval',
+      decision: 'deny',
+      actionDigest: waiting.pendingInteraction.actionDigest,
+    });
+    coordinator.resume(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(cua.executeCommand).not.toHaveBeenCalled();
+    expect(agent.outputs.at(-1)).toMatchObject({ callId: 'call-delete' });
+    expect(String(agent.outputs.at(-1)?.output)).toContain('denied');
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+  });
+
+  it('invalidates approved desktop work when the screen fingerprint changes', async () => {
+    const observationId = randomUUID();
+    const { agent, coordinator, cua, runtime } = setup([
+      tool('call-observe', 'observe_desktop', { reason: 'Inspect the inbox.' }),
+      tool('call-delete', 'control_desktop', {
+        observationId,
+        consequence: 'delete',
+        description: 'Delete the selected email.',
+        command: {
+          kind: 'click',
+          x: 900,
+          y: 100,
+          button: 'left',
+          count: 1,
+        },
+      }),
+      assistant('The screen changed, so I did not delete anything.'),
+    ]);
+    const ready = runtime.submit({ text: 'Delete that email.' });
+    cua.observe
+      .mockResolvedValueOnce(observation(ready.taskId, observationId, 'a'.repeat(64)))
+      .mockResolvedValueOnce(observation(ready.taskId, randomUUID(), 'b'.repeat(64)));
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+    const waiting = runtime.getSnapshot(ready.taskId);
+    if (!waiting.pendingInteraction || waiting.pendingInteraction.kind !== 'approval') {
+      throw new Error('Expected approval.');
+    }
+    runtime.decideApproval({
+      taskId: ready.taskId,
+      interactionId: waiting.pendingInteraction.id,
+      kind: 'approval',
+      decision: 'approve',
+      actionDigest: waiting.pendingInteraction.actionDigest,
+    });
+    coordinator.resume(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(cua.executeCommand).not.toHaveBeenCalled();
+    expect(JSON.stringify(agent.outputs.at(-1)?.output)).toContain(
+      'screen changed',
+    );
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+  });
+
+  it('pauses on missing computer permission while keeping the model session alive', async () => {
+    const { agent, coordinator, cua, runtime } = setup([
+      tool('call-observe', 'observe_desktop', { reason: 'Inspect GarageBand.' }),
+    ]);
+    cua.startTaskSession.mockRejectedValueOnce(new Error('Permission required.'));
+    cua.getStatus.mockResolvedValueOnce({
+      state: 'permission_required',
+      available: false,
+      platform: 'darwin',
+      permissions: { accessibility: false, screenRecording: false },
+      summary: 'Computer permission required.',
+      nextActions: ['Connect computer.'],
+    });
+    const ready = runtime.submit({ text: 'Make this beat in GarageBand.' });
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'awaiting_input',
+      pendingInteraction: {
+        kind: 'clarification',
+        choices: expect.arrayContaining([
+          expect.objectContaining({ id: 'connect_computer' }),
+        ]),
+      },
+    });
+    expect(agent.end).not.toHaveBeenCalled();
+    coordinator.cancel({ taskId: ready.taskId });
   });
 });

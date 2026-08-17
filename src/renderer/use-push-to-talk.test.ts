@@ -207,6 +207,9 @@ describe('push-to-talk attempt lifecycle', () => {
     expect(onTranscriptSubmit).toHaveBeenCalledWith('send the transcript');
     await flushMicrotasks();
     expect(transportHarness.openTransport).toHaveBeenCalledTimes(2);
+    expect(onTranscriptSubmit.mock.invocationCallOrder[0]).toBeLessThan(
+      transportHarness.openTransport.mock.invocationCallOrder[1] ?? 0,
+    );
     expect(channel.close).toHaveBeenCalledOnce();
     expect(connection.close).toHaveBeenCalledOnce();
   });

@@ -1,11 +1,6 @@
 import { z } from 'zod';
 
-import {
-  CapabilitySchema,
-  ProposedActionSchema,
-  RuntimeToolIdSchema,
-  type ProposedAction,
-} from '../../shared/contracts';
+import { RuntimeToolIdSchema } from '../../shared/contracts';
 
 const CoordinateSchema = z.number().int().nonnegative().max(100_000);
 const DirectToolInputSchema = z
@@ -19,8 +14,8 @@ const DirectToolInputSchema = z
   .refine((input) => Object.keys(input).length <= 64, {
     message: 'A direct tool call cannot contain more than 64 fields.',
   });
-export const MAX_GUIDANCE_SEQUENCE_LENGTH = 20;
-export const PLANNER_COORDINATE_MAX = 1_000;
+
+export const NORMALIZED_COORDINATE_MAX = 1_000;
 
 export const DesktopCoordinateSpaceSchema = z.object({
   screenHeight: z.number().int().positive().max(100_000),
@@ -37,13 +32,13 @@ export const DesktopObservationSchema = z.object({
   structuredState: z.string().max(500_000).optional(),
   screenshot: z
     .object({
-      mimeType: z.string().regex(/^image\//),
+      mimeType: z.string().regex(/^image\//u),
       dataBase64: z.string().min(1).max(40_000_000),
     })
     .optional(),
   coordinateSpace: DesktopCoordinateSpaceSchema.optional(),
   degraded: z.boolean(),
-  fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
 });
 
 export const DesktopCommandSchema = z.discriminatedUnion('kind', [
@@ -97,181 +92,17 @@ export const DesktopCommandSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
-const ActionIntentSchema = ProposedActionSchema.shape.action;
-
-const EmailSendPayloadSchema = z.object({
-  account: z.string().min(1).max(500),
-  recipients: z.array(z.string().min(1).max(500)).min(1).max(50),
-  subject: z.string().max(2_000),
-  body: z.string().min(1).max(100_000),
-  threadId: z.string().min(1).max(2_000).optional(),
-  attachments: z.array(z.string().min(1).max(2_000)).max(50).optional(),
-});
-
-const GuidanceSequenceSchema = z.object({
-  index: z.number().int().min(1).max(MAX_GUIDANCE_SEQUENCE_LENGTH),
-  total: z.number().int().min(1).max(MAX_GUIDANCE_SEQUENCE_LENGTH),
-}).refine((sequence) => sequence.index <= sequence.total, {
-  message: 'The guidance sequence index cannot exceed its total.',
-  path: ['index'],
-});
-
-const SENSITIVE_POINTER_INTENTS = new Set([
-  'delete',
-  'download',
-  'install',
-  'login',
-  'purchase',
-  'run_command',
-  'send',
-  'submit',
-  'upload',
-  'write_file',
-]);
-
-export const DesktopActionDecisionSchema = z
-  .object({
-    kind: z.literal('action'),
-    observationId: z.string().uuid(),
-    intent: ActionIntentSchema,
-    toolId: RuntimeToolIdSchema.optional(),
-    operation: z.string().trim().min(1).max(100).optional(),
-    /** @deprecated Accepted for planner/session compatibility. */
-    capability: CapabilitySchema.optional(),
-    description: z.string().min(1).max(2_000),
-    target: z.string().max(8_000).optional(),
-    guidanceSequence: GuidanceSequenceSchema.optional(),
-    sendPayload: EmailSendPayloadSchema.optional(),
-    command: DesktopCommandSchema,
-  })
-  .superRefine((decision, context) => {
-    if (decision.intent === 'send' && !decision.sendPayload) {
-      context.addIssue({
-        code: 'custom',
-        message:
-          'Sending email requires the exact account, recipients, subject, and body.',
-        path: ['sendPayload'],
-      });
-    }
-    if (decision.intent !== 'send' && decision.sendPayload) {
-      context.addIssue({
-        code: 'custom',
-        message: 'Email send details are valid only for a send action.',
-        path: ['sendPayload'],
-      });
-    }
-    if (decision.command.kind === 'point' && !decision.guidanceSequence) {
-      context.addIssue({
-        code: 'custom',
-        message: 'Visual guidance points require an ordered sequence.',
-        path: ['guidanceSequence'],
-      });
-    }
-    if (decision.command.kind !== 'point' && decision.guidanceSequence) {
-      context.addIssue({
-        code: 'custom',
-        message: 'Only visual guidance points may declare a sequence.',
-        path: ['guidanceSequence'],
-      });
-    }
-
-    const expectedToolId =
-      decision.command.kind === 'direct_tool'
-        ? decision.command.toolId
-        : decision.command.kind === 'open_url'
-        ? 'browser.navigate'
-        : decision.command.kind === 'point'
-          ? 'task.guidance'
-          : 'desktop.control';
-    const expectedOperation =
-      decision.command.kind === 'direct_tool'
-        ? decision.command.operation
-        : decision.command.kind === 'point'
-          ? 'guide'
-          : decision.command.kind;
-    if (decision.toolId && decision.toolId !== expectedToolId) {
-      context.addIssue({
-        code: 'custom',
-        message: `The ${decision.command.kind} command requires ${expectedToolId}.`,
-        path: ['toolId'],
-      });
-    }
-    if (decision.operation && decision.operation !== expectedOperation) {
-      context.addIssue({
-        code: 'custom',
-        message: `The ${decision.command.kind} command requires operation ${expectedOperation}.`,
-        path: ['operation'],
-      });
-    }
-
-    const allowed = (() => {
-      switch (decision.command.kind) {
-        case 'open_url':
-          return decision.intent === 'open_url';
-        case 'type_text':
-          return decision.intent === 'type_text';
-        case 'point':
-          return decision.intent === 'guide';
-        case 'drag':
-          return decision.intent === 'drag';
-        case 'direct_tool':
-          return true;
-        case 'scroll':
-          return decision.intent === 'scroll';
-        case 'click':
-          return (
-            decision.intent === 'click_element' ||
-            SENSITIVE_POINTER_INTENTS.has(decision.intent)
-          );
-        case 'keypress':
-          return (
-            decision.intent === 'press_key' ||
-            SENSITIVE_POINTER_INTENTS.has(decision.intent)
-          );
-      }
-    })();
-
-    if (!allowed) {
-      context.addIssue({
-        code: 'custom',
-        message: 'The command and semantic intent do not agree.',
-        path: ['intent'],
-      });
-    }
-  });
-
-export const DesktopStepDecisionSchema = z.discriminatedUnion('kind', [
-  DesktopActionDecisionSchema,
-  z.object({
-    kind: z.literal('ask_user'),
-    prompt: z.string().min(1).max(2_000),
-    choices: z.array(z.string().min(1).max(500)).max(12).optional(),
-  }),
-  z.object({
-    kind: z.literal('complete'),
-    summary: z.string().min(1).max(8_000),
-  }),
-  z.object({
-    kind: z.literal('blocked'),
-    reason: z.string().min(1).max(2_000),
-  }),
-]);
-
 export const DesktopActionOutcomeSchema = z.object({
   status: z.enum(['confirmed', 'unknown', 'failed']),
   summary: z.string().min(1).max(2_000),
 });
 
-export type DesktopActionDecision = z.infer<
-  typeof DesktopActionDecisionSchema
->;
 export type DesktopActionOutcome = z.infer<typeof DesktopActionOutcomeSchema>;
 export type DesktopCommand = z.infer<typeof DesktopCommandSchema>;
 export type DesktopCoordinateSpace = z.infer<
   typeof DesktopCoordinateSpaceSchema
 >;
 export type DesktopObservation = z.infer<typeof DesktopObservationSchema>;
-export type DesktopStepDecision = z.infer<typeof DesktopStepDecisionSchema>;
 
 function mapScreenshotAxis(
   value: number,
@@ -311,115 +142,11 @@ export function mapNormalizedPointToScreenshot(
   const mapAxis = (value: number, extent: number): number =>
     Math.min(
       extent - 1,
-      Math.max(
-        0,
-        Math.round((value / PLANNER_COORDINATE_MAX) * extent),
-      ),
+      Math.max(0, Math.round((value / NORMALIZED_COORDINATE_MAX) * extent)),
     );
 
   return {
     x: mapAxis(point.x, coordinateSpace.screenshotWidth),
     y: mapAxis(point.y, coordinateSpace.screenshotHeight),
   };
-}
-
-function commandParameters(
-  command: DesktopCommand,
-): Record<string, string | string[]> {
-  switch (command.kind) {
-    case 'open_url':
-      return { command: command.kind, url: command.url };
-    case 'click':
-      return {
-        button: command.button,
-        command: command.kind,
-        count: String(command.count),
-        x: String(command.x),
-        y: String(command.y),
-      };
-    case 'point':
-      return {
-        command: command.kind,
-        x: String(command.x),
-        y: String(command.y),
-      };
-    case 'drag':
-      return {
-        button: command.button,
-        command: command.kind,
-        durationMs: String(command.durationMs),
-        fromX: String(command.fromX),
-        fromY: String(command.fromY),
-        toX: String(command.toX),
-        toY: String(command.toY),
-      };
-    case 'direct_tool':
-      return {
-        command: command.kind,
-        ...command.input,
-      };
-    case 'type_text':
-      return { command: command.kind, text: command.text };
-    case 'keypress':
-      return { command: command.kind, keys: command.keys };
-    case 'scroll':
-      return {
-        amount: String(command.amount),
-        command: command.kind,
-        direction: command.direction,
-        x: String(command.x),
-        y: String(command.y),
-      };
-  }
-}
-
-function sendParameters(
-  payload: z.infer<typeof EmailSendPayloadSchema> | undefined,
-): Record<string, string | string[]> {
-  if (!payload) return {};
-
-  return {
-    account: payload.account,
-    recipients: payload.recipients,
-    subject: payload.subject,
-    body: payload.body,
-    ...(payload.threadId ? { threadId: payload.threadId } : {}),
-    ...(payload.attachments ? { attachments: payload.attachments } : {}),
-  };
-}
-
-export function proposedActionForDecision(
-  decision: DesktopActionDecision,
-): ProposedAction {
-  const target =
-    decision.command.kind === 'open_url'
-      ? decision.command.url
-      : decision.target;
-
-  return ProposedActionSchema.parse({
-    action: decision.intent,
-    toolId:
-      decision.toolId ??
-      (decision.command.kind === 'direct_tool'
-        ? decision.command.toolId
-        : decision.command.kind === 'open_url'
-        ? 'browser.navigate'
-        : decision.command.kind === 'point'
-          ? 'task.guidance'
-          : 'desktop.control'),
-    operation:
-      decision.operation ??
-      (decision.command.kind === 'direct_tool'
-        ? decision.command.operation
-        : decision.command.kind === 'point'
-          ? 'guide'
-          : decision.command.kind),
-    ...(decision.capability ? { capability: decision.capability } : {}),
-    description: decision.description,
-    ...(target ? { target } : {}),
-    parameters: {
-      ...sendParameters(decision.sendPayload),
-      ...commandParameters(decision.command),
-    },
-  });
 }

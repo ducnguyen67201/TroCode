@@ -116,6 +116,32 @@ export function placeGuidanceCallout(
   };
 }
 
+export function placeVoiceIsland(
+  displayBounds: Rectangle,
+  islandSize: Size,
+  topGap = 10,
+): Point {
+  const displayRight = displayBounds.x + displayBounds.width;
+  const displayBottom = displayBounds.y + displayBounds.height;
+
+  return {
+    x: Math.round(
+      clamp(
+        displayBounds.x + (displayBounds.width - islandSize.width) / 2,
+        displayBounds.x,
+        displayRight - islandSize.width,
+      ),
+    ),
+    y: Math.round(
+      clamp(
+        displayBounds.y + topGap,
+        displayBounds.y,
+        displayBottom - islandSize.height,
+      ),
+    ),
+  };
+}
+
 export function getVirtualDisplayBounds(displays: readonly Rectangle[]): Rectangle {
   if (displays.length === 0) {
     return { height: 0, width: 0, x: 0, y: 0 };

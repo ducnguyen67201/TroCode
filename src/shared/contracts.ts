@@ -98,7 +98,7 @@ export const SuccessCriterionSchema = z.object({
   verifier: z.string().min(1),
 });
 
-const GoalSpecObjectSchema = z.object({
+export const LegacyTaskContractV2Schema = z.object({
   schemaVersion: z.literal(2),
   id: z.string().uuid(),
   originalRequest: z.string().min(2).max(8_000),
@@ -132,6 +132,19 @@ const GoalSpecObjectSchema = z.object({
     .optional(),
 });
 
+export const AgentTaskContractV3Schema = z.object({
+  schemaVersion: z.literal(3),
+  id: z.string().uuid(),
+  originalRequest: z.string().min(2).max(8_000),
+  approvalPolicy: z.object({
+    alwaysConfirm: z.array(SensitiveActionSchema),
+  }),
+  limits: z.object({
+    maxToolCalls: z.number().int().positive().max(200),
+    maxMinutes: z.number().int().positive().max(120),
+  }),
+});
+
 function normalizeLegacyGoal(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
   const goal = value as Record<string, unknown>;
@@ -152,7 +165,7 @@ function normalizeLegacyGoal(value: unknown): unknown {
 
 export const TaskContractSchema = z.preprocess(
   normalizeLegacyGoal,
-  GoalSpecObjectSchema,
+  z.union([LegacyTaskContractV2Schema, AgentTaskContractV3Schema]),
 );
 
 /** @deprecated Use TaskContractSchema for new code. */
@@ -185,6 +198,12 @@ export const TaskEventSchema = z.object({
   summary: z.string().min(1),
   nextActions: z.array(z.string()),
   artifacts: z.array(z.string()),
+  tool: z
+    .object({
+      toolId: RuntimeToolIdSchema,
+      operation: z.string().trim().min(1).max(100),
+    })
+    .optional(),
 });
 
 const PendingInteractionBaseSchema = z.object({
@@ -246,10 +265,21 @@ export const TaskMessageSchema = z.object({
   timestamp: z.string().datetime(),
 });
 
-export const TaskProgressSchema = z.object({
+export const LegacyTaskProgressSchema = z.object({
   currentStep: z.number().int().nonnegative(),
   maxSteps: z.number().int().positive().max(200),
 });
+
+export const AgentTaskProgressSchema = z.object({
+  kind: z.literal('tool_calls'),
+  completed: z.number().int().nonnegative(),
+  limit: z.number().int().positive().max(200),
+});
+
+export const TaskProgressSchema = z.union([
+  LegacyTaskProgressSchema,
+  AgentTaskProgressSchema,
+]);
 
 export const SteeringInstructionSchema = z.object({
   id: z.string().uuid(),
@@ -423,11 +453,15 @@ export const PrimaryLanguageSchema = z.enum([
   'zh',
 ]);
 
+export const AppLanguageSchema = z.enum(['en', 'vi']);
+
 export const AppPreferencesSchema = z.object({
+  appLanguage: AppLanguageSchema.default('en'),
   primaryLanguage: PrimaryLanguageSchema.nullable(),
 });
 
 export const UpdateAppPreferencesRequestSchema = z.object({
+  appLanguage: AppLanguageSchema.default('en'),
   primaryLanguage: PrimaryLanguageSchema,
 });
 
@@ -475,6 +509,17 @@ export const CompanionStateSchema = z.enum([
   'sending',
   'error',
 ]);
+
+export const CompanionVoiceActivitySchema = z.object({
+  appLanguage: AppLanguageSchema.default('en'),
+  phase: z.enum([
+    'requesting_permission',
+    'connecting',
+    'listening',
+    'processing',
+  ]),
+  transcript: z.string().max(8_000),
+});
 
 export const CompanionPositionSchema = z.object({
   x: z.number().int().min(0).max(100_000),
@@ -568,6 +613,7 @@ export const ActivateMembershipRequestSchema = z.object({
 
 export type Capability = z.infer<typeof CapabilitySchema>;
 export type ActionApprovalGrant = z.infer<typeof ActionApprovalGrantSchema>;
+export type AppLanguage = z.infer<typeof AppLanguageSchema>;
 export type AppPreferences = z.infer<typeof AppPreferencesSchema>;
 export type AppUpdateStatus = z.infer<typeof AppUpdateStatusSchema>;
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
@@ -577,6 +623,9 @@ export type ActivateMembershipRequest = z.infer<
 >;
 export type CompanionPosition = z.infer<typeof CompanionPositionSchema>;
 export type CompanionState = z.infer<typeof CompanionStateSchema>;
+export type CompanionVoiceActivity = z.infer<
+  typeof CompanionVoiceActivitySchema
+>;
 export type CompanionGuidance = z.infer<typeof CompanionGuidanceSchema>;
 export type CompanionSpeech = z.infer<typeof CompanionSpeechSchema>;
 export type ConfigureVoiceRequest = z.infer<
@@ -595,6 +644,7 @@ export type DecideApprovalRequest = z.infer<
 export type Domain = z.infer<typeof DomainSchema>;
 export type GoalSpec = z.infer<typeof GoalSpecSchema>;
 export type TaskContract = z.infer<typeof TaskContractSchema>;
+export type AgentTaskContract = z.infer<typeof AgentTaskContractV3Schema>;
 export type InteractionMode = z.infer<typeof InteractionModeSchema>;
 export type MembershipStatus = z.infer<typeof MembershipStatusSchema>;
 export type PendingInteraction = z.infer<typeof PendingInteractionSchema>;
@@ -618,6 +668,7 @@ export type TaskBehavior = z.infer<typeof TaskBehaviorSchema>;
 export type TaskHistory = z.infer<typeof TaskHistorySchema>;
 export type TaskMessage = z.infer<typeof TaskMessageSchema>;
 export type TaskPhase = z.infer<typeof TaskPhaseSchema>;
+export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>;
 export type TaskUpdate = z.infer<typeof TaskUpdateSchema>;
 export type UpdateAppPreferencesRequest = z.infer<

@@ -7,6 +7,7 @@ import type {
   CompanionPosition,
   CompanionSpeech,
   CompanionState,
+  CompanionVoiceActivity,
   ConfigureVoiceRequest,
   CreateVoiceCallRequest,
   CuaStatus,
@@ -36,6 +37,7 @@ export const IPC_CHANNELS = {
   companionGuidanceChanged: 'companion:guidance-changed',
   companionSpeechChanged: 'companion:speech-changed',
   companionStateChanged: 'companion:state-changed',
+  companionVoiceActivityChanged: 'companion:voice-activity-changed',
   configureVoice: 'voice:configure',
   connectComputer: 'cua:connect',
   createVoiceCall: 'voice:create-call',
@@ -53,6 +55,7 @@ export const IPC_CHANNELS = {
   restartAndInstallAppUpdate: 'update:restart-and-install',
   respondToInteraction: 'task:respond',
   setCompanionState: 'companion:set-state',
+  setCompanionVoiceActivity: 'companion:set-voice-activity',
   startTask: 'task:start',
   signInWithGoogle: 'auth:sign-in-google',
   signOutGoogle: 'auth:sign-out-google',
@@ -93,6 +96,9 @@ export interface DesktopApi {
     request: RespondToInteractionRequest,
   ): Promise<TaskSnapshot>;
   setCompanionState(state: CompanionState): Promise<void>;
+  setCompanionVoiceActivity(
+    activity: CompanionVoiceActivity | null,
+  ): Promise<void>;
   startTask(taskId: string): Promise<TaskSnapshot>;
   signInWithGoogle(): Promise<AuthStatus>;
   signOutGoogle(): Promise<AuthStatus>;
@@ -110,4 +116,7 @@ export interface CompanionApi {
   onPositionChange(listener: (position: CompanionPosition) => void): () => void;
   onSpeechChange(listener: (speech: CompanionSpeech | null) => void): () => void;
   onStateChange(listener: (state: CompanionState) => void): () => void;
+  onVoiceActivityChange(
+    listener: (activity: CompanionVoiceActivity | null) => void,
+  ): () => void;
 }

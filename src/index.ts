@@ -17,16 +17,9 @@ import {
   TaskExecutionCoordinator,
   type DesktopPresentation,
 } from './main/agent/execution-coordinator';
-import { registerGlobalGuidanceShortcuts } from './main/agent/global-guidance-shortcuts';
 import { registerGlobalTaskCancelShortcut } from './main/agent/global-task-cancel-shortcut';
-import {
-  MACOS_VISION_OCR_HELPER_NAME,
-  MacOSVisionGrounder,
-} from './main/agent/macos-vision-grounder';
-import { GptResponsesPlanner } from './main/agent/responses-planner';
-import { GptTaskIntentCompiler } from './main/agent/task-intent-compiler';
+import { GptResponsesAgent } from './main/agent/responses-agent';
 import { TaskRuntime } from './main/agent/task-runtime';
-import { TaskSubmissionService } from './main/agent/task-submission-service';
 import { FileAnalyticsIdentityStore } from './main/analytics/analytics-identity-store';
 import { AnalyticsService } from './main/analytics/analytics-service';
 import { EncryptedAuthSessionStore } from './main/auth/auth-session-store';
@@ -39,6 +32,7 @@ import {
   placeCompanionForBrowserNavigation,
   placeCompanionNearCursor,
   placeGuidanceCallout,
+  placeVoiceIsland,
   shouldUseCompanionOverlay,
   type Point,
   type Rectangle,
@@ -76,6 +70,7 @@ import {
   type CompanionGuidance,
   type CompanionSpeech,
   type CompanionState,
+  type CompanionVoiceActivity,
   type TaskSnapshot,
 } from './shared/contracts';
 import { IPC_CHANNELS } from './shared/desktop-api';
@@ -107,6 +102,7 @@ const hasSingleInstanceLock = initializeSingleInstance(app, () => {
     createWindow();
     createCompanionWindow();
     createGuidanceWindow();
+    createVoiceIslandWindow();
   }
 });
 
@@ -145,27 +141,15 @@ const voiceService = new VoiceService({
   preferencesService: appPreferencesService,
 });
 const elevenLabsTtsService = new ElevenLabsTtsService();
-const responsesPlanner = new GptResponsesPlanner({
+const responsesAgent = new GptResponsesAgent({
   credentialStore: voiceCredentialStore,
-});
-const taskIntentCompiler = new GptTaskIntentCompiler({
-  credentialStore: voiceCredentialStore,
-});
-const taskSubmissionService = new TaskSubmissionService({
-  compiler: taskIntentCompiler,
-  runtime: taskRuntime,
-});
-const visionGrounder = new MacOSVisionGrounder({
-  executablePath: macOSVisionOcrHelperPath(),
 });
 const executionCoordinator = new TaskExecutionCoordinator({
+  agent: responsesAgent,
   cua: cuaService,
   dismissPresentation: dismissCompanionGuidance,
   onGuidancePlaybackChange: (_taskId, paused) =>
     updateGuidancePlaybackState(paused),
-  planner: responsesPlanner,
-  pointGrounder: (decision, observation, signal) =>
-    visionGrounder.ground(decision, observation, signal),
   runtime: taskRuntime,
   openExternal: async (url) => shell.openExternal(url, { activate: true }),
   prepareDesktop: async () => {
@@ -207,6 +191,8 @@ const COMPANION_GAP = 8;
 const COMPANION_GLIDE_DURATION_MS = 360;
 const COMPANION_FOLLOW_INTERVAL_MS = 16;
 const GUIDANCE_CALLOUT_SIZE = { height: 176, width: 380 } as const;
+const VOICE_ISLAND_SIZE = { height: 76, width: 420 } as const;
+const VOICE_ISLAND_TOP_GAP = 10;
 const SHUTDOWN_GRACE_PERIOD_MS = 2_000;
 
 interface CompanionGlide {
@@ -222,8 +208,10 @@ interface CompanionGlide {
 let mainWindow: BrowserWindow | null = null;
 let companionWindow: BrowserWindow | null = null;
 let guidanceWindow: BrowserWindow | null = null;
+let voiceIslandWindow: BrowserWindow | null = null;
 let analyticsService: AnalyticsService | null = null;
 let companionState: CompanionState = 'idle';
+let activeCompanionVoiceActivity: CompanionVoiceActivity | null = null;
 let companionFollowTimer: ReturnType<typeof setInterval> | null = null;
 let companionGlide: CompanionGlide | null = null;
 let companionPinnedPosition: Point | null = null;
@@ -236,7 +224,6 @@ let lastCompanionPosition: Point | null = null;
 let forcedExitTimer: ReturnType<typeof setTimeout> | null = null;
 let shutdownPromise: Promise<void> | null = null;
 let unregisterIpcHandlers: (() => void) | null = null;
-let unregisterGlobalGuidanceShortcuts: (() => void) | null = null;
 let unregisterGlobalTaskCancelShortcut: (() => void) | null = null;
 let unregisterGlobalVoiceShortcut: (() => void) | null = null;
 let removeMainWindowCloseBehavior: (() => void) | null = null;
@@ -262,6 +249,30 @@ function sendCompanionState(): void {
 function updateCompanionState(state: CompanionState): void {
   companionState = state;
   sendCompanionState();
+}
+
+function sendCompanionVoiceActivity(): void {
+  if (!voiceIslandWindow || voiceIslandWindow.isDestroyed()) return;
+  voiceIslandWindow.webContents.send(
+    IPC_CHANNELS.companionVoiceActivityChanged,
+    activeCompanionVoiceActivity,
+  );
+}
+
+function updateCompanionVoiceActivity(
+  activity: CompanionVoiceActivity | null,
+): void {
+  activeCompanionVoiceActivity = activity;
+  if (!voiceIslandWindow || voiceIslandWindow.isDestroyed()) return;
+
+  sendCompanionVoiceActivity();
+  if (!activity) {
+    voiceIslandWindow.hide();
+    return;
+  }
+
+  positionVoiceIsland();
+  voiceIslandWindow.showInactive();
 }
 
 function boundsEqual(left: Rectangle, right: Rectangle): boolean {
@@ -576,8 +587,6 @@ function prepareApplicationShutdown(): Promise<void> {
 
   isShuttingDown = true;
   stopCompanionFollowing();
-  unregisterGlobalGuidanceShortcuts?.();
-  unregisterGlobalGuidanceShortcuts = null;
   unregisterGlobalTaskCancelShortcut?.();
   unregisterGlobalTaskCancelShortcut = null;
   unregisterGlobalVoiceShortcut?.();
@@ -592,6 +601,9 @@ function prepareApplicationShutdown(): Promise<void> {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
   if (companionWindow && !companionWindow.isDestroyed()) companionWindow.hide();
   if (guidanceWindow && !guidanceWindow.isDestroyed()) guidanceWindow.hide();
+  if (voiceIslandWindow && !voiceIslandWindow.isDestroyed()) {
+    voiceIslandWindow.hide();
+  }
 
   const analyticsShutdown = analyticsService?.shutdown() ?? Promise.resolve();
   const executionShutdown = executionCoordinator.shutdown().finally(() =>
@@ -735,22 +747,6 @@ function ensureGlobalTaskCancelShortcut(): void {
   });
 }
 
-function ensureGlobalGuidanceShortcuts(): void {
-  if (unregisterGlobalGuidanceShortcuts) return;
-
-  unregisterGlobalGuidanceShortcuts = registerGlobalGuidanceShortcuts({
-    controls: {
-      back: (taskId) => executionCoordinator.previousGuidance(taskId),
-      next: (taskId) => executionCoordinator.nextGuidance(taskId),
-      togglePause: (taskId) => {
-        executionCoordinator.toggleGuidancePause(taskId);
-      },
-    },
-    registry: globalShortcut,
-    updates: taskRuntime,
-  });
-}
-
 function macOSVoiceShortcutHelperPath(): string {
   return app.isPackaged
     ? path.join(process.resourcesPath, MACOS_VOICE_SHORTCUT_HELPER_NAME)
@@ -758,16 +754,6 @@ function macOSVoiceShortcutHelperPath(): string {
         app.getAppPath(),
         '.generated-native',
         MACOS_VOICE_SHORTCUT_HELPER_NAME,
-      );
-}
-
-function macOSVisionOcrHelperPath(): string {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, MACOS_VISION_OCR_HELPER_NAME)
-    : path.join(
-        app.getAppPath(),
-        '.generated-native',
-        MACOS_VISION_OCR_HELPER_NAME,
       );
 }
 
@@ -857,9 +843,9 @@ const createWindow = (): void => {
     },
     requestScreenRecordingAccess: registerScreenRecordingHost,
     taskRuntime,
-    taskSubmissionService,
     taskHistoryService,
     updateCompanionState,
+    updateCompanionVoiceActivity,
     voiceService,
   });
 
@@ -1054,6 +1040,73 @@ const createCompanionWindow = (): void => {
   );
 };
 
+function positionVoiceIsland(): void {
+  if (!voiceIslandWindow || voiceIslandWindow.isDestroyed()) return;
+
+  const cursor = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursor);
+  voiceIslandWindow.setBounds(
+    {
+      ...placeVoiceIsland(
+        display.workArea,
+        VOICE_ISLAND_SIZE,
+        VOICE_ISLAND_TOP_GAP,
+      ),
+      ...VOICE_ISLAND_SIZE,
+    },
+    false,
+  );
+}
+
+const createVoiceIslandWindow = (): void => {
+  if (voiceIslandWindow && !voiceIslandWindow.isDestroyed()) return;
+
+  voiceIslandWindow = new BrowserWindow({
+    alwaysOnTop: true,
+    backgroundColor: '#00000000',
+    focusable: false,
+    frame: false,
+    hasShadow: false,
+    height: VOICE_ISLAND_SIZE.height,
+    resizable: false,
+    show: false,
+    skipTaskbar: true,
+    transparent: true,
+    width: VOICE_ISLAND_SIZE.width,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
+      sandbox: true,
+      webSecurity: true,
+    },
+  });
+
+  voiceIslandWindow.setIgnoreMouseEvents(true, { forward: true });
+  voiceIslandWindow.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+  });
+  voiceIslandWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  voiceIslandWindow.webContents.on('did-finish-load', () => {
+    sendCompanionVoiceActivity();
+  });
+  voiceIslandWindow.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+  voiceIslandWindow.once('ready-to-show', () => {
+    if (!activeCompanionVoiceActivity) return;
+    positionVoiceIsland();
+    voiceIslandWindow?.showInactive();
+  });
+  voiceIslandWindow.on('closed', () => {
+    voiceIslandWindow = null;
+  });
+
+  const voiceIslandUrl = new URL(MAIN_WINDOW_WEBPACK_ENTRY);
+  voiceIslandUrl.searchParams.set('mode', 'voice-island');
+  void voiceIslandWindow.loadURL(voiceIslandUrl.toString());
+};
+
 const createGuidanceWindow = (): void => {
   if (guidanceWindow && !guidanceWindow.isDestroyed()) return;
 
@@ -1133,8 +1186,8 @@ if (hasSingleInstanceLock) {
     createWindow();
     createCompanionWindow();
     createGuidanceWindow();
+    createVoiceIslandWindow();
     ensureBackgroundTray();
-    ensureGlobalGuidanceShortcuts();
     ensureGlobalTaskCancelShortcut();
     ensureGlobalVoiceShortcut();
   });
@@ -1151,6 +1204,7 @@ if (hasSingleInstanceLock) {
     createWindow();
     createCompanionWindow();
     createGuidanceWindow();
+    createVoiceIslandWindow();
   });
 
   const exitDevelopmentProcess = (): void => {

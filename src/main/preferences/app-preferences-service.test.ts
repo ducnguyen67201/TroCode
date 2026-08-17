@@ -33,7 +33,10 @@ describe('AppPreferencesService', () => {
       write: vi.fn(),
     });
 
-    await expect(service.get()).resolves.toEqual({ primaryLanguage: null });
+    await expect(service.get()).resolves.toEqual({
+      appLanguage: 'en',
+      primaryLanguage: null,
+    });
     await expect(service.getPrimaryLanguage()).resolves.toBe('en');
   });
 
@@ -48,10 +51,13 @@ describe('AppPreferencesService', () => {
     const service = new AppPreferencesService(store);
 
     await expect(
-      service.update({ primaryLanguage: 'vi' }),
-    ).resolves.toEqual({ primaryLanguage: 'vi' });
+      service.update({ appLanguage: 'vi', primaryLanguage: 'vi' }),
+    ).resolves.toEqual({ appLanguage: 'vi', primaryLanguage: 'vi' });
     await expect(service.getPrimaryLanguage()).resolves.toBe('vi');
-    expect(store.write).toHaveBeenCalledWith({ primaryLanguage: 'vi' });
+    expect(store.write).toHaveBeenCalledWith({
+      appLanguage: 'vi',
+      primaryLanguage: 'vi',
+    });
   });
 
   it('rejects unsupported language codes before writing', async () => {
@@ -66,6 +72,19 @@ describe('AppPreferencesService', () => {
     ).rejects.toThrow();
     expect(store.write).not.toHaveBeenCalled();
   });
+
+  it('rejects an unsupported app language before writing', async () => {
+    const store: AppPreferencesStore = {
+      read: vi.fn(async () => null),
+      write: vi.fn(),
+    };
+    const service = new AppPreferencesService(store);
+
+    await expect(
+      service.update({ appLanguage: 'fr', primaryLanguage: 'en' }),
+    ).rejects.toThrow();
+    expect(store.write).not.toHaveBeenCalled();
+  });
 });
 
 describe('FileAppPreferencesStore', () => {
@@ -74,11 +93,29 @@ describe('FileAppPreferencesStore', () => {
     const store = new FileAppPreferencesStore(filePath);
 
     await expect(store.read()).resolves.toBeNull();
-    await store.write({ primaryLanguage: 'en' });
+    await store.write({ appLanguage: 'vi', primaryLanguage: 'en' });
 
-    await expect(store.read()).resolves.toEqual({ primaryLanguage: 'en' });
+    await expect(store.read()).resolves.toEqual({
+      appLanguage: 'vi',
+      primaryLanguage: 'en',
+    });
+    await expect(readFile(filePath, 'utf8')).resolves.toContain(
+      '"appLanguage": "vi"',
+    );
     await expect(readFile(filePath, 'utf8')).resolves.toContain(
       '"primaryLanguage": "en"',
     );
+  });
+
+  it('loads preferences saved before app language was introduced', async () => {
+    const service = new AppPreferencesService({
+      read: vi.fn(async () => ({ primaryLanguage: 'vi' })),
+      write: vi.fn(),
+    });
+
+    await expect(service.get()).resolves.toEqual({
+      appLanguage: 'en',
+      primaryLanguage: 'vi',
+    });
   });
 });

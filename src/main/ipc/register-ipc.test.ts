@@ -37,6 +37,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   event: unknown;
   executionCoordinator: {
     cancelActiveTasks: ReturnType<typeof vi.fn>;
+    start: ReturnType<typeof vi.fn>;
   };
   cuaConnect: ReturnType<typeof vi.fn>;
   cuaGetStatus: ReturnType<typeof vi.fn>;
@@ -56,6 +57,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   recordVoiceTranscript: ReturnType<typeof vi.fn>;
   submit: ReturnType<typeof vi.fn>;
   updateAppPreferences: ReturnType<typeof vi.fn>;
+  updateCompanionVoiceActivity: ReturnType<typeof vi.fn>;
   unregister: () => void;
 } {
   electronMock.handlers.clear();
@@ -108,15 +110,16 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     })),
   };
   const taskRuntime = {
+    submit,
+    respondToInteraction: vi.fn(),
+    decideApproval: vi.fn(),
+    steer: vi.fn(),
     off: vi.fn(),
     on: vi.fn(),
   };
-  const taskSubmissionService = {
-    submit,
-    respondToInteraction: vi.fn(),
-  };
   const executionCoordinator = {
     cancelActiveTasks: vi.fn(() => []),
+    start: vi.fn(() => ({ taskId: 'task-id', phase: 'planning' })),
   };
   const callOrder: string[] = [];
   const permissionRequiredStatus: CuaStatus = {
@@ -170,6 +173,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     phase: 'checking' as const,
   }));
   const restartAndInstallUpdate = vi.fn(async () => undefined);
+  const updateCompanionVoiceActivity = vi.fn();
   const services = {
     appUpdateService: {
       checkForUpdates,
@@ -189,9 +193,9 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     recordVoiceTranscript,
     requestScreenRecordingAccess,
     taskRuntime,
-    taskSubmissionService,
     taskHistoryService: { load: getTaskHistory },
     updateCompanionState: vi.fn(),
+    updateCompanionVoiceActivity,
     voiceService: { createCall: createVoiceCall },
   } as unknown as Parameters<typeof registerIpcHandlers>[1];
 
@@ -213,6 +217,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     requestScreenRecordingAccess,
     submit,
     updateAppPreferences,
+    updateCompanionVoiceActivity,
     unregister: registerIpcHandlers(mainWindow, services),
   };
 }
@@ -289,13 +294,17 @@ describe('registerIpcHandlers auth boundary', () => {
   });
 
   it('admits protected task IPC after authentication', async () => {
-    const { event, submit, unregister } = setup(true);
+    const { event, executionCoordinator, submit, unregister } = setup(true);
     const handler = electronMock.handlers.get(IPC_CHANNELS.submitTask);
 
     await expect(handler?.(event, { text: 'Open YouTube' })).resolves.toEqual({
       taskId: 'task-id',
+      phase: 'planning',
     });
     expect(submit).toHaveBeenCalledWith({ text: 'Open YouTube' });
+    expect(executionCoordinator.start).toHaveBeenCalledWith({
+      taskId: 'task-id',
+    });
     unregister();
   });
 
@@ -314,10 +323,11 @@ describe('registerIpcHandlers auth boundary', () => {
       electronMock.handlers
         .get(IPC_CHANNELS.updateAppPreferences)
         ?.(event, { primaryLanguage: 'vi' }),
-    ).resolves.toEqual({ primaryLanguage: 'vi' });
+    ).resolves.toEqual({ appLanguage: 'en', primaryLanguage: 'vi' });
 
     expect(getAppPreferences).toHaveBeenCalledOnce();
     expect(updateAppPreferences).toHaveBeenCalledWith({
+      appLanguage: 'en',
       primaryLanguage: 'vi',
     });
     unregister();
@@ -383,6 +393,31 @@ describe('registerIpcHandlers auth boundary', () => {
     expect(recordVoiceTranscript).toHaveBeenCalledWith({
       text: 'Open YouTube for me',
     });
+    unregister();
+  });
+
+  it('validates live transcript activity before forwarding it to the island', () => {
+    const { event, unregister, updateCompanionVoiceActivity } = setup(false);
+    const handler = electronMock.handlers.get(
+      IPC_CHANNELS.setCompanionVoiceActivity,
+    );
+
+    expect(
+      handler?.(event, {
+        phase: 'listening',
+        transcript: 'Open YouTube',
+      }),
+    ).toBeUndefined();
+    expect(updateCompanionVoiceActivity).toHaveBeenCalledWith({
+      appLanguage: 'en',
+      phase: 'listening',
+      transcript: 'Open YouTube',
+    });
+    expect(() =>
+      handler?.(event, { phase: 'idle', transcript: '' }),
+    ).toThrow();
+    expect(handler?.(event, null)).toBeUndefined();
+    expect(updateCompanionVoiceActivity).toHaveBeenLastCalledWith(null);
     unregister();
   });
 

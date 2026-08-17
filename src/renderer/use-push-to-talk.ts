@@ -561,10 +561,20 @@ export function usePushToTalk({
         const transcript =
           transcriptionEvent.transcript || turn.transcript.trim();
         const shouldSubmit = turn.committed && transcript.length >= 2;
+        const releaseToTranscriptMs =
+          releaseRequestedAtRef.current === null
+            ? null
+            : Math.max(
+                0,
+                Math.round(
+                  performance.now() - releaseRequestedAtRef.current,
+                ),
+              );
         voiceTurnDiagnostic('transcript-completed', {
           attempt: turn.attempt,
           characters: transcript.length,
           committed: turn.committed,
+          releaseToTranscriptMs: releaseToTranscriptMs ?? 'unavailable',
         });
         activeTurnRef.current = null;
         activationModeRef.current = null;
@@ -574,7 +584,6 @@ export function usePushToTalk({
         attemptStartedAtRef.current = null;
         voicePhaseRef.current = 'idle';
         closeVoiceTurn(turn);
-        warmTransport.replenish();
         setStatus(enabledRef.current ? 'idle' : 'unavailable');
 
         if (shouldSubmit) {
@@ -585,6 +594,8 @@ export function usePushToTalk({
             `No speech was detected. Hold ${pushToTalkShortcutName(platform)} and try again.`,
           );
         }
+        // Let task dispatch enter IPC before warming the next voice transport.
+        warmTransport.replenish();
       });
 
       const reportTransportFailure = (): void => {
@@ -856,7 +867,6 @@ export function usePushToTalk({
       turn.transport.channel.send(
         JSON.stringify({ type: 'input_audio_buffer.commit' }),
       );
-      warmTransport.replenish();
       voiceTurnDiagnostic('buffer-committed', {
         attempt: turn.attempt,
         flushMs: AUDIO_COMMIT_FLUSH_MS,

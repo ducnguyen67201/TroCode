@@ -164,17 +164,17 @@ describe('AnalyticsService', () => {
     expect(client.events.map((event) => event.event)).toEqual([
       'application opened',
       'task created',
-      'goal compiled',
+      'task ready',
     ]);
     expect(serializedEvents).not.toContain('private acquisition');
     expect(serializedEvents).not.toContain('/Users/example');
     expect(client.events.at(-1)?.properties).toMatchObject({
-      behavior: expect.any(String),
       contract_version: expect.any(Number),
     });
+    expect(client.events.at(-1)?.properties).not.toHaveProperty('behavior');
   });
 
-  it('captures completed voice transcripts for later inspection', async () => {
+  it('captures only voice transcript counts, never transcript content', async () => {
     const client = new RecordingAnalyticsClient();
     const service = createService(
       client,
@@ -192,9 +192,10 @@ describe('AnalyticsService', () => {
       distinctId: 'account-42',
       event: 'voice transcription completed',
       properties: {
-        transcript: 'Open YouTube and find the latest TroCode demo',
+        character_count: 'Open YouTube and find the latest TroCode demo'.length,
       },
     });
+    expect(JSON.stringify(client.events.at(-1))).not.toContain('Open YouTube');
   });
 
   it('links login activity to an identified user and rotates identity on logout', async () => {

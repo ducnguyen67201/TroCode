@@ -1,60 +1,48 @@
 import { randomUUID } from 'node:crypto';
 
 import {
-  GoalSpecSchema,
+  AgentTaskContractV3Schema,
   HOST_ALWAYS_CONFIRM_ACTIONS,
+  type AgentTaskContract,
   type GoalSpec,
   type SensitiveAction,
   type TaskBehavior,
 } from '../../shared/contracts';
 
-export interface CompiledTaskIntent {
-  behavior: TaskBehavior;
-  objective: string;
-  successDescription: string;
-}
-
 export const HOST_APPROVAL_POLICY: readonly SensitiveAction[] =
   HOST_ALWAYS_CONFIRM_ACTIONS;
 
+export const DEFAULT_MAX_TOOL_CALLS = 30;
+export const DEFAULT_MAX_TASK_MINUTES = 10;
+
 /**
- * Builds the host-owned execution contract from a model-produced semantic intent.
- * The model never grants tools, approvals, resource scope, or execution limits.
+ * Creates the host-owned execution contract for a new agent turn.
+ * Model-produced semantics never grant tools, approvals, or resource scope.
  */
-export function createTaskContract(
-  originalRequest: string,
-  intent: CompiledTaskIntent,
-): GoalSpec {
-  const alwaysConfirm = [...HOST_APPROVAL_POLICY];
-  return GoalSpecSchema.parse({
-    schemaVersion: 2,
+export function createTaskContract(originalRequest: string): AgentTaskContract {
+  return AgentTaskContractV3Schema.parse({
+    schemaVersion: 3,
     id: randomUUID(),
     originalRequest,
-    behavior: intent.behavior,
-    objective: intent.objective,
-    successCriteria: [
-      {
-        description: intent.successDescription,
-        verifier:
-          intent.behavior === 'act'
-            ? 'Verify the outcome from a fresh observation or a direct tool result.'
-            : 'Return a grounded response that directly satisfies the request.',
-      },
-    ],
-    approvalPolicy: { alwaysConfirm },
+    approvalPolicy: { alwaysConfirm: [...HOST_APPROVAL_POLICY] },
     limits: {
-      maxSteps:
-        intent.behavior === 'act' ? 30 : intent.behavior === 'guide' ? 24 : 12,
-      maxMinutes:
-        intent.behavior === 'act' || intent.behavior === 'guide' ? 10 : 5,
+      maxToolCalls: DEFAULT_MAX_TOOL_CALLS,
+      maxMinutes: DEFAULT_MAX_TASK_MINUTES,
     },
   });
 }
 
-export function taskBehavior(goal: GoalSpec): TaskBehavior {
-  return goal.behavior;
-}
-
 export function taskApprovalPolicy(): readonly SensitiveAction[] {
   return HOST_APPROVAL_POLICY;
+}
+
+export function taskMaxToolCalls(goal: GoalSpec): number {
+  return goal.schemaVersion === 3
+    ? goal.limits.maxToolCalls
+    : goal.limits.maxSteps;
+}
+
+/** @deprecated Only use when presenting a persisted v2 task. */
+export function legacyTaskBehavior(goal: GoalSpec): TaskBehavior | null {
+  return goal.schemaVersion === 2 ? goal.behavior : null;
 }

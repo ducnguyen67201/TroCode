@@ -1,4 +1,5 @@
 import type {
+  RuntimeToolId,
   TaskBehavior,
   TaskEvent,
   TaskSnapshot,
@@ -13,6 +14,12 @@ export interface BehaviorUsage {
   percentage: number;
 }
 
+export interface ToolUsage {
+  count: number;
+  percentage: number;
+  toolId: RuntimeToolId;
+}
+
 export interface ActivityDay {
   count: number;
   date: string;
@@ -24,7 +31,7 @@ export interface ActivityDay {
 export interface InsightsSummary {
   activityDays: ActivityDay[];
   approvalDecisions: number;
-  behaviorUsage: BehaviorUsage[];
+  legacyBehaviorUsage: BehaviorUsage[];
   completedTasks: number;
   completionRate: number;
   currentStreak: number;
@@ -34,6 +41,7 @@ export interface InsightsSummary {
   longestStreak: number;
   stepsObserved: number;
   taskCount: number;
+  toolUsage: ToolUsage[];
 }
 
 function utcDateKey(date: Date): string {
@@ -93,7 +101,7 @@ export function createInsightsSummary(
   const behaviorCounts = new Map<TaskBehavior, number>();
 
   for (const task of tasks) {
-    if (!task.goal) continue;
+    if (!task.goal || task.goal.schemaVersion !== 2) continue;
     const behavior = task.goal.behavior;
     behaviorCounts.set(behavior, (behaviorCounts.get(behavior) ?? 0) + 1);
   }
@@ -111,6 +119,27 @@ export function createInsightsSummary(
     .sort((left, right) =>
       right.count === left.count
         ? left.behavior.localeCompare(right.behavior)
+        : right.count - left.count,
+    );
+
+  const toolCounts = new Map<RuntimeToolId, number>();
+  for (const event of events) {
+    if (event.phase !== 'verifying' || !event.tool) continue;
+    toolCounts.set(
+      event.tool.toolId,
+      (toolCounts.get(event.tool.toolId) ?? 0) + 1,
+    );
+  }
+  const highestToolCount = Math.max(1, ...toolCounts.values());
+  const toolUsage = [...toolCounts.entries()]
+    .map(([toolId, count]) => ({
+      toolId,
+      count,
+      percentage: Math.round((count / highestToolCount) * 100),
+    }))
+    .sort((left, right) =>
+      right.count === left.count
+        ? left.toolId.localeCompare(right.toolId)
         : right.count - left.count,
     );
 
@@ -180,7 +209,7 @@ export function createInsightsSummary(
   return {
     activityDays,
     approvalDecisions: approvalMessageIds.size,
-    behaviorUsage,
+    legacyBehaviorUsage: behaviorUsage,
     completedTasks,
     completionRate:
       finishedTasks === 0
@@ -192,9 +221,16 @@ export function createInsightsSummary(
     finishedTasks,
     longestStreak,
     stepsObserved: tasks.reduce(
-      (total, task) => total + (task.progress?.currentStep ?? 0),
+      (total, task) => {
+        const progress = task.progress;
+        if (!progress) return total;
+        return (
+          total + ('kind' in progress ? progress.completed : progress.currentStep)
+        );
+      },
       0,
     ),
     taskCount: tasks.length,
+    toolUsage,
   };
 }

@@ -13,20 +13,38 @@ const TERMINAL_PHASES: readonly TaskPhase[] = [
 ];
 
 const ALLOWED_TRANSITIONS: Readonly<Record<TaskPhase, readonly TaskPhase[]>> = {
-  idle: ['interpreting', 'cancelled'],
+  idle: ['interpreting', 'ready', 'cancelled'],
   interpreting: ['clarifying', 'ready', 'failed', 'cancelled'],
   clarifying: ['interpreting', 'cancelled'],
   ready: ['planning', 'awaiting_approval', 'cancelled'],
-  awaiting_input: ['observing', 'paused', 'blocked', 'failed', 'cancelled'],
-  awaiting_approval: ['observing', 'paused', 'cancelled', 'blocked', 'failed'],
+  awaiting_input: [
+    'planning',
+    'observing',
+    'paused',
+    'blocked',
+    'failed',
+    'cancelled',
+  ],
+  awaiting_approval: [
+    'planning',
+    'observing',
+    'acting',
+    'paused',
+    'cancelled',
+    'blocked',
+    'failed',
+  ],
   planning: [
     'observing',
+    'acting',
+    'verifying',
     'awaiting_input',
     'awaiting_approval',
     'paused',
     'blocked',
     'failed',
     'cancelled',
+    'completed',
   ],
   observing: [
     'acting',
@@ -70,6 +88,7 @@ interface TransitionDetails {
   summary: string;
   nextActions?: string[];
   artifacts?: string[];
+  tool?: TaskEvent['tool'];
   timestamp?: string;
 }
 
@@ -100,6 +119,7 @@ export function transitionTask(
     summary: details.summary,
     nextActions: details.nextActions ?? [],
     artifacts: details.artifacts ?? [],
+    ...(details.tool ? { tool: details.tool } : {}),
   };
 
   return {

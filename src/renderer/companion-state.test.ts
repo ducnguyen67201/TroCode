@@ -4,6 +4,7 @@ import {
   CompanionGuidanceSchema,
   CompanionSpeechSchema,
   CompanionStateSchema,
+  CompanionVoiceActivitySchema,
 } from '../shared/contracts';
 
 import { getCompanionState } from './companion-state';
@@ -34,6 +35,31 @@ describe('cursor companion state', () => {
       CompanionGuidanceSchema.safeParse({
         message: 'x'.repeat(241),
         side: 'right',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('bounds live voice activity sent to the transcript island', () => {
+    expect(
+      CompanionVoiceActivitySchema.parse({
+        phase: 'listening',
+        transcript: 'Open YouTube',
+      }),
+    ).toEqual({
+      appLanguage: 'en',
+      phase: 'listening',
+      transcript: 'Open YouTube',
+    });
+    expect(
+      CompanionVoiceActivitySchema.safeParse({
+        phase: 'idle',
+        transcript: '',
+      }).success,
+    ).toBe(false);
+    expect(
+      CompanionVoiceActivitySchema.safeParse({
+        phase: 'processing',
+        transcript: 'x'.repeat(8_001),
       }).success,
     ).toBe(false);
   });

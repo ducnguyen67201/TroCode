@@ -1,92 +1,48 @@
 # Computer-use lifecycle
 
-## Goal contract
+Computer use is an optional tool inside the general Responses loop. A new task
+does not create a CUA session, infer a computer capability, or capture a
+screenshot.
 
-A goal is an outcome plus proof. It is not a list of clicks.
-
-Every active `TaskContract` v2 contains:
-
-- `answer`, `guide`, or `act` behavior.
-- Natural-language objective.
-- Observable success criteria and verifier descriptions.
-- Actions that always require user approval.
-- Step and time budgets.
-
-The contract and limits are immutable during one execution. Tools come from the
-trusted runtime registry, not the request. A planner may revise its route but
-cannot register a tool or widen its own authority.
-
-## Task states
+## Lazy flow
 
 ```text
-idle
-  -> interpreting
-  -> clarifying | ready
-  -> awaiting_approval | planning
-  -> observing | awaiting_input
-  -> acting
-  -> verifying
-  -> completed | blocked | failed | cancelled
+model calls observe_desktop
+  -> host checks/starts task-scoped CUA
+  -> if permission is absent, pause for user-clicked Connect computer
+  -> capture fresh observation and return screenshot to the same call ID
+  -> model may call control_desktop using that observation ID
+  -> host parses normalized coordinates and concrete consequence
+  -> policy allows, denies, or asks for exact approval
+  -> execute one atomic command
+  -> always capture a fresh observation
+  -> return outcome + screenshot to the same model session
 ```
 
-Invalid transitions throw instead of being silently accepted. In particular, an idle task cannot jump directly to `acting`, and terminal states cannot restart.
+The model never receives CUA, Electron IPC, or driver handles. Its normalized
+coordinates are converted once into screenshot pixels; companion presentation
+coordinates are mapped separately into desktop points.
 
-`clarifying` completes an underspecified goal before compilation. `awaiting_input`
-pauses an already-compiled running task for a task-scoped answer. Free-form
-answers and exact approvals use separate contracts. After either interaction,
-the task returns to `observing`; it never resumes directly into `acting`.
-Steering received while a task is running is queued without interrupting an
-atomic action. It invalidates any unconsumed approval and requires goal review
-at the next safe boundary before the task re-observes.
+## Freshness and approvals
 
-## Execution loop
+Every control call must cite the latest observation UUID. The host includes the
+observation UUID and fingerprint in the normalized `ProposedAction` and approval
+digest. Before executing a held consequential desktop action, it captures the
+screen again. Any fingerprint change invalidates the grant, returns
+`not_executed` plus the new screenshot, and requires a newly grounded proposal.
 
-The implemented computer-use iteration is:
+## Outcomes
 
-1. Re-read the current goal and remaining budget.
-2. Capture a fresh desktop observation through the task-scoped CUA session.
-3. Ask the GPT Responses visual manager for a typed function-call decision, or
-   advance the next host-owned item in a validated static guidance plan.
-   Guide-mode points stop at a host-owned playback boundary: autoplay advances
-   after 15 seconds, J replays the previous cached point, K pauses/resumes, and
-   L advances. Cached replay does not invoke the model or increment progress.
-4. Validate the registered tool operation, target, consequence, and approval policy.
-5. Ask the user if approval is required.
-6. Dispatch the action once through its registered adapter.
-7. Inspect CUA delivery/effect metadata.
-8. Stop without retry when completion is unknown.
-9. Re-observe and let the latest screenshot prove progress or completion.
-10. Continue, ask, block, fail, or complete.
+Adapters return `confirmed`, `unknown`, `failed`, `denied`, or `not_executed`
+with bounded text and optional in-memory image evidence. A dispatched desktop
+action is followed by a fresh observation even when the driver reports an
+unknown outcome. The exact action digest is then placed on a do-not-dispatch
+list; TroCode never blindly repeats it.
 
-The current vertical slice supports coordinates, typing, keypresses, scrolling,
-dragging, and direct public HTTPS navigation. Accessibility element actions and app-specific
-independent verifiers remain the next hardening step. Non-idempotent actions
-with unknown completion are never retried automatically.
+## Cancellation and cleanup
 
-## Tool result contract
-
-Every agent-facing adapter should normalize results to:
-
-```ts
-interface ToolResult {
-  status: 'success' | 'warning' | 'error';
-  summary: string;
-  nextActions: string[];
-  artifacts: string[];
-}
-```
-
-Errors additionally need a root-cause hint, a safe retry instruction, and an explicit stop condition.
-
-## Initial evaluation set
-
-Before broad execution is enabled, add repeatable evaluations for at least:
-
-1. Guide the user to open YouTube without clicking.
-2. Open YouTube after an explicit action request.
-3. Refuse navigation outside the allowed domain.
-4. Require approval before sending a message.
-5. Cancel during observation.
-6. Recover from a stale accessibility element.
-7. Stop after the action budget is exhausted.
-8. Complete a coding task using files and tests rather than desktop clicks.
+One serialized run is active per task. Cancellation aborts model sampling,
+permission work, observation, or adapter work. CUA is ended only if it was
+started, the in-memory model session is erased, and resolved call IDs are
+released. A cancellation received after an atomic external effect does not undo
+or automatically retry that effect.

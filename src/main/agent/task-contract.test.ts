@@ -2,27 +2,29 @@ import { describe, expect, it } from 'vitest';
 
 import { TaskContractSchema } from '../../shared/contracts';
 
-import { createTaskContract, HOST_APPROVAL_POLICY } from './task-contract';
+import {
+  createTaskContract,
+  HOST_APPROVAL_POLICY,
+  legacyTaskBehavior,
+  taskMaxToolCalls,
+} from './task-contract';
 
 describe('task contract', () => {
-  it('keeps approval policy and limits host-owned', () => {
-    const contract = createTaskContract('Create a simple beat in GarageBand.', {
-      behavior: 'act',
-      objective: 'Create a simple beat in GarageBand.',
-      successDescription: 'A playable beat exists in the open project.',
-    });
+  it('creates a host-owned v3 contract without semantic grants', () => {
+    const contract = createTaskContract('Create a simple beat in GarageBand.');
 
     expect(contract).toMatchObject({
-      schemaVersion: 2,
-      behavior: 'act',
+      schemaVersion: 3,
+      originalRequest: 'Create a simple beat in GarageBand.',
       approvalPolicy: { alwaysConfirm: HOST_APPROVAL_POLICY },
-      limits: { maxMinutes: 10, maxSteps: 30 },
+      limits: { maxMinutes: 10, maxToolCalls: 30 },
     });
-    expect(contract).not.toHaveProperty('domain');
+    expect(contract).not.toHaveProperty('behavior');
     expect(contract).not.toHaveProperty('capabilities');
+    expect(taskMaxToolCalls(contract)).toBe(30);
   });
 
-  it('normalizes a persisted v1 goal into v2 behavior and approval policy', () => {
+  it('normalizes persisted v1 into the legacy v2 branch', () => {
     const parsed = TaskContractSchema.parse({
       id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       originalRequest: 'Research the subject for me',
@@ -45,21 +47,18 @@ describe('task contract', () => {
         alwaysConfirm: expect.arrayContaining(['send', 'delete', 'purchase']),
       },
     });
+    expect(legacyTaskBehavior(parsed)).toBe('act');
+    expect(taskMaxToolCalls(parsed)).toBe(12);
   });
 
-  it('does not silently coerce an unknown future contract version', () => {
+  it('rejects malformed or unknown future contract versions', () => {
     expect(() =>
       TaskContractSchema.parse({
-        schemaVersion: 3,
+        schemaVersion: 4,
         id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         originalRequest: 'Complete a future task',
-        behavior: 'act',
-        objective: 'Complete a future task',
-        successCriteria: [
-          { description: 'It is complete', verifier: 'Observe completion' },
-        ],
         approvalPolicy: { alwaysConfirm: [] },
-        limits: { maxMinutes: 10, maxSteps: 12 },
+        limits: { maxMinutes: 10, maxToolCalls: 12 },
       }),
     ).toThrow();
   });

@@ -1,117 +1,98 @@
 import { describe, expect, it } from 'vitest';
 
-import { compileGoal } from './goal-router';
 import { evaluateAction } from './policy';
 import { RuntimeToolRegistry } from './runtime-tool-registry';
 import { createTaskContract } from './task-contract';
 
-describe('goal policy', () => {
-  it('allows a scoped URL and requires verification afterward', () => {
-    const goal = compileGoal('Open YouTube for me');
-    const decision = evaluateAction(goal, {
-      action: 'open_url',
-      capability: 'browser',
-      description: 'Open the YouTube homepage.',
-      target: 'https://www.youtube.com/',
-    });
+describe('concrete tool policy', () => {
+  const contract = createTaskContract('Help me with this task.');
 
-    expect(decision.status).toBe('allowed');
-    expect(decision.nextActions[0]).toContain('verify');
+  it('allows registered safe browser and desktop operations without semantic grants', () => {
+    expect(
+      evaluateAction(contract, {
+        action: 'open_url',
+        toolId: 'browser.navigate',
+        operation: 'open_url',
+        description: 'Open YouTube.',
+        target: 'https://www.youtube.com/',
+      }).status,
+    ).toBe('allowed');
+    expect(
+      evaluateAction(contract, {
+        action: 'click_element',
+        toolId: 'desktop.control',
+        operation: 'click',
+        description: 'Click the visible Gmail icon.',
+      }).status,
+    ).toBe('allowed');
   });
 
-  it('does not treat a request-derived domain as an authorization grant', () => {
-    const goal = compileGoal('Open YouTube for me');
-    const decision = evaluateAction(goal, {
-      action: 'open_url',
-      capability: 'browser',
-      description: 'Navigate elsewhere.',
-      target: 'https://example.com/',
-    });
-
-    expect(decision.status).toBe('allowed');
+  it.each([
+    'login',
+    'send',
+    'submit',
+    'upload',
+    'download',
+    'delete',
+    'purchase',
+    'install',
+    'run_command',
+    'write_file',
+  ] as const)('requires exact approval for %s', (action) => {
+    expect(
+      evaluateAction(contract, {
+        action,
+        toolId: 'desktop.control',
+        operation: 'click',
+        description: 'Perform the exact displayed action.',
+      }).status,
+    ).toBe('needs_approval');
   });
 
-  it('requires explicit approval for consequential actions', () => {
-    const goal = compileGoal('Send an email to the project team');
-    const decision = evaluateAction(goal, {
-      action: 'send',
-      capability: 'email',
-      description: 'Send the drafted message.',
-    });
-
-    expect(decision.status).toBe('needs_approval');
-  });
-
-  it('denies unavailable operations, not semantic capability labels', () => {
-    const goal = compileGoal('Open YouTube for me');
-    const decision = evaluateAction(goal, {
+  it('denies unavailable operations rather than inferred capabilities', () => {
+    const decision = evaluateAction(contract, {
       action: 'run_command',
-      capability: 'terminal',
-      description: 'Run an unrelated command.',
+      toolId: 'terminal.execute',
+      operation: 'run',
+      description: 'Run a command.',
     });
-
     expect(decision.status).toBe('denied');
     expect(decision.summary).not.toContain('Capability');
   });
 
-  it('allows a desktop operation even when a legacy capability was not granted', () => {
-    const goal = compileGoal('Open YouTube for me');
-    const decision = evaluateAction(goal, {
-      action: 'click_element',
-      toolId: 'desktop.control',
-      operation: 'click',
-      description: 'Click the visible Gmail icon.',
-    });
-
-    expect(decision.status).toBe('allowed');
-  });
-
-  it('rejects local and private browser targets', () => {
-    const goal = compileGoal('Open a website for me');
-
+  it('rejects local, private, and credential-bearing browser targets', () => {
     for (const target of [
       'https://localhost/admin',
       'https://127.0.0.1/admin',
       'https://192.168.1.1/admin',
-      'https://[::1]/admin',
+      'https://user:pass@example.com/',
+      'http://example.com/',
     ]) {
       expect(
-        evaluateAction(goal, {
+        evaluateAction(contract, {
           action: 'open_url',
           toolId: 'browser.navigate',
           operation: 'open_url',
-          description: 'Open a private target.',
+          description: 'Open a target.',
           target,
         }).status,
       ).toBe('denied');
     }
   });
 
-  it('admits a future registered music operation while retaining host approval', () => {
-    const registry = new RuntimeToolRegistry([
-      {
-        id: 'music.generate',
-        description: 'Generate a configured audio artifact.',
-        operations: ['create_track'],
-      },
-    ]);
-    const goal = createTaskContract('Generate a lo-fi MP3.', {
-      behavior: 'act',
-      objective: 'Generate a lo-fi MP3.',
-      successDescription: 'A playable MP3 is available.',
-    });
-
+  it('uses the installed registry as the authority boundary', () => {
     expect(
       evaluateAction(
-        goal,
+        contract,
         {
-          action: 'write_file',
-          toolId: 'music.generate',
-          operation: 'create_track',
-          description: 'Write the generated MP3.',
+          action: 'open_url',
+          toolId: 'browser.navigate',
+          operation: 'open_url',
+          description: 'Open a site.',
+          target: 'https://example.com/',
         },
-        registry,
+        new RuntimeToolRegistry([]),
       ).status,
-    ).toBe('needs_approval');
+    ).toBe('denied');
   });
 });

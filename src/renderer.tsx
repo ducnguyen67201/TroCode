@@ -6,6 +6,7 @@ import { AuthGate } from './renderer/AuthGate';
 import { BrandMark } from './renderer/BrandMark';
 import { CursorCompanion } from './renderer/CursorCompanion';
 import { GuidanceCallout } from './renderer/GuidanceCallout';
+import { VoiceIsland } from './renderer/VoiceIsland';
 
 function DesktopBridgeUnavailable() {
   return (
@@ -34,12 +35,17 @@ const rootElement = document.getElementById('root');
 const rendererMode = new URLSearchParams(window.location.search).get('mode');
 const isCompanionWindow = rendererMode === 'companion';
 const isGuidanceWindow = rendererMode === 'guidance';
-const isAuxiliaryWindow = isCompanionWindow || isGuidanceWindow;
+const isVoiceIslandWindow = rendererMode === 'voice-island';
+const isAuxiliaryWindow =
+  isCompanionWindow || isGuidanceWindow || isVoiceIslandWindow;
 
 if (!rootElement) throw new Error('The application root element is missing.');
 
 if (isCompanionWindow) document.documentElement.classList.add('companion-mode');
 if (isGuidanceWindow) document.documentElement.classList.add('guidance-mode');
+if (isVoiceIslandWindow) {
+  document.documentElement.classList.add('voice-island-mode');
+}
 
 const hasDesktopBridge = isAuxiliaryWindow
   ? typeof window.troCompanion !== 'undefined'
@@ -53,6 +59,8 @@ createRoot(rootElement).render(
       )
     ) : isGuidanceWindow ? (
       <GuidanceCallout />
+    ) : isVoiceIslandWindow ? (
+      <VoiceIsland />
     ) : isCompanionWindow ? (
       <CursorCompanion />
     ) : (

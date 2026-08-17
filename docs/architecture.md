@@ -2,120 +2,88 @@
 
 ## Decision
 
-TroCode uses Electron Forge, React, and TypeScript for the first desktop product.
-
-CUA publishes a Node/TypeScript SDK backed by its Rust runtime. Hosting it in the Electron main process keeps the CUA native runtime under the same signed desktop identity that owns macOS Accessibility and Screen Recording grants. It also avoids a Python service, a Go service, or a reusable local daemon in the first release.
-
-Crux influenced the separation of pure behavior from side effects, but it is not a dependency. The goal router, lifecycle transitions, and policy decisions remain pure and testable. Electron and CUA perform effects at the edge.
-
-## Process boundary
+TroCode uses Electron Forge, React, TypeScript, one OpenAI Responses agent loop,
+and a trusted local tool router. The model receives only model-visible tool
+specifications. Electron main owns their internal IDs, parsers, policy metadata,
+adapters, cancellation, and budgets.
 
 ```mermaid
 flowchart LR
-    UI["React renderer"] -->|"DesktopApi only"| PRELOAD["Sandboxed preload"]
-    PRELOAD -->|"validated IPC"| MAIN["Electron main"]
-    MAIN --> AUTH["Google OAuth + encrypted session"]
-    MAIN --> MEMBERSHIP["Signed membership verifier"]
-    MAIN --> HISTORY["Account-scoped PostgreSQL task history"]
-    MAIN --> COORD["Execution coordinator"]
-    COORD --> GOAL["Goal runtime"]
-    COORD --> RT["GPT Responses visual manager"]
-    COORD --> POLICY["Policy engine"]
-    COORD --> CUA["CUA service"]
-    CUA --> NATIVE["Rust-backed native runtime"]
+    UI["Sandboxed React renderer"] -->|"Narrow DesktopApi"| PRELOAD["Validated preload"]
+    PRELOAD -->|"Authenticated IPC"| MAIN["Electron main"]
+    MAIN --> RUNTIME["Task runtime v3"]
+    RUNTIME --> AGENT["Persistent Responses session"]
+    AGENT -->|"Assistant message"| DONE["Task complete"]
+    AGENT -->|"One function call"| ROUTER["Trusted tool router"]
+    ROUTER --> POLICY["Concrete-action policy"]
+    POLICY --> ADAPTERS["Browser, CUA, guidance, interaction adapters"]
+    ADAPTERS -->|"Tool output + evidence"| AGENT
 ```
 
-### Renderer
+## Assistant-or-tool loop
 
-The renderer owns presentation state. It gates the workspace behind Google
-sign-in, a required post-login permission checklist, and production membership,
-then can submit a
-request, answer a pending clarification, decide an exact approval, queue
-steering, cancel a task, subscribe to typed task updates, inspect CUA status,
-and initiate permission onboarding. It has no direct system access and never
-receives OAuth tokens.
+A new request synchronously creates a host-owned `TaskContract` v3 containing
+the original request, fixed exact-approval policy, tool-call limit, and time
+limit. It contains no domain, behavior, capability grant, application allowlist,
+or model-authored authority.
 
-### Preload
+One in-memory Responses session receives the user message and the tool specs
+currently installed by the registry. `tool_choice` is `auto`, parallel calls are
+disabled, and server storage is disabled. An ordinary assistant message ends the
+task. A function call is schema-parsed, normalized to a host-owned internal tool
+identity, policy-checked, executed once, and returned to the same session. Model
+reasoning items that accompany a call are retained only in this bounded
+main-process session so the following tool output has correct continuity.
 
-The preload exposes a fixed set of task and CUA operations through `contextBridge`. It parses inputs and outputs using shared Zod contracts. Raw `ipcRenderer` is never exposed.
+Text-only work never creates a CUA session or a synthetic screenshot. Desktop
+observation starts CUA lazily. Coordinate actions must reference the latest
+observation ID, are mapped from normalized image coordinates, execute once, and
+return a fresh screenshot before another model sample.
 
-### Main process
+## Trust boundaries
 
-The main process verifies the sending `webContents`, enforces a signed-in
-session on task, voice, and CUA IPC, and enforces active membership on task and
-voice effects in packaged builds. It owns task state, hosts Responses planning,
-Realtime transcription, optional ElevenLabs speech, and CUA sessions, serializes
-execution, and controls application shutdown. Renderer
-navigation and new-window creation are denied. OAuth tokens, the API key, and
-raw screenshots remain main-process-only.
+- The renderer has no Node integration, raw IPC, CUA handle, API key, OAuth
+  token, model response, screenshot bytes, or generic call-tool method.
+- Preload and main parse every boundary with shared Zod contracts.
+- The registry, not GPT, supplies internal tool ID and operation.
+- Policy checks only a concrete normalized action: installed operation, public
+  HTTPS target, and fixed host approval list.
+- Exact approvals bind target, payload, command, coordinates, observation ID,
+  and observation fingerprint. A changed screen invalidates a held desktop
+  approval.
+- Unknown action outcomes are returned with a fresh observation and their exact
+  digest cannot be dispatched again.
 
-Every validated task update is queued to an optional PostgreSQL store under the
-verified Google user ID. The latest snapshot is upserted while lifecycle events
-are append-only and idempotent. History reads cross a narrow, authenticated IPC
-method and are schema-validated again in preload. PostgreSQL credentials remain
-main-process runtime configuration and are never exposed to the renderer.
+## Readiness and permissions
 
-### Membership verifier
+Readiness is split into agent, voice, and desktop concerns. Authenticated users
+with a configured model provider can use the text workspace without microphone,
+Accessibility, or Screen Recording access. Push-to-talk requests microphone
+access when invoked. A desktop observation that lacks OS permission pauses with
+a typed Connect computer choice; only the user's click can initiate permission
+onboarding or open System Settings.
 
-After permissions are complete, packaged builds show a user-specific reference
-code until a matching activation code is entered. Activation payloads contain
-the reference, issue time, and expiry. They are signed offline with an Ed25519
-private key held by the administrator and verified in the trusted main process
-with the bundled public key. Accepted codes are stored with Electron
-`safeStorage`. Development builds bypass membership; production configuration
-fails closed. This offline design deliberately has no early-revocation path, so
-short validity periods are appropriate until a cloud membership service is
-introduced.
+## Persistence and analytics
 
-### Goal runtime
+PostgreSQL stores validated snapshots and lifecycle events. Persisted v1/v2
+contracts remain readable as legacy history; new tasks emit v3 contracts and
+tool-call progress. Screenshots, Responses items, pending raw tool arguments,
+and reasoning never enter task history.
 
-The GPT intent compiler sees only the current user request and returns an objective, `answer`/`guide`/`act` behavior, an observable success description, or one clarification question. It does not see screenshots and cannot select tools, approvals, limits, credentials, or resource authority. The host merges that semantic result into `TaskContract` v2 with fixed approval rules and budgets. Persisted v1 `GoalSpec` records are normalized when parsed; their domain and capability fields are compatibility data and never authorize execution.
+Analytics receives allowlisted counts and identifiers such as contract version,
+phase, tool ID, operation, and transcript character count. It does not receive
+task text, voice transcript text, screenshots, URLs, recipients, file paths, or
+tool arguments.
 
-The trusted runtime tool registry advertises only adapters available in the main
-process. The planner may propose one operation from that catalog; the host
-schema-parses it, derives its concrete consequence, evaluates target and
-approval policy, and dispatches it through the exact registered adapter. The
-initial adapters are `browser.navigate`, `desktop.control`, and
-`task.guidance`. Future filesystem, connector, image, audio, or music adapters
-register at this boundary rather than expanding a keyword router.
+## Native execution and packaging
 
-### Execution coordinator and planner
+CUA stays in Electron main under the signed application identity that owns
+macOS Accessibility and Screen Recording grants. Packaged builds keep the CUA
+dependency island under `app.asar.unpacked/cua-runtime` so platform libraries
+resolve from a real filesystem. Each macOS or Windows release must be built on
+its matching target.
 
-Starting a reviewed goal creates one `AbortController`, a host-owned planner
-session, and one CUA session for that task. The planner sends bounded transcript,
-observation, and screenshot input to the Responses API. For static worksheets,
-the model returns semantic answer/explanation items once and the host assigns and
-advances sequence state; for dynamic UI work, only one action is admitted before
-the screen is observed again. Every decision is schema-parsed and policy-checked.
-The main window hides before observation and returns
-for interactions or terminal states, preventing its own approval UI from
-covering the target application during revalidation. The model never receives
-a CUA handle and cannot grant approvals or widen scope.
-
-### CUA service
-
-The CUA package is inspected during startup. On macOS, TroCode initializes the
-driver automatically only when Accessibility and Screen Recording have already
-been granted. After sign-in, a dedicated onboarding gate requests Microphone,
-Accessibility, and Screen Recording, reports each grant independently, and
-rechecks when the application regains focus. The workspace remains unavailable
-until required permissions and the driver are ready. Internal methods
-start/end task sessions, capture desktop state, and dispatch typed clicks, text,
-keypresses, scrolling, and dragging. These methods are never exposed through `DesktopApi`.
-Shutdown cancels task loops and ends their sessions before stopping native
-admission and destroying the UniFFI handle.
-
-Packaged builds keep a small CUA dependency island under
-`app.asar.unpacked/cua-runtime`. CUA resolves its platform-specific `.node` and
-shared-library files relative to its ESM entry point, so keeping the complete
-island on the real filesystem avoids development-path leaks and ASAR loader
-failures. Each macOS or Windows release must be built on its matching target.
-
-## Future backend
-
-The current direct PostgreSQL adapter provides task-trail durability for the
-foundation. A production cloud backend should replace direct database access
-when TroCode needs credential isolation, retention controls, encrypted task
-synchronization, policy synchronization, or billing. It must not operate the
-desktop directly; the desktop remains the authority for local approvals and
-native actions.
+The current PostgreSQL adapter is a desktop-foundation implementation. A future
+cloud service may isolate credentials, retention, synchronization, or billing,
+but it must not become an authority that bypasses local approvals and native
+policy.

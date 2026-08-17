@@ -59,6 +59,38 @@ describe('action approval digest', () => {
     );
   });
 
+  it('binds desktop approval to coordinates and observation evidence', () => {
+    const base = {
+      action: 'delete' as const,
+      description: 'Delete the selected email.',
+      operation: 'click',
+      toolId: 'desktop.control',
+      parameters: {
+        command: 'click',
+        x: '100',
+        y: '200',
+        observationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        observationFingerprint: 'a'.repeat(64),
+      },
+    };
+
+    expect(createActionDigest(base)).not.toBe(
+      createActionDigest({
+        ...base,
+        parameters: { ...base.parameters, x: '101' },
+      }),
+    );
+    expect(createActionDigest(base)).not.toBe(
+      createActionDigest({
+        ...base,
+        parameters: {
+          ...base.parameters,
+          observationFingerprint: 'b'.repeat(64),
+        },
+      }),
+    );
+  });
+
   it('rejects an unbounded action payload', () => {
     const parameters = Object.fromEntries(
       Array.from({ length: 65 }, (_, index) => [`field-${index}`, 'value']),

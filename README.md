@@ -1,6 +1,6 @@
 # TroCode
 
-TroCode is a cross-platform, general-purpose desktop agent foundation. GPT interprets a user request into a small typed task contract, then the trusted host chooses from tools that are actually installed.
+TroCode is a cross-platform, general-purpose desktop agent foundation. One GPT Responses session receives the conversation and the concrete tools installed by the trusted host; it can answer normally or request one tool call at a time.
 
 The desktop application uses Electron, React, TypeScript, and [CUA Driver](https://github.com/trycua/cua). It is domain-agnostic: requests are not placed into a Gold domain/capability grant before execution. The host still enforces concrete tool availability, public HTTPS targets, fresh observations, exact consequential-action approvals, cancellation, and task limits.
 
@@ -9,10 +9,10 @@ The desktop application uses Electron, React, TypeScript, and [CUA Driver](https
 Implemented:
 
 - Secure Electron main/preload/renderer separation.
-- GPT-backed multilingual intent compilation into `answer`, `guide`, or `act`
-  behavior without keyword domain routing.
-- A trusted runtime tool registry with browser navigation, desktop control, and
-  grounded guidance adapters.
+- One persistent assistant-or-tool Responses loop for multilingual reasoning,
+  writing, coding, music ideas, and installed-tool work.
+- A trusted model-visible tool registry with desktop observation/control,
+  public HTTPS navigation, grounded guidance, and user-input adapters.
 - Typed task lifecycle with guarded transitions.
 - Task-scoped clarification replies that continue the same goal conversation.
 - Structured pending interactions and exact, single-use approval decisions.
@@ -20,17 +20,17 @@ Implemented:
 - Concrete tool/operation, target, and approval policy evaluation.
 - Native Google OAuth sign-in with Authorization Code + PKCE, verified identity
   claims, and an operating-system-encrypted one-time local session.
-- A post-login permission checklist for Microphone, Accessibility, and Screen
-  Recording that automatically rechecks when TroCode regains focus.
-- A production-only membership gate after permission onboarding, with
+- Text-first workspace readiness; microphone and computer permissions are
+  optional and requested only when their feature is used.
+- A production-only membership gate after language setup, with
   account-bound, time-limited activation codes verified by Ed25519 signatures.
-- Automatic CUA initialization after explicit first-run permission onboarding.
+- Lazy CUA initialization after a model desktop-observation request or an
+  explicit user-clicked Connect computer action.
 - Task-scoped CUA sessions with bounded screenshots, typed clicks, text entry,
   keypresses, scrolling, dragging, and session cleanup.
-- GPT-5.6 Luna visual reasoning through the Responses API, with GPT-5.6 Terra
-  fallback and host-owned worksheet sequence state.
-- A serialized observe → policy → act → verify loop with step/time limits,
-  cancellation, safe steering, and no automatic retry after an unknown result.
+- GPT-5.6 Luna reasoning through the Responses API, with GPT-5.6 Terra fallback.
+- A serialized sample → tool → result loop with tool/time limits, cancellation,
+  safe steering, post-action screenshots, and no repeat after unknown results.
 - Direct public HTTPS navigation and exact, revalidated approval
   before consequential CUA actions such as Send.
 - Focused-window push-to-talk plus system-wide background voice shortcuts
@@ -38,13 +38,10 @@ Implemented:
 - Optional ElevenLabs `eleven_flash_v2_5` speech for short companion
   explanations, with local system-speech fallback; TTS failures never block the
   desktop task.
-- Host-owned walkthrough playback with a 15-second autoplay cadence and
-  system-wide **J** previous, **K** pause/resume, and **L** next controls while
-  a guide task is active.
 - Doppler-injected OpenAI voice setup; only short-lived Realtime session
   secrets cross into the renderer.
-- PostHog product analytics for app activity, task funnels, and completed voice
-  transcripts so dictated prompts can be reviewed later.
+- PostHog product analytics for count-only app, model, and tool activity; task
+  text, voice transcripts, screenshots, and tool arguments are excluded.
 - Account-scoped PostgreSQL task history that saves the latest validated task
   snapshot and immutable lifecycle events, then restores History and Insights
   after restart.
@@ -65,19 +62,12 @@ typing, scrolling, and drag. TroCode does not yet claim to generate an MP3
 directly: that requires a separately configured `music.generate` adapter, which
 can be added to the registry without changing request classification.
 
-When a compiled goal reaches `ready`, TroCode starts the task-scoped Responses
-planner and CUA session. The visible **Stop task** control and
+When a host-created task reaches `ready`, TroCode starts its task-scoped
+Responses session. CUA remains stopped unless GPT requests a desktop tool. The visible **Stop task** control and
 the system-wide **Escape** shortcut cancel a nonterminal task, including while
 the main window is hidden for desktop work. The loop observes after every
 admitted action, and consequential actions still pause on an exact approval
 card before anything is dispatched.
-
-During a visual guide, the current pointer and explanation remain visible at a
-playback boundary. Press **J** to revisit a cached step, **K** to pause or
-resume autoplay, and **L** to continue. Revisiting a step neither calls the
-model again nor consumes task progress. While paused, use the existing global
-voice shortcut to ask a follow-up; steering is applied at the next safe
-boundary. **Escape** still stops the task entirely.
 
 ## Requirements
 
@@ -99,14 +89,11 @@ check, and then launches Electron. The named Docker volume keeps task history
 between container restarts. Use `npm run db:down` to stop the container without
 deleting its data.
 
-On first launch, sign in with Google, then use the one-time permission screen to
-enable Microphone, Accessibility, and Screen Recording. TroCode moves into the
-workspace only after every required grant is ready. When macOS opens System
-Settings, TroCode is already registered in the relevant permission list; enable
-it without locating the application manually or using the `+` button, then
-return to TroCode. The app rechecks automatically. Later launches reuse the
-saved Google session and connect CUA automatically while the operating-system
-grants remain enabled.
+On first launch, sign in with Google and choose a language. Text work is then
+available immediately. Push-to-talk requests microphone access when used;
+desktop work pauses with a Connect computer choice when Accessibility or Screen
+Recording is missing. System Settings opens only from that user action, and the
+app rechecks grants when it regains focus.
 
 The registration attempt is controlled by the trusted Electron main process. It
 creates a hidden, sandboxed renderer with its own in-memory session, starts a
@@ -140,9 +127,10 @@ npm start
 ```
 
 Companion speech is optional. To use ElevenLabs credits, also configure
-`ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`. Planner routing defaults to
+`ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`. Agent sampling defaults to
 `gpt-5.6-luna` with `gpt-5.6-terra` fallback and can be overridden with
-`TROCODE_PLANNER_MODEL` and `TROCODE_PLANNER_FALLBACK_MODEL`.
+`TROCODE_AGENT_MODEL` and `TROCODE_AGENT_FALLBACK_MODEL`. The old planner
+variable names remain fallback aliases for one compatibility release.
 
 Paste the value at Doppler's prompt, then enter a line containing only `.`.
 Doppler injects the values while Electron Forge builds and starts the app. The
@@ -352,7 +340,7 @@ Read:
 ```text
 src/
 ├── main/
-│   ├── agent/       goals, policy, Responses planner, execution coordinator
+│   ├── agent/       task runtime, Responses agent, tool router, policy, coordinator
 │   ├── analytics/   privacy-safe PostHog events and durable identity
 │   ├── cua/         permission-aware CUA lifecycle
 │   └── ipc/         trusted renderer boundary
@@ -365,7 +353,7 @@ src/
 
 ## Design rule
 
-CUA is an execution adapter, not the planner and not an authority grant. A task
-must have an outcome, success criteria, host approval rules, and execution
-limits before computer use can begin; each action must also name an available
-tool and admissible operation.
+GPT chooses between assistant text and host-advertised tools, but it never gains
+host authority. The main process owns tool registration, parsing, public-target
+checks, exact approval, execution, cancellation, and limits. CUA is only one
+lazy execution adapter behind that boundary.

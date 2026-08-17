@@ -14,6 +14,7 @@ import {
   TaskSnapshotSchema,
   type PendingInteraction,
   type ProposedAction,
+  type RuntimeToolId,
   type SteeringInstruction,
   type TaskEvent,
   type TaskMessage,
@@ -23,13 +24,12 @@ import {
 
 import { createActionDigest } from './action-approval';
 import { canTransition, isTerminalPhase, transitionTask } from './goal-machine';
-import { compileGoal, requestNeedsClarification } from './goal-router';
 import { evaluateAction } from './policy';
 import {
   defaultRuntimeToolRegistry,
   type RuntimeToolRegistry,
 } from './runtime-tool-registry';
-import { createTaskContract, taskBehavior, type CompiledTaskIntent } from './task-contract';
+import { createTaskContract } from './task-contract';
 
 const APPROVAL_TTL_MS = 5 * 60 * 1_000;
 const MAX_TASK_MESSAGES = 200;
@@ -52,6 +52,13 @@ interface MessageDetails {
   kind: TaskMessage['kind'];
   role: TaskMessage['role'];
   text: string;
+}
+
+interface RuntimeEventDetails {
+  status?: TaskEvent['status'];
+  summary: string;
+  nextActions?: string[];
+  tool?: TaskEvent['tool'];
 }
 
 function createMessage(
@@ -83,6 +90,21 @@ function appendMessage(
   };
 }
 
+function incrementProgress(snapshot: TaskSnapshot): TaskSnapshot['progress'] {
+  const progress = snapshot.progress;
+  if (!progress) return progress;
+  if ('kind' in progress) {
+    return {
+      ...progress,
+      completed: Math.min(progress.limit, progress.completed + 1),
+    };
+  }
+  return {
+    ...progress,
+    currentStep: Math.min(progress.maxSteps, progress.currentStep + 1),
+  };
+}
+
 export class TaskRuntime extends EventEmitter {
   private readonly tasks = new Map<string, TaskSnapshot>();
 
@@ -96,101 +118,48 @@ export class TaskRuntime extends EventEmitter {
     this.toolRegistry = options.toolRegistry ?? defaultRuntimeToolRegistry;
   }
 
-  create(input: unknown): TaskSnapshot {
+  submit(input: unknown): TaskSnapshot {
     const request = SubmitTaskRequestSchema.parse(input);
     const timestamp = this.timestamp();
-    let snapshot: TaskSnapshot = {
+    const contract = createTaskContract(request.text);
+    const idle: TaskSnapshot = {
       taskId: randomUUID(),
       request: request.text,
       phase: 'idle',
-      goal: null,
+      goal: contract,
       messages: [],
       pendingInteraction: null,
       approvalGrant: null,
-      progress: null,
+      progress: {
+        kind: 'tool_calls',
+        completed: 0,
+        limit: contract.limits.maxToolCalls,
+      },
       queuedSteering: [],
       createdAt: timestamp,
       updatedAt: timestamp,
       lastEvent: null,
     };
-
-    snapshot = appendMessage(
-      snapshot,
+    const withRequest = appendMessage(
+      idle,
       { kind: 'request', role: 'user', text: request.text },
       timestamp,
     );
-    snapshot = this.move(snapshot, 'interpreting', {
-      summary: 'Interpreting the requested outcome.',
-      nextActions: ['Compile the objective and success condition.'],
+    return this.move(withRequest, 'ready', {
+      summary: 'Task ready for the agent.',
+      nextActions: ['Start the agent when the model provider is ready.'],
     });
-
-    return snapshot;
-  }
-
-  /** @deprecated Production submission uses TaskSubmissionService. */
-  submit(input: unknown): TaskSnapshot {
-    const snapshot = this.create(input);
-    const request = { text: snapshot.request };
-
-    if (requestNeedsClarification(request.text)) {
-      return this.askForClarification(
-        snapshot,
-        'What outcome would you like, and should TroCode guide you or act for you?',
-        'clarifying',
-      );
-    }
-
-    return this.compileReadyGoal(snapshot);
-  }
-
-  applyCompiledIntent(
-    taskId: string,
-    intent: CompiledTaskIntent,
-  ): TaskSnapshot {
-    const snapshot = this.getTask(taskId);
-    if (snapshot.phase !== 'interpreting') {
-      throw new Error(`Task ${taskId} is not waiting for intent compilation.`);
-    }
-    const goal = createTaskContract(snapshot.request, intent);
-    return this.move(
-      {
-        ...snapshot,
-        goal,
-        pendingInteraction: null,
-        approvalGrant: null,
-        progress: { currentStep: 0, maxSteps: goal.limits.maxSteps },
-      },
-      'ready',
-      {
-        summary: 'Task understood and ready to start.',
-        nextActions: ['Start the task when the execution provider is available.'],
-      },
-    );
-  }
-
-  requestInitialClarification(
-    taskId: string,
-    prompt: string,
-    choices?: Array<{ id: string; label: string }>,
-  ): TaskSnapshot {
-    const snapshot = this.getTask(taskId);
-    if (snapshot.phase !== 'interpreting') {
-      throw new Error(`Task ${taskId} is not being interpreted.`);
-    }
-    return this.askForClarification(snapshot, prompt, 'clarifying', choices);
   }
 
   start(input: unknown): TaskSnapshot {
     const request = StartTaskRequestSchema.parse(input);
     const snapshot = this.getTask(request.taskId);
-
     if (snapshot.phase !== 'ready') {
-      throw new Error(`Task ${request.taskId} is not ready to start.`);
+      throw new Error('Task ' + request.taskId + ' is not ready to start.');
     }
-
     return this.move(snapshot, 'planning', {
-      summary: 'Task coordination started.',
-      nextActions: ['Observe the target before proposing an action.'],
+      summary: 'Agent turn started.',
+      nextActions: ['Ask the model to answer or choose one available tool.'],
     });
   }
 
@@ -198,18 +167,31 @@ export class TaskRuntime extends EventEmitter {
     return TaskSnapshotSchema.parse(this.getTask(taskId));
   }
 
+  recordModelSampling(taskId: string): TaskSnapshot {
+    const snapshot = this.getTask(taskId);
+    if (snapshot.phase === 'planning') {
+      return this.record(snapshot, {
+        summary: 'Thinking about the next response or tool call.',
+        nextActions: ['Wait for the model response.'],
+      });
+    }
+    return this.move(snapshot, 'planning', {
+      summary: 'Continuing the agent turn.',
+      nextActions: ['Ask the model to answer or choose one available tool.'],
+    });
+  }
+
   beginObservation(taskId: string, summary: string): TaskSnapshot {
     const snapshot = this.getTask(taskId);
     if (snapshot.phase === 'observing') {
       return this.record(snapshot, {
         summary,
-        nextActions: ['Ask the model for one bounded next step.'],
+        nextActions: ['Return the fresh observation to the model.'],
       });
     }
-
     return this.move(snapshot, 'observing', {
       summary,
-      nextActions: ['Capture a fresh screenshot before choosing an action.'],
+      nextActions: ['Capture a fresh screenshot before any grounded action.'],
     });
   }
 
@@ -225,60 +207,63 @@ export class TaskRuntime extends EventEmitter {
       {
         summary: guidance,
         nextActions: ['Follow the visible pointer to the referenced item.'],
+        tool: { toolId: 'task.guidance', operation: 'show' },
       },
     );
   }
 
   beginAllowedAction(taskId: string, action: ProposedAction): TaskSnapshot {
     const snapshot = this.getTask(taskId);
-    if (!snapshot.goal) throw new Error('Desktop action requires a compiled goal.');
-
+    if (!snapshot.goal) throw new Error('Tool action requires a task contract.');
     const decision = evaluateAction(snapshot.goal, action, this.toolRegistry);
     if (decision.status !== 'allowed') {
-      throw new Error(`Action is not directly dispatchable: ${decision.summary}`);
+      throw new Error('Action is not directly dispatchable: ' + decision.summary);
     }
-
     return this.move(snapshot, 'acting', {
-      summary: `Dispatching action: ${action.description}`,
-      nextActions: ['Observe and verify before choosing another action.'],
+      summary: 'Using tool: ' + action.description,
+      nextActions: ['Return the tool result before choosing another action.'],
+      ...(action.toolId && action.operation
+        ? { tool: { toolId: action.toolId, operation: action.operation } }
+        : {}),
     });
   }
 
   beginVerification(
     taskId: string,
     summary: string,
-    actionCompleted = false,
+    toolCompleted = false,
+    tool?: { toolId: RuntimeToolId; operation: string },
   ): TaskSnapshot {
     const snapshot = this.getTask(taskId);
-    const progress =
-      actionCompleted && snapshot.progress
-        ? {
-            ...snapshot.progress,
-            currentStep: snapshot.progress.currentStep + 1,
-          }
-        : snapshot.progress;
+    return this.move(
+      {
+        ...snapshot,
+        progress: toolCompleted ? incrementProgress(snapshot) : snapshot.progress,
+      },
+      'verifying',
+      {
+        summary,
+        nextActions: ['Return the result to the model.'],
+        ...(tool ? { tool } : {}),
+      },
+    );
+  }
 
-    return this.move({ ...snapshot, progress }, 'verifying', {
-      summary,
-      nextActions: ['Use a fresh observation to confirm the result.'],
-    });
+  recordToolResult(
+    taskId: string,
+    summary: string,
+    tool: { toolId: RuntimeToolId; operation: string },
+  ): TaskSnapshot {
+    return this.beginVerification(taskId, summary, true, tool);
   }
 
   complete(taskId: string, summary: string): TaskSnapshot {
     const snapshot = this.getTask(taskId);
     const completedWithResponse = appendMessage(
       snapshot,
-      {
-        kind:
-          (snapshot.goal && taskBehavior(snapshot.goal) !== 'act')
-            ? 'answer'
-            : 'status',
-        role: 'assistant',
-        text: summary,
-      },
+      { kind: 'answer', role: 'assistant', text: summary },
       this.timestamp(),
     );
-
     return this.move(completedWithResponse, 'completed', {
       summary,
       nextActions: [],
@@ -294,7 +279,6 @@ export class TaskRuntime extends EventEmitter {
         nextActions,
       });
     }
-
     return this.move(snapshot, 'blocked', {
       status: 'warning',
       summary,
@@ -313,31 +297,37 @@ export class TaskRuntime extends EventEmitter {
   discardApprovalGrant(taskId: string, summary: string): TaskSnapshot {
     const snapshot = this.getTask(taskId);
     if (!snapshot.approvalGrant) return snapshot;
-
-    return this.record({ ...snapshot, approvalGrant: null }, {
-      status: 'warning',
-      summary,
-      nextActions: ['Request fresh approval if a consequential action remains.'],
-    });
+    return this.record(
+      { ...snapshot, approvalGrant: null },
+      {
+        status: 'warning',
+        summary,
+        nextActions: ['Request fresh approval if a risky action remains.'],
+      },
+    );
   }
 
   resumePlanning(taskId: string, summary: string): TaskSnapshot {
-    return this.move(this.getTask(taskId), 'planning', {
+    const snapshot = this.getTask(taskId);
+    if (snapshot.phase === 'planning') {
+      return this.record(snapshot, {
+        summary,
+        nextActions: ['Continue the model turn.'],
+      });
+    }
+    return this.move(snapshot, 'planning', {
       summary,
-      nextActions: ['Re-observe before choosing another action.'],
+      nextActions: ['Continue the model turn.'],
     });
   }
 
   requestInput(input: unknown): TaskSnapshot {
     const request = RequestTaskInputSchema.parse(input);
     const snapshot = this.getTask(request.taskId);
-
     this.assertCanCreateInteraction(snapshot, 'awaiting_input');
-
     return this.askForClarification(
       { ...snapshot, approvalGrant: null },
       request.prompt,
-      'awaiting_input',
       request.choices,
     );
   }
@@ -345,82 +335,30 @@ export class TaskRuntime extends EventEmitter {
   respondToInteraction(input: unknown): TaskSnapshot {
     const request = RespondToInteractionRequestSchema.parse(input);
     const snapshot = this.getTask(request.taskId);
-    const pending = this.matchPendingInteraction(
-      snapshot,
-      request.interactionId,
-    );
-
+    const pending = this.matchPendingInteraction(snapshot, request.interactionId);
     if (pending.kind !== 'clarification') {
       throw new Error('The pending interaction requires an approval decision.');
     }
-    if (snapshot.phase !== 'clarifying' && snapshot.phase !== 'awaiting_input') {
-      throw new Error(`Task ${request.taskId} is not waiting for an answer.`);
+    if (snapshot.phase !== 'awaiting_input') {
+      throw new Error('Task ' + request.taskId + ' is not waiting for an answer.');
     }
-
     const timestamp = this.timestamp();
-    let answeredSnapshot = appendMessage(
+    const answered = appendMessage(
       { ...snapshot, pendingInteraction: null },
       { kind: 'answer', role: 'user', text: request.text },
       timestamp,
     );
-
-    if (snapshot.phase === 'awaiting_input') {
-      return this.move(answeredSnapshot, 'observing', {
-        summary: 'Answer received. Re-observing before any action.',
-        nextActions: ['Capture fresh application state and re-plan safely.'],
-      });
-    }
-
-    answeredSnapshot = {
-      ...answeredSnapshot,
-      request: `${snapshot.request}\n\nClarification: ${request.text}`,
-    };
-    answeredSnapshot = this.move(answeredSnapshot, 'interpreting', {
-      summary: 'Clarification received. Recompiling the bounded goal.',
-      nextActions: ['Validate the clarified objective and scope.'],
-    });
-
-    if (requestNeedsClarification(request.text)) {
-      return this.askForClarification(
-        answeredSnapshot,
-        'Please describe the specific outcome you want TroCode to accomplish.',
-        'clarifying',
-      );
-    }
-
-    return this.compileReadyGoal(answeredSnapshot);
-  }
-
-  acceptIntentClarification(input: unknown): TaskSnapshot {
-    const request = RespondToInteractionRequestSchema.parse(input);
-    const snapshot = this.getTask(request.taskId);
-    const pending = this.matchPendingInteraction(snapshot, request.interactionId);
-    if (pending.kind !== 'clarification' || snapshot.phase !== 'clarifying') {
-      throw new Error(`Task ${request.taskId} is not waiting for intent clarification.`);
-    }
-    const timestamp = this.timestamp();
-    const answeredSnapshot = appendMessage(
-      {
-        ...snapshot,
-        pendingInteraction: null,
-        request: `${snapshot.request}\n\nClarification: ${request.text}`,
-      },
-      { kind: 'answer', role: 'user', text: request.text },
-      timestamp,
-    );
-    return this.move(answeredSnapshot, 'interpreting', {
-      summary: 'Clarification received. Interpreting the refined outcome.',
-      nextActions: ['Compile the objective and success condition.'],
+    return this.move(answered, 'planning', {
+      summary: 'Answer received. Continuing the same agent turn.',
+      nextActions: ['Return the answer to the waiting model tool call.'],
     });
   }
 
   requestApproval(input: unknown): TaskSnapshot {
     const request = RequestApprovalSchema.parse(input);
     const snapshot = this.getTask(request.taskId);
-
     this.assertCanCreateInteraction(snapshot, 'awaiting_approval');
-    if (!snapshot.goal) throw new Error('Approval requires a compiled goal.');
-
+    if (!snapshot.goal) throw new Error('Approval requires a task contract.');
     const policyDecision = evaluateAction(
       snapshot.goal,
       request.action,
@@ -428,10 +366,9 @@ export class TaskRuntime extends EventEmitter {
     );
     if (policyDecision.status !== 'needs_approval') {
       throw new Error(
-        `Approval cannot be requested for this action: ${policyDecision.summary}`,
+        'Approval cannot be requested for this action: ' + policyDecision.summary,
       );
     }
-
     const createdAt = this.timestamp();
     const expiresAt = new Date(
       this.now().getTime() + APPROVAL_TTL_MS,
@@ -447,13 +384,12 @@ export class TaskRuntime extends EventEmitter {
       action: request.action,
       consequence: request.consequence,
     };
-    const waitingSnapshot = appendMessage(
+    const waiting = appendMessage(
       { ...snapshot, pendingInteraction: interaction },
       { kind: 'approval_request', role: 'assistant', text: request.prompt },
       createdAt,
     );
-
-    return this.move(waitingSnapshot, 'awaiting_approval', {
+    return this.move(waiting, 'awaiting_approval', {
       status: 'warning',
       summary: request.prompt,
       nextActions: ['Review the exact action, then approve or deny it.'],
@@ -463,16 +399,12 @@ export class TaskRuntime extends EventEmitter {
   decideApproval(input: unknown): TaskSnapshot {
     const request = DecideApprovalRequestSchema.parse(input);
     const snapshot = this.getTask(request.taskId);
-    const pending = this.matchPendingInteraction(
-      snapshot,
-      request.interactionId,
-    );
-
+    const pending = this.matchPendingInteraction(snapshot, request.interactionId);
     if (pending.kind !== 'approval') {
       throw new Error('The pending interaction requires a clarification answer.');
     }
     if (snapshot.phase !== 'awaiting_approval') {
-      throw new Error(`Task ${request.taskId} is not waiting for approval.`);
+      throw new Error('Task ' + request.taskId + ' is not waiting for approval.');
     }
     if (pending.actionDigest !== request.actionDigest) {
       throw new Error('The approval action digest does not match.');
@@ -487,15 +419,14 @@ export class TaskRuntime extends EventEmitter {
         {
           status: 'warning',
           summary: 'The approval expired before it was used.',
-          nextActions: ['Re-observe and request a fresh approval.'],
+          nextActions: ['Request a fresh approval from current state.'],
         },
       );
       throw new Error('The pending approval has expired.');
     }
-
     const approved = request.decision === 'approve';
     const timestamp = this.timestamp();
-    const decidedSnapshot = appendMessage(
+    const decided = appendMessage(
       {
         ...snapshot,
         pendingInteraction: null,
@@ -518,24 +449,21 @@ export class TaskRuntime extends EventEmitter {
       },
       timestamp,
     );
-
-    return this.move(decidedSnapshot, 'observing', {
+    return this.move(decided, 'planning', {
       status: approved ? 'success' : 'warning',
       summary: approved
-        ? 'Exact action approved. Re-observing before dispatch.'
-        : 'Action denied. Re-observing before replanning.',
+        ? 'Exact action approved.'
+        : 'Action denied. Continuing without executing it.',
       nextActions: approved
-        ? ['Confirm the observation and action digest still match.']
-        : ['Choose a route that does not perform the denied action.'],
+        ? ['Validate current state and execute the held action once.']
+        : ['Return the denial to the model.'],
     });
   }
 
   cancel(input: unknown): TaskSnapshot {
     const request = CancelTaskRequestSchema.parse(input);
     const snapshot = this.getTask(request.taskId);
-
     if (isTerminalPhase(snapshot.phase)) return snapshot;
-
     return this.move(
       { ...snapshot, pendingInteraction: null, approvalGrant: null },
       'cancelled',
@@ -550,16 +478,14 @@ export class TaskRuntime extends EventEmitter {
   steer(input: unknown): TaskSnapshot {
     const request = SteerTaskRequestSchema.parse(input);
     const snapshot = this.getTask(request.taskId);
-
     if (snapshot.pendingInteraction) {
       throw new Error('Answer or decide the pending interaction before steering.');
     }
     if (!STEERABLE_PHASES.has(snapshot.phase)) {
       throw new Error(
-        `Task ${snapshot.taskId} cannot be steered from ${snapshot.phase}.`,
+        'Task ' + snapshot.taskId + ' cannot be steered from ' + snapshot.phase + '.',
       );
     }
-
     const timestamp = this.timestamp();
     const steering: SteeringInstruction = {
       id: randomUUID(),
@@ -567,7 +493,7 @@ export class TaskRuntime extends EventEmitter {
       createdAt: timestamp,
       requiresGoalReview: true,
     };
-    const steeredSnapshot = appendMessage(
+    const steered = appendMessage(
       {
         ...snapshot,
         approvalGrant: null,
@@ -578,37 +504,34 @@ export class TaskRuntime extends EventEmitter {
       { kind: 'steering', role: 'user', text: request.instruction },
       timestamp,
     );
-
-    return this.record(steeredSnapshot, {
+    return this.record(steered, {
       status: 'warning',
-      summary: 'Steering queued for goal review at the next safe boundary.',
-      nextActions: [
-        'Finish or cancel the atomic action, review scope, then re-observe.',
-      ],
+      summary: 'Steering queued for the next safe model boundary.',
+      nextActions: ['Finish or cancel any atomic action, then continue.'],
     });
   }
 
   takeSteering(taskId: string): SteeringInstruction[] {
     const snapshot = this.getTask(taskId);
     if (snapshot.queuedSteering.length === 0) return [];
-
-    const queuedSteering = snapshot.queuedSteering;
-    this.record({ ...snapshot, queuedSteering: [] }, {
-      summary: 'Applying queued steering at a safe boundary.',
-      nextActions: ['Re-observe before proposing another action.'],
-    });
-    return queuedSteering;
+    const queued = snapshot.queuedSteering;
+    this.record(
+      { ...snapshot, queuedSteering: [] },
+      {
+        summary: 'Applying queued steering at a safe boundary.',
+        nextActions: ['Return steering to the model.'],
+      },
+    );
+    return queued;
   }
 
   consumeApprovalGrant(input: unknown): TaskSnapshot {
     const request = ConsumeApprovalGrantRequestSchema.parse(input);
     const snapshot = this.getTask(request.taskId);
     const grant = snapshot.approvalGrant;
-
     if (!grant) {
-      throw new Error(`Task ${request.taskId} has no approved action grant.`);
+      throw new Error('Task ' + request.taskId + ' has no approved action grant.');
     }
-
     const actionDigest = createActionDigest(request.action);
     if (grant.actionDigest !== actionDigest) {
       throw new Error('The approved action grant does not match this action.');
@@ -620,12 +543,11 @@ export class TaskRuntime extends EventEmitter {
       this.move({ ...snapshot, approvalGrant: null }, 'blocked', {
         status: 'warning',
         summary: 'The approved action expired before dispatch.',
-        nextActions: ['Re-observe and request a fresh approval.'],
+        nextActions: ['Request a fresh approval from current state.'],
       });
       throw new Error('The approved action grant has expired.');
     }
-    if (!snapshot.goal) throw new Error('Approved action requires a compiled goal.');
-
+    if (!snapshot.goal) throw new Error('Approved action requires a task contract.');
     const policyDecision = evaluateAction(
       snapshot.goal,
       request.action,
@@ -633,27 +555,33 @@ export class TaskRuntime extends EventEmitter {
     );
     if (policyDecision.status !== 'needs_approval') {
       throw new Error(
-        `Approved action cannot be dispatched: ${policyDecision.summary}`,
+        'Approved action cannot be dispatched: ' + policyDecision.summary,
       );
     }
-
     const timestamp = this.timestamp();
-    const consumingSnapshot = appendMessage(
+    const consuming = appendMessage(
       { ...snapshot, approvalGrant: null },
       {
         kind: 'status',
         role: 'system',
-        text: `Consuming approval for: ${grant.action.description}`,
+        text: 'Consuming approval for: ' + grant.action.description,
       },
       timestamp,
     );
-
     return this.move(
-      consumingSnapshot,
+      consuming,
       'acting',
       {
-        summary: `Dispatching approved action: ${grant.action.description}`,
-        nextActions: ['Observe and verify before considering any retry.'],
+        summary: 'Using approved tool action: ' + grant.action.description,
+        nextActions: ['Return the result before considering another action.'],
+        ...(grant.action.toolId && grant.action.operation
+          ? {
+              tool: {
+                toolId: grant.action.toolId,
+                operation: grant.action.operation,
+              },
+            }
+          : {}),
       },
       timestamp,
     );
@@ -662,7 +590,6 @@ export class TaskRuntime extends EventEmitter {
   private askForClarification(
     snapshot: TaskSnapshot,
     prompt: string,
-    phase: 'clarifying' | 'awaiting_input',
     choices?: Array<{ id: string; label: string }>,
   ): TaskSnapshot {
     const timestamp = this.timestamp();
@@ -674,13 +601,12 @@ export class TaskRuntime extends EventEmitter {
       createdAt: timestamp,
       ...(choices ? { choices } : {}),
     };
-    const waitingSnapshot = appendMessage(
+    const waiting = appendMessage(
       { ...snapshot, pendingInteraction: interaction },
       { kind: 'clarification', role: 'assistant', text: prompt },
       timestamp,
     );
-
-    return this.move(waitingSnapshot, phase, {
+    return this.move(waiting, 'awaiting_input', {
       status: 'warning',
       summary: prompt,
       nextActions: ['Answer by voice or text to continue this task.'],
@@ -692,44 +618,27 @@ export class TaskRuntime extends EventEmitter {
     targetPhase: 'awaiting_input' | 'awaiting_approval',
   ): void {
     if (snapshot.pendingInteraction) {
-      throw new Error(`Task ${snapshot.taskId} already has a pending interaction.`);
+      throw new Error('Task ' + snapshot.taskId + ' already has a pending interaction.');
     }
     if (targetPhase === 'awaiting_approval' && snapshot.approvalGrant) {
       throw new Error(
-        `Task ${snapshot.taskId} already has an unconsumed approval grant.`,
+        'Task ' + snapshot.taskId + ' already has an unconsumed approval grant.',
       );
     }
     if (!canTransition(snapshot.phase, targetPhase)) {
       throw new Error(
-        `Task ${snapshot.taskId} cannot request interaction from ${snapshot.phase}.`,
+        'Task ' +
+          snapshot.taskId +
+          ' cannot request interaction from ' +
+          snapshot.phase +
+          '.',
       );
     }
   }
 
-  private compileReadyGoal(snapshot: TaskSnapshot): TaskSnapshot {
-    const goal = compileGoal(snapshot.request);
-    return this.move(
-      {
-        ...snapshot,
-        goal,
-        pendingInteraction: null,
-        approvalGrant: null,
-        progress: { currentStep: 0, maxSteps: goal.limits.maxSteps },
-      },
-      'ready',
-      {
-        summary: 'Goal compiled and ready for review.',
-        nextActions: [
-          'Review the capability and resource scope.',
-          'Start the task when the execution provider is available.',
-        ],
-      },
-    );
-  }
-
   private getTask(taskId: string): TaskSnapshot {
     const snapshot = this.tasks.get(taskId);
-    if (!snapshot) throw new Error(`Task ${taskId} was not found.`);
+    if (!snapshot) throw new Error('Task ' + taskId + ' was not found.');
     return snapshot;
   }
 
@@ -739,7 +648,7 @@ export class TaskRuntime extends EventEmitter {
   ): PendingInteraction {
     const pending = snapshot.pendingInteraction;
     if (!pending) {
-      throw new Error(`Task ${snapshot.taskId} has no pending interaction.`);
+      throw new Error('Task ' + snapshot.taskId + ' has no pending interaction.');
     }
     if (pending.id !== interactionId) {
       throw new Error('The interaction ID does not match the pending request.');
@@ -761,27 +670,22 @@ export class TaskRuntime extends EventEmitter {
           queuedSteering: [],
         }
       : snapshot;
-    const updatedSnapshot = TaskSnapshotSchema.parse(
+    const updated = TaskSnapshotSchema.parse(
       transitionTask(transitionSnapshot, phase, { ...details, timestamp }),
     );
-    const event = updatedSnapshot.lastEvent;
+    const event = updated.lastEvent;
     if (!event) throw new Error('A lifecycle transition must create an event.');
-
-    this.tasks.set(updatedSnapshot.taskId, updatedSnapshot);
+    this.tasks.set(updated.taskId, updated);
     this.emit('task-update', {
       event: event satisfies TaskEvent,
-      snapshot: updatedSnapshot,
+      snapshot: updated,
     } satisfies TaskUpdate);
-    return updatedSnapshot;
+    return updated;
   }
 
   private record(
     snapshot: TaskSnapshot,
-    details: {
-      status?: TaskEvent['status'];
-      summary: string;
-      nextActions?: string[];
-    },
+    details: RuntimeEventDetails,
   ): TaskSnapshot {
     const timestamp = this.timestamp();
     const event: TaskEvent = {
@@ -793,19 +697,19 @@ export class TaskRuntime extends EventEmitter {
       summary: details.summary,
       nextActions: details.nextActions ?? [],
       artifacts: [],
+      ...(details.tool ? { tool: details.tool } : {}),
     };
-    const updatedSnapshot = TaskSnapshotSchema.parse({
+    const updated = TaskSnapshotSchema.parse({
       ...snapshot,
       updatedAt: timestamp,
       lastEvent: event,
     });
-
-    this.tasks.set(updatedSnapshot.taskId, updatedSnapshot);
+    this.tasks.set(updated.taskId, updated);
     this.emit('task-update', {
       event,
-      snapshot: updatedSnapshot,
+      snapshot: updated,
     } satisfies TaskUpdate);
-    return updatedSnapshot;
+    return updated;
   }
 
   private timestamp(): string {

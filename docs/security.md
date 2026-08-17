@@ -1,6 +1,6 @@
 # Security model
 
-TroCode has unusually powerful local permissions. The model is treated as an untrusted planner operating inside a trusted host policy.
+TroCode has unusually powerful local permissions. The model is treated as an untrusted tool chooser operating inside a trusted host policy.
 
 ## Trust boundaries
 
@@ -21,19 +21,18 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
   saved session is encrypted through Electron `safeStorage`; sign-out deletes
   it.
 - On macOS, launch checks Accessibility and Screen Recording state without
-  prompting. After authentication, a dedicated onboarding gate explicitly
-  requests Microphone, Accessibility, and Screen Recording and blocks the
-  workspace until the grants and CUA runtime are ready. Later launches
-  initialize automatically while the operating-system grants remain enabled.
-- Packaged builds require an active membership after permission onboarding.
+  prompting. Text work does not require microphone or CUA permissions.
+  Push-to-talk requests microphone access when used; desktop work pauses until
+  the user clicks Connect computer. Model output cannot open System Settings.
+- Packaged builds require an active membership after language setup.
   The renderer can inspect and submit membership codes only through narrow,
   schema-validated IPC. The main process verifies an Ed25519 signature, binds
   the signed payload to a reference derived from the verified Google user ID,
   checks its expiry, and rechecks membership before task and voice operations.
   Local development bypasses this gate; packaged builds fail closed if the
   public verification key is absent.
-- No task executes merely because it was described as a question.
-- `guide` mode observes and explains; it does not act.
+- Assistant text and tool calls share one model session. A model tool call is a
+  proposal, not permission or proof that an effect occurred.
 - Consequential actions require explicit approval.
 - Remote navigation and creation of unexpected Electron windows are denied.
 - Current actions are bounded by registered tool operations, public-target
@@ -43,11 +42,9 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
 
 ## Sensitive data
 
-Screenshots, URLs, document text, file paths, and typed input may contain private
-data. Do not write them to analytics logs. Completed voice transcripts are the
-explicit exception: TroCode stores their text in PostHog so the team can review
-dictated prompts. Access and retention must be controlled in the PostHog
-project. Task-history persistence is enabled only when the operator configures
+Screenshots, URLs, document text, file paths, typed input, voice transcripts,
+model reasoning, and raw tool arguments may contain private data. Do not write
+them to analytics logs. Task-history persistence is enabled only when the operator configures
 `DATABASE_URL`. It stores task requests, conversations, goal scope, and
 lifecycle outcomes under the verified Google user ID, but not raw screenshots,
 OAuth tokens, or model-provider credentials. Hosted connections must use TLS,
@@ -62,15 +59,15 @@ application. Production database credentials and network policy are deliberately
 separate from this development setup.
 
 PostHog runs only in the trusted Electron main process. Its event surface is an
-explicit allowlist of application lifecycle, task lifecycle, platform, version,
-compiled-goal classification fields, and completed voice transcript text.
+explicit allowlist of application lifecycle, task phase, contract version,
+tool ID/operation, and count fields. Voice events contain only character count.
 Anonymous activity uses a random local installation ID without a person
 profile. Email and display name are sent only after successful Google
 authentication.
 
 Do not ship a shared model-provider API key inside the renderer or application
 bundle. Doppler injects the developer-owned OpenAI and optional ElevenLabs keys
-into the Electron main process at runtime. Responses planning and speech
+into the Electron main process at runtime. Responses sampling and speech
 synthesis stay in that process; only short-lived Realtime transcription secrets
 and validated MP3 companion data cross narrow preload boundaries. A production
 service may replace this with an authenticated cloud gateway.

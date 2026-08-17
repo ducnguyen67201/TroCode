@@ -1,19 +1,21 @@
-import type { ProposedAction, RuntimeToolId } from '../../shared/contracts';
+import type { RuntimeToolId } from '../../shared/contracts';
 
-import type { DesktopActionOutcome } from './execution-contracts';
+import type {
+  ResolvedToolInvocation,
+  ToolExecutionResult,
+} from './agent-contracts';
 
 export interface RuntimeToolDispatchContext {
   signal: AbortSignal;
   taskId: string;
 }
 
-export interface RuntimeToolExecutionAdapter<TInput = unknown> {
-  id: RuntimeToolId;
+export interface RuntimeToolExecutionAdapter {
   execute(
-    action: ProposedAction,
-    input: TInput,
+    invocation: ResolvedToolInvocation,
     context: RuntimeToolDispatchContext,
-  ): Promise<DesktopActionOutcome>;
+  ): Promise<ToolExecutionResult>;
+  id: RuntimeToolId;
 }
 
 export class RuntimeToolDispatcher {
@@ -25,23 +27,29 @@ export class RuntimeToolDispatcher {
   constructor(adapters: readonly RuntimeToolExecutionAdapter[]) {
     for (const adapter of adapters) {
       if (this.adapters.has(adapter.id)) {
-        throw new Error(`Runtime executor ${adapter.id} is already registered.`);
+        throw new Error(
+          'Runtime executor ' + adapter.id + ' is already registered.',
+        );
       }
       this.adapters.set(adapter.id, adapter);
     }
   }
 
-  async dispatch<TInput>(
-    action: ProposedAction,
-    input: TInput,
+  async dispatch(
+    invocation: ResolvedToolInvocation,
     context: RuntimeToolDispatchContext,
-  ): Promise<DesktopActionOutcome> {
-    const toolId = action.toolId;
-    if (!toolId) {
-      throw new Error('A normalized runtime action requires a tool ID.');
+  ): Promise<ToolExecutionResult> {
+    if (context.signal.aborted) {
+      const error = new Error('Tool dispatch was cancelled.');
+      error.name = 'AbortError';
+      throw error;
     }
-    const adapter = this.adapters.get(toolId);
-    if (!adapter) throw new Error(`Runtime tool ${toolId} is unavailable.`);
-    return adapter.execute(action, input, context);
+    const adapter = this.adapters.get(invocation.toolId);
+    if (!adapter) {
+      throw new Error(
+        'Runtime tool ' + invocation.toolId + ' is unavailable.',
+      );
+    }
+    return adapter.execute(invocation, context);
   }
 }

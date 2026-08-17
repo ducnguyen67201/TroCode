@@ -120,6 +120,22 @@ describe('createHistoryEntries', () => {
 });
 
 describe('task history view model', () => {
+  it('shows v3 assistant-only tasks without a synthetic behavior', () => {
+    const snapshot = completedSnapshot({
+      schemaVersion: 3,
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      originalRequest: 'What is 27 × 14?',
+      approvalPolicy: { alwaysConfirm: ['send'] },
+      limits: { maxMinutes: 10, maxToolCalls: 30 },
+    });
+
+    expect(createHistoryEntries([snapshot], [])[0]).toMatchObject({
+      behavior: null,
+      objective: 'Complete the task',
+      toolsUsed: [],
+    });
+  });
+
   it('shows v2 behavior without exposing a capability grant', () => {
     const snapshot = completedSnapshot({
       schemaVersion: 2,

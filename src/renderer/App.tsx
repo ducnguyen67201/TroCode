@@ -8,6 +8,7 @@ import {
 } from 'react';
 
 import type {
+  AppLanguage,
   AppPreferences,
   AppUpdateStatus,
   AuthUser,
@@ -22,6 +23,7 @@ import type {
   VoiceStatus,
 } from '../shared/contracts';
 
+import { appLanguageLabel, translate } from './app-language';
 import { BrandMark } from './BrandMark';
 import { getCompanionState } from './companion-state';
 import { HistoryPage } from './HistoryPage';
@@ -35,7 +37,6 @@ import { MembershipGate } from './MembershipGate';
 import {
   createPermissionChecklist,
   inspectMicrophonePermission,
-  isPermissionSetupComplete,
   requestScreenRecordingPermission,
   shouldConnectAfterPermissionRefresh,
   type PermissionState,
@@ -186,79 +187,107 @@ function NavigationIcon({
   );
 }
 
-function formatLabel(value: string): string {
-  return value.replaceAll('_', ' ');
+function formatLabel(value: string, appLanguage: AppLanguage = 'en'): string {
+  return translate(appLanguage, value.replaceAll('_', ' '));
 }
 
 function voiceStatusMessage(
   status: VoiceInputStatus,
   platform: PushToTalkPlatform,
+  appLanguage: AppLanguage,
 ): string {
   switch (status) {
     case 'connecting':
-      return 'Connecting to OpenAI voice…';
+      return translate(appLanguage, 'Connecting to OpenAI voice…');
     case 'listening':
-      return 'Listening… Release the voice shortcut to send.';
+      return translate(
+        appLanguage,
+        'Listening… Release the voice shortcut to send.',
+      );
     case 'processing':
-      return 'Finishing transcript…';
+      return translate(appLanguage, 'Finishing transcript…');
     case 'requesting_permission':
-      return 'Waiting for microphone access…';
+      return translate(appLanguage, 'Waiting for microphone access…');
     case 'unavailable':
-      return 'Voice recognition is unavailable. Type your request instead.';
+      return translate(
+        appLanguage,
+        'Voice recognition is unavailable. Type your request instead.',
+      );
     case 'idle': {
       const globalShortcut = globalPushToTalkShortcutName(platform);
       if (globalShortcut) {
         if (platform === 'macos') {
-          return `Voice ready. Hold ${globalShortcut} to talk from any app.`;
+          return translate(
+            appLanguage,
+            'Voice ready. Hold {shortcut} to talk from any app.',
+            { shortcut: globalShortcut },
+          );
         }
-        return `Voice ready. Hold ${pushToTalkShortcutName(platform)} to talk, or hold ${globalShortcut} globally.`;
+        return translate(
+          appLanguage,
+          'Voice ready. Hold {shortcut} to talk, or hold {globalShortcut} globally.',
+          {
+            globalShortcut,
+            shortcut: pushToTalkShortcutName(platform),
+          },
+        );
       }
-      return `Voice ready. Hold ${pushToTalkShortcutName(platform)} to talk.`;
+      return translate(
+        appLanguage,
+        'Voice ready. Hold {shortcut} to talk.',
+        { shortcut: pushToTalkShortcutName(platform) },
+      );
     }
   }
 }
 
-function VoiceConnection({
-  inputStatus,
-  primaryLanguage,
+function ComputerConnection({
+  appLanguage,
+  isConnecting,
+  onConnect,
+  ready,
   status,
 }: {
-  inputStatus: VoiceInputStatus;
-  primaryLanguage: PrimaryLanguage;
-  status: VoiceStatus;
+  appLanguage: AppLanguage;
+  isConnecting: boolean;
+  onConnect: () => void;
+  ready: boolean;
+  status: CuaStatus;
 }) {
-  const configured = status.state === 'ready';
-  const connected =
-    configured && inputStatus !== 'connecting' && inputStatus !== 'unavailable';
-  const connectionLabel = !configured
-    ? 'Not configured'
-    : inputStatus === 'connecting'
-      ? 'Connecting'
-      : connected
-        ? 'Connected'
-        : 'Not connected';
-
+  const t = (message: string) => translate(appLanguage, message);
   return (
-    <section className="computer-card" aria-labelledby="voice-heading">
+    <section className="computer-card" aria-labelledby="computer-heading">
       <div className="section-heading-row">
         <div>
-          <p className="eyebrow">Voice input</p>
-          <h2 id="voice-heading">OpenAI Realtime</h2>
+          <p className="eyebrow">{t('Optional tool')}</p>
+          <h2 id="computer-heading">{t('Computer use')}</h2>
         </div>
         <span
-          className={`status-dot status-dot--${connected ? 'ready' : 'disconnected'}`}
+          className={`status-dot status-dot--${ready ? 'ready' : 'disconnected'}`}
         >
-          {connectionLabel}
+          {ready ? t('Connected') : t('Not connected')}
         </span>
       </div>
       <p>
-        {connected
-          ? 'Realtime voice is ready. The microphone stays off until you hold the shortcut.'
-          : status.summary}
+        {ready
+          ? t(
+              'Ready when the agent needs to inspect or operate an application.',
+            )
+          : t(
+              'Text tasks work now. Connect only when you want the agent to use visible applications.',
+            )}
       </p>
-      <p className="metadata">
-        Model {status.model} · {primaryLanguageLabel(primaryLanguage)}
-      </p>
+      {!ready && (
+        <button
+          className="secondary-button"
+          disabled={isConnecting}
+          onClick={onConnect}
+          type="button"
+        >
+          {isConnecting ? t('Connecting…') : t('Connect computer')}
+        </button>
+      )}
+      {status.state === 'error' && <p className="metadata">{status.summary}</p>}
     </section>
   );
 }
@@ -281,6 +310,7 @@ function VoiceShortcut({ platform }: { platform: PushToTalkPlatform }) {
 }
 
 function LiveTaskRail({
+  appLanguage,
   autoStartFailed,
   canStart,
   goal,
@@ -291,6 +321,7 @@ function LiveTaskRail({
   progress,
   request,
 }: {
+  appLanguage: AppLanguage;
   autoStartFailed: boolean;
   canStart: boolean;
   goal: GoalSpec | null;
@@ -301,17 +332,33 @@ function LiveTaskRail({
   progress: TaskSnapshot['progress'];
   request: string;
 }) {
+  const t = (message: string) => translate(appLanguage, message);
+  const isAgentProgress = Boolean(progress && 'kind' in progress);
+  const completedToolCalls =
+    progress && 'kind' in progress ? progress.completed : 0;
   const progressLabel = progress
-    ? `${progress.currentStep} / ${progress.maxSteps}`
-    : phase === 'interpreting'
-      ? 'Scoping'
-      : 'Not started';
+    ? 'kind' in progress
+      ? translate(
+          appLanguage,
+          progress.completed === 1 ? '{count} tool call' : '{count} tool calls',
+          { count: progress.completed },
+        )
+      : `${progress.currentStep} / ${progress.maxSteps}`
+    : t('Not started');
   const progressPercentage = progress
-    ? Math.min(
-        100,
-        Math.round((progress.currentStep / progress.maxSteps) * 100),
-      )
+    ? 'kind' in progress
+      ? Math.min(100, Math.round((progress.completed / progress.limit) * 100))
+      : Math.min(
+          100,
+          Math.round((progress.currentStep / progress.maxSteps) * 100),
+        )
     : 0;
+  const taskTitle = goal
+    ? goal.schemaVersion === 3
+      ? goal.originalRequest
+      : goal.objective
+    : request;
+  const showProgress = !isAgentProgress || completedToolCalls > 0;
 
   return (
     <section
@@ -324,44 +371,59 @@ function LiveTaskRail({
       <div className="live-task-rail__body">
         <div className="live-task-rail__header">
           <div>
-            <p className="eyebrow">Live task · {formatLabel(phase)}</p>
-            <h2 id="live-task-heading">{goal?.objective ?? request}</h2>
+            <p className="eyebrow">
+              {t('Live task')} · {formatLabel(phase, appLanguage)}
+            </p>
+            <h2 id="live-task-heading">{taskTitle}</h2>
           </div>
-          <div
-            aria-label={`Progress ${progressLabel}`}
-            className="live-task-rail__progress"
-          >
-            <span>{progressLabel}</span>
-            <i aria-hidden="true">
-              <span style={{ width: `${progressPercentage}%` }} />
-            </i>
-          </div>
+          {showProgress && (
+            <div
+              aria-label={`${t('Progress')} ${progressLabel}`}
+              className="live-task-rail__progress"
+            >
+              <span>{progressLabel}</span>
+              <i aria-hidden="true">
+                <span style={{ width: `${progressPercentage}%` }} />
+              </i>
+            </div>
+          )}
         </div>
 
         <div className="live-task-rail__summary">
           <span>
-            {goal
-              ? formatLabel(goal.behavior)
-              : 'Understanding request'}
+            {goal?.schemaVersion === 2
+              ? formatLabel(goal.behavior, appLanguage)
+              : goal
+                ? 'GPT agent'
+                : t('Understanding request')}
           </span>
           <span aria-hidden="true">·</span>
-          <span>{goal ? 'Tools selected at runtime' : 'Preparing task'}</span>
+          <span>
+            {goal ? t('Tools selected at runtime') : t('Preparing task')}
+          </span>
         </div>
 
         {goal && (
           <details className="live-task-details">
-            <summary>Task details</summary>
+            <summary>{t('Task details')}</summary>
             <div className="live-task-details__content">
               <div>
-                <span className="field-label">Execution</span>
+                <span className="field-label">{t('Execution')}</span>
                 <p>
-                  TroCode chooses from the tools currently available and asks
-                  before consequential actions.
+                  {t(
+                    'TroCode chooses from the tools currently available and asks before consequential actions.',
+                  )}
                 </p>
               </div>
               <div>
-                <span className="field-label">Success looks like</span>
-                <p>{goal.successCriteria[0]?.description}</p>
+                <span className="field-label">{t('Success looks like')}</span>
+                <p>
+                  {goal.schemaVersion === 3
+                    ? t(
+                        'A useful assistant answer or an evidence-backed tool result.',
+                      )
+                    : goal.successCriteria[0]?.description}
+                </p>
               </div>
             </div>
           </details>
@@ -369,7 +431,7 @@ function LiveTaskRail({
 
         {phase === 'blocked' && lastEvent && (
           <div className="live-task-blocked" role="alert">
-            <strong>Why TroCode stopped</strong>
+            <strong>{t('Why TroCode stopped')}</strong>
             <p>{lastEvent.summary}</p>
             {lastEvent.nextActions[0] && (
               <span>{lastEvent.nextActions[0]}</span>
@@ -381,12 +443,18 @@ function LiveTaskRail({
           <div className="live-task-rail__start">
             <p aria-live="polite">
               {!canStart
-                ? 'Waiting for OpenAI Realtime and the CUA Driver before starting.'
+                ? t('Waiting for the OpenAI agent provider before starting.')
                 : autoStartFailed
-                  ? 'TroCode could not start automatically. You can try again.'
+                  ? t(
+                      'TroCode could not start automatically. You can try again.',
+                    )
                   : isStarting
-                    ? 'Starting automatically… Press Escape at any time to stop.'
-                    : 'Ready. Starting automatically… Press Escape at any time to stop.'}
+                    ? t(
+                        'Starting automatically… Press Escape at any time to stop.',
+                      )
+                    : t(
+                        'Ready. Starting automatically… Press Escape at any time to stop.',
+                      )}
             </p>
             {autoStartFailed && (
               <button
@@ -395,7 +463,7 @@ function LiveTaskRail({
                 onClick={onRetry}
                 type="button"
               >
-                {isStarting ? 'Starting…' : 'Try again'}
+                {isStarting ? t('Starting…') : t('Try again')}
               </button>
             )}
           </div>
@@ -406,18 +474,21 @@ function LiveTaskRail({
 }
 
 function TerminalOutcome({
+  appLanguage,
   onViewHistory,
   snapshot,
 }: {
+  appLanguage: AppLanguage;
   onViewHistory: () => void;
   snapshot: TaskSnapshot;
 }) {
+  const t = (message: string) => translate(appLanguage, message);
   const heading =
     snapshot.phase === 'completed'
-      ? 'Outcome reached'
+      ? t('Outcome reached')
       : snapshot.phase === 'cancelled'
-        ? 'Task stopped safely'
-        : 'Task needs attention';
+        ? t('Task stopped safely')
+        : t('Task needs attention');
 
   return (
     <section
@@ -432,11 +503,15 @@ function TerminalOutcome({
             : '!'}
       </span>
       <div>
-        <p className="eyebrow">{formatLabel(snapshot.phase)}</p>
+        <p className="eyebrow">
+          {formatLabel(snapshot.phase, appLanguage)}
+        </p>
         <h2 id="terminal-heading">{heading}</h2>
         <p>
           {snapshot.lastEvent?.summary ??
-            'The task finished. Its conversation and activity are available in History.'}
+            t(
+              'The task finished. Its conversation and activity are available in History.',
+            )}
         </p>
       </div>
       <button
@@ -444,15 +519,25 @@ function TerminalOutcome({
         onClick={onViewHistory}
         type="button"
       >
-        View task trail <span aria-hidden="true">→</span>
+        {t('View task trail')} <span aria-hidden="true">→</span>
       </button>
     </section>
   );
 }
 
-function ActivityList({ events }: { events: TaskEvent[] }) {
+function ActivityList({
+  appLanguage,
+  events,
+}: {
+  appLanguage: AppLanguage;
+  events: TaskEvent[];
+}) {
   if (events.length === 0) {
-    return <p className="empty-activity">Task events will appear here.</p>;
+    return (
+      <p className="empty-activity">
+        {translate(appLanguage, 'Task events will appear here.')}
+      </p>
+    );
   }
 
   return (
@@ -461,7 +546,7 @@ function ActivityList({ events }: { events: TaskEvent[] }) {
         <li key={event.eventId}>
           <span className={`activity-marker activity-marker--${event.status}`} />
           <div>
-            <strong>{formatLabel(event.phase)}</strong>
+            <strong>{formatLabel(event.phase, appLanguage)}</strong>
             <p>{event.summary}</p>
           </div>
         </li>
@@ -470,13 +555,20 @@ function ActivityList({ events }: { events: TaskEvent[] }) {
   );
 }
 
-function Conversation({ snapshot }: { snapshot: TaskSnapshot }) {
+function Conversation({
+  appLanguage,
+  snapshot,
+}: {
+  appLanguage: AppLanguage;
+  snapshot: TaskSnapshot;
+}) {
+  const t = (message: string) => translate(appLanguage, message);
   return (
     <section className="conversation-card" aria-labelledby="conversation-heading">
       <div className="section-heading-row">
         <div>
-          <p className="eyebrow">Same task</p>
-          <h2 id="conversation-heading">Conversation</h2>
+          <p className="eyebrow">{t('Same task')}</p>
+          <h2 id="conversation-heading">{t('Conversation')}</h2>
         </div>
         <span className="event-count">{snapshot.messages.length}</span>
       </div>
@@ -486,7 +578,7 @@ function Conversation({ snapshot }: { snapshot: TaskSnapshot }) {
             className={`message message--${message.role}`}
             key={message.messageId}
           >
-            <span>{message.role === 'user' ? 'You' : 'TroCode'}</span>
+            <span>{message.role === 'user' ? t('You') : 'TroCode'}</span>
             <p>{message.text}</p>
           </li>
         ))}
@@ -496,16 +588,19 @@ function Conversation({ snapshot }: { snapshot: TaskSnapshot }) {
 }
 
 function PendingInteractionCard({
+  appLanguage,
   interaction,
   isSending,
   onAnswerChoice,
   onApproval,
 }: {
+  appLanguage: AppLanguage;
   interaction: PendingInteraction;
   isSending: boolean;
-  onAnswerChoice: (answer: string) => void;
+  onAnswerChoice: (answer: string, choiceId: string) => void;
   onApproval: (decision: 'approve' | 'deny') => void;
 }) {
+  const t = (message: string) => translate(appLanguage, message);
   if (interaction.kind === 'clarification') {
     return (
       <section
@@ -513,7 +608,7 @@ function PendingInteractionCard({
         aria-labelledby="interaction-heading"
         className="interaction-card interaction-card--clarification"
       >
-        <p className="eyebrow">TroCode needs your input</p>
+        <p className="eyebrow">{t('TroCode needs your input')}</p>
         <h2 id="interaction-heading">{interaction.prompt}</h2>
         {interaction.choices && (
           <div className="interaction-choices">
@@ -521,7 +616,7 @@ function PendingInteractionCard({
               <button
                 disabled={isSending}
                 key={choice.id}
-                onClick={() => onAnswerChoice(choice.label)}
+                onClick={() => onAnswerChoice(choice.label, choice.id)}
                 type="button"
               >
                 {choice.label}
@@ -529,7 +624,11 @@ function PendingInteractionCard({
             ))}
           </div>
         )}
-        <p>Answer below by voice or text. Your response will continue this task.</p>
+        <p>
+          {t(
+            'Answer below by voice or text. Your response will continue this task.',
+          )}
+        </p>
       </section>
     );
   }
@@ -540,35 +639,37 @@ function PendingInteractionCard({
       aria-labelledby="interaction-heading"
       className="interaction-card interaction-card--approval"
     >
-      <p className="eyebrow">Exact approval required</p>
+      <p className="eyebrow">{t('Exact approval required')}</p>
       <h2 id="interaction-heading">{interaction.prompt}</h2>
       <p>{interaction.consequence}</p>
       <dl className="approval-details">
         <div>
-          <dt>Action</dt>
-          <dd>{formatLabel(interaction.action.action)}</dd>
+          <dt>{t('Action')}</dt>
+          <dd>{formatLabel(interaction.action.action, appLanguage)}</dd>
         </div>
         <div>
-          <dt>Description</dt>
+          <dt>{t('Description')}</dt>
           <dd>{interaction.action.description}</dd>
         </div>
         {interaction.action.target && (
           <div>
-            <dt>Target</dt>
+            <dt>{t('Target')}</dt>
             <dd>{interaction.action.target}</dd>
           </div>
         )}
         {Object.entries(interaction.action.parameters ?? {}).map(
           ([key, value]) => (
             <div key={key}>
-              <dt>{formatLabel(key)}</dt>
+              <dt>{formatLabel(key, appLanguage)}</dt>
               <dd>{Array.isArray(value) ? value.join(', ') : value}</dd>
             </div>
           ),
         )}
       </dl>
       <p className="approval-note">
-        Spoken or typed “yes” cannot approve this action. Use the button below.
+        {t(
+          'Spoken or typed “yes” cannot approve this action. Use the button below.',
+        )}
       </p>
       <div className="approval-actions">
         <button
@@ -577,7 +678,7 @@ function PendingInteractionCard({
           onClick={() => onApproval('deny')}
           type="button"
         >
-          Deny
+          {t('Deny')}
         </button>
         <button
           className="primary-button"
@@ -585,7 +686,7 @@ function PendingInteractionCard({
           onClick={() => onApproval('approve')}
           type="button"
         >
-          Approve exact action
+          {t('Approve exact action')}
         </button>
       </div>
     </section>
@@ -603,6 +704,7 @@ export function App({
 }) {
   const [activeView, setActiveView] = useState<ActiveView>('agent');
   const [input, setInput] = useState('');
+  const [voiceTranscript, setVoiceTranscript] = useState('');
   const [snapshot, setSnapshot] = useState<TaskSnapshot | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [sessionEvents, setSessionEvents] = useState<TaskEvent[]>([]);
@@ -628,6 +730,8 @@ export function App({
   const [isUpdatingApp, setIsUpdatingApp] = useState(false);
   const [languageDraft, setLanguageDraft] =
     useState<PrimaryLanguage>('en');
+  const [appLanguageDraft, setAppLanguageDraft] =
+    useState<AppLanguage>('en');
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [preferencesLoadError, setPreferencesLoadError] = useState<
     string | null
@@ -667,6 +771,13 @@ export function App({
   const permissionRefreshIdRef = useRef(0);
   const membershipRefreshIdRef = useRef(0);
   const spokenInteractionIdRef = useRef<string | null>(null);
+  const t = useCallback(
+    (
+      message: string,
+      replacements?: Readonly<Record<string, string | number>>,
+    ) => translate(appLanguageDraft, message, replacements),
+    [appLanguageDraft],
+  );
 
   const clearError = useCallback(() => {
     dispatchTransientCursorError({ type: 'cleared' });
@@ -814,6 +925,7 @@ export function App({
       .getAppPreferences()
       .then((preferences) => {
         setAppPreferences(preferences);
+        setAppLanguageDraft(preferences.appLanguage);
         if (preferences.primaryLanguage) {
           setLanguageDraft(preferences.primaryLanguage);
         }
@@ -833,6 +945,10 @@ export function App({
       unsubscribeAppUpdates();
     };
   }, [recordSnapshot, reportError]);
+
+  useEffect(() => {
+    document.documentElement.lang = appLanguageDraft;
+  }, [appLanguageDraft]);
 
   useEffect(() => {
     const handleWindowFocus = (): void => {
@@ -883,8 +999,11 @@ export function App({
     !isSubmitting &&
     pendingInteraction?.kind !== 'approval';
   const taskPhase = useMemo(
-    () => (snapshot ? formatLabel(snapshot.phase) : 'No active task'),
-    [snapshot],
+    () =>
+      snapshot
+        ? formatLabel(snapshot.phase, appLanguageDraft)
+        : t('No active task'),
+    [appLanguageDraft, snapshot, t],
   );
   const isTerminalTask = snapshot
     ? TERMINAL_PHASES.has(snapshot.phase)
@@ -897,33 +1016,37 @@ export function App({
   const hero = pendingInteraction
     ? {
         state: 'interaction',
-        eyebrow: 'Your move',
-        heading: 'A decision is waiting.',
-        description:
+        eyebrow: t('Your move'),
+        heading: t('A decision is waiting.'),
+        description: t(
           'Review the request below. TroCode will hold position until you answer or approve the exact action.',
+        ),
       }
     : hasLiveTask
       ? {
           state: 'active',
-          eyebrow: 'In motion',
-          heading: 'Keep the outcome in view.',
-          description:
+          eyebrow: t('In motion'),
+          heading: t('Keep the outcome in view.'),
+          description: t(
             'Follow the live signal, steer the next safe step, or stop the task at any time.',
+          ),
         }
       : isTerminalTask
         ? {
             state: 'terminal',
-            eyebrow: 'Outcome recorded',
-            heading: 'What should we do next?',
-            description:
+            eyebrow: t('Outcome recorded'),
+            heading: t('What should we do next?'),
+            description: t(
               'The finished task is now in your session trail. Start another outcome whenever you are ready.',
+            ),
           }
         : {
             state: 'empty',
-            eyebrow: 'Outcome first',
-            heading: 'What should we accomplish?',
-            description:
+            eyebrow: t('Outcome first'),
+            heading: t('What should we accomplish?'),
+            description: t(
               'Describe the finish line. TroCode will define a bounded scope, choose its tools, and verify the result.',
+            ),
           };
   const permissionChecklist = useMemo(
     () =>
@@ -934,21 +1057,15 @@ export function App({
       ),
     [computerStatus, computerStatusLoaded, microphonePermission],
   );
-  const permissionSetupComplete = isPermissionSetupComplete(
-    permissionChecklist,
-    computerStatus,
-  );
   const languageSetupComplete =
     isPrimaryLanguageSetupComplete(appPreferences, preferencesLoaded);
   const membershipAccessAllowed = membershipAllowsAccess(membershipStatus);
-  const executionReady =
+  const agentReady = voiceProviderStatus.state === 'ready';
+  const voiceReady =
+    agentReady && microphonePermission !== 'unavailable';
+  const desktopReady =
     computerStatus.state === 'ready' &&
-    computerStatus.available &&
-    voiceProviderStatus.state === 'ready';
-  const activeTaskExecutionReady =
-    snapshot?.goal?.behavior === 'answer'
-      ? voiceProviderStatus.state === 'ready'
-      : executionReady;
+    computerStatus.available;
 
   const refreshMembership = useCallback(async () => {
     const refreshId = membershipRefreshIdRef.current + 1;
@@ -975,7 +1092,7 @@ export function App({
   }, []);
 
   useEffect(() => {
-    if (!permissionSetupComplete || !languageSetupComplete) return;
+    if (!languageSetupComplete) return;
 
     const handleWindowFocus = (): void => {
       void refreshMembership();
@@ -986,7 +1103,7 @@ export function App({
       membershipRefreshIdRef.current += 1;
       window.removeEventListener('focus', handleWindowFocus);
     };
-  }, [languageSetupComplete, permissionSetupComplete, refreshMembership]);
+  }, [languageSetupComplete, refreshMembership]);
 
   useEffect(() => {
     if (membershipStatus?.state !== 'active' || !membershipStatus.expiresAt) {
@@ -1028,11 +1145,22 @@ export function App({
     setSettingsSaveMessage(null);
     try {
       const preferences = await window.tro.updateAppPreferences({
+        appLanguage: appLanguageDraft,
         primaryLanguage: languageDraft,
       });
       setAppPreferences(preferences);
       setSettingsSaveMessage(
-        `${primaryLanguageLabel(languageDraft)} will be used for new voice turns.`,
+        translate(
+          appLanguageDraft,
+          'App controls will use {appLanguage}; new voice turns will use {spokenLanguage}.',
+          {
+            appLanguage: appLanguageLabel(appLanguageDraft),
+            spokenLanguage: primaryLanguageLabel(
+              languageDraft,
+              appLanguageDraft,
+            ),
+          },
+        ),
       );
     } catch (saveError) {
       setSettingsError(
@@ -1043,7 +1171,7 @@ export function App({
     } finally {
       setIsSavingPreferences(false);
     }
-  }, [languageDraft]);
+  }, [appLanguageDraft, languageDraft]);
 
   const checkForAppUpdates = useCallback(async () => {
     setIsUpdatingApp(true);
@@ -1094,7 +1222,11 @@ export function App({
 
       try {
         if (source === 'voice') {
-          await window.tro.recordVoiceTranscript({ text: normalizedRequest });
+          // Analytics belongs off the task hot path. Task submission performs
+          // its own auth and membership checks at the trusted IPC boundary.
+          void window.tro
+            .recordVoiceTranscript({ text: normalizedRequest })
+            .catch(() => undefined);
         }
 
         let nextSnapshot: TaskSnapshot;
@@ -1220,20 +1352,28 @@ export function App({
     }
   }, [clearError, recordSnapshot, reportError, snapshot]);
 
+  const handleVoiceAttemptStart = useCallback(() => {
+    clearError();
+    setVoiceTranscript('');
+  }, [clearError]);
+  const handleVoiceTranscriptChange = useCallback((transcript: string) => {
+    setInput(transcript);
+    setVoiceTranscript(transcript);
+  }, []);
+
   const { platform: voicePlatform, status: voiceStatus } = usePushToTalk({
     disabled:
-      !permissionSetupComplete ||
+      !voiceReady ||
       !membershipAccessAllowed ||
       isSubmitting ||
       pendingInteraction?.kind === 'approval',
     enabled:
-      permissionSetupComplete &&
+      voiceReady &&
       languageSetupComplete &&
-      membershipAccessAllowed &&
-      voiceProviderStatus.state === 'ready',
-    onAttemptStart: clearError,
+      membershipAccessAllowed,
+    onAttemptStart: handleVoiceAttemptStart,
     onError: reportError,
-    onTranscriptChange: setInput,
+    onTranscriptChange: handleVoiceTranscriptChange,
     onTranscriptSubmit: (transcript) => void sendInput(transcript, 'voice'),
   });
   const companionState = getCompanionState({
@@ -1251,14 +1391,38 @@ export function App({
     void window.tro.setCompanionState(companionState);
   }, [companionState]);
 
+  useEffect(() => {
+    const voiceActive =
+      voiceStatus === 'requesting_permission' ||
+      voiceStatus === 'connecting' ||
+      voiceStatus === 'listening' ||
+      voiceStatus === 'processing';
+    void window.tro.setCompanionVoiceActivity(
+      voiceActive
+        ? {
+            appLanguage: appLanguageDraft,
+            phase: voiceStatus,
+            transcript: voiceTranscript,
+          }
+        : null,
+    );
+  }, [appLanguageDraft, voiceStatus, voiceTranscript]);
+
+  useEffect(
+    () => () => {
+      void window.tro.setCompanionVoiceActivity(null);
+    },
+    [],
+  );
+
   const enablePermissions = useCallback(async () => {
     setPermissionError(null);
     setIsRequestingPermissions(true);
-    const errors: string[] = [];
 
     try {
       try {
         const preferences = await window.tro.updateAppPreferences({
+          appLanguage: appLanguageDraft,
           primaryLanguage: languageDraft,
         });
         setAppPreferences(preferences);
@@ -1272,53 +1436,10 @@ export function App({
         return;
       }
 
-      if (permissionSetupComplete) return;
-
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setMicrophonePermission('unavailable');
-        errors.push('No microphone is available to TroCode.');
-      } else {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              autoGainControl: true,
-              echoCancellation: true,
-              noiseSuppression: true,
-            },
-          });
-          for (const track of stream.getTracks()) track.stop();
-          setMicrophonePermission('granted');
-        } catch (microphoneError) {
-          const microphoneUnavailable =
-            microphoneError instanceof DOMException &&
-            microphoneError.name === 'NotFoundError';
-          setMicrophonePermission(
-            microphoneUnavailable ? 'unavailable' : 'blocked',
-          );
-          errors.push(
-            microphoneUnavailable
-              ? 'No microphone was found.'
-              : 'Enable Microphone for TroCode in System Settings → Privacy & Security.',
-          );
-        }
-      }
-
-      try {
-        setComputerStatus(await requestScreenRecordingPermission(window.tro));
-        setComputerStatusLoaded(true);
-      } catch (connectError) {
-        errors.push(
-          connectError instanceof Error
-            ? connectError.message
-            : 'The computer-use permission request could not be opened.',
-        );
-      }
-
-      setPermissionError(errors.length > 0 ? errors.join(' ') : null);
     } finally {
       setIsRequestingPermissions(false);
     }
-  }, [languageDraft, permissionSetupComplete]);
+  }, [appLanguageDraft, languageDraft]);
 
   const openScreenRecordingSettings = useCallback(async () => {
     setPermissionError(null);
@@ -1411,7 +1532,7 @@ export function App({
     if (
       !snapshot ||
       !shouldAutoStartTask(snapshot, {
-        executionReady: activeTaskExecutionReady,
+        agentReady,
         isBusy: isSubmitting,
       }) ||
       autoStartAttemptedTaskIdsRef.current.has(snapshot.taskId)
@@ -1422,7 +1543,7 @@ export function App({
     autoStartAttemptedTaskIdsRef.current.add(snapshot.taskId);
     const taskId = snapshot.taskId;
     queueMicrotask(() => void startTask(taskId));
-  }, [activeTaskExecutionReady, isSubmitting, snapshot, startTask]);
+  }, [agentReady, isSubmitting, snapshot, startTask]);
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent): void => {
@@ -1437,9 +1558,10 @@ export function App({
     return () => window.removeEventListener('keydown', handleEscape, true);
   }, [stopTask]);
 
-  if (!permissionSetupComplete || !languageSetupComplete) {
+  if (!languageSetupComplete) {
     return (
       <PermissionOnboarding
+        appLanguage={appLanguageDraft}
         checklist={permissionChecklist}
         computerStatus={computerStatus}
         error={permissionError ?? preferencesLoadError}
@@ -1452,7 +1574,6 @@ export function App({
           void openScreenRecordingSettings()
         }
         onRefresh={() => void refreshPermissions()}
-        permissionsComplete={permissionSetupComplete}
         primaryLanguage={languageDraft}
       />
     );
@@ -1461,6 +1582,7 @@ export function App({
   if (!membershipAccessAllowed) {
     return (
       <MembershipGate
+        appLanguage={appLanguageDraft}
         error={membershipError}
         isActivating={isActivatingMembership}
         isChecking={isCheckingMembership}
@@ -1480,7 +1602,7 @@ export function App({
           <BrandMark />
           <div>
             <strong>TroCode</strong>
-            <span>Desktop agent</span>
+            <span>{t('Desktop agent')}</span>
           </div>
         </div>
 
@@ -1494,11 +1616,11 @@ export function App({
           type="button"
         >
           <span aria-hidden="true">＋</span>
-          New task
+          {t('New task')}
         </button>
 
-        <nav aria-label="Workspace">
-          <span className="nav-label">Workspace</span>
+        <nav aria-label={t('Workspace')}>
+          <span className="nav-label">{t('Workspace')}</span>
           <button
             aria-current={activeView === 'agent' ? 'page' : undefined}
             className={`nav-item ${
@@ -1508,7 +1630,7 @@ export function App({
             type="button"
           >
             <NavigationIcon name="agent" />
-            Agent
+            {t('Agent')}
           </button>
           <button
             aria-current={activeView === 'history' ? 'page' : undefined}
@@ -1519,7 +1641,7 @@ export function App({
             type="button"
           >
             <NavigationIcon name="history" />
-            History
+            {t('History')}
             <span className="nav-count">{historyTaskCount}</span>
           </button>
           <button
@@ -1531,24 +1653,13 @@ export function App({
             type="button"
           >
             <NavigationIcon name="insights" />
-            Insights
-          </button>
-          <button
-            aria-current={activeView === 'settings' ? 'page' : undefined}
-            className={`nav-item ${
-              activeView === 'settings' ? 'nav-item--active' : ''
-            }`}
-            onClick={() => setActiveView('settings')}
-            type="button"
-          >
-            <NavigationIcon name="settings" />
-            Settings
+            {t('Insights')}
           </button>
         </nav>
 
         {hasLiveTask && (
-          <nav aria-label="Observe">
-            <span className="nav-label">Observe</span>
+          <nav aria-label={t('Observe')}>
+            <span className="nav-label">{t('Observe')}</span>
             <button
               className="nav-item"
               onClick={() => {
@@ -1564,17 +1675,33 @@ export function App({
               type="button"
             >
               <NavigationIcon name="activity" />
-              Live activity
+              {t('Live activity')}
               <span className="nav-count">{events.length}</span>
             </button>
           </nav>
         )}
 
-        <div className="sidebar-footer">
-          <span className="safety-indicator" aria-hidden="true" />
-          <div>
-            <strong>Bounded by default</strong>
-            <span>Approval gates enabled</span>
+        <div className="sidebar-bottom">
+          <nav aria-label={t('Settings')}>
+            <button
+              aria-current={activeView === 'settings' ? 'page' : undefined}
+              className={`nav-item ${
+                activeView === 'settings' ? 'nav-item--active' : ''
+              }`}
+              onClick={() => setActiveView('settings')}
+              type="button"
+            >
+              <NavigationIcon name="settings" />
+              {t('Settings')}
+            </button>
+          </nav>
+
+          <div className="sidebar-footer">
+            <span className="safety-indicator" aria-hidden="true" />
+            <div>
+              <strong>{t('Bounded by default')}</strong>
+              <span>{t('Approval gates enabled')}</span>
+            </div>
           </div>
         </div>
       </aside>
@@ -1584,21 +1711,26 @@ export function App({
           <div className="topbar-title">
             <span className="topbar-kicker">
               {activeView === 'agent'
-                ? 'General-purpose agent'
+                ? t('General-purpose agent')
                 : activeView === 'history'
-                  ? 'Session task record'
+                  ? t('Session task record')
                 : activeView === 'insights'
-                  ? 'Private on-device summary'
-                  : 'Personal preferences'}
+                  ? t('Private on-device summary')
+                  : t('Personal preferences')}
             </span>
             <strong>
               {activeView === 'agent'
                 ? taskPhase
                 : activeView === 'history'
-                  ? `${historyTaskCount} finished ${historyTaskCount === 1 ? 'task' : 'tasks'}`
+                  ? t(
+                      historyTaskCount === 1
+                        ? '{count} finished task'
+                        : '{count} finished tasks',
+                      { count: historyTaskCount },
+                    )
                 : activeView === 'insights'
-                  ? 'Insights overview'
-                  : 'Voice and language'}
+                  ? t('Insights overview')
+                  : t('Language & settings')}
             </strong>
           </div>
           <div className="topbar-actions">
@@ -1609,7 +1741,8 @@ export function App({
                 onClick={() => void stopTask()}
                 type="button"
               >
-                {isStoppingTask ? 'Stopping…' : 'Stop task'} <kbd>Esc</kbd>
+                {isStoppingTask ? t('Stopping…') : t('Stop task')}{' '}
+                <kbd>Esc</kbd>
               </button>
             )}
             <span className="prototype-pill">Foundation · v0.1</span>
@@ -1625,13 +1758,14 @@ export function App({
               onClick={onSignOut}
               type="button"
             >
-              {isSigningOut ? 'Signing out…' : 'Sign out'}
+              {isSigningOut ? t('Signing out…') : t('Sign out')}
             </button>
           </div>
         </header>
 
         {activeView === 'history' ? (
           <HistoryPage
+            appLanguage={appLanguageDraft}
             events={sessionEvents}
             hasLiveTask={hasLiveTask}
             onOpenAgent={() => {
@@ -1643,18 +1777,28 @@ export function App({
           />
         ) : activeView === 'insights' ? (
           <InsightsPage
+            appLanguage={appLanguageDraft}
             events={sessionEvents}
             persistence={taskPersistence}
             tasks={sessionTaskSnapshots}
           />
         ) : activeView === 'settings' ? (
           <SettingsPage
+            appLanguage={appLanguageDraft}
             appUpdateError={appUpdateError}
             appUpdateStatus={appUpdateStatus}
             error={settingsError}
-            hasChanges={appPreferences?.primaryLanguage !== languageDraft}
+            hasChanges={
+              appPreferences?.appLanguage !== appLanguageDraft ||
+              appPreferences?.primaryLanguage !== languageDraft
+            }
             isSaving={isSavingPreferences}
             isUpdatingApp={isUpdatingApp}
+            onAppLanguageChange={(language) => {
+              setAppLanguageDraft(language);
+              setSettingsError(null);
+              setSettingsSaveMessage(null);
+            }}
             onCheckForUpdates={() => void checkForAppUpdates()}
             onLanguageChange={(language) => {
               setLanguageDraft(language);
@@ -1684,17 +1828,23 @@ export function App({
             >
               <label htmlFor="task-request">
                 {pendingClarification
-                  ? 'Answer TroCode to continue this task'
+                  ? t('Answer TroCode to continue this task')
                   : isSteering
-                    ? 'Steer the active task'
-                    : 'Describe the outcome'}
+                    ? t('Steer the active task')
+                    : t('Describe the outcome')}
               </label>
               <div
                 aria-live="polite"
                 className={`voice-status voice-status--${voiceStatus}`}
               >
                 <span className="voice-indicator" aria-hidden="true" />
-                <span>{voiceStatusMessage(voiceStatus, voicePlatform)}</span>
+                <span>
+                  {voiceStatusMessage(
+                    voiceStatus,
+                    voicePlatform,
+                    appLanguageDraft,
+                  )}
+                </span>
                 <VoiceShortcut platform={voicePlatform} />
               </div>
               <textarea
@@ -1702,10 +1852,12 @@ export function App({
                 onChange={(event) => setInput(event.target.value)}
                 placeholder={
                   pendingClarification
-                    ? 'Type or hold the voice shortcut to answer…'
+                    ? t('Type or hold the voice shortcut to answer…')
                     : isSteering
-                      ? 'Pause, stop, or change the next step…'
-                      : 'Open YouTube for me, research a topic, fix code, or guide me through an app…'
+                      ? t('Pause, stop, or change the next step…')
+                      : t(
+                          'Open YouTube for me, research a topic, fix code, or guide me through an app…',
+                        )
                 }
                 rows={hasLiveTask || pendingInteraction ? 2 : 4}
                 value={input}
@@ -1713,33 +1865,35 @@ export function App({
               <div className="composer-footer">
                 <span>
                   {pendingClarification
-                    ? 'This answer stays attached to the current task.'
+                    ? t('This answer stays attached to the current task.')
                     : isSteering
-                      ? 'Steering is reviewed at the next safe boundary.'
-                      : 'Nothing executes until scope and approvals are checked.'}
+                      ? t('Steering is reviewed at the next safe boundary.')
+                      : t(
+                          'Nothing executes until scope and approvals are checked.',
+                        )}
                 </span>
                 <button className="primary-button" disabled={!canSubmit} type="submit">
                   {isSubmitting
-                    ? 'Sending…'
+                    ? t('Sending…')
                     : pendingClarification
-                      ? 'Send answer'
+                      ? t('Send answer')
                       : isSteering
-                        ? 'Send steering'
-                        : 'Start task'}
+                        ? t('Send steering')
+                        : t('Start task')}
                   <span aria-hidden="true">→</span>
                 </button>
               </div>
             </form>
 
             {!snapshot && (
-              <div className="examples" aria-label="Example tasks">
+              <div className="examples" aria-label={t('Example tasks')}>
                 {EXAMPLE_TASKS.map((example) => (
                   <button
                     key={example}
                     onClick={() => setInput(example)}
                     type="button"
                   >
-                    {example}
+                    {t(example)}
                   </button>
                 ))}
               </div>
@@ -1747,8 +1901,9 @@ export function App({
 
             {hasLiveTask && snapshot && (
               <LiveTaskRail
+                appLanguage={appLanguageDraft}
                 autoStartFailed={autoStartFailedTaskId === snapshot.taskId}
-                canStart={activeTaskExecutionReady}
+                canStart={agentReady}
                 goal={snapshot.goal}
                 isStarting={isSubmitting}
                 lastEvent={snapshot.lastEvent}
@@ -1761,23 +1916,38 @@ export function App({
 
             {error && (
               <div className="error-banner" role="alert">
-                <strong>Something needs attention</strong>
+                <strong>{t('Something needs attention')}</strong>
                 <span>{error}</span>
               </div>
             )}
 
             {pendingInteraction && (
               <PendingInteractionCard
+                appLanguage={appLanguageDraft}
                 interaction={pendingInteraction}
                 isSending={isSubmitting}
-                onAnswerChoice={(answer) => void sendInput(answer)}
+                onAnswerChoice={(answer, choiceId) => {
+                  if (choiceId !== 'connect_computer') {
+                    void sendInput(answer);
+                    return;
+                  }
+                  void openScreenRecordingSettings().then(() =>
+                    sendInput(answer),
+                  );
+                }}
                 onApproval={(decision) => void decideApproval(decision)}
               />
             )}
 
-            {hasLiveTask && snapshot && <Conversation snapshot={snapshot} />}
+            {hasLiveTask && snapshot && (
+              <Conversation
+                appLanguage={appLanguageDraft}
+                snapshot={snapshot}
+              />
+            )}
             {isTerminalTask && snapshot && (
               <TerminalOutcome
+                appLanguage={appLanguageDraft}
                 onViewHistory={() => setActiveView('history')}
                 snapshot={snapshot}
               />
@@ -1785,24 +1955,26 @@ export function App({
           </section>
 
           <aside className="context-column">
-            <VoiceConnection
-              inputStatus={voiceStatus}
-              primaryLanguage={
-                appPreferences?.primaryLanguage ?? languageDraft
-              }
-              status={voiceProviderStatus}
+            <ComputerConnection
+              appLanguage={appLanguageDraft}
+              isConnecting={isRequestingPermissions}
+              onConnect={() => void openScreenRecordingSettings()}
+              ready={desktopReady}
+              status={computerStatus}
             />
-
             {hasLiveTask && (
               <section className="activity-card" id="activity" aria-labelledby="activity-heading">
                 <div className="section-heading-row">
                   <div>
-                    <p className="eyebrow">Live lifecycle</p>
-                    <h2 id="activity-heading">Task activity</h2>
+                    <p className="eyebrow">{t('Live lifecycle')}</p>
+                    <h2 id="activity-heading">{t('Task activity')}</h2>
                   </div>
                   <span className="event-count">{events.length}</span>
                 </div>
-                <ActivityList events={events} />
+                <ActivityList
+                  appLanguage={appLanguageDraft}
+                  events={events}
+                />
               </section>
             )}
           </aside>
