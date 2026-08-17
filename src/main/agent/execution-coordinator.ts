@@ -8,6 +8,7 @@ import type {
   ResolvedToolInvocation,
   ToolExecutionResult,
 } from './agent-contracts';
+import { shouldRequestCompletionReview } from './completion-policy';
 import {
   mapScreenshotPointToDesktop,
   type DesktopCommand,
@@ -75,6 +76,7 @@ interface HeldInteraction {
 
 interface ExecutionContext {
   cleanupPromise?: Promise<void>;
+  completionReviewRequested: boolean;
   controller: AbortController;
   deadlineTimer?: ReturnType<typeof setTimeout>;
   desktopSessionStarted: boolean;
@@ -84,6 +86,7 @@ interface ExecutionContext {
   pendingInteraction?: HeldInteraction;
   playback: GuidancePlaybackController;
   rerunRequested: boolean;
+  resolvedToolCalls: number;
   running?: Promise<void>;
   unknownActionDigests: Set<string>;
 }
@@ -430,11 +433,13 @@ export class TaskExecutionCoordinator {
     const existing = this.contexts.get(taskId);
     if (existing) return existing;
     const context: ExecutionContext = {
+      completionReviewRequested: false,
       controller: new AbortController(),
       desktopSessionStarted: false,
       initialized: false,
       playback: new GuidancePlaybackController(this.guidanceAutoAdvanceMs),
       rerunRequested: false,
+      resolvedToolCalls: 0,
       unknownActionDigests: new Set<string>(),
     };
     this.contexts.set(taskId, context);
@@ -551,6 +556,21 @@ export class TaskExecutionCoordinator {
         signal,
       );
       if (turn.kind === 'assistant_message') {
+        if (
+          !context.completionReviewRequested &&
+          shouldRequestCompletionReview({
+            request: snapshot.request,
+            resolvedToolCalls: context.resolvedToolCalls,
+          })
+        ) {
+          context.completionReviewRequested = true;
+          this.agent.requestCompletionReview(taskId);
+          this.runtime.resumePlanning(
+            taskId,
+            'Reviewing the candidate completion against the full request.',
+          );
+          continue;
+        }
         this.runtime.complete(taskId, turn.text);
         return;
       }
@@ -575,6 +595,7 @@ export class TaskExecutionCoordinator {
         );
         continue;
       }
+      context.resolvedToolCalls += 1;
 
       const shouldPause = await this.handleInvocation(taskId, context, invocation);
       if (shouldPause) return;

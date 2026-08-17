@@ -513,6 +513,8 @@ export const CompanionStateSchema = z.enum([
   'listening',
   'processing',
   'sending',
+  'working',
+  'completed',
   'error',
 ]);
 

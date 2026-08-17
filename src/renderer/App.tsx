@@ -88,6 +88,7 @@ const EMPTY_VOICE_STATUS: VoiceStatus = {
 };
 
 const TERMINAL_PHASES = new Set(['completed', 'failed', 'cancelled']);
+const TASK_COMPLETION_FEEDBACK_MS = 2_200;
 const STEERABLE_PHASES = new Set([
   'planning',
   'observing',
@@ -747,6 +748,9 @@ export function App({
     null,
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [completedCompanionTaskId, setCompletedCompanionTaskId] = useState<
+    string | null
+  >(null);
   const [isStoppingTask, setIsStoppingTask] = useState(false);
   const [isCheckingPermissions, setIsCheckingPermissions] = useState(true);
   const [isRequestingPermissions, setIsRequestingPermissions] =
@@ -770,6 +774,7 @@ export function App({
   const error = transientCursorError.message;
   const activeTaskIdRef = useRef<string | null>(null);
   const latestSnapshotRef = useRef<TaskSnapshot | null>(null);
+  const companionCompletionTimerRef = useRef<number | null>(null);
   const autoStartAttemptedTaskIdsRef = useRef(new Set<string>());
   const isSendingRef = useRef(false);
   const isStoppingTaskRef = useRef(false);
@@ -793,8 +798,25 @@ export function App({
   }, []);
 
   const recordSnapshot = useCallback((nextSnapshot: TaskSnapshot | null) => {
+    const previousSnapshot = latestSnapshotRef.current;
     latestSnapshotRef.current = nextSnapshot;
     setSnapshot(nextSnapshot);
+    if (
+      nextSnapshot?.phase === 'completed' &&
+      (previousSnapshot?.taskId !== nextSnapshot.taskId ||
+        previousSnapshot.phase !== 'completed')
+    ) {
+      setCompletedCompanionTaskId(nextSnapshot.taskId);
+      if (companionCompletionTimerRef.current !== null) {
+        window.clearTimeout(companionCompletionTimerRef.current);
+      }
+      companionCompletionTimerRef.current = window.setTimeout(() => {
+        setCompletedCompanionTaskId((currentTaskId) =>
+          currentTaskId === nextSnapshot.taskId ? null : currentTaskId,
+        );
+        companionCompletionTimerRef.current = null;
+      }, TASK_COMPLETION_FEEDBACK_MS);
+    }
     if (!nextSnapshot) {
       autoStartAttemptedTaskIdsRef.current.clear();
       setAutoStartFailedTaskId(null);
@@ -812,6 +834,15 @@ export function App({
       );
     }
   }, []);
+
+  useEffect(
+    () => () => {
+      if (companionCompletionTimerRef.current !== null) {
+        window.clearTimeout(companionCompletionTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!transientCursorError.visible) return;
@@ -1431,6 +1462,10 @@ export function App({
       voiceProviderFailed: voiceProviderStatus.state === 'error',
     }),
     isSending: isSubmitting,
+    showTaskCompleted:
+      snapshot?.phase === 'completed' &&
+      completedCompanionTaskId === snapshot.taskId,
+    taskPhase: snapshot?.phase ?? null,
     voiceStatus,
   });
 

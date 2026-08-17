@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { shouldRequestCompletionReview } from './completion-policy';
 import { RuntimeToolRegistry } from './runtime-tool-registry';
 import { createTaskContract } from './task-contract';
 
@@ -45,4 +46,24 @@ describe('general-purpose agent evaluation matrix', () => {
       .map((tool) => tool.name);
     expect(names).not.toContain('generate_music');
   });
+
+  it.each([
+    {
+      request: 'giúp tôi làm bài tập này',
+      resolvedToolCalls: 0,
+      regression: 'visible assignment without an initial observation',
+    },
+    {
+      request: 'Open Gmail and read the latest email.',
+      resolvedToolCalls: 2,
+      regression: 'stopping after navigation and inbox preview',
+    },
+  ])(
+    'requires a GPT completion review for $regression',
+    ({ request, resolvedToolCalls }) => {
+      expect(
+        shouldRequestCompletionReview({ request, resolvedToolCalls }),
+      ).toBe(true);
+    },
+  );
 });

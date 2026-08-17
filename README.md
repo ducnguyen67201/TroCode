@@ -2,6 +2,9 @@
 
 TroCode is a cross-platform, general-purpose desktop agent foundation. One GPT Responses session receives the conversation and the concrete tools installed by the trusted host; it can answer normally or request one tool call at a time.
 
+Read the [privacy policy](PRIVACY.md), [code signing policy](CODE_SIGNING_POLICY.md),
+and [security model](docs/security.md).
+
 The desktop application uses Electron, React, TypeScript, and [CUA Driver](https://github.com/trycua/cua). It is domain-agnostic: requests are not placed into a Gold domain/capability grant before execution. The host still enforces concrete tool availability, public HTTPS targets, fresh observations, exact consequential-action approvals, cancellation, and task limits.
 
 ## Current status
@@ -220,14 +223,14 @@ when `POSTHOG_PROJECT_TOKEN` is absent. The build injects these values into the
 Electron main bundle only; the preload and renderer cannot access them.
 
 TroCode records `application opened`, `application closed`, task funnel events,
-non-sensitive goal metadata, and a `voice transcription completed` event whose
-`transcript` property contains the completed dictated prompt. A durable
-anonymous installation ID powers DAU before sign-in; authenticated identity is
-associated with the same installation and its voice transcript events.
+non-sensitive goal metadata, and a `voice transcription completed` event that
+contains only the transcript character count. A durable anonymous installation
+ID powers DAU before sign-in; authenticated identity is associated with the
+same installation and its count-only voice events.
 
-Typed task text, messages other than completed voice transcripts, screenshots,
-URLs, document contents, file paths, credentials, and approval descriptions are
-not added to analytics events.
+Typed task text, messages, voice transcript content, screenshots, URLs,
+document contents, file paths, credentials, and approval descriptions are not
+added to analytics events.
 
 Closing the TroCode window hides it while TroCode stays available from the menu
 bar or system tray for background voice input. Choose **Quit TroCode** there, or
@@ -306,10 +309,47 @@ Configure these GitHub Actions secrets before pushing a release tag:
 - `APPLE_API_KEY_P8_BASE64`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`
 - `WINDOWS_CERTIFICATE_PFX_BASE64` and `WINDOWS_CERTIFICATE_PASSWORD`
 
+The tag-triggered workflow above is the certificate-file release path. TroCode
+also provides a free open-source Windows path through SignPath Foundation. See
+the [code signing policy](CODE_SIGNING_POLICY.md) for its roles and controls.
+After SignPath accepts the project, configure this repository secret:
+
+- `SIGNPATH_API_TOKEN`
+
+Configure these repository variables using the values created in SignPath:
+
+- `SIGNPATH_ORGANIZATION_ID`
+- `SIGNPATH_PROJECT_SLUG`
+- `SIGNPATH_SIGNING_POLICY_SLUG`
+- `SIGNPATH_APP_ARTIFACT_CONFIGURATION_SLUG`
+- `SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG`
+
+Import [`signpath/windows-app.xml`](signpath/windows-app.xml) and
+[`signpath/windows-installer.xml`](signpath/windows-installer.xml) as the two
+artifact configurations. Install the SignPath GitHub App for this repository,
+restrict the signing policy to `main`, require manual approval, and then run
+**Windows SignPath release**. The workflow signs the packaged app first and the
+installer second, verifies both signatures, and publishes the stable release.
+
 The first updater-enabled build still requires a normal manual installation.
 After that bootstrap release, future published versions can be installed from
 inside TroCode. Linux continues to use its package manager because Electron's
 native updater supports only macOS and Windows.
+
+For a Windows-only customer build, run **Windows build and release** from the
+GitHub Actions page. Leave `publish_release` disabled to receive a private CI
+artifact. Enable both `require_signing` and `publish_release` to verify the
+Authenticode signature and publish the Squirrel installer, full package,
+`RELEASES` manifest, and SHA-256 checksums as `v<package.json version>`. Bump
+`package.json` before each published run; an existing version is never
+overwritten. Published assets are consumed by both the installed-app updater
+and the Tro website's latest-release download routes.
+
+Before SignPath approval, that workflow can also publish a clearly labeled
+unsigned prerelease solely as the public artifact sample required by the
+SignPath Foundation application. It must not be presented as a trusted customer
+release; Windows will warn when it is installed. Stable customer releases use
+the SignPath workflow or the certificate-file workflow above.
 
 ## Architecture
 

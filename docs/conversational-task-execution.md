@@ -10,7 +10,10 @@ approval decision, or steering message returns to the same session.
 ```mermaid
 flowchart TD
     USER["User message"] --> MODEL["GPT Responses sample"]
-    MODEL -->|"Assistant text"| DONE["Finished"]
+    MODEL -->|"Assistant candidate"| REVIEW{"Contextual completion review needed?"}
+    REVIEW -->|"No or already reviewed"| DONE["Finished"]
+    REVIEW -->|"Yes, once"| CHECK["Trusted GPT completion checkpoint"]
+    CHECK --> MODEL
     MODEL -->|"One function call"| ROUTER["Host tool router"]
     ROUTER --> POLICY["Availability, target, exact-risk policy"]
     POLICY -->|"Denied/recoverable"| OUTPUT["Function-call output"]
@@ -23,9 +26,18 @@ flowchart TD
     OUTPUT --> MODEL
 ```
 
-An ordinary assistant message is the completion signal; there is no special
-complete function. This lets math, explanations, translation, writing, code,
-lyrics, chords, and plans finish with zero tool calls and zero CUA starts.
+There is no special complete function. Self-contained math, explanations,
+translation, writing, code, lyrics, chords, and plans can finish with zero tool
+calls, zero reviews, and zero CUA starts.
+
+For a task that used a tool or refers to visible context, the first assistant
+message is a private completion candidate. TroCode inserts one trusted developer
+checkpoint into the same Responses session. The checkpoint requires GPT to
+re-read the original request as a checklist and either continue calling tools or
+return the final answer. Navigation alone is not evidence that reading or editing
+inside a destination happened, and an inbox row or preview is not evidence that
+the full email was opened and read. The host performs at most one such review per
+task so a faulty model cannot create an unbounded self-review loop.
 
 ## Clarification and steering
 

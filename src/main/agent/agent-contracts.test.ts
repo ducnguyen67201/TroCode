@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseAgentTurn } from './agent-contracts';
+import {
+  developerMessageInputItem,
+  parseAgentTurn,
+} from './agent-contracts';
 
 describe('agent response contracts', () => {
+  it('creates a trusted developer message for host completion review', () => {
+    expect(developerMessageInputItem('Review completion.')).toEqual({
+      role: 'developer',
+      content: [{ type: 'input_text', text: 'Review completion.' }],
+    });
+  });
+
   it('parses ordinary assistant output', () => {
     expect(
       parseAgentTurn({
