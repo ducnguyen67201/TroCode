@@ -5,7 +5,7 @@ import { TaskUpdateSchema } from '../../shared/contracts';
 import { TaskRuntime } from './task-runtime';
 
 describe('TaskRuntime', () => {
-  it('submits a ready v3 task synchronously', () => {
+  it('submits a ready v4 task synchronously', () => {
     const runtime = new TaskRuntime();
     const listener = vi.fn();
     runtime.on('task-update', listener);
@@ -14,7 +14,7 @@ describe('TaskRuntime', () => {
 
     expect(snapshot.phase).toBe('ready');
     expect(snapshot.goal).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       originalRequest: 'What is 27 × 14?',
     });
     expect(snapshot.progress).toEqual({

@@ -91,3 +91,10 @@ Screenshots and Responses items stay in bounded main-process memory and are
 erased on cleanup. They are not sent through renderer IPC, task history, or
 analytics. Unknown effects are reported honestly and their exact action digest
 cannot execute again.
+
+The inference shell selects a deterministic cost profile without a classifier
+call. Standard and visual turns use Luna with a 2,000-token output cap; only a
+long-response profile raises this to 4,000. Each hosted sample reserves
+server-priced micro-USD before dispatch and settles provider usage afterward.
+Typed and finalized voice transcripts enter this same task path, so voice does
+not create a second reasoning call.

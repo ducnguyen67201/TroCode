@@ -24,6 +24,12 @@ The model never receives CUA, Electron IPC, or driver handles. Its normalized
 coordinates are converted once into screenshot pixels; companion presentation
 coordinates are mapped separately into desktop points.
 
+Before model input, wide screenshots are resized to at most 1,536 pixels and
+encoded as bounded JPEG evidence. Exactly one current screenshot may appear in
+a Responses request. After that sample its bytes are demoted from manual
+history while bounded textual observation facts remain. A later action must
+produce a newer observation; historical screenshots are never replayed.
+
 ## Freshness and approvals
 
 Every control call must cite the latest observation UUID. The host includes the

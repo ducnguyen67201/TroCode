@@ -34,4 +34,25 @@ test('loadConfig restricts requests to configured models', () => {
 
   assert.deepEqual([...config.openAiModels], ['primary-model', 'fallback-model']);
   assert.equal(config.sessionDurationDays, 30);
+  assert.equal(config.costGuard.monthlyMicroUsd, 20_000_000);
+  assert.equal(config.costGuard.dailyMicroUsd, 2_000_000);
+  assert.equal(config.costGuard.taskMicroUsd, 500_000);
+  assert.equal(config.costGuard.mode, 'observe');
+});
+
+test('loadConfig validates cost guard controls', () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        ...VALID_ENVIRONMENT,
+        TROCODE_COST_GUARD_MODE: 'disabled',
+      }),
+    /observe, enforce/,
+  );
+  const config = loadConfig({
+    ...VALID_ENVIRONMENT,
+    TROCODE_COST_GUARD_MODE: 'enforce',
+    TROCODE_MONTHLY_BUDGET_MICRO_USD: '20000000',
+  });
+  assert.equal(config.costGuard.mode, 'enforce');
 });

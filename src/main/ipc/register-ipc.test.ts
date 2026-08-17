@@ -97,7 +97,10 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     sender: { id: 84 },
     senderFrame: interactionFrame,
   };
-  const submit = vi.fn(() => ({ taskId: 'task-id' }));
+  const submit = vi.fn((input: unknown) => {
+    void input;
+    return { taskId: 'task-id' };
+  });
   const authService = {
     assertSignedIn: vi.fn(async () => {
       if (!authenticated) throw new Error('Sign in with Google first.');
@@ -148,7 +151,29 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   const executionCoordinator = {
     cancelActiveTasks: vi.fn(() => []),
     resume: vi.fn(),
-    start: vi.fn(() => ({ taskId: 'task-id', phase: 'planning' })),
+    start: vi.fn((input: unknown) => {
+      void input;
+      return { taskId: 'task-id', phase: 'planning' };
+    }),
+  };
+  const taskApplicationService = {
+    cancel: vi.fn((input: unknown) => input),
+    decideApproval: vi.fn((input: { taskId: string }) => {
+      const snapshot = taskRuntime.decideApproval(input);
+      executionCoordinator.resume(snapshot.taskId);
+      return snapshot;
+    }),
+    respond: vi.fn((input: { taskId: string }) => {
+      const snapshot = taskRuntime.respondToInteraction(input);
+      executionCoordinator.resume(snapshot.taskId);
+      return snapshot;
+    }),
+    start: executionCoordinator.start,
+    steer: vi.fn((input: unknown) => input),
+    submitAndStart: vi.fn((input: unknown) => {
+      const submitted = submit(input);
+      return executionCoordinator.start({ taskId: submitted.taskId });
+    }),
   };
   const callOrder: string[] = [];
   const permissionRequiredStatus: CuaStatus = {
@@ -229,10 +254,25 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     revealMainWindow,
     systemAudioDuckingService: { setActive: setVoiceAudioDucking },
     taskRuntime,
+    taskApplicationService,
     taskHistoryService: { load: getTaskHistory },
     updateCompanionState: vi.fn(),
     updateCompanionVoiceActivity,
     voiceService: { createCall: createVoiceCall },
+    usageBudgetService: {
+      get: vi.fn(async () => ({
+        actualMicroUsd: 0,
+        daily: { limitMicroUsd: 2_000_000, remainingMicroUsd: 2_000_000, reservedMicroUsd: 0, settledMicroUsd: 0 },
+        enforcementMode: 'enforce',
+        estimatedMicroUsd: 0,
+        monthEndsAt: '2026-09-01T00:00:00.000Z',
+        monthly: { limitMicroUsd: 20_000_000, remainingMicroUsd: 20_000_000, reservedMicroUsd: 0, settledMicroUsd: 0 },
+        periodStartsAt: '2026-08-01T00:00:00.000Z',
+        source: 'hosted',
+        task: { limitMicroUsd: 500_000, remainingMicroUsd: 500_000, reservedMicroUsd: 0, settledMicroUsd: 0 },
+        warningThresholdMicroUsd: 16_000_000,
+      })),
+    },
   } as unknown as Parameters<typeof registerIpcHandlers>[1];
 
   return {

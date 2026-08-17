@@ -9,6 +9,7 @@ const MAX_UPSTREAM_RESPONSE_BYTES = 5_000_000;
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const OPENAI_REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1/text-to-speech';
+const VOICE_TASK_ID = '00000000-0000-4000-8000-000000000000';
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -74,10 +75,13 @@ function sendJson(response, status, value, extraHeaders = {}) {
   response.end(JSON.stringify(value));
 }
 
-function sendBuffer(response, status, body, contentType) {
+function sendBuffer(response, status, body, contentType, extraHeaders = {}) {
   response.statusCode = status;
   response.setHeader('Content-Type', contentType);
   response.setHeader('Content-Length', String(body.byteLength));
+  for (const [name, headerValue] of Object.entries(extraHeaders)) {
+    response.setHeader(name, headerValue);
+  }
   response.end(body);
 }
 
@@ -252,10 +256,12 @@ function transcriptionSessionConfig(language) {
 
 export function createApiHandler({
   accessCodeRepository,
+  budgetService,
   config,
   fetchImpl = fetch,
   healthCheck,
   sessionRepository,
+  responsesService,
   verifyGoogleIdToken,
 }) {
   return async function handleRequest(request, response) {
@@ -390,6 +396,8 @@ export function createApiHandler({
         enforceRateLimit(limitModel(session.user.id));
         enforceRateLimit(limitModelDaily(`daily:${session.user.id}`));
         const body = await readJson(request, MAX_RESPONSES_BODY_BYTES);
+        const requestId = request.headers['x-trocode-request-id'];
+        const taskId = request.headers['x-trocode-task-id'];
         if (
           !body ||
           typeof body !== 'object' ||
@@ -404,18 +412,45 @@ export function createApiHandler({
           body.store !== false ||
           !Number.isInteger(body.max_output_tokens) ||
           body.max_output_tokens < 1 ||
-          body.max_output_tokens > 8_000
+          body.max_output_tokens > 4_000 ||
+          typeof requestId !== 'string' ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestId) ||
+          typeof taskId !== 'string' ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(taskId)
         ) {
           throw new HttpError(400, 'Responses request is invalid.');
         }
-        const upstream = await proxyOpenAiJson({
+        const upstream = await responsesService.execute({
           body,
-          config,
-          fetchImpl,
+          requestId,
           safetyIdentifier: modelSafetyIdentifier(session.user.id),
-          url: OPENAI_RESPONSES_URL,
+          taskId,
+          userId: session.user.id,
         });
-        sendBuffer(response, upstream.status, upstream.body, upstream.contentType);
+        sendBuffer(
+          response,
+          upstream.status,
+          upstream.body,
+          upstream.contentType,
+          upstream.headers,
+        );
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/v1/usage/budget') {
+        const session = await requireSession(request, sessionRepository);
+        const taskId = url.searchParams.get('taskId');
+        if (
+          taskId &&
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(taskId)
+        ) {
+          throw new HttpError(400, 'taskId is invalid.');
+        }
+        sendJson(
+          response,
+          200,
+          await budgetService.snapshot(session.user.id, taskId),
+        );
         return;
       }
 
@@ -441,6 +476,17 @@ export function createApiHandler({
           JSON.stringify(transcriptionSessionConfig(language)),
         );
         let upstreamResponse;
+        const reservedMicroUsd = budgetService.realtimeCallEstimateMicroUsd();
+        await budgetService.reserve({
+          catalogVersion: 'voice-estimate-v1',
+          lane: 'realtime_transcription',
+          model: 'gpt-realtime-whisper',
+          requestId,
+          reservedMicroUsd,
+          taskId: VOICE_TASK_ID,
+          userId: session.user.id,
+        });
+        await budgetService.markDispatched(session.user.id, requestId);
         try {
           upstreamResponse = await fetchImpl(OPENAI_REALTIME_CALLS_URL, {
             method: 'POST',
@@ -452,9 +498,35 @@ export function createApiHandler({
             signal: AbortSignal.timeout(30_000),
           });
         } catch {
+          await budgetService.markUncertain(session.user.id, requestId);
           throw new HttpError(502, 'The voice provider is temporarily unavailable.');
         }
         const upstreamBody = await readBoundedUpstreamBody(upstreamResponse);
+        if (upstreamResponse.ok) {
+          await budgetService.settle({
+            actualMicroUsd: reservedMicroUsd,
+            durationMs: Date.now() - startedAt,
+            requestId,
+            usage: {
+              cacheWriteTokens: 0,
+              cachedInputTokens: 0,
+              inputTokens: 0,
+              model: 'gpt-realtime-whisper',
+              outputTokens: 0,
+              reasoningTokens: 0,
+              source: 'estimated',
+            },
+            userId: session.user.id,
+          });
+        } else if ([400, 401, 403, 404, 422].includes(upstreamResponse.status)) {
+          await budgetService.release(
+            session.user.id,
+            requestId,
+            'rejected_before_inference',
+          );
+        } else {
+          await budgetService.markUncertain(session.user.id, requestId);
+        }
         sendBuffer(
           response,
           upstreamResponse.status,
@@ -478,6 +550,19 @@ export function createApiHandler({
         }
         const ttsUrl = `${ELEVENLABS_API_URL}/${encodeURIComponent(config.elevenLabsVoiceId)}/stream?output_format=mp3_44100_128`;
         let upstreamResponse;
+        const reservedMicroUsd = budgetService.speechEstimateMicroUsd(
+          text.length,
+        );
+        await budgetService.reserve({
+          catalogVersion: 'voice-estimate-v1',
+          lane: 'speech',
+          model: config.elevenLabsModelId,
+          requestId,
+          reservedMicroUsd,
+          taskId: VOICE_TASK_ID,
+          userId: session.user.id,
+        });
+        await budgetService.markDispatched(session.user.id, requestId);
         const providerController = new AbortController();
         const providerHeaderTimer = setTimeout(
           () => providerController.abort('headers-timeout'),
@@ -495,9 +580,36 @@ export function createApiHandler({
             signal: providerController.signal,
           });
         } catch {
+          await budgetService.markUncertain(session.user.id, requestId);
           throw new HttpError(502, 'Speech playback is temporarily unavailable.');
         } finally {
           clearTimeout(providerHeaderTimer);
+        }
+        if (upstreamResponse.ok) {
+          await budgetService.settle({
+            actualMicroUsd: reservedMicroUsd,
+            durationMs: Date.now() - startedAt,
+            requestId,
+            usage: {
+              cacheWriteTokens: 0,
+              cachedInputTokens: 0,
+              inputTokens: 0,
+              model: config.elevenLabsModelId,
+              outputTokens: 0,
+              characterCount: text.length,
+              reasoningTokens: 0,
+              source: 'estimated',
+            },
+            userId: session.user.id,
+          });
+        } else if ([400, 401, 403, 404, 422].includes(upstreamResponse.status)) {
+          await budgetService.release(
+            session.user.id,
+            requestId,
+            'rejected_before_inference',
+          );
+        } else {
+          await budgetService.markUncertain(session.user.id, requestId);
         }
         if (!upstreamResponse.ok) {
           providerController.abort('provider-error');
@@ -516,9 +628,16 @@ export function createApiHandler({
 
       throw new HttpError(404, 'Endpoint not found.');
     } catch (error) {
-      const status = error instanceof HttpError ? error.status : 500;
+      const isTypedHttpError =
+        error instanceof HttpError ||
+        (error &&
+          typeof error === 'object' &&
+          Number.isInteger(error.status) &&
+          error.status >= 400 &&
+          error.status <= 599);
+      const status = isTypedHttpError ? error.status : 500;
       const message =
-        error instanceof HttpError ? error.message : 'An internal error occurred.';
+        isTypedHttpError ? error.message : 'An internal error occurred.';
       const extraHeaders =
         error instanceof HttpError && error.retryAfterSeconds
           ? { 'Retry-After': String(error.retryAfterSeconds) }
@@ -535,7 +654,17 @@ export function createApiHandler({
           }),
         );
       }
-      if (!response.headersSent) sendJson(response, status, { error: message }, extraHeaders);
+      if (!response.headersSent) {
+        sendJson(
+          response,
+          status,
+          {
+            ...(typeof error?.code === 'string' ? { code: error.code } : {}),
+            error: message,
+          },
+          extraHeaders,
+        );
+      }
       else response.destroy();
     } finally {
       console.info(

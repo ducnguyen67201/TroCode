@@ -31,7 +31,12 @@ Implemented:
   explicit user-clicked Connect computer action.
 - Task-scoped CUA sessions with bounded screenshots, typed clicks, text entry,
   keypresses, scrolling, dragging, and session cleanup.
-- GPT-5.6 Luna reasoning through the Responses API, with GPT-5.6 Terra fallback.
+- Cost-aware GPT-5.6 Luna reasoning through the Responses API. Terra requires
+  an explicit pre-dispatch quality profile; ambiguous calls never fall back.
+- Hosted integer micro-USD accounting with atomic request reservations and
+  configurable task, daily, and monthly limits ($0.50/$2/$20 defaults).
+- One resized current screenshot per visual sample, bounded context, and
+  profile-specific 2k/4k output ceilings.
 - A serialized sample → tool → result loop with tool/time limits, cancellation,
   safe steering, post-action screenshots, and no repeat after unknown results.
 - Direct public HTTPS navigation and exact, revalidated approval
@@ -132,9 +137,10 @@ npm start
 
 Companion speech is optional. To use ElevenLabs credits, also configure
 `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`. Agent sampling defaults to
-`gpt-5.6-luna` with `gpt-5.6-terra` fallback and can be overridden with
-`TROCODE_AGENT_MODEL` and `TROCODE_AGENT_FALLBACK_MODEL`. The old planner
-variable names remain fallback aliases for one compatibility release.
+`gpt-5.6-luna`. `gpt-5.6-terra` is not an automatic fallback; it requires a
+named, eval-backed quality override selected before dispatch. See the
+[inference cost lifecycle](docs/inference-cost-lifecycle.md) for the text,
+screen, reservation, settlement, and presentation flow.
 
 During a visible walkthrough, use **Command/Control + Alt + J** for Back,
 **Command/Control + Alt + K** for Pause/Resume, and **Command/Control + Alt + L**
@@ -189,14 +195,17 @@ The API requires these production variables:
 - `OPENAI_API_KEY`
 - `TROCODE_SESSION_TOKEN_HMAC_KEY`
 - `TROCODE_PLANNER_MODEL` and `TROCODE_PLANNER_FALLBACK_MODEL`
+- `TROCODE_COST_GUARD_MODE`, starting at `observe` and moving to `enforce`
+- optional server-owned budget overrides documented in `.env.example`
 - optional `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, and
   `ELEVENLABS_MODEL_ID`
 
-Provider endpoints require the opaque session, enforce per-user limits and
-bounded bodies, restrict Responses models to the configured allowlist, and
-keep `store: false`. The API does not store task prompts, model responses,
-screenshots, or desktop actions. Native computer-use policy remains in the
-trusted Electron main process.
+Provider endpoints require the opaque session, atomically reserve spend before
+dispatch, enforce per-user task/day/month limits and bounded bodies, restrict
+Responses models to the configured allowlist, and keep `store: false`. The API
+stores sanitized usage counts and integer cost, but never task prompts, model
+responses, screenshots, or desktop actions. Native computer-use policy remains
+in the trusted Electron main process.
 
 ### PostgreSQL task history
 

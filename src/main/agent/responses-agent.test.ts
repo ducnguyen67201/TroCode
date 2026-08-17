@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { GptResponsesAgent } from './responses-agent';
+import { CostAwareAgent } from '../inference/cost-aware-agent';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -9,7 +9,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-describe('GptResponsesAgent', () => {
+describe('CostAwareAgent', () => {
   it('uses the hosted session proxy without reading a provider key', async () => {
     const readProviderKey = vi.fn(async () => 'must-not-be-used');
     const accessToken = `tro_live_${'a'.repeat(43)}`;
@@ -24,7 +24,7 @@ describe('GptResponsesAgent', () => {
         ],
       }),
     );
-    const agent = new GptResponsesAgent({
+    const agent = new CostAwareAgent({
       accessTokenProvider: vi.fn(async () => accessToken),
       apiBaseUrl: 'http://127.0.0.1:8080',
       credentialStore: { read: readProviderKey },
@@ -59,7 +59,7 @@ describe('GptResponsesAgent', () => {
         ],
       }),
     );
-    const agent = new GptResponsesAgent({
+    const agent = new CostAwareAgent({
       credentialStore: { read: vi.fn(async () => 'secret-key') },
       fetchImpl,
       model: 'test-model',
@@ -124,7 +124,7 @@ describe('GptResponsesAgent', () => {
           ],
         }),
       );
-    const agent = new GptResponsesAgent({
+    const agent = new CostAwareAgent({
       credentialStore: { read: vi.fn(async () => 'secret-key') },
       fetchImpl,
       model: 'test-model',
@@ -184,7 +184,7 @@ describe('GptResponsesAgent', () => {
           ],
         }),
       );
-    const agent = new GptResponsesAgent({
+    const agent = new CostAwareAgent({
       credentialStore: { read: vi.fn(async () => 'secret-key') },
       fetchImpl,
       model: 'test-model',
@@ -222,7 +222,7 @@ describe('GptResponsesAgent', () => {
     );
   });
 
-  it('falls back after a recoverable model failure', async () => {
+  it('does not duplicate an ambiguous model failure on a fallback model', async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ error: { message: 'Unavailable' } }, 503))
@@ -237,7 +237,7 @@ describe('GptResponsesAgent', () => {
           ],
         }),
       );
-    const agent = new GptResponsesAgent({
+    const agent = new CostAwareAgent({
       credentialStore: { read: vi.fn(async () => 'secret-key') },
       fetchImpl,
       model: 'primary',
@@ -245,13 +245,8 @@ describe('GptResponsesAgent', () => {
     });
     await agent.start('task-3', 'Help me.');
 
-    await expect(agent.sample('task-3', [])).resolves.toMatchObject({
-      text: 'Recovered.',
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body))).toMatchObject({
-      model: 'fallback',
-    });
+    await expect(agent.sample('task-3', [])).rejects.toThrow('Unavailable');
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
   it('does not resend deterministic request-schema failures to another model', async () => {
@@ -266,7 +261,7 @@ describe('GptResponsesAgent', () => {
         400,
       ),
     );
-    const agent = new GptResponsesAgent({
+    const agent = new CostAwareAgent({
       credentialStore: { read: vi.fn(async () => 'secret-key') },
       fetchImpl,
       model: 'primary',
@@ -281,7 +276,7 @@ describe('GptResponsesAgent', () => {
   });
 
   it('does not fall back on authorization errors or start without credentials', async () => {
-    const missing = new GptResponsesAgent({
+    const missing = new CostAwareAgent({
       credentialStore: { read: vi.fn(async () => null) },
       environmentApiKey: '',
       fetchImpl: vi.fn<typeof fetch>(),
@@ -290,7 +285,7 @@ describe('GptResponsesAgent', () => {
       'Connect an OpenAI API key',
     );
 
-    const missingHosted = new GptResponsesAgent({
+    const missingHosted = new CostAwareAgent({
       accessTokenProvider: vi.fn(async () => null),
       apiBaseUrl: 'https://api.example.com',
       credentialStore: { read: vi.fn(async () => 'must-not-be-used') },
@@ -303,7 +298,7 @@ describe('GptResponsesAgent', () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValue(jsonResponse({ error: { message: 'Unauthorized' } }, 401));
-    const agent = new GptResponsesAgent({
+    const agent = new CostAwareAgent({
       credentialStore: { read: vi.fn(async () => 'bad-key') },
       fetchImpl,
       model: 'primary',

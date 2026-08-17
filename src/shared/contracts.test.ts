@@ -5,11 +5,13 @@ import { describe, expect, it } from 'vitest';
 import {
   ActivateMembershipRequestSchema,
   AgentTaskContractV3Schema,
+  AgentTaskContractV4Schema,
   CompanionSpeechPlaybackReportSchema,
   CompanionSpeechSchema,
   MembershipStatusSchema,
   TaskHistorySchema,
   TaskProgressSchema,
+  UsageBudgetSnapshotSchema,
 } from './contracts';
 
 function snapshot(goal: Record<string, unknown>, progress: unknown) {
@@ -118,6 +120,38 @@ describe('shared task contracts', () => {
     expect(
       TaskProgressSchema.parse({ kind: 'tool_calls', completed: 2, limit: 30 }),
     ).toEqual({ kind: 'tool_calls', completed: 2, limit: 30 });
+  });
+
+  it('parses v4 cost limits and sanitized budget snapshots', () => {
+    expect(
+      AgentTaskContractV4Schema.parse({
+        approvalPolicy: { alwaysConfirm: ['send'] },
+        id: randomUUID(),
+        limits: {
+          maxImages: 20,
+          maxMicroUsd: 500_000,
+          maxMinutes: 10,
+          maxModelSamples: 40,
+          maxToolCalls: 30,
+        },
+        originalRequest: 'Complete a useful task.',
+        schemaVersion: 4,
+      }),
+    ).toMatchObject({ schemaVersion: 4 });
+    expect(
+      UsageBudgetSnapshotSchema.parse({
+        actualMicroUsd: 1_000,
+        daily: { limitMicroUsd: 2_000_000, remainingMicroUsd: 1_999_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
+        enforcementMode: 'enforce',
+        estimatedMicroUsd: 0,
+        monthEndsAt: '2026-09-01T00:00:00.000Z',
+        monthly: { limitMicroUsd: 20_000_000, remainingMicroUsd: 19_999_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
+        periodStartsAt: '2026-08-01T00:00:00.000Z',
+        source: 'hosted',
+        task: { limitMicroUsd: 500_000, remainingMicroUsd: 499_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
+        warningThresholdMicroUsd: 16_000_000,
+      }),
+    ).not.toHaveProperty('prompt');
   });
 
   it('loads mixed persisted v1, v2, and v3 history', () => {

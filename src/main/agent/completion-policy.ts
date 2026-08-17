@@ -26,12 +26,40 @@ export function requestReferencesVisibleContext(request: string): boolean {
   );
 }
 
+export interface CompletionReviewDecision {
+  reason:
+    | 'visible_context'
+    | 'outcome_verification'
+    | 'selective_skip'
+    | 'no_tools';
+  required: boolean;
+}
+
+export function decideCompletionReview(input: {
+  request: string;
+  resolvedToolCalls: number;
+}): CompletionReviewDecision {
+  if (requestReferencesVisibleContext(input.request)) {
+    return { reason: 'visible_context', required: true };
+  }
+  const normalized = normalizeRequest(input.request);
+  if (
+    input.resolvedToolCalls > 0 &&
+    /\b(?:read|inspect|find|fill|edit|submit|send|create|make|download|upload|delete|purchase|latest|email)\b/u.test(
+      normalized,
+    )
+  ) {
+    return { reason: 'outcome_verification', required: true };
+  }
+  if (input.resolvedToolCalls > 0) {
+    return { reason: 'selective_skip', required: false };
+  }
+  return { reason: 'no_tools', required: false };
+}
+
 export function shouldRequestCompletionReview(input: {
   request: string;
   resolvedToolCalls: number;
 }): boolean {
-  return (
-    input.resolvedToolCalls > 0 ||
-    requestReferencesVisibleContext(input.request)
-  );
+  return decideCompletionReview(input).required;
 }

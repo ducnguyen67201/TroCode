@@ -91,6 +91,15 @@ origins, validate content types and body sizes, apply rate limits, return
 generic errors, and emit logs without identity tokens, provider keys, task text,
 or model output.
 
+Every hosted paid request is bound to an authenticated user, request UUID, task
+UUID, server-owned price-catalog version, and transactional reservation before
+provider dispatch. The client cannot provide prices, usage, limits, or
+settlement state. Explicit pre-inference rejection may release a reservation;
+an ambiguous dispatch retains it and is never retried automatically. Usage rows
+contain IDs, lane/model, counts, integer micro-USD, disposition, and timestamps
+only—never prompts, outputs, screenshots, base64, URLs, recipients, file paths,
+secrets, or raw tool arguments.
+
 The membership signing private key is an administrative secret and must never
 be added to the repository, Doppler application runtime, analytics, or a
 release bundle. Only the Ed25519 public key is compiled into packaged builds.

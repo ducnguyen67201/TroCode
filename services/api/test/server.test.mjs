@@ -3,12 +3,16 @@ import { createServer } from 'node:http';
 import test from 'node:test';
 
 import { createApiHandler } from '../src/server.mjs';
+import { ModelCatalog } from '../src/model-catalog.mjs';
+import { OpenAiResponsesService } from '../src/openai-responses-service.mjs';
 
 const TEST_USER = {
   email: 'person@example.com',
   id: 'google-subject-123',
   name: 'Test Person',
 };
+const TEST_TASK_ID = '11111111-1111-4111-8111-111111111111';
+const TEST_REQUEST_ID = '22222222-2222-4222-8222-222222222222';
 const SECOND_TEST_USER = {
   email: 'second@example.com',
   id: 'google-subject-456',
@@ -116,8 +120,45 @@ async function withApi(
         headers: { 'Content-Type': 'application/json' },
         status: 200,
       }));
+  const budgetService = {
+    markDispatched: async () => undefined,
+    markUncertain: async () => undefined,
+    realtimeCallEstimateMicroUsd: () => 5_000,
+    release: async () => undefined,
+    reserve: async () => undefined,
+    settle: async () => undefined,
+    snapshot: async () => ({
+      actualMicroUsd: 1_000,
+      daily: { limitMicroUsd: 2_000_000, remainingMicroUsd: 1_999_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
+      enforcementMode: 'enforce',
+      estimatedMicroUsd: 0,
+      monthEndsAt: '2026-09-01T00:00:00.000Z',
+      monthly: { limitMicroUsd: 20_000_000, remainingMicroUsd: 19_999_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
+      periodStartsAt: '2026-08-01T00:00:00.000Z',
+      task: { limitMicroUsd: 500_000, remainingMicroUsd: 499_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
+      warningThresholdMicroUsd: 16_000_000,
+    }),
+    speechEstimateMicroUsd: (characters) => characters * 60,
+  };
+  const responsesService = new OpenAiResponsesService({
+    budgetService,
+    catalog: new ModelCatalog({
+      entries: {
+        'test-model': {
+          cachedInputMicroUsdPerMillion: 20_000,
+          cacheWriteMicroUsdPerMillion: 250_000,
+          inputMicroUsdPerMillion: 200_000,
+          outputMicroUsdPerMillion: 1_200_000,
+        },
+      },
+      version: 'test-v1',
+    }),
+    fetchImpl: upstreamFetch,
+    openAiApiKey: 'sk-test-not-real',
+  });
   const handler = createApiHandler({
     accessCodeRepository: accessCodes,
+    budgetService,
     config: {
       elevenLabsApiKey: null,
       elevenLabsModelId: 'eleven_flash_v2_5',
@@ -130,6 +171,7 @@ async function withApi(
     fetchImpl: upstreamFetch,
     healthCheck: async () => true,
     sessionRepository: sessions,
+    responsesService,
     verifyGoogleIdToken: async (token) => {
       if (token === 'valid-google-token') return TEST_USER;
       if (token === 'valid-google-token-2') return SECOND_TEST_USER;
@@ -338,6 +380,8 @@ test('model proxy requires authentication and enforces model allowlist', async (
         headers: {
           Authorization: `Bearer ${session.accessToken}`,
           'Content-Type': 'application/json',
+          'X-Trocode-Request-Id': TEST_REQUEST_ID,
+          'X-Trocode-Task-Id': TEST_TASK_ID,
         },
         body: JSON.stringify(responsesBody()),
       });
@@ -356,6 +400,22 @@ test('model proxy requires authentication and enforces model allowlist', async (
       },
     },
   );
+});
+
+test('usage budget returns only the authenticated caller snapshot', async () => {
+  await withApi(async ({ baseUrl }) => {
+    const unauthenticated = await fetch(`${baseUrl}/v1/usage/budget`);
+    assert.equal(unauthenticated.status, 401);
+    const session = await signIn(baseUrl);
+    const response = await fetch(
+      `${baseUrl}/v1/usage/budget?taskId=${TEST_TASK_ID}`,
+      { headers: { Authorization: `Bearer ${session.accessToken}` } },
+    );
+    assert.equal(response.status, 200);
+    const snapshot = await response.json();
+    assert.equal(snapshot.monthly.limitMicroUsd, 20_000_000);
+    assert.equal('prompt' in snapshot, false);
+  });
 });
 
 test('session refresh rotates the credential and sign-out revokes it', async () => {

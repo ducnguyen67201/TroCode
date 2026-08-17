@@ -145,6 +145,22 @@ export const AgentTaskContractV3Schema = z.object({
   }),
 });
 
+export const AgentTaskContractV4Schema = z.object({
+  schemaVersion: z.literal(4),
+  id: z.string().uuid(),
+  originalRequest: z.string().min(2).max(8_000),
+  approvalPolicy: z.object({
+    alwaysConfirm: z.array(SensitiveActionSchema),
+  }),
+  limits: z.object({
+    maxImages: z.number().int().positive().max(100),
+    maxMicroUsd: z.number().int().positive().max(20_000_000),
+    maxMinutes: z.number().int().positive().max(120),
+    maxModelSamples: z.number().int().positive().max(200),
+    maxToolCalls: z.number().int().positive().max(200),
+  }),
+});
+
 function normalizeLegacyGoal(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
   const goal = value as Record<string, unknown>;
@@ -165,7 +181,11 @@ function normalizeLegacyGoal(value: unknown): unknown {
 
 export const TaskContractSchema = z.preprocess(
   normalizeLegacyGoal,
-  z.union([LegacyTaskContractV2Schema, AgentTaskContractV3Schema]),
+  z.union([
+    LegacyTaskContractV2Schema,
+    AgentTaskContractV3Schema,
+    AgentTaskContractV4Schema,
+  ]),
 );
 
 /** @deprecated Use TaskContractSchema for new code. */
@@ -335,6 +355,10 @@ export const TaskSnapshotSchema = z
 
 export const SubmitTaskRequestSchema = z.object({
   text: z.string().trim().min(2).max(8_000),
+});
+
+export const GetUsageBudgetRequestSchema = z.object({
+  taskId: z.string().uuid().optional(),
 });
 
 export const CancelTaskRequestSchema = z.object({
@@ -517,6 +541,36 @@ export const CompanionStateSchema = z.enum([
   'completed',
   'error',
 ]);
+
+export const PresentationStateSchema = z.enum([
+  'ready',
+  'listening',
+  'thinking',
+  'working',
+  'needs_attention',
+  'done',
+  'error',
+]);
+
+const UsageBudgetPeriodSchema = z.object({
+  limitMicroUsd: z.number().int().nonnegative(),
+  remainingMicroUsd: z.number().int().nonnegative(),
+  reservedMicroUsd: z.number().int().nonnegative(),
+  settledMicroUsd: z.number().int().nonnegative(),
+});
+
+export const UsageBudgetSnapshotSchema = z.object({
+  actualMicroUsd: z.number().int().nonnegative(),
+  daily: UsageBudgetPeriodSchema,
+  enforcementMode: z.enum(['observe', 'enforce']),
+  estimatedMicroUsd: z.number().int().nonnegative(),
+  monthEndsAt: z.string().datetime(),
+  monthly: UsageBudgetPeriodSchema,
+  periodStartsAt: z.string().datetime(),
+  source: z.enum(['hosted', 'local_advisory']),
+  task: UsageBudgetPeriodSchema,
+  warningThresholdMicroUsd: z.number().int().nonnegative(),
+});
 
 export const CompanionVoiceActivitySchema = z.object({
   appLanguage: AppLanguageSchema.default('en'),
@@ -740,6 +794,7 @@ export type ActivateMembershipRequest = z.infer<
 >;
 export type CompanionPosition = z.infer<typeof CompanionPositionSchema>;
 export type CompanionState = z.infer<typeof CompanionStateSchema>;
+export type PresentationState = z.infer<typeof PresentationStateSchema>;
 export type CompanionVoiceActivity = z.infer<
   typeof CompanionVoiceActivitySchema
 >;
@@ -767,8 +822,11 @@ export type DecideApprovalRequest = z.infer<
 >;
 export type Domain = z.infer<typeof DomainSchema>;
 export type GoalSpec = z.infer<typeof GoalSpecSchema>;
+export type GetUsageBudgetRequest = z.infer<
+  typeof GetUsageBudgetRequestSchema
+>;
 export type TaskContract = z.infer<typeof TaskContractSchema>;
-export type AgentTaskContract = z.infer<typeof AgentTaskContractV3Schema>;
+export type AgentTaskContract = z.infer<typeof AgentTaskContractV4Schema>;
 export type InteractionMode = z.infer<typeof InteractionModeSchema>;
 export type MembershipStatus = z.infer<typeof MembershipStatusSchema>;
 export type PendingInteraction = z.infer<typeof PendingInteractionSchema>;
@@ -798,6 +856,7 @@ export type TaskPhase = z.infer<typeof TaskPhaseSchema>;
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>;
 export type TaskUpdate = z.infer<typeof TaskUpdateSchema>;
+export type UsageBudgetSnapshot = z.infer<typeof UsageBudgetSnapshotSchema>;
 export type UpdateAppPreferencesRequest = z.infer<
   typeof UpdateAppPreferencesRequestSchema
 >;

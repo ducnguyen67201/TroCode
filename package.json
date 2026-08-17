@@ -11,6 +11,7 @@
     "db:logs": "doppler run --project tro-app --config dev -- docker compose logs --tail=100 postgres",
     "db:ps": "doppler run --project tro-app --config dev -- docker compose ps",
     "db:up": "doppler run --project tro-app --config dev -- docker compose up -d --wait --wait-timeout 60 postgres",
+    "cost:report": "node scripts/inference-cost-report.mjs",
     "package": "doppler run --project tro-app --config prd -- npm exec -- electron-forge package",
     "package:dev": "doppler run --project tro-app --config dev -- npm exec -- electron-forge package",
     "make": "doppler run --project tro-app --config prd -- npm exec -- electron-forge make",
