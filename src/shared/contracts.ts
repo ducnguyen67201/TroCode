@@ -427,12 +427,18 @@ export const AppLanguageSchema = z.enum(['en', 'vi']);
 
 export const AppPreferencesSchema = z.object({
   appLanguage: AppLanguageSchema.default('en'),
+  muteSystemAudioWhileSpeaking: z.boolean().default(false),
   primaryLanguage: PrimaryLanguageSchema.nullable(),
 });
 
 export const UpdateAppPreferencesRequestSchema = z.object({
   appLanguage: AppLanguageSchema.default('en'),
+  muteSystemAudioWhileSpeaking: z.boolean().default(false),
   primaryLanguage: PrimaryLanguageSchema,
+});
+
+export const SetVoiceAudioDuckingRequestSchema = z.object({
+  active: z.boolean(),
 });
 
 export const AppUpdateStatusSchema = z
@@ -627,6 +633,9 @@ export type RespondToInteractionRequest = z.infer<
 >;
 export type RuntimeToolId = z.infer<typeof RuntimeToolIdSchema>;
 export type SensitiveAction = z.infer<typeof SensitiveActionSchema>;
+export type SetVoiceAudioDuckingRequest = z.infer<
+  typeof SetVoiceAudioDuckingRequestSchema
+>;
 export type StartTaskRequest = z.infer<typeof StartTaskRequestSchema>;
 export type SteeringInstruction = z.infer<typeof SteeringInstructionSchema>;
 export type SystemPermission = z.infer<typeof SystemPermissionSchema>;

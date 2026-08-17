@@ -5,6 +5,7 @@ import {
   CompanionStateSchema,
   CompanionVoiceActivitySchema,
   RecordVoiceTranscriptRequestSchema,
+  SetVoiceAudioDuckingRequestSchema,
   SystemPermissionSchema,
   TaskUpdateSchema,
   UpdateAppPreferencesRequestSchema,
@@ -25,6 +26,7 @@ import type { TaskHistoryService } from '../history/task-history-service';
 import type { MembershipService } from '../membership/membership-service';
 import type { AppPreferencesService } from '../preferences/app-preferences-service';
 import type { AppUpdateService } from '../update/app-update-service';
+import type { SystemAudioDuckingService } from '../voice/system-audio-ducking-service';
 import type { VoiceService } from '../voice/voice-service';
 
 interface IpcServices {
@@ -52,6 +54,7 @@ interface IpcServices {
   taskRuntime: TaskRuntime;
   taskSubmissionService: TaskSubmissionService;
   taskHistoryService: TaskHistoryService;
+  systemAudioDuckingService: Pick<SystemAudioDuckingService, 'setActive'>;
   updateCompanionState(state: CompanionState): void;
   updateCompanionVoiceActivity(
     activity: CompanionVoiceActivity | null,
@@ -119,6 +122,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.restartAndInstallAppUpdate,
     IPC_CHANNELS.setCompanionState,
     IPC_CHANNELS.setCompanionVoiceActivity,
+    IPC_CHANNELS.setVoiceAudioDucking,
     IPC_CHANNELS.startTask,
     IPC_CHANNELS.signInWithGoogle,
     IPC_CHANNELS.signOutGoogle,
@@ -314,6 +318,18 @@ export function registerIpcHandlers(
     await assertMembershipAuthorizedSender(event, mainWindow, services);
     return services.voiceService.createCall(input);
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.setVoiceAudioDucking,
+    async (event, input: unknown) => {
+      assertTrustedSender(event, mainWindow);
+      const request = SetVoiceAudioDuckingRequestSchema.parse(input);
+      if (request.active) {
+        await assertMembershipAuthorizedSender(event, mainWindow, services);
+      }
+      await services.systemAudioDuckingService.setActive(request.active);
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.reportVoiceDiagnostic, (event, input: unknown) => {
     assertTrustedSender(event, mainWindow);

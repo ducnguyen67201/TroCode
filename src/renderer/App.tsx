@@ -61,6 +61,7 @@ import {
   transientCursorErrorReducer,
 } from './transient-cursor-error';
 import {
+  shouldMuteSystemAudioForVoice,
   usePushToTalk,
   type VoiceInputStatus,
 } from './use-push-to-talk';
@@ -659,6 +660,10 @@ export function App({
     useState<PrimaryLanguage>('en');
   const [appLanguageDraft, setAppLanguageDraft] =
     useState<AppLanguage>('en');
+  const [
+    muteSystemAudioWhileSpeakingDraft,
+    setMuteSystemAudioWhileSpeakingDraft,
+  ] = useState(false);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [preferencesLoadError, setPreferencesLoadError] = useState<
     string | null
@@ -853,6 +858,9 @@ export function App({
       .then((preferences) => {
         setAppPreferences(preferences);
         setAppLanguageDraft(preferences.appLanguage);
+        setMuteSystemAudioWhileSpeakingDraft(
+          preferences.muteSystemAudioWhileSpeaking,
+        );
         if (preferences.primaryLanguage) {
           setLanguageDraft(preferences.primaryLanguage);
         }
@@ -1079,6 +1087,7 @@ export function App({
     try {
       const preferences = await window.tro.updateAppPreferences({
         appLanguage: appLanguageDraft,
+        muteSystemAudioWhileSpeaking: muteSystemAudioWhileSpeakingDraft,
         primaryLanguage: languageDraft,
       });
       setAppPreferences(preferences);
@@ -1104,7 +1113,11 @@ export function App({
     } finally {
       setIsSavingPreferences(false);
     }
-  }, [appLanguageDraft, languageDraft]);
+  }, [
+    appLanguageDraft,
+    languageDraft,
+    muteSystemAudioWhileSpeakingDraft,
+  ]);
 
   const checkForAppUpdates = useCallback(async () => {
     setIsUpdatingApp(true);
@@ -1290,7 +1303,11 @@ export function App({
     setVoiceTranscript(transcript);
   }, []);
 
-  const { platform: voicePlatform, status: voiceStatus } = usePushToTalk({
+  const {
+    isHolding: isVoiceShortcutHeld,
+    platform: voicePlatform,
+    status: voiceStatus,
+  } = usePushToTalk({
     disabled:
       !permissionSetupComplete ||
       !membershipAccessAllowed ||
@@ -1306,6 +1323,36 @@ export function App({
     onTranscriptChange: handleVoiceTranscriptChange,
     onTranscriptSubmit: (transcript) => void sendInput(transcript, 'voice'),
   });
+  const shouldMuteSystemAudio = shouldMuteSystemAudioForVoice(
+    appPreferences?.muteSystemAudioWhileSpeaking ?? false,
+    isVoiceShortcutHeld,
+  );
+
+  useEffect(() => {
+    void window.tro
+      .setVoiceAudioDucking({ active: shouldMuteSystemAudio })
+      .catch((duckingError: unknown) => {
+        reportError(
+          duckingError instanceof Error
+            ? duckingError.message
+            : 'TroCode could not change the system audio mute state.',
+        );
+      });
+  }, [reportError, shouldMuteSystemAudio]);
+
+  useEffect(
+    () => () => {
+      void window.tro
+        .setVoiceAudioDucking({ active: false })
+        .catch((duckingError: unknown) => {
+          console.error(
+            '[voice] Could not restore system audio during cleanup.',
+            duckingError,
+          );
+        });
+    },
+    [],
+  );
   const companionState = getCompanionState({
     hasError: getCompanionErrorVisibility({
       computerFailed: computerStatus.state === 'error',
@@ -1354,6 +1401,7 @@ export function App({
       try {
         const preferences = await window.tro.updateAppPreferences({
           appLanguage: appLanguageDraft,
+          muteSystemAudioWhileSpeaking: muteSystemAudioWhileSpeakingDraft,
           primaryLanguage: languageDraft,
         });
         setAppPreferences(preferences);
@@ -1413,7 +1461,12 @@ export function App({
     } finally {
       setIsRequestingPermissions(false);
     }
-  }, [appLanguageDraft, languageDraft, permissionSetupComplete]);
+  }, [
+    appLanguageDraft,
+    languageDraft,
+    muteSystemAudioWhileSpeakingDraft,
+    permissionSetupComplete,
+  ]);
 
   const openScreenRecordingSettings = useCallback(async () => {
     setPermissionError(null);
@@ -1765,6 +1818,8 @@ export function App({
             error={settingsError}
             hasChanges={
               appPreferences?.appLanguage !== appLanguageDraft ||
+              appPreferences?.muteSystemAudioWhileSpeaking !==
+                muteSystemAudioWhileSpeakingDraft ||
               appPreferences?.primaryLanguage !== languageDraft
             }
             isSaving={isSavingPreferences}
@@ -1780,10 +1835,17 @@ export function App({
               setSettingsError(null);
               setSettingsSaveMessage(null);
             }}
+            onMuteSystemAudioWhileSpeakingChange={(enabled) => {
+              setMuteSystemAudioWhileSpeakingDraft(enabled);
+              setSettingsError(null);
+              setSettingsSaveMessage(null);
+            }}
             onRestartAndInstall={() => void restartAndInstallAppUpdate()}
             onSave={() => void saveSettings()}
             primaryLanguage={languageDraft}
             saveMessage={settingsSaveMessage}
+            muteSystemAudioWhileSpeaking={muteSystemAudioWhileSpeakingDraft}
+            systemAudioMuteSupported={voicePlatform === 'macos'}
           />
         ) : (
         <div

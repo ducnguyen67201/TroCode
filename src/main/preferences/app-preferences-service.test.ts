@@ -35,6 +35,7 @@ describe('AppPreferencesService', () => {
 
     await expect(service.get()).resolves.toEqual({
       appLanguage: 'en',
+      muteSystemAudioWhileSpeaking: false,
       primaryLanguage: null,
     });
     await expect(service.getPrimaryLanguage()).resolves.toBe('en');
@@ -51,11 +52,20 @@ describe('AppPreferencesService', () => {
     const service = new AppPreferencesService(store);
 
     await expect(
-      service.update({ appLanguage: 'vi', primaryLanguage: 'vi' }),
-    ).resolves.toEqual({ appLanguage: 'vi', primaryLanguage: 'vi' });
+      service.update({
+        appLanguage: 'vi',
+        muteSystemAudioWhileSpeaking: true,
+        primaryLanguage: 'vi',
+      }),
+    ).resolves.toEqual({
+      appLanguage: 'vi',
+      muteSystemAudioWhileSpeaking: true,
+      primaryLanguage: 'vi',
+    });
     await expect(service.getPrimaryLanguage()).resolves.toBe('vi');
     expect(store.write).toHaveBeenCalledWith({
       appLanguage: 'vi',
+      muteSystemAudioWhileSpeaking: true,
       primaryLanguage: 'vi',
     });
   });
@@ -93,14 +103,22 @@ describe('FileAppPreferencesStore', () => {
     const store = new FileAppPreferencesStore(filePath);
 
     await expect(store.read()).resolves.toBeNull();
-    await store.write({ appLanguage: 'vi', primaryLanguage: 'en' });
+    await store.write({
+      appLanguage: 'vi',
+      muteSystemAudioWhileSpeaking: true,
+      primaryLanguage: 'en',
+    });
 
     await expect(store.read()).resolves.toEqual({
       appLanguage: 'vi',
+      muteSystemAudioWhileSpeaking: true,
       primaryLanguage: 'en',
     });
     await expect(readFile(filePath, 'utf8')).resolves.toContain(
       '"appLanguage": "vi"',
+    );
+    await expect(readFile(filePath, 'utf8')).resolves.toContain(
+      '"muteSystemAudioWhileSpeaking": true',
     );
     await expect(readFile(filePath, 'utf8')).resolves.toContain(
       '"primaryLanguage": "en"',
@@ -115,6 +133,7 @@ describe('FileAppPreferencesStore', () => {
 
     await expect(service.get()).resolves.toEqual({
       appLanguage: 'en',
+      muteSystemAudioWhileSpeaking: false,
       primaryLanguage: 'vi',
     });
   });
