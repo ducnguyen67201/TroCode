@@ -9,6 +9,11 @@ const TEST_USER = {
   id: 'google-subject-123',
   name: 'Test Person',
 };
+const SECOND_TEST_USER = {
+  email: 'second@example.com',
+  id: 'google-subject-456',
+  name: 'Second Person',
+};
 
 function memorySessions() {
   const sessions = new Map();
@@ -46,8 +51,64 @@ function memorySessions() {
   };
 }
 
-async function withApi(run, { configOverride = {}, fetchImpl } = {}) {
+function memoryAccessCodes(
+  limits = { CODEA: 10, CODEB: 10 },
+) {
+  const assignments = new Map();
+  const codes = new Map(
+    Object.entries(limits).map(([code, maxUsers]) => [
+      code.toUpperCase(),
+      { maxUsers, users: new Set() },
+    ]),
+  );
+
+  function statusFor(userId, newlyRedeemed = false) {
+    const assignedCode = assignments.get(userId);
+    if (!assignedCode) {
+      return {
+        maxUsers: null,
+        state: 'inactive',
+        summary: 'Enter an access code to continue.',
+        usedUsers: null,
+      };
+    }
+    const code = codes.get(assignedCode);
+    return {
+      maxUsers: code.maxUsers,
+      newlyRedeemed,
+      state: 'active',
+      summary: 'Access code accepted.',
+      usedUsers: code.users.size,
+    };
+  }
+
+  return {
+    getStatus: async (userId) => statusFor(userId),
+    redeem: async (userId, input) => {
+      const normalized =
+        typeof input === 'string' ? input.trim().toUpperCase() : '';
+      const current = assignments.get(userId);
+      if (current) {
+        return current === normalized
+          ? { kind: 'active', status: statusFor(userId) }
+          : { kind: 'account_already_linked' };
+      }
+      const code = codes.get(normalized);
+      if (!code) return { kind: 'invalid_code' };
+      if (code.users.size >= code.maxUsers) return { kind: 'code_full' };
+      code.users.add(userId);
+      assignments.set(userId, normalized);
+      return { kind: 'active', status: statusFor(userId, true) };
+    },
+  };
+}
+
+async function withApi(
+  run,
+  { accessCodeLimits, configOverride = {}, fetchImpl } = {},
+) {
   const sessions = memorySessions();
+  const accessCodes = memoryAccessCodes(accessCodeLimits);
   const upstreamFetch =
     fetchImpl ||
     (async () =>
@@ -56,6 +117,7 @@ async function withApi(run, { configOverride = {}, fetchImpl } = {}) {
         status: 200,
       }));
   const handler = createApiHandler({
+    accessCodeRepository: accessCodes,
     config: {
       elevenLabsApiKey: null,
       elevenLabsModelId: 'eleven_flash_v2_5',
@@ -69,8 +131,9 @@ async function withApi(run, { configOverride = {}, fetchImpl } = {}) {
     healthCheck: async () => true,
     sessionRepository: sessions,
     verifyGoogleIdToken: async (token) => {
-      if (token !== 'valid-google-token') throw new Error('invalid');
-      return TEST_USER;
+      if (token === 'valid-google-token') return TEST_USER;
+      if (token === 'valid-google-token-2') return SECOND_TEST_USER;
+      throw new Error('invalid');
     },
   });
   const server = createServer(handler);
@@ -78,7 +141,7 @@ async function withApi(run, { configOverride = {}, fetchImpl } = {}) {
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
   try {
-    await run({ baseUrl, sessions });
+    await run({ accessCodes, baseUrl, sessions });
   } finally {
     await new Promise((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
@@ -86,14 +149,32 @@ async function withApi(run, { configOverride = {}, fetchImpl } = {}) {
   }
 }
 
-async function signIn(baseUrl) {
+async function signIn(baseUrl, idToken = 'valid-google-token') {
   const response = await fetch(`${baseUrl}/v1/auth/google/exchange`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken: 'valid-google-token' }),
+    body: JSON.stringify({ idToken }),
   });
   assert.equal(response.status, 201);
   return response.json();
+}
+
+async function redeemAccessCode(baseUrl, accessToken, code = 'CODEA') {
+  return fetch(`${baseUrl}/v1/access-code-redemptions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ code }),
+  });
+}
+
+async function signInAndActivate(baseUrl) {
+  const session = await signIn(baseUrl);
+  const activation = await redeemAccessCode(baseUrl, session.accessToken);
+  assert.equal(activation.status, 201);
+  return session;
 }
 
 function responsesBody(model = 'test-model') {
@@ -135,6 +216,86 @@ test('Google exchange creates an opaque session and rejects invalid tokens', asy
   });
 });
 
+test('access codes enforce one code per account and an atomic user limit', async () => {
+  await withApi(
+    async ({ baseUrl }) => {
+      const firstSession = await signIn(baseUrl);
+      const initialStatus = await fetch(
+        `${baseUrl}/v1/access-code-redemptions/me`,
+        { headers: { Authorization: `Bearer ${firstSession.accessToken}` } },
+      );
+      assert.deepEqual(await initialStatus.json(), {
+        maxUsers: null,
+        state: 'inactive',
+        summary: 'Enter an access code to continue.',
+        usedUsers: null,
+      });
+
+      const invalid = await redeemAccessCode(
+        baseUrl,
+        firstSession.accessToken,
+        'missing',
+      );
+      assert.equal(invalid.status, 400);
+
+      const redeemed = await redeemAccessCode(
+        baseUrl,
+        firstSession.accessToken,
+        ' codea ',
+      );
+      assert.equal(redeemed.status, 201);
+      assert.deepEqual(await redeemed.json(), {
+        maxUsers: 1,
+        newlyRedeemed: true,
+        state: 'active',
+        summary: 'Access code accepted.',
+        usedUsers: 1,
+      });
+
+      const sameCode = await redeemAccessCode(
+        baseUrl,
+        firstSession.accessToken,
+        'CODEA',
+      );
+      assert.equal(sameCode.status, 200);
+
+      const differentCode = await redeemAccessCode(
+        baseUrl,
+        firstSession.accessToken,
+        'CODEB',
+      );
+      assert.equal(differentCode.status, 409);
+      assert.deepEqual(await differentCode.json(), {
+        error: 'This account is already linked to a different access code.',
+      });
+
+      const secondSession = await signIn(baseUrl, 'valid-google-token-2');
+      const full = await redeemAccessCode(
+        baseUrl,
+        secondSession.accessToken,
+        'CODEA',
+      );
+      assert.equal(full.status, 409);
+      assert.deepEqual(await full.json(), {
+        error: 'This access code has reached its user limit.',
+      });
+
+      const firstStatus = await fetch(
+        `${baseUrl}/v1/access-code-redemptions/me`,
+        { headers: { Authorization: `Bearer ${firstSession.accessToken}` } },
+      );
+      assert.deepEqual(await firstStatus.json(), {
+        maxUsers: 1,
+        newlyRedeemed: false,
+        state: 'active',
+        summary: 'Access code accepted.',
+        usedUsers: 1,
+      });
+    },
+    { accessCodeLimits: { CODEA: 1, CODEB: 10 } },
+  );
+});
+
 test('model proxy requires authentication and enforces model allowlist', async () => {
   let upstreamRequest;
   await withApi(
@@ -147,6 +308,21 @@ test('model proxy requires authentication and enforces model allowlist', async (
       assert.equal(unauthenticated.status, 401);
 
       const session = await signIn(baseUrl);
+      const accessRequired = await fetch(`${baseUrl}/v1/openai/responses`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(responsesBody()),
+      });
+      assert.equal(accessRequired.status, 403);
+      assert.deepEqual(await accessRequired.json(), {
+        error: 'Enter a valid access code to use TroCode.',
+      });
+
+      const activation = await redeemAccessCode(baseUrl, session.accessToken);
+      assert.equal(activation.status, 201);
       const invalidModel = await fetch(`${baseUrl}/v1/openai/responses`, {
         method: 'POST',
         headers: {
@@ -184,7 +360,7 @@ test('model proxy requires authentication and enforces model allowlist', async (
 
 test('session refresh rotates the credential and sign-out revokes it', async () => {
   await withApi(async ({ baseUrl }) => {
-    const session = await signIn(baseUrl);
+    const session = await signInAndActivate(baseUrl);
     const refreshedResponse = await fetch(`${baseUrl}/v1/auth/session/refresh`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${session.accessToken}` },
@@ -215,7 +391,7 @@ test('hosted speech requires a session and keeps the provider key upstream', asy
   let upstreamRequest;
   await withApi(
     async ({ baseUrl }) => {
-      const session = await signIn(baseUrl);
+      const session = await signInAndActivate(baseUrl);
       const response = await fetch(`${baseUrl}/v1/elevenlabs/speech`, {
         method: 'POST',
         headers: {
@@ -252,7 +428,7 @@ test('realtime calls accept only SDP and language and build provider form data',
   let upstreamRequest;
   await withApi(
     async ({ baseUrl }) => {
-      const session = await signIn(baseUrl);
+      const session = await signInAndActivate(baseUrl);
       const invalid = await fetch(`${baseUrl}/v1/openai/realtime/calls`, {
         method: 'POST',
         headers: {

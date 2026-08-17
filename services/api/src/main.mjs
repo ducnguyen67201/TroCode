@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 
 import pg from 'pg';
 
+import { PostgresAccessCodeRepository } from './access-code-repository.mjs';
 import { loadConfig } from './config.mjs';
 import { verifyGoogleIdToken } from './google-token-verifier.mjs';
 import { runMigrations } from './migrate.mjs';
@@ -24,7 +25,11 @@ const sessionRepository = new PostgresSessionRepository(pool, {
   hmacKey: config.sessionTokenHmacKey,
   sessionDurationDays: config.sessionDurationDays,
 });
+const accessCodeRepository = new PostgresAccessCodeRepository(pool, {
+  hmacKey: config.sessionTokenHmacKey,
+});
 const handler = createApiHandler({
+  accessCodeRepository,
   config,
   healthCheck: async () => {
     try {

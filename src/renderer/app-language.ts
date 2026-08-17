@@ -30,6 +30,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'A view of how TroCode is working across your saved tasks and lifecycle activity.':
     'Góc nhìn về cách TroCode hoạt động trên các tác vụ đã lưu và vòng đời của chúng.',
   'About TroCode': 'Về TroCode',
+  'Access code': 'Mã truy cập',
+  'Access required': 'Yêu cầu quyền truy cập',
   Accessibility: 'Trợ năng',
   act: 'thực hiện',
   'Activate membership': 'Kích hoạt tư cách thành viên',
@@ -88,6 +90,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
     'Các tác vụ đã hoàn thành, đã dừng hoặc chưa thành công sẽ xuất hiện cùng phạm vi, cuộc trò chuyện và kết quả.',
   'Computer use': 'Điều khiển máy tính',
   'Continue to TroCode': 'Tiếp tục vào TroCode',
+  'Continue with access code': 'Tiếp tục bằng mã truy cập',
   Copy: 'Sao chép',
   Copied: 'Đã sao chép',
   'Current app session': 'Phiên ứng dụng hiện tại',
@@ -101,6 +104,10 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   Enabled: 'Đã bật',
   'Enable all permissions': 'Bật tất cả quyền',
   'Enable TroCode to work for you': 'Cho phép TroCode làm việc cho bạn',
+  'Enter the access code provided by the TroCode team. Each account can use one code, and each code has a limited number of users.':
+    'Nhập mã truy cập do đội ngũ TroCode cung cấp. Mỗi tài khoản chỉ có thể dùng một mã và mỗi mã có số lượng người dùng giới hạn.',
+  'Enter your access code': 'Nhập mã truy cập của bạn',
+  'Enter your TroCode access code': 'Nhập mã truy cập TroCode của bạn',
   event: 'sự kiện',
   events: 'sự kiện',
   'EVENTS OBSERVED': 'SỰ KIỆN ĐÃ GHI NHẬN',

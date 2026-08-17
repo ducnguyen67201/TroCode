@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 import {
+  ActivateMembershipRequestSchema,
   AgentTaskContractV3Schema,
+  MembershipStatusSchema,
   TaskHistorySchema,
   TaskProgressSchema,
 } from './contracts';
@@ -37,6 +39,21 @@ const legacyBase = {
 };
 
 describe('shared task contracts', () => {
+  it('accepts hosted access-code membership contracts', () => {
+    expect(
+      MembershipStatusSchema.parse({
+        expiresAt: null,
+        referenceCode: null,
+        required: true,
+        state: 'inactive',
+        summary: 'Enter an access code to continue.',
+      }),
+    ).toMatchObject({ referenceCode: null, state: 'inactive' });
+    expect(ActivateMembershipRequestSchema.parse({ code: 'CODEA' })).toEqual({
+      code: 'CODEA',
+    });
+  });
+
   it('parses v3 contract and tool-call progress', () => {
     expect(
       AgentTaskContractV3Schema.parse({

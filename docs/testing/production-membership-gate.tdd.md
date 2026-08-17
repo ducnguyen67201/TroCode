@@ -1,4 +1,4 @@
-# Production membership gate TDD evidence
+# Production access-code gate TDD evidence
 
 ## Source
 
@@ -8,12 +8,13 @@ plan file was used.
 ## User journeys
 
 1. As a local developer, I can use TroCode without membership setup.
-2. As a packaged-app user, I finish login and permissions, then either enter
-   the workspace with active membership or see my reference and activation form.
-3. As the administrator, I can issue an account-bound code for a chosen number
-   of days without distributing the signing private key.
-4. As the product owner, I need task and voice effects denied in the trusted
-   main process when membership is missing, invalid, or expired.
+2. As a hosted packaged-app user, I finish login and permissions, enter a
+   shared access code, and reach the workspace only if capacity remains.
+3. As the administrator, I can create `CODEA` with a ten-account limit without
+   writing database rows manually or storing plaintext codes.
+4. As the product owner, I need each Google account tied to one code and need
+   concurrent redemptions to stop exactly at the configured limit.
+5. As an offline packaged-app user, I retain the signed account-bound fallback.
 
 ## Task report
 
@@ -29,35 +30,46 @@ plan file was used.
   `scripts/membership-codes.mjs` did not exist.
 - GREEN: codes issued by the CLI activate through the same verifier used by the
   packaged application.
+- RED: hosted sessions entered the workspace without any database-backed code,
+  and the API proxy accepted authenticated users regardless of membership.
+- GREEN: hosted status and redemption endpoints now enforce one code per user,
+  serialize quota updates with row locks, and protect every provider proxy.
+- RED: code creation required manual database knowledge.
+- GREEN: `npm run access-code:create` applies migrations and stores only the
+  normalized keyed HMAC digest plus its user limit.
 
 ## Test specification
 
 | # | What is guaranteed | Test target | Type | Result |
 |---|---|---|---|---|
-| 1 | Development bypasses membership and does not read activation storage | `membership-service.test.ts` | Unit | PASS |
-| 2 | Production fails closed without a valid Ed25519 public key | `membership-service.test.ts` | Unit/security | PASS |
+| 1 | Development bypasses membership while every packaged build requires it | `membership-service.test.ts` | Unit | PASS |
+| 2 | Offline production fails closed without a valid Ed25519 public key | `membership-service.test.ts` | Unit/security | PASS |
 | 3 | Valid codes are signature-checked, account-bound, persisted, and expired codes are denied | `membership-service.test.ts` | Unit/security | PASS |
 | 4 | Activation codes are stored only through OS credential encryption | `membership-activation-store.test.ts` | Unit | PASS |
 | 5 | Protected task IPC rejects authenticated users without membership | `register-ipc.test.ts` | Integration/security | PASS |
 | 6 | Membership inspect/activate IPC validates and routes signed-in users | `register-ipc.test.ts` | Integration | PASS |
 | 7 | CLI-issued codes are compatible with the application verifier | `membership-service.test.ts` | Integration | PASS |
 | 8 | Only active or development-bypassed statuses admit the renderer workspace | `membership.test.ts` | Unit | PASS |
+| 9 | Hosted codes are case-normalized and stored only as keyed HMAC digests | `access-code-repository.test.mjs` | Unit/security | PASS |
+| 10 | User and code rows are locked before quota checks and full codes do not insert | `access-code-repository.test.mjs` | Unit/concurrency | PASS |
+| 11 | One account cannot switch to a second code | `server.test.mjs`, `access-code-repository.test.mjs` | Integration/security | PASS |
+| 12 | A code at its user limit rejects new accounts while existing accounts remain active | `server.test.mjs` | Integration | PASS |
+| 13 | Hosted model, realtime, and speech proxies deny authenticated users without a redemption | `server.test.mjs` | Integration/security | PASS |
+| 14 | All checked-in SQL migrations run in order | `migrate.test.mjs` | Unit | PASS |
 
 ## Coverage and known gaps
 
 The focused command
 `npm exec -- vitest run src/main/membership/membership-service.test.ts src/main/membership/membership-activation-store.test.ts src/renderer/membership.test.ts --coverage --coverage.include='src/main/membership/*.ts' --coverage.include='src/renderer/membership.ts'`
-passed 20 tests with 89.09% statements, 84.41% branches, 93.75% functions,
-and 91.34% lines. These tests cover cryptographic verification, account
-binding, expiry, encrypted persistence, local bypass, and the renderer access
-policy. IPC authorization is covered by the full suite.
+covers cryptographic verification, account binding, expiry, encrypted
+persistence, local bypass, and the renderer access policy. Hosted API tests add
+quota, one-code-per-account, row-lock, migration, and provider-boundary
+coverage. IPC authorization is covered by the full suite.
 
 The React screen itself is covered by typecheck/package compilation rather
 than a DOM test because this repository does not currently include a React DOM
-test harness. Offline codes cannot be revoked early and rely on local system
-time; an authenticated backend is the follow-up when those controls are
-required.
+test harness. Hosted account-to-code links are intentionally permanent in this
+version. Offline codes cannot be revoked early and rely on local system time.
 
-No TDD checkpoint commits were created because the worktree already contained
-unrelated user changes in overlapping files, and repository guidance requires
-the full check and package gates before any commit.
+No TDD checkpoint commits were created; the implementation is shipped as one
+focused PR after the repository check and package gates.

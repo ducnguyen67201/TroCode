@@ -44,6 +44,14 @@ function createRateLimiter({ limit, windowMs }) {
 }
 
 const limitAuth = createRateLimiter({ limit: 15, windowMs: 15 * 60_000 });
+const limitAccessCodeIp = createRateLimiter({
+  limit: 100,
+  windowMs: 15 * 60_000,
+});
+const limitAccessCodeUser = createRateLimiter({
+  limit: 10,
+  windowMs: 15 * 60_000,
+});
 const limitModel = createRateLimiter({ limit: 30, windowMs: 60_000 });
 const limitModelDaily = createRateLimiter({ limit: 500, windowMs: 24 * 60 * 60_000 });
 const limitVoice = createRateLimiter({ limit: 30, windowMs: 60_000 });
@@ -163,6 +171,14 @@ async function requireSession(request, sessionRepository) {
   return session;
 }
 
+async function requireAccess(session, accessCodeRepository) {
+  const status = await accessCodeRepository.getStatus(session.user.id);
+  if (status.state !== 'active') {
+    throw new HttpError(403, 'Enter a valid access code to use TroCode.');
+  }
+  return status;
+}
+
 function modelSafetyIdentifier(userId) {
   return createHash('sha256').update(`trocode:${userId}`).digest('hex');
 }
@@ -184,6 +200,7 @@ function transcriptionSessionConfig(language) {
 }
 
 export function createApiHandler({
+  accessCodeRepository,
   config,
   fetchImpl = fetch,
   healthCheck,
@@ -261,8 +278,64 @@ export function createApiHandler({
         return;
       }
 
+      if (
+        request.method === 'GET' &&
+        path === '/v1/access-code-redemptions/me'
+      ) {
+        const session = await requireSession(request, sessionRepository);
+        sendJson(
+          response,
+          200,
+          await accessCodeRepository.getStatus(session.user.id),
+        );
+        return;
+      }
+
+      if (
+        request.method === 'POST' &&
+        path === '/v1/access-code-redemptions'
+      ) {
+        const session = await requireSession(request, sessionRepository);
+        enforceRateLimit(
+          limitAccessCodeUser(`access-user:${session.user.id}`),
+        );
+        enforceRateLimit(
+          limitAccessCodeIp(`access-ip:${requestIp(request)}`),
+        );
+        const body = await readJson(request, MAX_AUTH_BODY_BYTES);
+        if (!body || typeof body !== 'object' || typeof body.code !== 'string') {
+          throw new HttpError(400, 'Access code is required.');
+        }
+        const result = await accessCodeRepository.redeem(
+          session.user.id,
+          body.code,
+        );
+        if (result.kind === 'invalid_code') {
+          throw new HttpError(400, 'This access code is not valid.');
+        }
+        if (result.kind === 'code_full') {
+          throw new HttpError(
+            409,
+            'This access code has reached its user limit.',
+          );
+        }
+        if (result.kind === 'account_already_linked') {
+          throw new HttpError(
+            409,
+            'This account is already linked to a different access code.',
+          );
+        }
+        sendJson(
+          response,
+          result.status.newlyRedeemed ? 201 : 200,
+          result.status,
+        );
+        return;
+      }
+
       if (request.method === 'POST' && path === '/v1/openai/responses') {
         const session = await requireSession(request, sessionRepository);
+        await requireAccess(session, accessCodeRepository);
         enforceRateLimit(limitModel(session.user.id));
         enforceRateLimit(limitModelDaily(`daily:${session.user.id}`));
         const body = await readJson(request, MAX_RESPONSES_BODY_BYTES);
@@ -297,6 +370,7 @@ export function createApiHandler({
 
       if (request.method === 'POST' && path === '/v1/openai/realtime/calls') {
         const session = await requireSession(request, sessionRepository);
+        await requireAccess(session, accessCodeRepository);
         enforceRateLimit(limitVoice(session.user.id));
         const requestBody = await readJson(request, MAX_REALTIME_BODY_BYTES);
         const language = requestBody?.language;
@@ -341,6 +415,7 @@ export function createApiHandler({
 
       if (request.method === 'POST' && path === '/v1/elevenlabs/speech') {
         const session = await requireSession(request, sessionRepository);
+        await requireAccess(session, accessCodeRepository);
         enforceRateLimit(limitVoice(`tts:${session.user.id}`));
         if (!config.elevenLabsApiKey || !config.elevenLabsVoiceId) {
           throw new HttpError(503, 'Speech playback is not configured.');
