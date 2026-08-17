@@ -10,7 +10,11 @@ import type {
   AgentTurn,
   ModelToolSpec,
 } from './agent-contracts';
-import type { DesktopObservation } from './execution-contracts';
+import type {
+  DesktopActionOutcome,
+  DesktopCommand,
+  DesktopObservation,
+} from './execution-contracts';
 import { TaskExecutionCoordinator } from './execution-coordinator';
 import { RuntimeToolRegistry } from './runtime-tool-registry';
 import { TaskRuntime } from './task-runtime';
@@ -100,8 +104,14 @@ function setup(turns: AgentTurn[], observations: DesktopObservation[] = []) {
       if (!next) throw new Error('No fake observation available.');
       return next;
     }),
-    executeCommand: vi.fn(async () => ({
-      status: 'confirmed' as const,
+    executeCommand: vi.fn<
+      (
+        taskId: string,
+        command: DesktopCommand,
+        signal?: AbortSignal,
+      ) => Promise<DesktopActionOutcome>
+    >(async () => ({
+      status: 'confirmed',
       summary: 'The desktop action was confirmed.',
     })),
     endTaskSession: vi.fn(async () => undefined),
@@ -191,6 +201,12 @@ describe('TaskExecutionCoordinator', () => {
       'a'.repeat(64),
       'Gmail inbox with the newest email in the first row.',
     );
+    const approvedCurrent = observation(
+      taskId,
+      randomUUID(),
+      'a'.repeat(64),
+      'Gmail inbox with the newest email in the first row.',
+    );
     const openedEmail = observation(
       taskId,
       randomUUID(),
@@ -222,15 +238,29 @@ describe('TaskExecutionCoordinator', () => {
         }),
         assistant('The newest email is open and its complete body is readable.'),
       ],
-      [inbox, openedEmail],
+      [inbox, approvedCurrent, openedEmail],
     );
     const ready = runtime.submit({
       text: 'Open Gmail and read the latest email.',
     });
     inbox.taskId = ready.taskId;
+    approvedCurrent.taskId = ready.taskId;
     openedEmail.taskId = ready.taskId;
 
     coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+    const waiting = runtime.getSnapshot(ready.taskId);
+    if (!waiting.pendingInteraction || waiting.pendingInteraction.kind !== 'approval') {
+      throw new Error('Expected approval.');
+    }
+    runtime.decideApproval({
+      taskId: ready.taskId,
+      interactionId: waiting.pendingInteraction.id,
+      kind: 'approval',
+      decision: 'approve',
+      actionDigest: waiting.pendingInteraction.actionDigest,
+    });
+    coordinator.resume(ready.taskId);
     await coordinator.waitForIdle(ready.taskId);
 
     expect(openExternal).toHaveBeenCalledWith('https://mail.google.com/');
@@ -240,7 +270,7 @@ describe('TaskExecutionCoordinator', () => {
       expect.objectContaining({ kind: 'click' }),
       expect.any(AbortSignal),
     );
-    expect(cua.observe).toHaveBeenCalledTimes(2);
+    expect(cua.observe).toHaveBeenCalledTimes(3);
     expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
       phase: 'completed',
       progress: { completed: 3 },
@@ -251,6 +281,7 @@ describe('TaskExecutionCoordinator', () => {
     const taskId = randomUUID();
     const observationId = randomUUID();
     const first = observation(taskId, observationId, 'a'.repeat(64));
+    const approvedCurrent = observation(taskId, randomUUID(), 'a'.repeat(64));
     const after = observation(taskId, randomUUID(), 'b'.repeat(64));
     const { agent, coordinator, cua, runtime } = setup(
       [
@@ -271,17 +302,31 @@ describe('TaskExecutionCoordinator', () => {
         assistant('The newest email is open.'),
         assistant('The newest email is open.'),
       ],
-      [first, after],
+      [first, approvedCurrent, after],
     );
     const ready = runtime.submit({ text: 'Open Gmail and read the latest email.' });
     first.taskId = ready.taskId;
+    approvedCurrent.taskId = ready.taskId;
     after.taskId = ready.taskId;
 
     coordinator.start({ taskId: ready.taskId });
     await coordinator.waitForIdle(ready.taskId);
+    const waiting = runtime.getSnapshot(ready.taskId);
+    if (!waiting.pendingInteraction || waiting.pendingInteraction.kind !== 'approval') {
+      throw new Error('Expected approval.');
+    }
+    runtime.decideApproval({
+      taskId: ready.taskId,
+      interactionId: waiting.pendingInteraction.id,
+      kind: 'approval',
+      decision: 'approve',
+      actionDigest: waiting.pendingInteraction.actionDigest,
+    });
+    coordinator.resume(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
 
     expect(cua.startTaskSession).toHaveBeenCalledOnce();
-    expect(cua.observe).toHaveBeenCalledTimes(2);
+    expect(cua.observe).toHaveBeenCalledTimes(3);
     expect(cua.executeCommand).toHaveBeenCalledWith(
       ready.taskId,
       expect.objectContaining({ kind: 'click', x: 1000, y: 250 }),
@@ -296,6 +341,113 @@ describe('TaskExecutionCoordinator', () => {
     expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
       phase: 'completed',
       progress: { completed: 2 },
+    });
+  });
+
+  it('invalidates the cached observation after browser navigation', async () => {
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+    const first = observation(taskId, observationId);
+    const { agent, coordinator, cua, openExternal, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect the inbox.' }),
+        tool('call-open', 'open_url', {
+          url: 'https://mail.google.com/',
+          reason: 'Open Gmail.',
+        }),
+        tool('call-stale-click', 'control_desktop', {
+          observationId,
+          consequence: 'click_element',
+          description: 'Click using the old page coordinates.',
+          target: 'Old inbox row',
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 250,
+            button: 'left',
+            count: 1,
+          },
+        }),
+        assistant('I need a fresh observation before clicking.'),
+        assistant('I need a fresh observation before clicking.'),
+      ],
+      [first],
+    );
+    const ready = runtime.submit({ text: 'Open Gmail and inspect the latest email.' });
+    first.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(openExternal).toHaveBeenCalledWith('https://mail.google.com/');
+    expect(cua.executeCommand).not.toHaveBeenCalled();
+    expect(agent.completionReviews).toEqual([ready.taskId]);
+    expect(String(agent.outputs.at(-1)?.output)).toContain(
+      'Observe the desktop before requesting a control action.',
+    );
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+  });
+
+  it('blocks after an approved desktop action has an unknown outcome', async () => {
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+    const first = observation(taskId, observationId, 'a'.repeat(64));
+    const approvedCurrent = observation(taskId, randomUUID(), 'a'.repeat(64));
+    const after = observation(taskId, randomUUID(), 'b'.repeat(64));
+    const { agent, coordinator, cua, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect the inbox.' }),
+        tool('call-click', 'control_desktop', {
+          observationId,
+          consequence: 'click_element',
+          description: 'Click the visible action button.',
+          target: 'Action button',
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 250,
+            button: 'left',
+            count: 1,
+          },
+        }),
+      ],
+      [first, approvedCurrent, after],
+    );
+    const ready = runtime.submit({ text: 'Click the visible action button.' });
+    first.taskId = ready.taskId;
+    approvedCurrent.taskId = ready.taskId;
+    after.taskId = ready.taskId;
+    cua.executeCommand.mockResolvedValueOnce({
+      status: 'unknown',
+      summary: 'The click result could not be confirmed.',
+    });
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+    const waiting = runtime.getSnapshot(ready.taskId);
+    if (!waiting.pendingInteraction || waiting.pendingInteraction.kind !== 'approval') {
+      throw new Error('Expected approval.');
+    }
+    runtime.decideApproval({
+      taskId: ready.taskId,
+      interactionId: waiting.pendingInteraction.id,
+      kind: 'approval',
+      decision: 'approve',
+      actionDigest: waiting.pendingInteraction.actionDigest,
+    });
+    coordinator.resume(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(agent.sample).toHaveBeenCalledTimes(2);
+    expect(agent.end).toHaveBeenCalledWith(ready.taskId);
+    expect(cua.endTaskSession).toHaveBeenCalledWith(ready.taskId);
+    expect(agent.outputs.at(-1)).toMatchObject({ callId: 'call-click' });
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'blocked',
+      lastEvent: {
+        status: 'warning',
+        summary: expect.stringContaining('unknown outcome'),
+      },
     });
   });
 
@@ -359,6 +511,8 @@ describe('TaskExecutionCoordinator', () => {
     if (!waiting.pendingInteraction || waiting.pendingInteraction.kind !== 'approval') {
       throw new Error('Expected approval.');
     }
+    expect(waiting.pendingInteraction.action.action).toBe('click_element');
+    expect(waiting.pendingInteraction.consequence).toContain('permanently remove');
     runtime.decideApproval({
       taskId: ready.taskId,
       interactionId: waiting.pendingInteraction.id,

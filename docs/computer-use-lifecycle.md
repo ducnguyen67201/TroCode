@@ -12,7 +12,8 @@ model calls observe_desktop
   -> if permission is absent, pause for user-clicked Connect computer
   -> capture fresh observation and return screenshot to the same call ID
   -> model may call control_desktop using that observation ID
-  -> host parses normalized coordinates and concrete consequence
+  -> host parses normalized coordinates and records the declared consequence
+  -> host derives action identity and approval sensitivity from the command
   -> policy allows, denies, or asks for exact approval
   -> execute one atomic command
   -> always capture a fresh observation
@@ -30,6 +31,13 @@ observation UUID and fingerprint in the normalized `ProposedAction` and approval
 digest. Before executing a held consequential desktop action, it captures the
 screen again. Any fingerprint change invalidates the grant, returns
 `not_executed` plus the new screenshot, and requires a newly grounded proposal.
+Opening a browser URL also invalidates the cached observation before any later
+coordinate action can be resolved.
+
+The model's declared consequence is retained for audit and exact approval copy,
+but it cannot downgrade policy. The host requires approval for every desktop
+click, drag, text-entry, or keypress operation; only non-mutating scrolling can
+run without that desktop-mutation gate.
 
 ## Outcomes
 
@@ -37,7 +45,9 @@ Adapters return `confirmed`, `unknown`, `failed`, `denied`, or `not_executed`
 with bounded text and optional in-memory image evidence. A dispatched desktop
 action is followed by a fresh observation even when the driver reports an
 unknown outcome. The exact action digest is then placed on a do-not-dispatch
-list; TroCode never blindly repeats it.
+list. If an approved consequential action has an unknown outcome, TroCode blocks
+and cleans up the task so neither the same action nor another consequential
+action can be dispatched from that session.
 
 ## Cancellation and cleanup
 

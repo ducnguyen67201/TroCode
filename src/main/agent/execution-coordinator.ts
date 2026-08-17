@@ -98,7 +98,12 @@ const TERMINAL_PHASES: ReadonlySet<TaskSnapshot['phase']> = new Set([
 ]);
 
 function approvalConsequence(action: ProposedAction): string {
-  switch (action.action) {
+  const declaredConsequence = action.parameters?.declaredConsequence;
+  const displayConsequence =
+    typeof declaredConsequence === 'string'
+      ? declaredConsequence
+      : action.action;
+  switch (displayConsequence) {
     case 'send': {
       const recipients = action.parameters?.recipients;
       const recipientText = Array.isArray(recipients)
@@ -756,7 +761,7 @@ export class TaskExecutionCoordinator {
     }
 
     this.runtime.beginAllowedAction(taskId, action);
-    await this.dispatchAction(taskId, context, invocation);
+    await this.dispatchAction(taskId, context, invocation, false);
     return false;
   }
 
@@ -819,13 +824,14 @@ export class TaskExecutionCoordinator {
       action: held.invocation.action,
     });
     context.pendingApproval = undefined;
-    await this.dispatchAction(taskId, context, held.invocation);
+    await this.dispatchAction(taskId, context, held.invocation, true);
   }
 
   private async dispatchAction(
     taskId: string,
     context: ExecutionContext,
     invocation: ResolvedToolInvocation,
+    approvedConsequentialAction: boolean,
   ): Promise<void> {
     const signal = context.controller.signal;
     if (invocation.kind === 'desktop' || invocation.kind === 'guidance') {
@@ -838,6 +844,13 @@ export class TaskExecutionCoordinator {
           presentation.presentation,
         );
       }
+    }
+
+    if (
+      invocation.toolId === 'browser.navigate' &&
+      invocation.operation === 'open_url'
+    ) {
+      context.latestObservation = undefined;
     }
 
     let result: ToolExecutionResult;
@@ -884,6 +897,15 @@ export class TaskExecutionCoordinator {
       taskId,
       resultOutput(invocation.callId, result, observation),
     );
+    if (result.status === 'unknown' && approvedConsequentialAction) {
+      this.runtime.block(
+        taskId,
+        'A consequential action has an unknown outcome. TroCode will not retry it or dispatch another consequential action in this task.',
+        ['Inspect the target application before starting a new task.'],
+      );
+      await this.cleanup(taskId);
+      return;
+    }
     this.runtime.resumePlanning(taskId, 'Returned the tool result to the model.');
   }
 

@@ -57,12 +57,14 @@ return a fresh screenshot before another model sample.
 - Preload and main parse every boundary with shared Zod contracts.
 - The registry, not GPT, supplies internal tool ID and operation.
 - Policy checks only a concrete normalized action: installed operation, public
-  HTTPS target, and fixed host approval list.
+  HTTPS target, and fixed host approval list. Desktop mutation sensitivity is
+  derived from the trusted operation rather than the model's consequence label.
 - Exact approvals bind target, payload, command, coordinates, observation ID,
   and observation fingerprint. A changed screen invalidates a held desktop
   approval.
-- Unknown action outcomes are returned with a fresh observation and their exact
-  digest cannot be dispatched again.
+- Unknown action outcomes are returned with a fresh observation. An unknown
+  approved consequence blocks and cleans up the task; safe unknowns retain an
+  exact digest that cannot be dispatched again.
 
 ## Readiness and permissions
 

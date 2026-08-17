@@ -132,6 +132,8 @@ const normalizedCommand = z.discriminatedUnion('kind', [
   }),
 ]);
 
+type NormalizedDesktopCommand = z.infer<typeof normalizedCommand>;
+
 const sendPayload = z.object({
   account: z.string().min(1).max(500),
   recipients: z.array(z.string().min(1).max(500)).min(1).max(50),
@@ -230,7 +232,7 @@ function requireObservation(
 }
 
 function mapCommand(
-  input: z.infer<typeof normalizedCommand>,
+  input: NormalizedDesktopCommand,
   observation: DesktopObservation,
 ): DesktopCommand {
   const coordinateSpace = observation.coordinateSpace;
@@ -261,6 +263,23 @@ function mapCommand(
     });
   }
   return DesktopCommandSchema.parse(input);
+}
+
+function desktopActionForCommand(
+  command: NormalizedDesktopCommand,
+): ProposedAction['action'] {
+  switch (command.kind) {
+    case 'click':
+      return 'click_element';
+    case 'drag':
+      return 'drag';
+    case 'type_text':
+      return 'type_text';
+    case 'keypress':
+      return 'press_key';
+    case 'scroll':
+      return 'scroll';
+  }
 }
 
 function commandParameters(
@@ -448,7 +467,12 @@ function defaultTools(): RuntimeToolDefinition[] {
       parameters: objectSchema(
         {
           observationId: { type: 'string' },
-          consequence: { type: 'string', enum: consequenceValues },
+          consequence: {
+            type: 'string',
+            enum: consequenceValues,
+            description:
+              'Describe the expected effect for audit and user context. The host independently decides whether approval is required.',
+          },
           description: { type: 'string', maxLength: 2_000 },
           target: {
             anyOf: [{ type: 'string', maxLength: 8_000 }, { type: 'null' }],
@@ -602,13 +626,14 @@ function defaultTools(): RuntimeToolDefinition[] {
             }
           : {};
         const action = ProposedActionSchema.parse({
-          action: input.consequence,
+          action: desktopActionForCommand(input.command),
           toolId: 'desktop.control',
           operation: command.kind,
           description: input.description,
           ...(input.target ? { target: input.target } : {}),
           parameters: {
             ...commandParameters(command, observation),
+            declaredConsequence: input.consequence,
             ...sendParameters,
           },
         });

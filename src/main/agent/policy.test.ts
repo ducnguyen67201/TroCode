@@ -7,7 +7,7 @@ import { createTaskContract } from './task-contract';
 describe('concrete tool policy', () => {
   const contract = createTaskContract('Help me with this task.');
 
-  it('allows registered safe browser and desktop operations without semantic grants', () => {
+  it('allows registered safe browser and scroll operations without semantic grants', () => {
     expect(
       evaluateAction(contract, {
         action: 'open_url',
@@ -19,13 +19,32 @@ describe('concrete tool policy', () => {
     ).toBe('allowed');
     expect(
       evaluateAction(contract, {
-        action: 'click_element',
+        action: 'scroll',
         toolId: 'desktop.control',
-        operation: 'click',
-        description: 'Click the visible Gmail icon.',
+        operation: 'scroll',
+        description: 'Scroll the visible inbox.',
       }).status,
     ).toBe('allowed');
   });
+
+  it.each(['click', 'drag', 'type_text', 'keypress'] as const)(
+    'requires host approval for desktop %s even when the model declares a benign consequence',
+    (operation) => {
+      expect(
+        evaluateAction(contract, {
+          action:
+            operation === 'click'
+              ? 'click_element'
+              : operation === 'keypress'
+                ? 'press_key'
+                : operation,
+          toolId: 'desktop.control',
+          operation,
+          description: 'Perform the visible desktop action.',
+        }).status,
+      ).toBe('needs_approval');
+    },
+  );
 
   it.each([
     'login',

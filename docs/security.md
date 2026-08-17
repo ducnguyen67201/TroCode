@@ -33,7 +33,10 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
   public verification key is absent.
 - Assistant text and tool calls share one model session. A model tool call is a
   proposal, not permission or proof that an effect occurred.
-- Consequential actions require explicit approval.
+- Consequential actions require explicit approval. For desktop control, the
+  trusted tool operation—not the model's declared consequence—sets the minimum
+  approval level: click, drag, text entry, and keypress operations all pause,
+  while scroll remains non-mutating.
 - Remote navigation and creation of unexpected Electron windows are denied.
 - Current actions are bounded by registered tool operations, public-target
   checks, task budgets, fresh observations, and exact approvals. A task does
