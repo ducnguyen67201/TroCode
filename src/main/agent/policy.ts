@@ -25,6 +25,12 @@ const APPROVAL_PATTERN = /\bapprov(?:e|al|ed|ing)\b/iu;
 const INTERNAL_APPROVAL_LABEL_PATTERN =
   /\b(?:approve exact action|deny exact action|approval control|approval dialog)\b/iu;
 const TROCODE_PATTERN = /\btro\s*code\b/iu;
+const HOST_APPROVAL_DESKTOP_OPERATIONS: ReadonlySet<string> = new Set([
+  'click',
+  'drag',
+  'type_text',
+  'keypress',
+]);
 
 function declaredConsequence(action: ProposedAction): string | undefined {
   const value = action.parameters?.declaredConsequence;
@@ -46,12 +52,18 @@ function isTroCodeApprovalUiAction(action: ProposedAction): boolean {
 
 function requiresApproval(action: ProposedAction): boolean {
   const alwaysConfirm = taskApprovalPolicy() as readonly string[];
+  const consequence = declaredConsequence(action);
   return (
+    (action.toolId === 'desktop.control' &&
+      Boolean(
+        action.operation &&
+          HOST_APPROVAL_DESKTOP_OPERATIONS.has(action.operation),
+      )) ||
     alwaysConfirm.includes(action.action) ||
     Boolean(
       action.toolId === 'desktop.control' &&
-        declaredConsequence(action) &&
-        alwaysConfirm.includes(declaredConsequence(action) as string),
+        consequence &&
+        alwaysConfirm.includes(consequence),
     )
   );
 }

@@ -28,7 +28,7 @@ describe('concrete tool policy', () => {
   });
 
   it.each(['click', 'drag', 'type_text', 'keypress'] as const)(
-    'allows benign desktop %s operations without interrupting for approval',
+    'requires host approval for desktop %s even when the model declares a benign consequence',
     (operation) => {
       expect(
         evaluateAction(contract, {
@@ -42,7 +42,7 @@ describe('concrete tool policy', () => {
           operation,
           description: 'Perform the visible desktop action.',
         }).status,
-      ).toBe('allowed');
+      ).toBe('needs_approval');
     },
   );
 

@@ -308,6 +308,12 @@ describe('TaskExecutionCoordinator', () => {
       'a'.repeat(64),
       'Gmail inbox with the newest email in the first row.',
     );
+    const approvedCurrent = observation(
+      taskId,
+      randomUUID(),
+      'a'.repeat(64),
+      'Gmail inbox with the newest email in the first row.',
+    );
     const openedEmail = observation(
       taskId,
       randomUUID(),
@@ -339,15 +345,29 @@ describe('TaskExecutionCoordinator', () => {
         }),
         assistant('The newest email is open and its complete body is readable.'),
       ],
-      [inbox, openedEmail],
+      [inbox, approvedCurrent, openedEmail],
     );
     const ready = runtime.submit({
       text: 'Open Gmail and read the latest email.',
     });
     inbox.taskId = ready.taskId;
+    approvedCurrent.taskId = ready.taskId;
     openedEmail.taskId = ready.taskId;
 
     coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+    const waiting = runtime.getSnapshot(ready.taskId);
+    if (!waiting.pendingInteraction || waiting.pendingInteraction.kind !== 'approval') {
+      throw new Error('Expected approval.');
+    }
+    runtime.decideApproval({
+      taskId: ready.taskId,
+      interactionId: waiting.pendingInteraction.id,
+      kind: 'approval',
+      decision: 'approve',
+      actionDigest: waiting.pendingInteraction.actionDigest,
+    });
+    coordinator.resume(ready.taskId);
     await coordinator.waitForIdle(ready.taskId);
 
     expect(openExternal).toHaveBeenCalledWith('https://mail.google.com/');
@@ -357,7 +377,7 @@ describe('TaskExecutionCoordinator', () => {
       expect.objectContaining({ kind: 'click' }),
       expect.any(AbortSignal),
     );
-    expect(cua.observe).toHaveBeenCalledTimes(2);
+    expect(cua.observe).toHaveBeenCalledTimes(3);
     expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
       phase: 'completed',
       progress: { completed: 3 },
@@ -368,6 +388,7 @@ describe('TaskExecutionCoordinator', () => {
     const taskId = randomUUID();
     const observationId = randomUUID();
     const first = observation(taskId, observationId, 'a'.repeat(64));
+    const approvedCurrent = observation(taskId, randomUUID(), 'a'.repeat(64));
     const after = observation(taskId, randomUUID(), 'b'.repeat(64));
     const { agent, coordinator, cua, runtime } = setup(
       [
@@ -388,17 +409,31 @@ describe('TaskExecutionCoordinator', () => {
         assistant('The newest email is open.'),
         assistant('The newest email is open.'),
       ],
-      [first, after],
+      [first, approvedCurrent, after],
     );
     const ready = runtime.submit({ text: 'Open Gmail and read the latest email.' });
     first.taskId = ready.taskId;
+    approvedCurrent.taskId = ready.taskId;
     after.taskId = ready.taskId;
 
     coordinator.start({ taskId: ready.taskId });
     await coordinator.waitForIdle(ready.taskId);
+    const waiting = runtime.getSnapshot(ready.taskId);
+    if (!waiting.pendingInteraction || waiting.pendingInteraction.kind !== 'approval') {
+      throw new Error('Expected approval.');
+    }
+    runtime.decideApproval({
+      taskId: ready.taskId,
+      interactionId: waiting.pendingInteraction.id,
+      kind: 'approval',
+      decision: 'approve',
+      actionDigest: waiting.pendingInteraction.actionDigest,
+    });
+    coordinator.resume(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
 
     expect(cua.startTaskSession).toHaveBeenCalledOnce();
-    expect(cua.observe).toHaveBeenCalledTimes(2);
+    expect(cua.observe).toHaveBeenCalledTimes(3);
     expect(cua.executeCommand).toHaveBeenCalledWith(
       ready.taskId,
       expect.objectContaining({ kind: 'click', x: 1000, y: 250 }),
