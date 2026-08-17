@@ -35,6 +35,15 @@ const APP_ICON_BASENAME = path.resolve(
 const APP_ICON_PNG = `${APP_ICON_BASENAME}.png`;
 const APP_ICON_ICO = `${APP_ICON_BASENAME}.ico`;
 const MACOS_SIGNING_IDENTITY = process.env.TROCODE_MACOS_SIGNING_IDENTITY?.trim();
+const MACOS_NOTARIZATION_API_KEY = process.env.TROCODE_APPLE_API_KEY?.trim();
+const MACOS_NOTARIZATION_API_KEY_ID =
+  process.env.TROCODE_APPLE_API_KEY_ID?.trim();
+const MACOS_NOTARIZATION_API_ISSUER =
+  process.env.TROCODE_APPLE_API_ISSUER?.trim();
+const WINDOWS_SIGNING_CERTIFICATE_FILE =
+  process.env.TROCODE_WINDOWS_CERTIFICATE_FILE?.trim();
+const WINDOWS_SIGNING_CERTIFICATE_PASSWORD =
+  process.env.TROCODE_WINDOWS_CERTIFICATE_PASSWORD?.trim();
 const executeFile = promisify(execFile);
 const MACOS_VOICE_SHORTCUT_SOURCE = path.resolve(
   __dirname,
@@ -142,6 +151,18 @@ const config: ForgeConfig = {
             }),
           }
         : undefined,
+    osxNotarize:
+      process.platform === 'darwin' &&
+      MACOS_SIGNING_IDENTITY &&
+      MACOS_NOTARIZATION_API_KEY &&
+      MACOS_NOTARIZATION_API_KEY_ID &&
+      MACOS_NOTARIZATION_API_ISSUER
+        ? {
+            appleApiIssuer: MACOS_NOTARIZATION_API_ISSUER,
+            appleApiKey: MACOS_NOTARIZATION_API_KEY,
+            appleApiKeyId: MACOS_NOTARIZATION_API_KEY_ID,
+          }
+        : undefined,
     // The CUA ESM package locates its native runtime relative to import.meta.url.
     // Keep this complete dependency island outside ASAR so both the JavaScript
     // loader and native libraries resolve to real filesystem paths.
@@ -163,10 +184,35 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({ setupIcon: APP_ICON_ICO }),
+    new MakerSquirrel({
+      setupIcon: APP_ICON_ICO,
+      ...(WINDOWS_SIGNING_CERTIFICATE_FILE &&
+      WINDOWS_SIGNING_CERTIFICATE_PASSWORD
+        ? {
+            certificateFile: WINDOWS_SIGNING_CERTIFICATE_FILE,
+            certificatePassword: WINDOWS_SIGNING_CERTIFICATE_PASSWORD,
+          }
+        : {}),
+    }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),
+  ],
+  publishers: [
+    {
+      name: '@electron-forge/publisher-github',
+      config: {
+        draft: true,
+        force: false,
+        generateReleaseNotes: true,
+        prerelease: false,
+        repository: {
+          name: 'TroCode',
+          owner: 'ducnguyen67201',
+        },
+        tagPrefix: 'v',
+      },
+    },
   ],
   plugins: [
     new AutoUnpackNativesPlugin({}),

@@ -1,5 +1,6 @@
 import {
   app,
+  autoUpdater,
   BrowserWindow,
   globalShortcut,
   Menu,
@@ -8,6 +9,7 @@ import {
   shell,
   Tray,
 } from 'electron';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import type { DesktopCommand } from './main/agent/execution-contracts';
@@ -15,12 +17,13 @@ import {
   TaskExecutionCoordinator,
   type DesktopPresentation,
 } from './main/agent/execution-coordinator';
+import { registerGlobalGuidanceShortcuts } from './main/agent/global-guidance-shortcuts';
 import { registerGlobalTaskCancelShortcut } from './main/agent/global-task-cancel-shortcut';
 import {
   MACOS_VISION_OCR_HELPER_NAME,
   MacOSVisionGrounder,
 } from './main/agent/macos-vision-grounder';
-import { GptRealtimePlanner } from './main/agent/realtime-planner';
+import { GptResponsesPlanner } from './main/agent/responses-planner';
 import { TaskRuntime } from './main/agent/task-runtime';
 import { FileAnalyticsIdentityStore } from './main/analytics/analytics-identity-store';
 import { AnalyticsService } from './main/analytics/analytics-service';
@@ -54,6 +57,8 @@ import {
   isolateDevelopmentInstance,
 } from './main/single-instance';
 import { systemPermissionSettingsUrl } from './main/system-permission-settings';
+import { AppUpdateService } from './main/update/app-update-service';
+import { ElevenLabsTtsService } from './main/voice/elevenlabs-tts-service';
 import { registerGlobalVoiceShortcut } from './main/voice/global-voice-shortcut';
 import {
   MACOS_VOICE_SHORTCUT_HELPER_NAME,
@@ -63,9 +68,11 @@ import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-sto
 import { VoiceService } from './main/voice/voice-service';
 import {
   CompanionGuidanceSchema,
+  CompanionSpeechSchema,
   TaskUpdateSchema,
   type AuthUser,
   type CompanionGuidance,
+  type CompanionSpeech,
   type CompanionState,
   type TaskSnapshot,
 } from './shared/contracts';
@@ -135,7 +142,8 @@ const voiceService = new VoiceService({
   credentialStore: voiceCredentialStore,
   preferencesService: appPreferencesService,
 });
-const realtimePlanner = new GptRealtimePlanner({
+const elevenLabsTtsService = new ElevenLabsTtsService();
+const responsesPlanner = new GptResponsesPlanner({
   credentialStore: voiceCredentialStore,
 });
 const visionGrounder = new MacOSVisionGrounder({
@@ -143,7 +151,10 @@ const visionGrounder = new MacOSVisionGrounder({
 });
 const executionCoordinator = new TaskExecutionCoordinator({
   cua: cuaService,
-  planner: realtimePlanner,
+  dismissPresentation: dismissCompanionGuidance,
+  onGuidancePlaybackChange: (_taskId, paused) =>
+    updateGuidancePlaybackState(paused),
+  planner: responsesPlanner,
   pointGrounder: (decision, observation, signal) =>
     visionGrounder.ground(decision, observation, signal),
   runtime: taskRuntime,
@@ -173,12 +184,20 @@ const executionCoordinator = new TaskExecutionCoordinator({
   },
   presentAction: presentCompanionAction,
 });
+const appUpdateService = new AppUpdateService({
+  architecture: process.arch,
+  currentVersion: app.getVersion(),
+  isPackaged: app.isPackaged,
+  platform: process.platform,
+  prepareToInstall: prepareForUpdateInstall,
+  repository: 'ducnguyen67201/TroCode',
+  updater: autoUpdater,
+});
 const COMPANION_SIZE = { height: 44, width: 44 } as const;
 const COMPANION_GAP = 8;
 const COMPANION_GLIDE_DURATION_MS = 360;
 const COMPANION_FOLLOW_INTERVAL_MS = 16;
-const GUIDANCE_CALLOUT_SIZE = { height: 136, width: 344 } as const;
-const GUIDANCE_PRESENTATION_MS = 4_200;
+const GUIDANCE_CALLOUT_SIZE = { height: 176, width: 380 } as const;
 const SHUTDOWN_GRACE_PERIOD_MS = 2_000;
 
 interface CompanionGlide {
@@ -200,9 +219,15 @@ let companionFollowTimer: ReturnType<typeof setInterval> | null = null;
 let companionGlide: CompanionGlide | null = null;
 let companionPinnedPosition: Point | null = null;
 let activeCompanionGuidance: CompanionGuidance | null = null;
+let activeCompanionSpeech: CompanionSpeech | null = null;
+let companionGuidancePreviousState: CompanionState | null = null;
+let guidancePlaybackPaused = false;
+let guidanceSpeechController: AbortController | null = null;
 let lastCompanionPosition: Point | null = null;
 let forcedExitTimer: ReturnType<typeof setTimeout> | null = null;
+let shutdownPromise: Promise<void> | null = null;
 let unregisterIpcHandlers: (() => void) | null = null;
+let unregisterGlobalGuidanceShortcuts: (() => void) | null = null;
 let unregisterGlobalTaskCancelShortcut: (() => void) | null = null;
 let unregisterGlobalVoiceShortcut: (() => void) | null = null;
 let removeMainWindowCloseBehavior: (() => void) | null = null;
@@ -289,7 +314,7 @@ function cancelCompanionGlide(error?: Error): void {
 function resetCompanionPresentation(): void {
   cancelCompanionGlide();
   companionPinnedPosition = null;
-  hideGuidanceCallout();
+  dismissCompanionGuidance();
   positionCompanion();
 }
 
@@ -301,10 +326,86 @@ function sendCompanionGuidance(): void {
   );
 }
 
+function sendCompanionSpeech(): void {
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) return;
+  guidanceWindow.webContents.send(
+    IPC_CHANNELS.companionSpeechChanged,
+    activeCompanionSpeech,
+  );
+}
+
+function stopGuidanceSpeech(): void {
+  guidanceSpeechController?.abort();
+  guidanceSpeechController = null;
+  activeCompanionSpeech = null;
+  sendCompanionSpeech();
+}
+
+function startGuidanceSpeech(message: string, signal: AbortSignal): void {
+  stopGuidanceSpeech();
+  if (!elevenLabsTtsService.isConfigured()) return;
+
+  const controller = new AbortController();
+  const handleTaskAbort = (): void => controller.abort(signal.reason);
+  signal.addEventListener('abort', handleTaskAbort, { once: true });
+  guidanceSpeechController = controller;
+
+  void elevenLabsTtsService
+    .synthesize(message, controller.signal)
+    .then((speech) => {
+      if (
+        !speech ||
+        controller.signal.aborted ||
+        guidanceSpeechController !== controller
+      ) {
+        return;
+      }
+      activeCompanionSpeech = CompanionSpeechSchema.parse({
+        id: randomUUID(),
+        ...speech,
+      });
+      sendCompanionSpeech();
+    })
+    .catch((error: unknown) => {
+      if (controller.signal.aborted) return;
+      console.warn('[voice:tts] companion speech unavailable', {
+        error: error instanceof Error ? error.message.slice(0, 300) : 'Unknown error',
+      });
+    })
+    .finally(() => {
+      signal.removeEventListener('abort', handleTaskAbort);
+      if (guidanceSpeechController === controller) {
+        guidanceSpeechController = null;
+      }
+    });
+}
+
 function hideGuidanceCallout(): void {
+  stopGuidanceSpeech();
   activeCompanionGuidance = null;
   sendCompanionGuidance();
   if (guidanceWindow && !guidanceWindow.isDestroyed()) guidanceWindow.hide();
+}
+
+function dismissCompanionGuidance(): void {
+  hideGuidanceCallout();
+  if (
+    companionGuidancePreviousState !== null &&
+    companionState === 'guiding'
+  ) {
+    updateCompanionState(companionGuidancePreviousState);
+  }
+  companionGuidancePreviousState = null;
+}
+
+function updateGuidancePlaybackState(paused: boolean): void {
+  guidancePlaybackPaused = paused;
+  if (!activeCompanionGuidance) return;
+  activeCompanionGuidance = CompanionGuidanceSchema.parse({
+    ...activeCompanionGuidance,
+    playback: paused ? 'paused' : 'playing',
+  });
+  sendCompanionGuidance();
 }
 
 function showGuidanceCallout(
@@ -326,6 +427,7 @@ function showGuidanceCallout(
   );
   activeCompanionGuidance = CompanionGuidanceSchema.parse({
     message: presentation.message.slice(0, 240),
+    playback: guidancePlaybackPaused ? 'paused' : 'playing',
     side: position.x < target.x ? 'left' : 'right',
     ...(presentation.target
       ? { target: presentation.target.slice(0, 80) }
@@ -392,19 +494,19 @@ async function presentCompanionAction(
     );
   }
   if (signal.aborted) throw createAbortError();
-  if (isGuidancePoint) updateCompanionState('guiding');
+  if (isGuidancePoint) {
+    if (companionGuidancePreviousState === null) {
+      companionGuidancePreviousState = previousCompanionState;
+    }
+    updateCompanionState('guiding');
+  }
 
   const from = getCurrentCompanionScreenPosition();
   if (pointEqual(from, to)) {
     companionPinnedPosition = to;
     positionCompanion();
     if (isGuidancePoint) {
-      await finishGuidancePresentation(
-        command,
-        presentation,
-        previousCompanionState,
-        signal,
-      );
+      showGuidancePresentation(command, presentation, signal);
     }
     return;
   }
@@ -426,55 +528,22 @@ async function presentCompanionAction(
   });
 
   if (isGuidancePoint) {
-    await finishGuidancePresentation(
-      command,
-      presentation,
-      previousCompanionState,
-      signal,
-    );
+    showGuidancePresentation(command, presentation, signal);
   }
 }
 
-async function finishGuidancePresentation(
+function showGuidancePresentation(
   command: Extract<DesktopCommand, { kind: 'point' }>,
   presentation: DesktopPresentation | undefined,
-  previousCompanionState: CompanionState,
   signal: AbortSignal,
-): Promise<void> {
+): void {
   if (presentation?.message) {
     showGuidanceCallout(
       presentation.screenPoint ?? { x: command.x, y: command.y },
       presentation,
     );
+    startGuidanceSpeech(presentation.message, signal);
   }
-  try {
-    await waitForCompanionPresentation(
-      signal,
-      presentation?.message ? GUIDANCE_PRESENTATION_MS : 650,
-    );
-  } finally {
-    hideGuidanceCallout();
-    if (companionState === 'guiding') {
-      updateCompanionState(previousCompanionState);
-    }
-  }
-}
-
-function waitForCompanionPresentation(
-  signal: AbortSignal,
-  durationMs: number,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', handleAbort);
-      resolve();
-    }, durationMs);
-    const handleAbort = (): void => {
-      clearTimeout(timer);
-      reject(createAbortError());
-    };
-    signal.addEventListener('abort', handleAbort, { once: true });
-  });
 }
 
 async function identifyAnalyticsUser(user: AuthUser): Promise<void> {
@@ -493,10 +562,13 @@ function finishShutdown(exitCode: number): void {
   app.exit(exitCode);
 }
 
-function beginShutdown(exitCode = 0): void {
-  if (isShuttingDown) return;
+function prepareApplicationShutdown(): Promise<void> {
+  if (shutdownPromise) return shutdownPromise;
+
   isShuttingDown = true;
   stopCompanionFollowing();
+  unregisterGlobalGuidanceShortcuts?.();
+  unregisterGlobalGuidanceShortcuts = null;
   unregisterGlobalTaskCancelShortcut?.();
   unregisterGlobalTaskCancelShortcut = null;
   unregisterGlobalVoiceShortcut?.();
@@ -512,12 +584,6 @@ function beginShutdown(exitCode = 0): void {
   if (companionWindow && !companionWindow.isDestroyed()) companionWindow.hide();
   if (guidanceWindow && !guidanceWindow.isDestroyed()) guidanceWindow.hide();
 
-  forcedExitTimer = setTimeout(
-    () => finishShutdown(exitCode),
-    SHUTDOWN_GRACE_PERIOD_MS,
-  );
-  forcedExitTimer.unref?.();
-
   const analyticsShutdown = analyticsService?.shutdown() ?? Promise.resolve();
   const executionShutdown = executionCoordinator.shutdown().finally(() =>
     Promise.allSettled([
@@ -525,9 +591,36 @@ function beginShutdown(exitCode = 0): void {
       taskHistoryService.shutdown(),
     ]),
   );
-  void Promise.allSettled([executionShutdown, analyticsShutdown]).finally(
+  shutdownPromise = Promise.allSettled([
+    executionShutdown,
+    analyticsShutdown,
+  ]).then(() => undefined);
+  return shutdownPromise;
+}
+
+async function prepareForUpdateInstall(): Promise<void> {
+  const applicationShutdown = prepareApplicationShutdown();
+  await new Promise<void>((resolve) => {
+    const graceTimer = setTimeout(resolve, SHUTDOWN_GRACE_PERIOD_MS);
+    graceTimer.unref?.();
+    void applicationShutdown.finally(() => {
+      clearTimeout(graceTimer);
+      resolve();
+    });
+  });
+}
+
+function beginShutdown(exitCode = 0): void {
+  if (isShuttingDown) return;
+  const applicationShutdown = prepareApplicationShutdown();
+
+  forcedExitTimer = setTimeout(
     () => finishShutdown(exitCode),
+    SHUTDOWN_GRACE_PERIOD_MS,
   );
+  forcedExitTimer.unref?.();
+
+  void applicationShutdown.finally(() => finishShutdown(exitCode));
 }
 
 function trackTaskAnalytics(value: unknown): void {
@@ -633,6 +726,22 @@ function ensureGlobalTaskCancelShortcut(): void {
   });
 }
 
+function ensureGlobalGuidanceShortcuts(): void {
+  if (unregisterGlobalGuidanceShortcuts) return;
+
+  unregisterGlobalGuidanceShortcuts = registerGlobalGuidanceShortcuts({
+    controls: {
+      back: (taskId) => executionCoordinator.previousGuidance(taskId),
+      next: (taskId) => executionCoordinator.nextGuidance(taskId),
+      togglePause: (taskId) => {
+        executionCoordinator.toggleGuidancePause(taskId);
+      },
+    },
+    registry: globalShortcut,
+    updates: taskRuntime,
+  });
+}
+
 function macOSVoiceShortcutHelperPath(): string {
   return app.isPackaged
     ? path.join(process.resourcesPath, MACOS_VOICE_SHORTCUT_HELPER_NAME)
@@ -720,6 +829,7 @@ const createWindow = (): void => {
   unregisterIpcHandlers?.();
   unregisterIpcHandlers = registerIpcHandlers(nextMainWindow, {
     appPreferencesService,
+    appUpdateService,
     authService,
     cuaService,
     executionCoordinator,
@@ -961,13 +1071,19 @@ const createGuidanceWindow = (): void => {
   guidanceWindow.setIgnoreMouseEvents(true, { forward: true });
   guidanceWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   guidanceWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  guidanceWindow.webContents.on('did-finish-load', sendCompanionGuidance);
+  guidanceWindow.webContents.on('did-finish-load', () => {
+    sendCompanionGuidance();
+    sendCompanionSpeech();
+  });
   guidanceWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault();
   });
   guidanceWindow.on('closed', () => {
+    guidanceSpeechController?.abort();
+    guidanceSpeechController = null;
     guidanceWindow = null;
     activeCompanionGuidance = null;
+    activeCompanionSpeech = null;
   });
 
   const guidanceUrl = new URL(MAIN_WINDOW_WEBPACK_ENTRY);
@@ -981,6 +1097,7 @@ const createGuidanceWindow = (): void => {
 if (hasSingleInstanceLock) {
   void app.whenReady().then(async () => {
     configureDock();
+    appUpdateService.start();
     analyticsService = new AnalyticsService({
       appVersion: app.getVersion(),
       architecture: process.arch,
@@ -1007,6 +1124,7 @@ if (hasSingleInstanceLock) {
     createCompanionWindow();
     createGuidanceWindow();
     ensureBackgroundTray();
+    ensureGlobalGuidanceShortcuts();
     ensureGlobalTaskCancelShortcut();
     ensureGlobalVoiceShortcut();
   });

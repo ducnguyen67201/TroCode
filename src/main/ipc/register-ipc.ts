@@ -21,9 +21,17 @@ import type { CuaService } from '../cua/cua-service';
 import type { TaskHistoryService } from '../history/task-history-service';
 import type { MembershipService } from '../membership/membership-service';
 import type { AppPreferencesService } from '../preferences/app-preferences-service';
+import type { AppUpdateService } from '../update/app-update-service';
 import type { VoiceService } from '../voice/voice-service';
 
 interface IpcServices {
+  appUpdateService: Pick<
+    AppUpdateService,
+    | 'checkForUpdates'
+    | 'getStatus'
+    | 'onStatusChange'
+    | 'restartAndInstall'
+  >;
   appPreferencesService: AppPreferencesService;
   authService: GoogleAuthService;
   cuaService: CuaService;
@@ -84,12 +92,14 @@ export function registerIpcHandlers(
 ): () => void {
   const channels = [
     IPC_CHANNELS.activateMembership,
+    IPC_CHANNELS.checkForAppUpdates,
     IPC_CHANNELS.cancelTask,
     IPC_CHANNELS.configureVoice,
     IPC_CHANNELS.connectComputer,
     IPC_CHANNELS.createVoiceCall,
     IPC_CHANNELS.decideApproval,
     IPC_CHANNELS.getAppPreferences,
+    IPC_CHANNELS.getAppUpdateStatus,
     IPC_CHANNELS.getComputerStatus,
     IPC_CHANNELS.getAuthStatus,
     IPC_CHANNELS.getMembershipStatus,
@@ -99,6 +109,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.recordVoiceTranscript,
     IPC_CHANNELS.respondToInteraction,
     IPC_CHANNELS.reportVoiceDiagnostic,
+    IPC_CHANNELS.restartAndInstallAppUpdate,
     IPC_CHANNELS.setCompanionState,
     IPC_CHANNELS.startTask,
     IPC_CHANNELS.signInWithGoogle,
@@ -109,6 +120,21 @@ export function registerIpcHandlers(
   ];
 
   for (const channel of channels) ipcMain.removeHandler(channel);
+
+  ipcMain.handle(IPC_CHANNELS.getAppUpdateStatus, (event) => {
+    assertTrustedSender(event, mainWindow);
+    return services.appUpdateService.getStatus();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.checkForAppUpdates, (event) => {
+    assertTrustedSender(event, mainWindow);
+    return services.appUpdateService.checkForUpdates();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.restartAndInstallAppUpdate, async (event) => {
+    assertTrustedSender(event, mainWindow);
+    await services.appUpdateService.restartAndInstall();
+  });
 
   ipcMain.handle(IPC_CHANNELS.getAuthStatus, (event) => {
     assertTrustedSender(event, mainWindow);
@@ -297,8 +323,15 @@ export function registerIpcHandlers(
   };
 
   services.taskRuntime.on('task-update', forwardTaskUpdate);
+  const stopForwardingAppUpdateStatus = services.appUpdateService.onStatusChange(
+    (status) => {
+      if (mainWindow.isDestroyed()) return;
+      mainWindow.webContents.send(IPC_CHANNELS.appUpdateStatusChanged, status);
+    },
+  );
 
   return () => {
+    stopForwardingAppUpdateStatus();
     services.taskRuntime.off('task-update', forwardTaskUpdate);
     for (const channel of channels) ipcMain.removeHandler(channel);
   };

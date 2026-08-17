@@ -67,10 +67,11 @@ profile. Email and display name are sent only after successful Google
 authentication.
 
 Do not ship a shared model-provider API key inside the renderer or application
-bundle. Doppler injects the developer-owned OpenAI key into the Electron main
-process at runtime, and only short-lived Realtime client secrets cross into the
-renderer. A production service may replace this with an authenticated cloud
-gateway.
+bundle. Doppler injects the developer-owned OpenAI and optional ElevenLabs keys
+into the Electron main process at runtime. Responses planning and speech
+synthesis stay in that process; only short-lived Realtime transcription secrets
+and validated MP3 companion data cross narrow preload boundaries. A production
+service may replace this with an authenticated cloud gateway.
 
 The membership signing private key is an administrative secret and must never
 be added to the repository, Doppler application runtime, analytics, or a

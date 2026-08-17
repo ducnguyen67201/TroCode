@@ -8,14 +8,6 @@ const TERMINAL_PHASES: ReadonlySet<TaskPhase> = new Set([
 
 type PhaseSnapshot = Pick<TaskSnapshot, 'phase'>;
 
-export function approvalSafeguardMessage(phase: TaskPhase): string {
-  if (phase === 'awaiting_approval') {
-    return 'TroCode is waiting for approval for the exact action shown below.';
-  }
-
-  return 'No sensitive action is awaiting approval. TroCode asks first only if a later step would log in, send, submit, upload, delete, purchase, or install.';
-}
-
 export function isTaskCancellable(
   snapshot: PhaseSnapshot | null,
 ): boolean {

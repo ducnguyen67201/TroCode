@@ -118,4 +118,30 @@ describe('macOS Vision guidance grounding', () => {
       ),
     ).toBeNull();
   });
+
+  it('matches a numbered OCR line even when punctuation is omitted', () => {
+    const desktop = observation();
+    const decision = {
+      ...pointDecision(desktop.observationId),
+      description: 'does; is — Use “does” with “she” and “is” for her job.',
+      target: 'Question 3 input field',
+      guidanceSequence: { index: 3, total: 13 },
+    };
+
+    expect(
+      groundNumberedGuidancePoint(decision, desktop, [
+        {
+          confidence: 0.98,
+          height: 0.014,
+          text: '3 What',
+          width: 0.032,
+          x: 0.426,
+          y: 0.607,
+        },
+      ]),
+    ).toMatchObject({
+      matchedText: '3 What',
+      source: 'macos_vision_text',
+    });
+  });
 });

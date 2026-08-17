@@ -45,7 +45,11 @@ The implemented computer-use iteration is:
 
 1. Re-read the current goal and remaining budget.
 2. Capture a fresh desktop observation through the task-scoped CUA session.
-3. Ask GPT Realtime for exactly one typed function-call decision.
+3. Ask the GPT Responses visual manager for a typed function-call decision, or
+   advance the next host-owned item in a validated static guidance plan.
+   Guide-mode points stop at a host-owned playback boundary: autoplay advances
+   after 15 seconds, J replays the previous cached point, K pauses/resumes, and
+   L advances. Cached replay does not invoke the model or increment progress.
 4. Evaluate capability, resource, and approval policy.
 5. Ask the user if approval is required.
 6. Execute the action through CUA.

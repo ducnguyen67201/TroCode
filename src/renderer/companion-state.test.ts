@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CompanionGuidanceSchema,
+  CompanionSpeechSchema,
   CompanionStateSchema,
 } from '../shared/contracts';
 
@@ -19,11 +20,13 @@ describe('cursor companion state', () => {
     expect(
       CompanionGuidanceSchema.parse({
         message: 'Use present continuous because “now” marks an action in progress.',
+        playback: 'paused',
         side: 'right',
         target: 'Question 2',
       }),
     ).toEqual({
       message: 'Use present continuous because “now” marks an action in progress.',
+      playback: 'paused',
       side: 'right',
       target: 'Question 2',
     });
@@ -31,6 +34,23 @@ describe('cursor companion state', () => {
       CompanionGuidanceSchema.safeParse({
         message: 'x'.repeat(241),
         side: 'right',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts only bounded MP3 companion speech at the IPC boundary', () => {
+    expect(
+      CompanionSpeechSchema.parse({
+        id: '00000000-0000-4000-8000-000000000001',
+        dataBase64: 'AQIDBA==',
+        mimeType: 'audio/mpeg',
+      }),
+    ).toMatchObject({ mimeType: 'audio/mpeg' });
+    expect(
+      CompanionSpeechSchema.safeParse({
+        id: 'not-an-id',
+        dataBase64: 'AQIDBA==',
+        mimeType: 'audio/wav',
       }).success,
     ).toBe(false);
   });

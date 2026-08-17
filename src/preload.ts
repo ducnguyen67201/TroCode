@@ -3,10 +3,12 @@ import { contextBridge, ipcRenderer } from 'electron';
 import {
   ActivateMembershipRequestSchema,
   AppPreferencesSchema,
+  AppUpdateStatusSchema,
   AuthStatusSchema,
   CompanionPositionSchema,
   CancelTaskRequestSchema,
   CompanionGuidanceSchema,
+  CompanionSpeechSchema,
   CompanionStateSchema,
   ConfigureVoiceRequestSchema,
   CreateVoiceCallRequestSchema,
@@ -35,6 +37,24 @@ import {
 } from './shared/desktop-api';
 
 const desktopApi: DesktopApi = {
+  async getAppUpdateStatus() {
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.getAppUpdateStatus,
+    );
+    return AppUpdateStatusSchema.parse(response);
+  },
+
+  async checkForAppUpdates() {
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.checkForAppUpdates,
+    );
+    return AppUpdateStatusSchema.parse(response);
+  },
+
+  async restartAndInstallAppUpdate() {
+    await ipcRenderer.invoke(IPC_CHANNELS.restartAndInstallAppUpdate);
+  },
+
   async getMembershipStatus() {
     const response: unknown = await ipcRenderer.invoke(
       IPC_CHANNELS.getMembershipStatus,
@@ -221,6 +241,22 @@ const desktopApi: DesktopApi = {
       ipcRenderer.removeListener(IPC_CHANNELS.taskUpdate, eventHandler);
   },
 
+  onAppUpdateStatusChanged(listener) {
+    const eventHandler = (
+      _event: Electron.IpcRendererEvent,
+      value: unknown,
+    ): void => {
+      listener(AppUpdateStatusSchema.parse(value));
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.appUpdateStatusChanged, eventHandler);
+    return () =>
+      ipcRenderer.removeListener(
+        IPC_CHANNELS.appUpdateStatusChanged,
+        eventHandler,
+      );
+  },
+
   onVoiceShortcut(listener) {
     const eventHandler = (
       _event: Electron.IpcRendererEvent,
@@ -264,6 +300,22 @@ const companionApi: CompanionApi = {
     return () =>
       ipcRenderer.removeListener(
         IPC_CHANNELS.companionPositionChanged,
+        eventHandler,
+      );
+  },
+
+  onSpeechChange(listener) {
+    const eventHandler = (
+      _event: Electron.IpcRendererEvent,
+      value: unknown,
+    ): void => {
+      listener(CompanionSpeechSchema.nullable().parse(value));
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.companionSpeechChanged, eventHandler);
+    return () =>
+      ipcRenderer.removeListener(
+        IPC_CHANNELS.companionSpeechChanged,
         eventHandler,
       );
   },

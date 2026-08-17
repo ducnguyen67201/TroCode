@@ -3,19 +3,18 @@ import { createHash } from 'node:crypto';
 import WebSocketClient, { type ClientOptions, type RawData } from 'ws';
 import { z } from 'zod';
 
-import type {
-  GoalSpec,
-  SteeringInstruction,
-  TaskMessage,
-} from '../../shared/contracts';
+import type { GoalSpec } from '../../shared/contracts';
 import type { VoiceCredentialStore } from '../voice/voice-service';
 
+import type {
+  DesktopPlanner,
+  PlannerStepInput,
+} from './desktop-planner';
 import {
   DesktopStepDecisionSchema,
   MAX_GUIDANCE_SEQUENCE_LENGTH,
   mapNormalizedPointToScreenshot,
   PLANNER_COORDINATE_MAX,
-  type DesktopActionOutcome,
   type DesktopObservation,
   type DesktopStepDecision,
 } from './execution-contracts';
@@ -83,32 +82,11 @@ interface GptRealtimePlannerOptions {
   timeoutMs?: number;
 }
 
-export interface PlannerStepInput {
-  goal: GoalSpec;
-  guidancePoints: readonly PlannerGuidancePoint[];
-  observation: DesktopObservation;
-  previousOutcome?: DesktopActionOutcome;
-  recentMessages: TaskMessage[];
-  remainingSteps: number;
-  steering: SteeringInstruction[];
-}
-
-export interface PlannerGuidancePoint {
-  description: string;
-  sequenceIndex: number;
-  sequenceTotal: number;
-  target?: string;
-}
-
-export interface DesktopPlanner {
-  start(taskId: string, goal: GoalSpec, signal?: AbortSignal): Promise<void>;
-  decide(
-    taskId: string,
-    input: PlannerStepInput,
-    signal?: AbortSignal,
-  ): Promise<DesktopStepDecision>;
-  end(taskId: string): Promise<void>;
-}
+export type {
+  DesktopPlanner,
+  PlannerGuidancePoint,
+  PlannerStepInput,
+} from './desktop-planner';
 
 interface PlannerSession {
   apiKey: string;
@@ -208,6 +186,8 @@ Available tool catalog:
 Only call tools present in the current session. Tool availability is the host's permission boundary. Tools not listed here, including text-to-speech, are unavailable; do not invent them.
 
 The goal interactionMode is binding. For answer and guide goals, inspect the visible screen as evidence. For a guide goal with a visible place to fill in or work on, the first teaching step MUST call point_to_screen before completion. Point at the exact blank, question, field, or control—not a broad page region. The description must be one short chat-style sentence containing a useful explanation or answer for that exact item; put the item name in target.
+
+For an educational worksheet, solve the visible work autonomously while teaching. Every point_to_screen call MUST provide (1) answer: the exact completed answer for every visible blank in that numbered item, and (2) explanation: one short reason the answer is correct. Never tell the student merely to look, read aloud, notice a field, fill a blank, or solve the item themselves. Do not use a UI label such as "Question 2 input field" as the answer. The student is learning from TroCode's worked answer, not being handed the task back.
 
 Every point belongs to an ordered guidance sequence. On the first point, set sequenceIndex to 1 and sequenceTotal to the number of distinct visible items the user asked to work through. For a numbered worksheet, sequenceTotal MUST be the number of visible numbered questions, capped only by the available step budget and ${MAX_GUIDANCE_SEQUENCE_LENGTH}; never declare a total of 1 when multiple numbered questions are visible. For one standalone problem, use a total of 1. On every fresh observation, continue with the next exact sequenceIndex and keep sequenceTotal unchanged. Do not skip, repeat, or jump between questions. Do not complete until every declared item has received its own pointer callout. Pointing cannot click, type, or change the page. Never use propose_desktop_action for answer or guide goals. Call complete_desktop_task with the full user-facing answer or guidance, in the user's language, only after the sequence is finished. Ask the user only when a missing material detail prevents a useful answer. For act and mixed goals, mark complete only when the latest screenshot visibly proves the requested outcome.
 
@@ -328,16 +308,23 @@ const STEP_TOOLS = [
     type: 'function',
     name: POINT_TOOL_NAME,
     description:
-      'Move the visible teaching pointer to one exact screen coordinate without clicking or changing the page.',
+      'Solve and briefly explain one exact worksheet item (or give one exact next action for a UI guide), then move the teaching pointer there without clicking.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
         observationId: { type: 'string' },
-        description: {
+        answer: {
+          type: 'string',
+          maxLength: 160,
+          description:
+            'The exact completed answer for every blank in this item, or the exact next action for a non-worksheet guide. Never return a field label or generic instruction.',
+        },
+        explanation: {
           type: 'string',
           maxLength: 180,
-          description: 'Briefly explain what the user should notice at this point.',
+          description:
+            'One short reason the answer or action is correct, written in the user\'s language.',
         },
         target: { type: 'string', maxLength: 80 },
         sequenceIndex: {
@@ -370,7 +357,8 @@ const STEP_TOOLS = [
       },
       required: [
         'observationId',
-        'description',
+        'answer',
+        'explanation',
         'target',
         'sequenceIndex',
         'sequenceTotal',
@@ -442,15 +430,21 @@ function normalizePlannerToolArguments(
   }
 
   if (toolName === POINT_TOOL_NAME) {
-    const { sequenceIndex, sequenceTotal, x, y, ...details } = value as Record<
-      string,
-      unknown
-    >;
+    const {
+      answer,
+      explanation,
+      sequenceIndex,
+      sequenceTotal,
+      x,
+      y,
+      ...details
+    } = value as Record<string, unknown>;
     return {
       ...details,
       kind: 'action',
       intent: 'guide',
       capability: 'computer_use',
+      description: `${String(answer ?? '').trim()} — ${String(explanation ?? '').trim()}`,
       guidanceSequence: { index: sequenceIndex, total: sequenceTotal },
       command: { kind: 'point', x, y },
     };
@@ -647,6 +641,16 @@ function plannerDecisionRejection(
   }
 
   const declaredSequenceTotal = input.guidancePoints[0]?.sequenceTotal;
+  const sequenceInProgress =
+    Boolean(declaredSequenceTotal) &&
+    input.guidancePoints.length < (declaredSequenceTotal ?? 0);
+  if (
+    sequenceInProgress &&
+    (decision.kind !== 'action' || decision.command.kind !== 'point')
+  ) {
+    return `The visible worksheet walkthrough is still in progress at item ${input.guidancePoints.length + 1} of ${declaredSequenceTotal}. Call point_to_screen with the exact answer and one short reason. Do not ask, block, or complete while the next numbered item is visible.`;
+  }
+
   if (
     decision.kind === 'complete' &&
     declaredSequenceTotal &&
@@ -682,6 +686,19 @@ function plannerDecisionRejection(
 
   if (input.guidancePoints.length >= sequence.total) {
     return 'Every declared teaching point has already been shown. Complete the guide with the full user-facing explanation now.';
+  }
+
+  if (input.goal.domain === 'education') {
+    const [answer, explanation] = decision.description.split(' — ', 2);
+    const genericAnswer =
+      /^(?:look|notice|focus|read|fill|enter|type|click|point|question|item|input field|hãy|chú ý|nhìn|điền|ô trống|câu hỏi)(?:\s|:|$)/iu;
+    if (
+      !answer?.trim() ||
+      !explanation?.trim() ||
+      genericAnswer.test(answer.trim())
+    ) {
+      return 'Educational guidance must solve the current item: provide the exact answer for every blank in answer, plus one short grammar or reasoning explanation. Generic field instructions are not teaching answers.';
+    }
   }
 
   const normalizedTarget = decision.target?.trim().toLocaleLowerCase();
@@ -976,6 +993,16 @@ export class GptRealtimePlanner implements DesktopPlanner {
 
       session.socket = undefined;
       socket.close();
+      console.info(
+        '[planner] decision.accepted',
+        JSON.stringify({
+          taskId,
+          kind: decision.kind,
+          ...(decision.kind === 'action'
+            ? { command: decision.command.kind }
+            : {}),
+        }),
+      );
       console.info(
         '[planner] session.rotated',
         JSON.stringify({ taskId, reason: 'bounded_visual_context' }),

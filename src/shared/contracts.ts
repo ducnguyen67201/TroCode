@@ -376,6 +376,35 @@ export const UpdateAppPreferencesRequestSchema = z.object({
   primaryLanguage: PrimaryLanguageSchema,
 });
 
+export const AppUpdateStatusSchema = z
+  .object({
+    currentVersion: z.string().trim().min(1).max(100),
+    message: z.string().trim().min(1).max(1_000),
+    phase: z.enum([
+      'unsupported',
+      'idle',
+      'checking',
+      'downloading',
+      'ready',
+      'installing',
+      'up_to_date',
+      'error',
+    ]),
+    targetVersion: z.string().trim().min(1).max(100).nullable(),
+  })
+  .superRefine((status, context) => {
+    if (
+      (status.phase === 'ready' || status.phase === 'installing') &&
+      !status.targetVersion
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'A downloaded update must include its target version.',
+        path: ['targetVersion'],
+      });
+    }
+  });
+
 export const VoiceStatusSchema = z.object({
   state: z.enum(['not_configured', 'ready', 'unavailable', 'error']),
   provider: z.literal('openai'),
@@ -399,8 +428,19 @@ export const CompanionPositionSchema = z.object({
 
 export const CompanionGuidanceSchema = z.object({
   message: z.string().trim().min(1).max(240),
+  playback: z.enum(['playing', 'paused']).default('playing'),
   side: z.enum(['left', 'right']),
   target: z.string().trim().min(1).max(80).optional(),
+});
+
+export const CompanionSpeechSchema = z.object({
+  id: z.string().uuid(),
+  dataBase64: z
+    .string()
+    .min(1)
+    .max(7_000_000)
+    .regex(/^[A-Za-z0-9+/]+={0,2}$/),
+  mimeType: z.literal('audio/mpeg'),
 });
 
 export const ConfigureVoiceRequestSchema = z.object({
@@ -474,6 +514,7 @@ export const ActivateMembershipRequestSchema = z.object({
 export type Capability = z.infer<typeof CapabilitySchema>;
 export type ActionApprovalGrant = z.infer<typeof ActionApprovalGrantSchema>;
 export type AppPreferences = z.infer<typeof AppPreferencesSchema>;
+export type AppUpdateStatus = z.infer<typeof AppUpdateStatusSchema>;
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
 export type AuthUser = z.infer<typeof AuthUserSchema>;
 export type ActivateMembershipRequest = z.infer<
@@ -482,6 +523,7 @@ export type ActivateMembershipRequest = z.infer<
 export type CompanionPosition = z.infer<typeof CompanionPositionSchema>;
 export type CompanionState = z.infer<typeof CompanionStateSchema>;
 export type CompanionGuidance = z.infer<typeof CompanionGuidanceSchema>;
+export type CompanionSpeech = z.infer<typeof CompanionSpeechSchema>;
 export type ConfigureVoiceRequest = z.infer<
   typeof ConfigureVoiceRequestSchema
 >;

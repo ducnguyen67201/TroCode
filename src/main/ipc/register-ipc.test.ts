@@ -41,6 +41,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   cuaConnect: ReturnType<typeof vi.fn>;
   cuaGetStatus: ReturnType<typeof vi.fn>;
   callOrder: string[];
+  checkForUpdates: ReturnType<typeof vi.fn>;
   createVoiceCall: ReturnType<typeof vi.fn>;
   getAppPreferences: ReturnType<typeof vi.fn>;
   getTaskHistory: ReturnType<typeof vi.fn>;
@@ -49,6 +50,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     assertActive: ReturnType<typeof vi.fn>;
     getStatus: ReturnType<typeof vi.fn>;
   };
+  restartAndInstallUpdate: ReturnType<typeof vi.fn>;
   openSystemPermissionSettings: ReturnType<typeof vi.fn>;
   requestScreenRecordingAccess: ReturnType<typeof vi.fn>;
   recordVoiceTranscript: ReturnType<typeof vi.fn>;
@@ -153,7 +155,25 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     snapshots: [],
   }));
   const updateAppPreferences = vi.fn(async (input: unknown) => input);
+  const appUpdateStatus = {
+    currentVersion: '0.1.0',
+    message: 'Ready to check for updates.',
+    phase: 'idle',
+    targetVersion: null,
+  } as const;
+  const checkForUpdates = vi.fn(() => ({
+    ...appUpdateStatus,
+    message: 'Checking for updates…',
+    phase: 'checking' as const,
+  }));
+  const restartAndInstallUpdate = vi.fn(async () => undefined);
   const services = {
+    appUpdateService: {
+      checkForUpdates,
+      getStatus: vi.fn(() => appUpdateStatus),
+      onStatusChange: vi.fn(() => vi.fn()),
+      restartAndInstall: restartAndInstallUpdate,
+    },
     appPreferencesService: {
       get: getAppPreferences,
       update: updateAppPreferences,
@@ -174,6 +194,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   return {
     authService,
     callOrder,
+    checkForUpdates,
     createVoiceCall,
     cuaConnect,
     cuaGetStatus,
@@ -184,6 +205,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     membershipService,
     openSystemPermissionSettings,
     recordVoiceTranscript,
+    restartAndInstallUpdate,
     requestScreenRecordingAccess,
     submit,
     updateAppPreferences,
@@ -198,6 +220,43 @@ describe('registerIpcHandlers auth boundary', () => {
 
     await expect(handler?.(event)).resolves.toEqual({ state: 'signed_out' });
     expect(authService.assertSignedIn).not.toHaveBeenCalled();
+    unregister();
+  });
+
+  it('keeps update checks available before sign-in without exposing feed control', async () => {
+    const {
+      checkForUpdates,
+      event,
+      restartAndInstallUpdate,
+      unregister,
+    } = setup(false);
+
+    expect(
+      electronMock.handlers.get(IPC_CHANNELS.getAppUpdateStatus)?.(event),
+    ).toMatchObject({ currentVersion: '0.1.0', phase: 'idle' });
+    expect(
+      electronMock.handlers.get(IPC_CHANNELS.checkForAppUpdates)?.(event),
+    ).toMatchObject({ phase: 'checking' });
+    await expect(
+      electronMock.handlers.get(IPC_CHANNELS.restartAndInstallAppUpdate)?.(
+        event,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(checkForUpdates).toHaveBeenCalledOnce();
+    expect(restartAndInstallUpdate).toHaveBeenCalledOnce();
+    expect(electronMock.handlers.has('update:set-feed-url')).toBe(false);
+    unregister();
+  });
+
+  it('rejects update checks from an untrusted renderer', () => {
+    const { checkForUpdates, unregister } = setup(false);
+    const handler = electronMock.handlers.get(IPC_CHANNELS.checkForAppUpdates);
+
+    expect(() =>
+      handler?.({ sender: { id: 99 }, senderFrame: {} }),
+    ).toThrow('untrusted renderer');
+    expect(checkForUpdates).not.toHaveBeenCalled();
     unregister();
   });
 

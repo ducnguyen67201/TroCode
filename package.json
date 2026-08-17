@@ -11,9 +11,11 @@
     "db:logs": "doppler run --project tro-app --config dev -- docker compose logs --tail=100 postgres",
     "db:ps": "doppler run --project tro-app --config dev -- docker compose ps",
     "db:up": "doppler run --project tro-app --config dev -- docker compose up -d --wait --wait-timeout 60 postgres",
-    "package": "doppler run --project tro-app --config dev -- npm exec -- electron-forge package",
-    "make": "doppler run --project tro-app --config dev -- npm exec -- electron-forge make",
-    "publish": "doppler run --project tro-app --config dev -- npm exec -- electron-forge publish",
+    "package": "doppler run --project tro-app --config prd -- npm exec -- electron-forge package",
+    "package:dev": "doppler run --project tro-app --config dev -- npm exec -- electron-forge package",
+    "make": "doppler run --project tro-app --config prd -- npm exec -- electron-forge make",
+    "make:dev": "doppler run --project tro-app --config dev -- npm exec -- electron-forge make",
+    "publish": "doppler run --project tro-app --config prd -- npm exec -- electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
     "membership:keygen": "node scripts/membership-codes.mjs keygen",
     "membership:issue": "node scripts/membership-codes.mjs issue",
@@ -34,6 +36,10 @@
     "email": "danielbaker06072001@gmail.com"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ducnguyen67201/TroCode.git"
+  },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
     "@electron-forge/maker-deb": "^7.11.2",
@@ -43,6 +49,7 @@
     "@electron-forge/plugin-auto-unpack-natives": "^7.11.2",
     "@electron-forge/plugin-fuses": "^7.11.2",
     "@electron-forge/plugin-webpack": "^7.11.2",
+    "@electron-forge/publisher-github": "^7.11.2",
     "@electron/fuses": "^1.8.0",
     "@types/node": "^26.2.0",
     "@types/pg": "^8.21.0",

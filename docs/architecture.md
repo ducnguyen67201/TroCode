@@ -19,7 +19,7 @@ flowchart LR
     MAIN --> HISTORY["Account-scoped PostgreSQL task history"]
     MAIN --> COORD["Execution coordinator"]
     COORD --> GOAL["Goal runtime"]
-    COORD --> RT["GPT Realtime planner"]
+    COORD --> RT["GPT Responses visual manager"]
     COORD --> POLICY["Policy engine"]
     COORD --> CUA["CUA service"]
     CUA --> NATIVE["Rust-backed native runtime"]
@@ -43,8 +43,9 @@ The preload exposes a fixed set of task and CUA operations through `contextBridg
 
 The main process verifies the sending `webContents`, enforces a signed-in
 session on task, voice, and CUA IPC, and enforces active membership on task and
-voice effects in packaged builds. It owns task state, hosts GPT Realtime and CUA
-sessions, serializes execution, and controls application shutdown. Renderer
+voice effects in packaged builds. It owns task state, hosts Responses planning,
+Realtime transcription, optional ElevenLabs speech, and CUA sessions, serializes
+execution, and controls application shutdown. Renderer
 navigation and new-window creation are denied. OAuth tokens, the API key, and
 raw screenshots remain main-process-only.
 
@@ -72,11 +73,13 @@ The current deterministic router establishes the contract before model integrati
 
 ### Execution coordinator and planner
 
-Starting a reviewed goal creates one `AbortController`, one GPT Realtime
-WebSocket, and one CUA session for that task. Every turn sends the latest
-bounded observation and screenshot to a single function tool. The returned
-decision is schema-parsed, policy-checked, and limited to one action before the
-screen is observed again. The main window hides before observation and returns
+Starting a reviewed goal creates one `AbortController`, a host-owned planner
+session, and one CUA session for that task. The planner sends bounded transcript,
+observation, and screenshot input to the Responses API. For static worksheets,
+the model returns semantic answer/explanation items once and the host assigns and
+advances sequence state; for dynamic UI work, only one action is admitted before
+the screen is observed again. Every decision is schema-parsed and policy-checked.
+The main window hides before observation and returns
 for interactions or terminal states, preventing its own approval UI from
 covering the target application during revalidation. The model never receives
 a CUA handle and cannot grant approvals or widen scope.

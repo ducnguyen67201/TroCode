@@ -1,6 +1,10 @@
 import type { TaskSnapshot } from '../../shared/contracts';
 import type { CuaService } from '../cua/cua-service';
 
+import type {
+  DesktopPlanner,
+  PlannerGuidancePoint,
+} from './desktop-planner';
 import {
   mapScreenshotPointToDesktop,
   proposedActionForDecision,
@@ -10,11 +14,8 @@ import {
   type DesktopCoordinateSpace,
   type DesktopObservation,
 } from './execution-contracts';
+import { GuidancePlaybackController } from './guidance-playback';
 import { evaluateAction } from './policy';
-import type {
-  DesktopPlanner,
-  PlannerGuidancePoint,
-} from './realtime-planner';
 import type { TaskRuntime } from './task-runtime';
 
 interface ExecutionCoordinatorOptions {
@@ -23,6 +24,9 @@ interface ExecutionCoordinatorOptions {
     'startTaskSession' | 'observe' | 'executeCommand' | 'endTaskSession'
   >;
   now?: () => Date;
+  dismissPresentation?: () => void;
+  guidanceAutoAdvanceMs?: number;
+  onGuidancePlaybackChange?: (taskId: string, paused: boolean) => void;
   openExternal?: (url: string) => Promise<void>;
   planner: DesktopPlanner;
   pointGrounder?: (
@@ -56,11 +60,19 @@ export interface DesktopPresentation {
 interface ExecutionContext {
   controller: AbortController;
   deadlineTimer?: ReturnType<typeof setTimeout>;
+  guidanceHistory: GuidanceHistoryEntry[];
+  guidanceHistoryIndex: number;
   guidancePoints: PlannerGuidancePoint[];
   initialized: boolean;
+  playback: GuidancePlaybackController;
   previousOutcome?: DesktopActionOutcome;
   running?: Promise<void>;
   startedAt: Date;
+}
+
+interface GuidanceHistoryEntry {
+  command: Extract<DesktopCommand, { kind: 'point' }>;
+  presentation: DesktopPresentation;
 }
 
 const TERMINAL_PHASES: ReadonlySet<TaskSnapshot['phase']> = new Set([
@@ -121,9 +133,17 @@ export class TaskExecutionCoordinator {
 
   private readonly cua: ExecutionCoordinatorOptions['cua'];
 
+  private readonly dismissPresentation: () => void;
+
+  private readonly guidanceAutoAdvanceMs?: number;
+
   private readonly now: () => Date;
 
   private readonly openExternal: (url: string) => Promise<void>;
+
+  private readonly onGuidancePlaybackChange: NonNullable<
+    ExecutionCoordinatorOptions['onGuidancePlaybackChange']
+  >;
 
   private readonly planner: DesktopPlanner;
 
@@ -141,7 +161,10 @@ export class TaskExecutionCoordinator {
 
   constructor({
     cua,
+    dismissPresentation = () => undefined,
+    guidanceAutoAdvanceMs,
     now = () => new Date(),
+    onGuidancePlaybackChange = () => undefined,
     openExternal = async () => {
       throw new Error('URL navigation is not configured.');
     },
@@ -152,7 +175,10 @@ export class TaskExecutionCoordinator {
     runtime,
   }: ExecutionCoordinatorOptions) {
     this.cua = cua;
+    this.dismissPresentation = dismissPresentation;
+    this.guidanceAutoAdvanceMs = guidanceAutoAdvanceMs;
     this.now = now;
+    this.onGuidancePlaybackChange = onGuidancePlaybackChange;
     this.openExternal = openExternal;
     this.planner = planner;
     this.pointGrounder = pointGrounder;
@@ -166,8 +192,11 @@ export class TaskExecutionCoordinator {
     if (!snapshot.goal) throw new Error('Task has no compiled goal.');
     const context: ExecutionContext = {
       controller: new AbortController(),
+      guidanceHistory: [],
+      guidanceHistoryIndex: -1,
       guidancePoints: [],
       initialized: false,
+      playback: new GuidancePlaybackController(this.guidanceAutoAdvanceMs),
       startedAt: this.now(),
     };
     context.deadlineTimer = setTimeout(
@@ -184,6 +213,22 @@ export class TaskExecutionCoordinator {
     const context = this.contexts.get(taskId);
     if (!context) return;
     this.kick(taskId);
+  }
+
+  previousGuidance(taskId: string): void {
+    this.contexts.get(taskId)?.playback.back();
+  }
+
+  toggleGuidancePause(taskId: string): boolean | null {
+    const context = this.contexts.get(taskId);
+    if (!context) return null;
+    const paused = context.playback.togglePause();
+    this.onGuidancePlaybackChange(taskId, paused);
+    return paused;
+  }
+
+  nextGuidance(taskId: string): void {
+    this.contexts.get(taskId)?.playback.next();
   }
 
   cancel(input: unknown): TaskSnapshot {
@@ -406,18 +451,6 @@ export class TaskExecutionCoordinator {
           }
         }
 
-        if (
-          decision.command.kind !== 'open_url' &&
-          !goal.capabilities.includes('computer_use')
-        ) {
-          this.runtime.block(
-            taskId,
-            'The proposed desktop action requires computer-use capability.',
-            ['Review and explicitly expand the goal capability before continuing.'],
-          );
-          return;
-        }
-
         const action = proposedActionForDecision(decision);
         const policyDecision = evaluateAction(goal, action);
         if (policyDecision.status === 'denied') {
@@ -537,6 +570,14 @@ export class TaskExecutionCoordinator {
             sequenceTotal: decision.guidanceSequence!.total,
             ...(decision.target ? { target: decision.target } : {}),
           });
+          if (!presentation) {
+            throw new Error('Guidance playback lost its presentation details.');
+          }
+          context.guidanceHistory.push({
+            command: decision.command,
+            presentation,
+          });
+          context.guidanceHistoryIndex = context.guidanceHistory.length - 1;
         }
 
         this.runtime.beginVerification(taskId, outcome.summary, true);
@@ -548,12 +589,60 @@ export class TaskExecutionCoordinator {
           );
           return;
         }
+        if (
+          decision.command.kind === 'point' &&
+          outcome.status === 'confirmed'
+        ) {
+          await this.waitForGuidanceNavigation(taskId, context);
+        }
       }
     } catch (error) {
       if (isAbort(error, context.controller.signal)) return;
       const snapshot = this.runtime.getSnapshot(taskId);
       if (!TERMINAL_PHASES.has(snapshot.phase)) {
         this.runtime.fail(taskId, errorMessage(error));
+      }
+    }
+  }
+
+  private async waitForGuidanceNavigation(
+    taskId: string,
+    context: ExecutionContext,
+  ): Promise<void> {
+    while (!context.controller.signal.aborted) {
+      const navigation = await context.playback.wait(context.controller.signal);
+      if (navigation === 'back') {
+        if (context.guidanceHistoryIndex === 0) continue;
+        context.guidanceHistoryIndex -= 1;
+      } else if (
+        context.guidanceHistoryIndex <
+        context.guidanceHistory.length - 1
+      ) {
+        context.guidanceHistoryIndex += 1;
+      } else {
+        this.dismissPresentation();
+        return;
+      }
+
+      const entry = context.guidanceHistory[context.guidanceHistoryIndex];
+      if (!entry) continue;
+      const outcome = await this.execute(
+        taskId,
+        entry.command,
+        context.controller.signal,
+        entry.presentation,
+      );
+      console.info(
+        '[execution] guidance.replayed',
+        JSON.stringify({
+          taskId,
+          direction: navigation,
+          sequence: entry.presentation.target ?? null,
+          status: outcome.status,
+        }),
+      );
+      if (outcome.status !== 'confirmed') {
+        throw new Error(`Could not replay guidance: ${outcome.summary}`);
       }
     }
   }
@@ -591,6 +680,8 @@ export class TaskExecutionCoordinator {
   ): Promise<void> {
     if (this.contexts.get(taskId) !== context) return;
     this.contexts.delete(taskId);
+    this.dismissPresentation();
+    this.onGuidancePlaybackChange(taskId, false);
     if (context.deadlineTimer) clearTimeout(context.deadlineTimer);
     await Promise.allSettled([
       this.planner.end(taskId),

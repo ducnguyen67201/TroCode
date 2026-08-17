@@ -25,14 +25,20 @@ Implemented:
 - Automatic CUA initialization after explicit first-run permission onboarding.
 - Task-scoped CUA sessions with bounded screenshots, typed clicks, text entry,
   keypresses, scrolling, and session cleanup.
-- GPT Realtime 2.1 visual planning through one validated function-call decision
-  per fresh observation.
+- GPT-5.6 Luna visual reasoning through the Responses API, with GPT-5.6 Terra
+  fallback and host-owned worksheet sequence state.
 - A serialized observe → policy → act → verify loop with step/time limits,
   cancellation, safe steering, and no automatic retry after an unknown result.
 - Direct HTTPS navigation for allowed domains and exact, revalidated approval
   before consequential CUA actions such as Send.
 - Focused-window push-to-talk plus system-wide background voice shortcuts
-  through OpenAI Realtime using `gpt-4o-mini-transcribe`.
+  through OpenAI Realtime using `gpt-realtime-whisper`.
+- Optional ElevenLabs `eleven_flash_v2_5` speech for short companion
+  explanations, with local system-speech fallback; TTS failures never block the
+  desktop task.
+- Host-owned walkthrough playback with a 15-second autoplay cadence and
+  system-wide **J** previous, **K** pause/resume, and **L** next controls while
+  a guide task is active.
 - Doppler-injected OpenAI voice setup; only short-lived Realtime session
   secrets cross into the renderer.
 - PostHog product analytics for app activity, task funnels, and completed voice
@@ -49,14 +55,21 @@ Not implemented yet:
 - Accessibility-first element targeting and production application allowlists.
 - Direct Gmail/Calendar connectors and app-specific independent verifiers.
 - Persistent screenshot-rich execution trajectory storage.
-- Production capability manifests, signing, notarization, and update delivery.
+- Production capability manifests and release-credential provisioning.
 
-When a compiled goal reaches `ready`, TroCode automatically creates the
-task-scoped GPT Realtime and CUA sessions. The visible **Stop task** control and
+When a compiled goal reaches `ready`, TroCode starts the task-scoped Responses
+planner and CUA session. The visible **Stop task** control and
 the system-wide **Escape** shortcut cancel a nonterminal task, including while
 the main window is hidden for desktop work. The loop observes after every
 admitted action, and consequential actions still pause on an exact approval
 card before anything is dispatched.
+
+During a visual guide, the current pointer and explanation remain visible at a
+playback boundary. Press **J** to revisit a cached step, **K** to pause or
+resume autoplay, and **L** to continue. Revisiting a step neither calls the
+model again nor consumes task progress. While paused, use the existing global
+voice shortcut to ask a follow-up; steering is applied at the next safe
+boundary. **Escape** still stops the task entirely.
 
 ## Requirements
 
@@ -118,6 +131,11 @@ doppler secrets set OPENAI_API_KEY GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SE
 npm start
 ```
 
+Companion speech is optional. To use ElevenLabs credits, also configure
+`ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`. Planner routing defaults to
+`gpt-5.6-luna` with `gpt-5.6-terra` fallback and can be overridden with
+`TROCODE_PLANNER_MODEL` and `TROCODE_PLANNER_FALLBACK_MODEL`.
+
 Paste the value at Doppler's prompt, then enter a line containing only `.`.
 Doppler injects the values while Electron Forge builds and starts the app. The
 OpenAI key and Google tokens stay main-process-only. A desktop OAuth client
@@ -131,9 +149,18 @@ For a machine that is not linked yet, run:
 doppler setup --project tro-app --config dev
 ```
 
-All normal start and release scripts run through the explicit Doppler
-`tro-app/dev` configuration. Copy `.env.example` only as a reference; never
-commit a populated environment file.
+`npm start` and the local database scripts use the explicit Doppler
+`tro-app/dev` configuration. Release scripts (`npm run package`, `npm run make`,
+and `npm run publish`) use `tro-app/prd`; `npm run package:dev` and
+`npm run make:dev` remain available for local packaged-build testing. Copy
+`.env.example` only as a reference; never commit a populated environment file.
+
+The production desktop build may receive public build-time configuration such
+as the Google desktop OAuth client metadata, PostHog project token, and
+`TROCODE_MEMBERSHIP_PUBLIC_KEY`. Do not compile `OPENAI_API_KEY`,
+`ELEVENLABS_API_KEY`, `DATABASE_URL`, or database passwords into the desktop
+application. Those secrets belong in the hosted backend's Doppler `prd` runtime
+once that service exists.
 
 ### PostgreSQL task history
 
@@ -222,9 +249,10 @@ after release until the transcript returns. When TroCode has asked a
 clarification, the next transcript answers that same task rather than creating
 another one. Short pending prompts are also spoken locally.
 
-When `OPENAI_API_KEY` is injected by Doppler, TroCode enables voice and planning
-automatically at launch. The renderer never asks for or receives the long-lived
-API key; only short-lived voice session secrets come back.
+When `OPENAI_API_KEY` is injected by Doppler, TroCode enables voice and visual
+planning automatically at launch. The renderer never asks for or receives the
+long-lived API key; only short-lived voice session secrets come back. OpenAI
+Responses requests and optional ElevenLabs synthesis remain in the main process.
 
 ### First Gmail execution test
 
@@ -250,15 +278,42 @@ npm run test:coverage
 npm run package
 ```
 
-`npm run make` generates a distributable for the current operating system. The
-start, package, make, and publish scripts all inject Doppler configuration.
-Production distribution still requires Apple notarization and Windows code
-signing.
+`npm run make` generates a distributable for the current operating system.
+Development commands inject Doppler `dev`; package, make, and publish inject
+Doppler `prd`. The release workflow requires Apple notarization and Windows
+code-signing credentials before it will publish a release.
 
 CUA installs a native package for the host OS and CPU, so build each release on
 its target operating system. During packaging, TroCode stages the CUA JavaScript
 SDK and native libraries together outside ASAR; this preserves CUA's relative
 native-library resolution in the packaged application.
+
+### Application updates and releases
+
+Installed macOS and Windows builds expose **Settings → Application update**.
+The trusted main process checks the fixed TroCode feed on
+`update.electronjs.org`; the sandboxed renderer can request a check or restart,
+but it cannot replace the feed URL. Available updates download in the
+background and install after the user selects **Restart to update**.
+
+To publish a release, bump `package.json`, commit the change, then push a tag
+that exactly matches the version, such as `v0.2.0`. The release workflow builds
+macOS arm64, macOS x64, and Windows x64 artifacts sequentially into one draft
+GitHub Release, then publishes the release only after every signed artifact is
+uploaded.
+
+Configure these GitHub Actions secrets before pushing a release tag:
+
+- `DOPPLER_TOKEN`
+- `MACOS_CERTIFICATE_P12_BASE64`, `MACOS_CERTIFICATE_PASSWORD`, and
+  `MACOS_SIGNING_IDENTITY`
+- `APPLE_API_KEY_P8_BASE64`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`
+- `WINDOWS_CERTIFICATE_PFX_BASE64` and `WINDOWS_CERTIFICATE_PASSWORD`
+
+The first updater-enabled build still requires a normal manual installation.
+After that bootstrap release, future published versions can be installed from
+inside TroCode. Linux continues to use its package manager because Electron's
+native updater supports only macOS and Windows.
 
 ## Architecture
 
@@ -268,7 +323,7 @@ React renderer
     -> trusted Electron IPC
       -> Google OAuth service / encrypted local session
       -> goal runtime / policy engine
-      -> GPT Realtime visual planner (one typed decision per observation)
+      -> GPT Responses visual manager (Luna first, Terra fallback)
       -> PostHog analytics service (allowlisted metadata only)
       -> OpenAI voice service (short-lived Realtime sessions)
       -> CUA service
@@ -289,7 +344,7 @@ Read:
 ```text
 src/
 ├── main/
-│   ├── agent/       goals, policy, GPT Realtime planner, execution coordinator
+│   ├── agent/       goals, policy, Responses planner, execution coordinator
 │   ├── analytics/   privacy-safe PostHog events and durable identity
 │   ├── cua/         permission-aware CUA lifecycle
 │   └── ipc/         trusted renderer boundary

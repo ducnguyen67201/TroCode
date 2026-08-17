@@ -276,7 +276,9 @@ describe('GPT Realtime desktop planner', () => {
     const pointDecision = {
       kind: 'point',
       observationId,
-      description: 'Điền “do” vào chỗ trống đầu tiên vì chủ ngữ là “you”.',
+      answer: 'do; live; live',
+      explanation:
+        'Dùng hiện tại đơn: “you” đi với “do”, còn “I” dùng động từ nguyên mẫu “live”.',
       target: 'Câu 1 · chỗ trống đầu tiên',
       sequenceIndex: 1,
       sequenceTotal: 16,
@@ -364,7 +366,9 @@ describe('GPT Realtime desktop planner', () => {
     const pointDecision = {
       kind: 'point',
       observationId,
-      description: 'Notice that “now” signals the present continuous tense.',
+      answer: 'is he doing; is watering',
+      explanation:
+        '“Now” signals the present continuous, so use “is” plus the -ing form.',
       target: 'Question 2',
       sequenceIndex: 1,
       sequenceTotal: 16,
@@ -404,7 +408,7 @@ describe('GPT Realtime desktop planner', () => {
       kind: 'action',
       intent: 'guide',
       capability: 'computer_use',
-      description: pointDecision.description,
+      description: `${pointDecision.answer} — ${pointDecision.explanation}`,
       target: pointDecision.target,
       guidanceSequence: { index: 1, total: 16 },
       command: { kind: 'point', x: 2_004, y: 335 },
@@ -421,8 +425,9 @@ describe('GPT Realtime desktop planner', () => {
     const secondPoint = {
       kind: 'point',
       observationId,
-      description:
-        '“Now” signals the present continuous: “What is he doing now?”',
+      answer: 'is he doing; is watering',
+      explanation:
+        '“Now” signals the present continuous: use “is” plus the -ing form.',
       target: 'Question 2',
       sequenceIndex: 2,
       sequenceTotal: 3,
@@ -481,7 +486,7 @@ describe('GPT Realtime desktop planner', () => {
           item: expect.objectContaining({
             type: 'function_call_output',
             output: expect.stringContaining(
-              'The walkthrough is only 1 of 3 items complete',
+              'walkthrough is still in progress at item 2 of 3',
             ),
           }),
         }),
@@ -497,7 +502,9 @@ describe('GPT Realtime desktop planner', () => {
       {
         kind: 'point',
         observationId: firstObservationId,
-        description: 'Question 1 uses “do” with “you”.',
+        answer: 'do; live; live',
+        explanation:
+          'The simple present uses “do” with “you” and the base verb with “I”.',
         target: 'Question 1',
         sequenceIndex: 1,
         sequenceTotal: 2,
@@ -507,7 +514,9 @@ describe('GPT Realtime desktop planner', () => {
       {
         kind: 'point',
         observationId: secondObservationId,
-        description: 'Question 2 uses the present continuous with “now”.',
+        answer: 'is he doing; is watering',
+        explanation:
+          '“Now” signals the present continuous: use “is” plus the -ing form.',
         target: 'Question 2',
         sequenceIndex: 2,
         sequenceTotal: 2,
@@ -601,6 +610,159 @@ describe('GPT Realtime desktop planner', () => {
           ).length,
       ),
     ).toEqual([1, 1]);
+  });
+
+  it('rejects a generic worksheet recommendation and requires a worked answer', async () => {
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+    const genericPoint = {
+      kind: 'point',
+      observationId,
+      answer: 'Hãy chú ý ô trống của câu 1',
+      explanation: 'Đây là nơi cần điền đáp án.',
+      target: 'Question 1 input field',
+      sequenceIndex: 1,
+      sequenceTotal: 1,
+      x: 300,
+      y: 300,
+    };
+    const workedPoint = {
+      ...genericPoint,
+      answer: 'do; live; live',
+      explanation:
+        'Chủ ngữ “you” dùng “do”; chủ ngữ “I” dùng động từ nguyên mẫu “live”.',
+      target: 'Question 1',
+    };
+    let socket: FakePlannerSocket | undefined;
+    const socketFactory: PlannerSocketFactory = () => {
+      socket = new FakePlannerSocket([genericPoint, workedPoint]);
+      return socket;
+    };
+    const planner = new GptRealtimePlanner({
+      credentialStore: {
+        read: async () => 'sk-test-key',
+        write: async () => undefined,
+      },
+      environmentApiKey: '',
+      socketFactory,
+      timeoutMs: 1_000,
+    });
+    const goal = compileGoal('Giúp tôi làm bài tập tiếng Anh này');
+
+    await planner.start(taskId, goal);
+    await expect(
+      planner.decide(taskId, {
+        goal,
+        guidancePoints: [],
+        observation: {
+          observationId,
+          taskId,
+          capturedAt: new Date().toISOString(),
+          text: 'A visible English worksheet',
+          screenshot: { mimeType: 'image/png', dataBase64: 'aW1hZ2U=' },
+          coordinateSpace: retinaCoordinateSpace,
+          degraded: false,
+          fingerprint: '7'.repeat(64),
+        },
+        recentMessages: [],
+        remainingSteps: goal.limits.maxSteps,
+        steering: [],
+      }),
+    ).resolves.toMatchObject({
+      kind: 'action',
+      description: expect.stringContaining('do; live; live'),
+      target: 'Question 1',
+    });
+
+    expect(socket?.sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          item: expect.objectContaining({
+            type: 'function_call_output',
+            output: expect.stringContaining(
+              'Educational guidance must solve the current item',
+            ),
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it('rejects clarification at step four while a visible sequence is active', async () => {
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+    const fourthPoint = {
+      kind: 'point',
+      observationId,
+      answer: 'are',
+      explanation: 'The subject is “you”, so the present form of “be” is “are”.',
+      target: 'Question 4',
+      sequenceIndex: 4,
+      sequenceTotal: 5,
+      x: 450,
+      y: 500,
+    };
+    let socket: FakePlannerSocket | undefined;
+    const socketFactory: PlannerSocketFactory = () => {
+      socket = new FakePlannerSocket([
+        { kind: 'ask_user', prompt: 'Which question should I solve next?' },
+        fourthPoint,
+      ]);
+      return socket;
+    };
+    const planner = new GptRealtimePlanner({
+      credentialStore: {
+        read: async () => 'sk-test-key',
+        write: async () => undefined,
+      },
+      environmentApiKey: '',
+      socketFactory,
+      timeoutMs: 1_000,
+    });
+    const goal = compileGoal('Solve this English worksheet');
+
+    await planner.start(taskId, goal);
+    await expect(
+      planner.decide(taskId, {
+        goal,
+        guidancePoints: [1, 2, 3].map((sequenceIndex) => ({
+          description: `Worked answer ${sequenceIndex}`,
+          sequenceIndex,
+          sequenceTotal: 5,
+          target: `Question ${sequenceIndex}`,
+        })),
+        observation: {
+          observationId,
+          taskId,
+          capturedAt: new Date().toISOString(),
+          text: 'A visible five-question English worksheet',
+          screenshot: { mimeType: 'image/png', dataBase64: 'aW1hZ2U=' },
+          coordinateSpace: retinaCoordinateSpace,
+          degraded: false,
+          fingerprint: '8'.repeat(64),
+        },
+        recentMessages: [],
+        remainingSteps: goal.limits.maxSteps - 3,
+        steering: [],
+      }),
+    ).resolves.toMatchObject({
+      kind: 'action',
+      guidanceSequence: { index: 4, total: 5 },
+      target: 'Question 4',
+    });
+
+    expect(socket?.sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          item: expect.objectContaining({
+            type: 'function_call_output',
+            output: expect.stringContaining(
+              'still in progress at item 4 of 5',
+            ),
+          }),
+        }),
+      ]),
+    );
   });
 
   it('allows a guide to complete after a pointer explanation was shown', async () => {

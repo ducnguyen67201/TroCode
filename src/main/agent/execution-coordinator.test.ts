@@ -212,31 +212,37 @@ describe('task execution coordinator', () => {
     expect(actionOrder).toEqual(['present', 'execute']);
   });
 
-  it('blocks visual actions when the compiled goal did not grant computer use', async () => {
+  it('allows visual actions through an in-scope semantic capability', async () => {
     const runtime = new TaskRuntime();
     const cua = new FakeCua();
     const planner: DesktopPlanner = {
       start: vi.fn(async () => undefined),
       end: vi.fn(async () => undefined),
-      decide: vi.fn(
-        async (
-          _taskId,
-          input: PlannerStepInput,
-        ): Promise<DesktopStepDecision> => ({
-          kind: 'action',
-          observationId: input.observation.observationId,
-          intent: 'click_element',
-          capability: 'email',
-          description: 'Open the first message.',
-          command: {
-            kind: 'click',
-            x: 400,
-            y: 300,
-            button: 'left',
-            count: 1,
-          },
-        }),
-      ),
+      decide: vi
+        .fn()
+        .mockImplementationOnce(
+          async (
+            _taskId,
+            input: PlannerStepInput,
+          ): Promise<DesktopStepDecision> => ({
+            kind: 'action',
+            observationId: input.observation.observationId,
+            intent: 'click_element',
+            capability: 'email',
+            description: 'Open the first message.',
+            command: {
+              kind: 'click',
+              x: 400,
+              y: 300,
+              button: 'left',
+              count: 1,
+            },
+          }),
+        )
+        .mockImplementationOnce(async () => ({
+          kind: 'complete',
+          summary: 'The first message is open.',
+        })),
     };
     const coordinator = new TaskExecutionCoordinator({ runtime, cua, planner });
     const ready = runtime.submit({ text: 'Read my Gmail messages' });
@@ -245,10 +251,9 @@ describe('task execution coordinator', () => {
     coordinator.start({ taskId: ready.taskId });
     await coordinator.waitForIdle(ready.taskId);
 
-    const blocked = runtime.getSnapshot(ready.taskId);
-    expect(blocked.phase).toBe('blocked');
-    expect(blocked.lastEvent?.summary).toContain('computer-use capability');
-    expect(cua.executeCommand).not.toHaveBeenCalled();
+    const completed = runtime.getSnapshot(ready.taskId);
+    expect(completed.phase).toBe('completed');
+    expect(cua.executeCommand).toHaveBeenCalledOnce();
   });
 
   it('requests fresh approval when the approved action changes after re-observation', async () => {
@@ -469,6 +474,7 @@ describe('task execution coordinator', () => {
     const coordinator = new TaskExecutionCoordinator({
       runtime,
       cua,
+      guidanceAutoAdvanceMs: 0,
       planner,
       pointGrounder,
       presentAction,
@@ -529,6 +535,85 @@ describe('task execution coordinator', () => {
       }),
       expect.any(AbortSignal),
     );
+  });
+
+  it('pauses a guide and replays previous/next steps without re-planning or spending progress', async () => {
+    const runtime = new TaskRuntime();
+    const cua = new FakeCua();
+    const dismissPresentation = vi.fn();
+    const onGuidancePlaybackChange = vi.fn();
+    const presentAction = vi.fn(async () => undefined);
+    const planner: DesktopPlanner = {
+      start: vi.fn(async () => undefined),
+      end: vi.fn(async () => undefined),
+      decide: vi
+        .fn()
+        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => ({
+          kind: 'action',
+          observationId: input.observation.observationId,
+          intent: 'guide',
+          capability: 'computer_use',
+          description: 'Question 1 uses do with you.',
+          target: 'Question 1',
+          guidanceSequence: { index: 1, total: 2 },
+          command: { kind: 'point', x: 400, y: 300 },
+        }))
+        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => ({
+          kind: 'action',
+          observationId: input.observation.observationId,
+          intent: 'guide',
+          capability: 'computer_use',
+          description: 'Question 2 uses is doing because of now.',
+          target: 'Question 2',
+          guidanceSequence: { index: 2, total: 2 },
+          command: { kind: 'point', x: 420, y: 360 },
+        }))
+        .mockImplementationOnce(async () => ({
+          kind: 'complete',
+          summary: 'Both questions are explained.',
+        })),
+    };
+    const coordinator = new TaskExecutionCoordinator({
+      runtime,
+      cua,
+      dismissPresentation,
+      guidanceAutoAdvanceMs: 60_000,
+      onGuidancePlaybackChange,
+      planner,
+      presentAction,
+    });
+    const ready = runtime.submit({ text: 'Help me solve this worksheet.' });
+
+    coordinator.start({ taskId: ready.taskId });
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(1));
+    expect(coordinator.toggleGuidancePause(ready.taskId)).toBe(true);
+    expect(onGuidancePlaybackChange).toHaveBeenLastCalledWith(
+      ready.taskId,
+      true,
+    );
+
+    coordinator.nextGuidance(ready.taskId);
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(2));
+    coordinator.previousGuidance(ready.taskId);
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(3));
+    expect(planner.decide).toHaveBeenCalledTimes(2);
+    expect(presentAction).toHaveBeenLastCalledWith(
+      { kind: 'point', x: 400, y: 300 },
+      expect.any(AbortSignal),
+      expect.objectContaining({ target: '1 / 2 · Question 1' }),
+    );
+
+    coordinator.nextGuidance(ready.taskId);
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(4));
+    expect(planner.decide).toHaveBeenCalledTimes(2);
+    coordinator.nextGuidance(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
+
+    const completed = runtime.getSnapshot(ready.taskId);
+    expect(completed.phase).toBe('completed');
+    expect(completed.progress?.currentStep).toBe(2);
+    expect(planner.decide).toHaveBeenCalledTimes(3);
+    expect(dismissPresentation).toHaveBeenCalled();
   });
 
   it('aborts an in-flight action at the task deadline and marks its outcome unknown', async () => {

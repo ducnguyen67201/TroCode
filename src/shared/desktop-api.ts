@@ -1,9 +1,11 @@
 import type {
   ActivateMembershipRequest,
   AppPreferences,
+  AppUpdateStatus,
   AuthStatus,
   CompanionGuidance,
   CompanionPosition,
+  CompanionSpeech,
   CompanionState,
   ConfigureVoiceRequest,
   CreateVoiceCallRequest,
@@ -27,15 +29,19 @@ import type {
 
 export const IPC_CHANNELS = {
   activateMembership: 'membership:activate',
+  appUpdateStatusChanged: 'update:status-changed',
   cancelTask: 'task:cancel',
+  checkForAppUpdates: 'update:check',
   companionPositionChanged: 'companion:position-changed',
   companionGuidanceChanged: 'companion:guidance-changed',
+  companionSpeechChanged: 'companion:speech-changed',
   companionStateChanged: 'companion:state-changed',
   configureVoice: 'voice:configure',
   connectComputer: 'cua:connect',
   createVoiceCall: 'voice:create-call',
   decideApproval: 'task:decide-approval',
   getAppPreferences: 'preferences:get',
+  getAppUpdateStatus: 'update:status',
   getComputerStatus: 'cua:status',
   getAuthStatus: 'auth:status',
   getMembershipStatus: 'membership:status',
@@ -44,6 +50,7 @@ export const IPC_CHANNELS = {
   openSystemPermissionSettings: 'system:open-permission-settings',
   recordVoiceTranscript: 'voice:record-transcript',
   reportVoiceDiagnostic: 'voice:diagnostic',
+  restartAndInstallAppUpdate: 'update:restart-and-install',
   respondToInteraction: 'task:respond',
   setCompanionState: 'companion:set-state',
   startTask: 'task:start',
@@ -61,21 +68,27 @@ export interface DesktopApi {
     request: ActivateMembershipRequest,
   ): Promise<MembershipStatus>;
   cancelTask(taskId: string): Promise<TaskSnapshot>;
+  checkForAppUpdates(): Promise<AppUpdateStatus>;
   configureVoice(request: ConfigureVoiceRequest): Promise<VoiceStatus>;
   connectComputer(): Promise<CuaStatus>;
   createVoiceCall(request: CreateVoiceCallRequest): Promise<VoiceCallAnswer>;
   decideApproval(request: DecideApprovalRequest): Promise<TaskSnapshot>;
   getAppPreferences(): Promise<AppPreferences>;
+  getAppUpdateStatus(): Promise<AppUpdateStatus>;
   getComputerStatus(): Promise<CuaStatus>;
   getMembershipStatus(): Promise<MembershipStatus>;
   getTaskHistory(): Promise<TaskHistory>;
   getAuthStatus(): Promise<AuthStatus>;
   getVoiceStatus(): Promise<VoiceStatus>;
   onTaskUpdate(listener: (update: TaskUpdate) => void): () => void;
+  onAppUpdateStatusChanged(
+    listener: (status: AppUpdateStatus) => void,
+  ): () => void;
   onVoiceShortcut(listener: (event: VoiceShortcutEvent) => void): () => void;
   openSystemPermissionSettings(permission: SystemPermission): Promise<void>;
   recordVoiceTranscript(request: RecordVoiceTranscriptRequest): Promise<void>;
   reportVoiceDiagnostic(diagnostic: VoiceDiagnostic): Promise<void>;
+  restartAndInstallAppUpdate(): Promise<void>;
   respondToInteraction(
     request: RespondToInteractionRequest,
   ): Promise<TaskSnapshot>;
@@ -95,5 +108,6 @@ export interface CompanionApi {
     listener: (guidance: CompanionGuidance | null) => void,
   ): () => void;
   onPositionChange(listener: (position: CompanionPosition) => void): () => void;
+  onSpeechChange(listener: (speech: CompanionSpeech | null) => void): () => void;
   onStateChange(listener: (state: CompanionState) => void): () => void;
 }

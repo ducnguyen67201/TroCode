@@ -59,8 +59,11 @@ function questionNumberFromDecision(
   return decision.guidanceSequence?.index ?? null;
 }
 
-function questionPrefixPattern(questionNumber: number): RegExp {
-  return new RegExp(`^\\s*${questionNumber}\\s*[.)．:]`, 'u');
+function recognizedQuestionNumber(text: string): number | null {
+  const match = text.match(
+    /^\s*(\d{1,3})(?:\s*[.)．:,;]|(?=\s+\p{L}))/u,
+  );
+  return match?.[1] ? Number(match[1]) : null;
 }
 
 function clampPixel(value: number, extent: number): number {
@@ -83,9 +86,8 @@ export function groundNumberedGuidancePoint(
   const questionNumber = questionNumberFromDecision(decision);
   if (!questionNumber) return null;
 
-  const prefix = questionPrefixPattern(questionNumber);
   const candidates = boxes
-    .filter((box) => prefix.test(box.text))
+    .filter((box) => recognizedQuestionNumber(box.text) === questionNumber)
     .sort((left, right) => {
       const confidenceDifference = right.confidence - left.confidence;
       if (Math.abs(confidenceDifference) > 0.05) return confidenceDifference;
@@ -159,7 +161,24 @@ export class MacOSVisionGrounder {
         Buffer.from(observation.screenshot.dataBase64, 'base64'),
         signal,
       );
-      return groundNumberedGuidancePoint(decision, observation, boxes);
+      const grounded = groundNumberedGuidancePoint(
+        decision,
+        observation,
+        boxes,
+      );
+      if (!grounded) {
+        this.logger.warn('[grounding] numbered target was not matched.', {
+          requestedQuestion: questionNumberFromDecision(decision),
+          detectedQuestions: [
+            ...new Set(
+              boxes
+                .map((box) => recognizedQuestionNumber(box.text))
+                .filter((value): value is number => value !== null),
+            ),
+          ].slice(0, 30),
+        });
+      }
+      return grounded;
     } catch (error) {
       if (signal?.aborted) throw error;
       this.logger.warn('[grounding] macOS Vision OCR unavailable.', {

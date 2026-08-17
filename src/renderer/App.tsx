@@ -9,6 +9,7 @@ import {
 
 import type {
   AppPreferences,
+  AppUpdateStatus,
   AuthUser,
   CuaStatus,
   GoalSpec,
@@ -47,7 +48,6 @@ import {
 } from './push-to-talk';
 import { SettingsPage } from './SettingsPage';
 import {
-  approvalSafeguardMessage,
   isTaskCancellable,
   shouldAutoStartTask,
   shouldStopTaskForEscape,
@@ -350,7 +350,7 @@ function LiveTaskRail({
 
         {goal && (
           <details className="live-task-details">
-            <summary>Scope & safeguards</summary>
+            <summary>Scope</summary>
             <div className="live-task-details__content">
               <div>
                 <span className="field-label">Capabilities</span>
@@ -365,13 +365,6 @@ function LiveTaskRail({
               <div>
                 <span className="field-label">Success looks like</span>
                 <p>{goal.successCriteria[0]?.description}</p>
-              </div>
-              <div className="guardrail">
-                <span aria-hidden="true">◆</span>
-                <p>
-                  {approvalSafeguardMessage(phase)} TroCode cannot expand its
-                  own capability or resource scope.
-                </p>
               </div>
             </div>
           </details>
@@ -632,6 +625,10 @@ export function App({
     useState<VoiceStatus>(EMPTY_VOICE_STATUS);
   const [appPreferences, setAppPreferences] =
     useState<AppPreferences | null>(null);
+  const [appUpdateStatus, setAppUpdateStatus] =
+    useState<AppUpdateStatus | null>(null);
+  const [appUpdateError, setAppUpdateError] = useState<string | null>(null);
+  const [isUpdatingApp, setIsUpdatingApp] = useState(false);
   const [languageDraft, setLanguageDraft] =
     useState<PrimaryLanguage>('en');
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
@@ -754,7 +751,7 @@ export function App({
   }, []);
 
   useEffect(() => {
-    const unsubscribe = window.tro.onTaskUpdate((update) => {
+    const unsubscribeTaskUpdates = window.tro.onTaskUpdate((update) => {
       const activeTaskId = activeTaskIdRef.current;
       if (activeTaskId && activeTaskId !== update.snapshot.taskId) return;
 
@@ -764,6 +761,26 @@ export function App({
         appendUniqueEvent(currentEvents, update.event),
       );
     });
+    const unsubscribeAppUpdates = window.tro.onAppUpdateStatusChanged(
+      (status) => {
+        setAppUpdateStatus(status);
+        setAppUpdateError(null);
+      },
+    );
+
+    void window.tro
+      .getAppUpdateStatus()
+      .then((status) => {
+        setAppUpdateStatus(status);
+        setAppUpdateError(null);
+      })
+      .catch((updateStatusError: unknown) => {
+        setAppUpdateError(
+          updateStatusError instanceof Error
+            ? updateStatusError.message
+            : 'TroCode could not inspect application updates.',
+        );
+      });
 
     void window.tro
       .getTaskHistory()
@@ -815,7 +832,8 @@ export function App({
       .finally(() => setPreferencesLoaded(true));
 
     return () => {
-      unsubscribe();
+      unsubscribeTaskUpdates();
+      unsubscribeAppUpdates();
     };
   }, [recordSnapshot, reportError]);
 
@@ -1025,6 +1043,37 @@ export function App({
       setIsSavingPreferences(false);
     }
   }, [languageDraft]);
+
+  const checkForAppUpdates = useCallback(async () => {
+    setIsUpdatingApp(true);
+    setAppUpdateError(null);
+    try {
+      setAppUpdateStatus(await window.tro.checkForAppUpdates());
+    } catch (updateError) {
+      setAppUpdateError(
+        updateError instanceof Error
+          ? updateError.message
+          : 'TroCode could not check for updates.',
+      );
+    } finally {
+      setIsUpdatingApp(false);
+    }
+  }, []);
+
+  const restartAndInstallAppUpdate = useCallback(async () => {
+    setIsUpdatingApp(true);
+    setAppUpdateError(null);
+    try {
+      await window.tro.restartAndInstallAppUpdate();
+    } catch (updateError) {
+      setAppUpdateError(
+        updateError instanceof Error
+          ? updateError.message
+          : 'TroCode could not restart to install the update.',
+      );
+      setIsUpdatingApp(false);
+    }
+  }, []);
 
   const sendInput = useCallback(
     async (requestText = input, source: 'typed' | 'voice' = 'typed') => {
@@ -1599,14 +1648,19 @@ export function App({
           />
         ) : activeView === 'settings' ? (
           <SettingsPage
+            appUpdateError={appUpdateError}
+            appUpdateStatus={appUpdateStatus}
             error={settingsError}
             hasChanges={appPreferences?.primaryLanguage !== languageDraft}
             isSaving={isSavingPreferences}
+            isUpdatingApp={isUpdatingApp}
+            onCheckForUpdates={() => void checkForAppUpdates()}
             onLanguageChange={(language) => {
               setLanguageDraft(language);
               setSettingsError(null);
               setSettingsSaveMessage(null);
             }}
+            onRestartAndInstall={() => void restartAndInstallAppUpdate()}
             onSave={() => void saveSettings()}
             primaryLanguage={languageDraft}
             saveMessage={settingsSaveMessage}
