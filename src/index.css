@@ -1642,13 +1642,13 @@ textarea:focus-visible {
 
 .workspace {
   min-width: 0;
-  height: calc(100vh - 26px);
-  margin: 13px 13px 13px 0;
+  height: calc(100vh - 20px);
+  margin: 10px 10px 10px 0;
   overflow-y: auto;
-  border: 1px solid rgba(39, 39, 34, 0.12);
-  border-radius: 28px;
+  border: 1px solid rgba(39, 39, 34, 0.17);
+  border-radius: 22px;
   background: rgba(255, 254, 250, 0.96);
-  box-shadow: var(--shadow-lift);
+  box-shadow: 0 2px 0 rgba(39, 39, 34, 0.05);
 }
 
 .topbar {
@@ -1661,7 +1661,7 @@ textarea:focus-visible {
   min-height: 76px;
   padding: 15px 46px;
   border-bottom: 1px solid var(--border);
-  border-radius: 28px 28px 0 0;
+  border-radius: 22px 22px 0 0;
   background: rgba(255, 254, 250, 0.94);
   backdrop-filter: blur(14px);
   -webkit-app-region: drag;
@@ -1831,7 +1831,7 @@ h1 {
   overflow: hidden;
   align-items: center;
   gap: 28px;
-  padding: 40px 44px 76px;
+  padding: 40px 44px 120px;
   border: 1px solid #171814;
   border-radius: 18px;
   background:
@@ -1890,7 +1890,7 @@ h1 {
 .agent-stage h1 {
   margin-bottom: 16px;
   color: #fffefa;
-  font-size: clamp(38px, 4.8vw, 64px);
+  font-size: clamp(38px, 3.7vw, 50px);
   letter-spacing: 0;
 }
 
@@ -1926,9 +1926,8 @@ h1 {
   border-radius: 5px;
   background: rgba(21, 21, 18, 0.72);
   color: rgba(255, 254, 250, 0.78);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9px;
-  font-weight: 800;
+  font-size: 10px;
+  font-weight: 750;
   line-height: 1.2;
 }
 
@@ -1967,7 +1966,6 @@ h1 {
 .agent-stage__mark {
   width: 44px;
   height: 44px;
-  filter: saturate(0) brightness(2.55);
 }
 
 .agent-stage__core i {
@@ -3177,7 +3175,7 @@ h1 {
 .agent-stage .hero-copy--interaction h1,
 .agent-stage .hero-copy--terminal h1 {
   margin-bottom: 16px;
-  font-size: clamp(38px, 4.8vw, 64px);
+  font-size: clamp(36px, 3.5vw, 48px);
 }
 
 .task-composer--compact textarea {
@@ -3877,8 +3875,8 @@ h1 {
   }
 
   .agent-stage {
-    min-height: 260px;
-    padding: 34px 32px;
+    min-height: 310px;
+    padding: 34px 32px 96px;
   }
 
   .prototype-pill {
