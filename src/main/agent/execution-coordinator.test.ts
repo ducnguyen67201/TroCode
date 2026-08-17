@@ -229,7 +229,7 @@ describe('task execution coordinator', () => {
             observationId: input.observation.observationId,
             intent: 'click_element',
             capability: 'email',
-            description: 'Open the first message.',
+            description: 'Open Gmail.',
             command: {
               kind: 'click',
               x: 400,
@@ -241,12 +241,15 @@ describe('task execution coordinator', () => {
         )
         .mockImplementationOnce(async () => ({
           kind: 'complete',
-          summary: 'The first message is open.',
+          summary: 'Gmail is open.',
         })),
     };
     const coordinator = new TaskExecutionCoordinator({ runtime, cua, planner });
-    const ready = runtime.submit({ text: 'Read my Gmail messages' });
+    const ready = runtime.submit({ text: 'Mở ứng dụng Gmail cho tôi.' });
 
+    expect(ready.goal?.capabilities).toEqual(
+      expect.arrayContaining(['browser', 'email']),
+    );
     expect(ready.goal?.capabilities).not.toContain('computer_use');
     coordinator.start({ taskId: ready.taskId });
     await coordinator.waitForIdle(ready.taskId);
