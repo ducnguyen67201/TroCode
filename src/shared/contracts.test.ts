@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AgentTaskContractV3Schema,
+  CompanionSpeechPlaybackReportSchema,
+  CompanionSpeechSchema,
   TaskHistorySchema,
   TaskProgressSchema,
 } from './contracts';
@@ -37,6 +39,55 @@ const legacyBase = {
 };
 
 describe('shared task contracts', () => {
+  it('accepts only credential-free private companion audio URLs', () => {
+    const id = randomUUID();
+    expect(
+      CompanionSpeechSchema.parse({
+        id,
+        mediaUrl: `trocode-audio://speech/${id}`,
+        mimeType: 'audio/mpeg',
+        source: 'elevenlabs',
+      }),
+    ).toMatchObject({ id, source: 'elevenlabs' });
+
+    for (const mediaUrl of [
+      `https://speech/${id}`,
+      `file:///tmp/${id}`,
+      `data:audio/mpeg;base64,AQID`,
+      `trocode-audio://speech/${id}?token=secret`,
+      `trocode-audio://other/${id}`,
+    ]) {
+      expect(() =>
+        CompanionSpeechSchema.parse({
+          id,
+          mediaUrl,
+          mimeType: 'audio/mpeg',
+          source: 'elevenlabs',
+        }),
+      ).toThrow();
+    }
+  });
+
+  it('bounds speech playback reports to fixed status and reason enums', () => {
+    const id = randomUUID();
+    expect(
+      CompanionSpeechPlaybackReportSchema.parse({
+        id,
+        phase: 'fallback_started',
+        reason: 'startup_timeout',
+        source: 'elevenlabs',
+      }),
+    ).toMatchObject({ id, reason: 'startup_timeout' });
+    expect(() =>
+      CompanionSpeechPlaybackReportSchema.parse({
+        id,
+        phase: 'failed',
+        reason: 'provider said secret key invalid',
+        source: 'elevenlabs',
+      }),
+    ).toThrow();
+  });
+
   it('parses v3 contract and tool-call progress', () => {
     expect(
       AgentTaskContractV3Schema.parse({

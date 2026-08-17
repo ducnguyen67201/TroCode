@@ -659,18 +659,10 @@ function PendingInteractionCard({
             <dd>{interaction.action.target}</dd>
           </div>
         )}
-        {Object.entries(interaction.action.parameters ?? {}).map(
-          ([key, value]) => (
-            <div key={key}>
-              <dt>{formatLabel(key, appLanguage)}</dt>
-              <dd>{Array.isArray(value) ? value.join(', ') : value}</dd>
-            </div>
-          ),
-        )}
       </dl>
       <p className="approval-note">
         {t(
-          'Spoken or typed “yes” cannot approve this action. Use the button below.',
+          'Approve here or in the cursor card. Spoken or typed “yes” cannot approve an exact action.',
         )}
       </p>
       <div className="approval-actions">
@@ -780,7 +772,6 @@ export function App({
   const isStoppingTaskRef = useRef(false);
   const permissionRefreshIdRef = useRef(0);
   const membershipRefreshIdRef = useRef(0);
-  const spokenInteractionIdRef = useRef<string | null>(null);
   const t = useCallback(
     (
       message: string,
@@ -1012,26 +1003,6 @@ export function App({
   const pendingClarification =
     pendingInteraction?.kind === 'clarification' ? pendingInteraction : null;
   const isSteering = snapshot ? STEERABLE_PHASES.has(snapshot.phase) : false;
-
-  useEffect(() => {
-    if (!pendingInteraction) return;
-    if (spokenInteractionIdRef.current === pendingInteraction.id) return;
-    if (
-      !('speechSynthesis' in window) ||
-      typeof SpeechSynthesisUtterance === 'undefined'
-    ) {
-      return;
-    }
-
-    spokenInteractionIdRef.current = pendingInteraction.id;
-    const text =
-      pendingInteraction.kind === 'approval'
-        ? `${pendingInteraction.prompt}. This needs exact approval in TroCode.`
-        : pendingInteraction.prompt;
-    const utterance = new SpeechSynthesisUtterance(text);
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-  }, [pendingInteraction]);
 
   const canSubmit =
     input.trim().length >= (pendingClarification || isSteering ? 1 : 2) &&

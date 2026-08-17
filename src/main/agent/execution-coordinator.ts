@@ -1,4 +1,8 @@
-import type { ProposedAction, TaskSnapshot } from '../../shared/contracts';
+import type {
+  CompanionGuidance,
+  ProposedAction,
+  TaskSnapshot,
+} from '../../shared/contracts';
 import type { CuaService } from '../cua/cua-service';
 
 import { createActionDigest } from './action-approval';
@@ -40,6 +44,10 @@ interface ExecutionCoordinatorOptions {
   >;
   dismissPresentation?: () => void;
   guidanceAutoAdvanceMs?: number;
+  onGuidanceWaitEnd?: (taskId: string) => void;
+  onGuidanceWaitStart?: (
+    taskId: string,
+  ) => CompanionGuidance['shortcuts'] | undefined;
   onGuidancePlaybackChange?: (taskId: string, paused: boolean) => void;
   openExternal?: (url: string) => Promise<void>;
   prepareDesktop?: () => Promise<DesktopObservationCleanup | void>;
@@ -47,7 +55,7 @@ interface ExecutionCoordinatorOptions {
     command: DesktopCommand,
     signal: AbortSignal,
     presentation?: DesktopPresentation,
-  ) => Promise<void>;
+  ) => Promise<GuidancePresentationHandle | void>;
   runtime: TaskRuntime;
   toolDispatcher?: Pick<RuntimeToolDispatcher, 'dispatch'>;
   toolRegistry?: Pick<
@@ -61,7 +69,19 @@ type DesktopObservationCleanup = () => Promise<void> | void;
 export interface DesktopPresentation {
   message?: string;
   screenPoint?: { x: number; y: number };
+  shortcuts?: CompanionGuidance['shortcuts'];
+  taskId?: string;
   target?: string;
+}
+
+export interface GuidancePresentationHandle {
+  cancel(): void;
+  completion: Promise<unknown>;
+}
+
+interface GuidanceHistoryEntry {
+  command: DesktopCommand;
+  presentation: DesktopPresentation;
 }
 
 interface HeldApproval {
@@ -81,6 +101,9 @@ interface ExecutionContext {
   deadlineTimer?: ReturnType<typeof setTimeout>;
   desktopSessionStarted: boolean;
   initialized: boolean;
+  activeGuidance?: GuidancePresentationHandle;
+  guidanceCursor: number;
+  guidanceHistory: GuidanceHistoryEntry[];
   latestObservation?: DesktopObservation;
   pendingApproval?: HeldApproval;
   pendingInteraction?: HeldInteraction;
@@ -281,6 +304,14 @@ export class TaskExecutionCoordinator {
     ExecutionCoordinatorOptions['onGuidancePlaybackChange']
   >;
 
+  private readonly onGuidanceWaitEnd: NonNullable<
+    ExecutionCoordinatorOptions['onGuidanceWaitEnd']
+  >;
+
+  private readonly onGuidanceWaitStart: NonNullable<
+    ExecutionCoordinatorOptions['onGuidanceWaitStart']
+  >;
+
   private readonly prepareDesktop: () => Promise<DesktopObservationCleanup | void>;
 
   private readonly presentAction: NonNullable<
@@ -302,6 +333,8 @@ export class TaskExecutionCoordinator {
     dismissPresentation = () => undefined,
     guidanceAutoAdvanceMs,
     onGuidancePlaybackChange = () => undefined,
+    onGuidanceWaitEnd = () => undefined,
+    onGuidanceWaitStart = () => undefined,
     openExternal = async () => {
       throw new Error('URL navigation is not configured.');
     },
@@ -316,6 +349,8 @@ export class TaskExecutionCoordinator {
     this.dismissPresentation = dismissPresentation;
     this.guidanceAutoAdvanceMs = guidanceAutoAdvanceMs;
     this.onGuidancePlaybackChange = onGuidancePlaybackChange;
+    this.onGuidanceWaitEnd = onGuidanceWaitEnd;
+    this.onGuidanceWaitStart = onGuidanceWaitStart;
     this.prepareDesktop = prepareDesktop;
     this.presentAction = presentAction;
     this.runtime = runtime;
@@ -382,7 +417,10 @@ export class TaskExecutionCoordinator {
 
   cancel(input: unknown): TaskSnapshot {
     const snapshot = this.runtime.cancel(input);
-    this.contexts.get(snapshot.taskId)?.controller.abort();
+    const context = this.contexts.get(snapshot.taskId);
+    context?.activeGuidance?.cancel();
+    context?.controller.abort();
+    this.onGuidanceWaitEnd(snapshot.taskId);
     this.dismissPresentation();
     void this.cleanup(snapshot.taskId);
     return snapshot;
@@ -437,6 +475,8 @@ export class TaskExecutionCoordinator {
       controller: new AbortController(),
       desktopSessionStarted: false,
       initialized: false,
+      guidanceCursor: -1,
+      guidanceHistory: [],
       playback: new GuidancePlaybackController(this.guidanceAutoAdvanceMs),
       rerunRequested: false,
       resolvedToolCalls: 0,
@@ -687,6 +727,10 @@ export class TaskExecutionCoordinator {
     context: ExecutionContext,
     invocation: ResolvedToolInvocation,
   ): void {
+    context.activeGuidance?.cancel();
+    context.activeGuidance = undefined;
+    this.onGuidanceWaitEnd(taskId);
+    this.dismissPresentation();
     const input = invocation.input as InteractionToolInput;
     context.pendingInteraction = {
       callId: invocation.callId,
@@ -746,10 +790,19 @@ export class TaskExecutionCoordinator {
         callId: invocation.callId,
         output: JSON.stringify({ status: 'denied', summary: policy.summary }),
       });
+      if (policy.terminal) {
+        this.runtime.block(taskId, policy.summary, policy.nextActions);
+        await this.cleanup(taskId);
+        return true;
+      }
       this.runtime.resumePlanning(taskId, 'Denied a tool call at the host boundary.');
       return false;
     }
     if (policy.status === 'needs_approval') {
+      context.activeGuidance?.cancel();
+      context.activeGuidance = undefined;
+      this.onGuidanceWaitEnd(taskId);
+      this.dismissPresentation();
       context.pendingApproval = { invocation };
       this.runtime.requestApproval({
         taskId,
@@ -796,7 +849,6 @@ export class TaskExecutionCoordinator {
         taskId,
         'Validated the current desktop before using approval.',
       );
-      this.runtime.resumePlanning(taskId, 'Approval state validation finished.');
       if (current.fingerprint !== input.observationFingerprint) {
         this.runtime.discardApprovalGrant(
           taskId,
@@ -815,8 +867,17 @@ export class TaskExecutionCoordinator {
           ),
         );
         context.pendingApproval = undefined;
+        this.runtime.block(
+          taskId,
+          'The screen changed after approval, so the action was not executed and TroCode stopped before requesting approval again.',
+          [
+            'Return to the target application, confirm the intended action is still visible, then start a new request.',
+          ],
+        );
+        await this.cleanup(taskId);
         return;
       }
+      this.runtime.resumePlanning(taskId, 'Approval state validation finished.');
     }
 
     this.runtime.consumeApprovalGrant({
@@ -834,15 +895,31 @@ export class TaskExecutionCoordinator {
     approvedConsequentialAction: boolean,
   ): Promise<void> {
     const signal = context.controller.signal;
+    let guidanceEntry: GuidanceHistoryEntry | undefined;
     if (invocation.kind === 'desktop' || invocation.kind === 'guidance') {
       await this.ensureDesktopSession(taskId, context);
       const presentation = presentationFor(invocation, context.latestObservation);
       if (presentation) {
-        await this.presentAction(
+        const desktopPresentation =
+          invocation.kind === 'guidance'
+            ? {
+                ...presentation.presentation,
+                shortcuts: this.onGuidanceWaitStart(taskId),
+                taskId,
+              }
+            : presentation.presentation;
+        const handle = await this.presentAction(
           presentation.command,
           signal,
-          presentation.presentation,
+          desktopPresentation,
         );
+        if (invocation.kind === 'guidance') {
+          guidanceEntry = {
+            command: presentation.command,
+            presentation: desktopPresentation,
+          };
+          context.activeGuidance = handle ?? undefined;
+        }
       }
     }
 
@@ -897,6 +974,12 @@ export class TaskExecutionCoordinator {
       taskId,
       resultOutput(invocation.callId, result, observation),
     );
+    if (guidanceEntry) {
+      context.guidanceHistory.push(guidanceEntry);
+      if (context.guidanceHistory.length > 50) context.guidanceHistory.shift();
+      context.guidanceCursor = context.guidanceHistory.length - 1;
+      await this.waitForGuidance(taskId, context);
+    }
     if (result.status === 'unknown' && approvedConsequentialAction) {
       this.runtime.block(
         taskId,
@@ -907,6 +990,46 @@ export class TaskExecutionCoordinator {
       return;
     }
     this.runtime.resumePlanning(taskId, 'Returned the tool result to the model.');
+  }
+
+  private async waitForGuidance(
+    taskId: string,
+    context: ExecutionContext,
+  ): Promise<void> {
+    const signal = context.controller.signal;
+    try {
+      while (!signal.aborted) {
+        const handle = context.activeGuidance;
+        const navigation = await context.playback.wait(
+          signal,
+          handle?.completion ?? Promise.resolve(),
+        );
+        if (navigation === 'back' && context.guidanceCursor <= 0) continue;
+
+        handle?.cancel();
+        context.activeGuidance = undefined;
+        if (
+          navigation === 'next' &&
+          context.guidanceCursor >= context.guidanceHistory.length - 1
+        ) {
+          return;
+        }
+        context.guidanceCursor += navigation === 'back' ? -1 : 1;
+        const entry = context.guidanceHistory[context.guidanceCursor];
+        if (!entry) continue;
+        context.activeGuidance =
+          (await this.presentAction(
+            entry.command,
+            signal,
+            entry.presentation,
+          )) ?? undefined;
+      }
+    } finally {
+      context.activeGuidance?.cancel();
+      context.activeGuidance = undefined;
+      this.onGuidanceWaitEnd(taskId);
+      this.dismissPresentation();
+    }
   }
 
   private async captureObservation(
@@ -940,7 +1063,9 @@ export class TaskExecutionCoordinator {
     if (!context) return;
     const snapshot = this.runtime.getSnapshot(taskId);
     if (TERMINAL_PHASES.has(snapshot.phase)) return;
+    context.activeGuidance?.cancel();
     context.controller.abort();
+    this.onGuidanceWaitEnd(taskId);
     this.runtime.block(taskId, 'The task reached its time limit.', [
       'Provide a narrower request or start a new task.',
     ]);
@@ -953,6 +1078,9 @@ export class TaskExecutionCoordinator {
     if (!context) return;
     context.cleanupPromise ??= (async () => {
       if (context.deadlineTimer) clearTimeout(context.deadlineTimer);
+      context.activeGuidance?.cancel();
+      context.activeGuidance = undefined;
+      this.onGuidanceWaitEnd(taskId);
       this.dismissPresentation();
       if (context.desktopSessionStarted) await this.cua.endTaskSession(taskId);
       await this.agent.end(taskId);

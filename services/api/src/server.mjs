@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 const MAX_AUTH_BODY_BYTES = 32_000;
@@ -124,6 +125,56 @@ async function readBoundedUpstreamBody(response) {
     throw new HttpError(502, 'Upstream response was unexpectedly large.');
   }
   return body;
+}
+
+async function pipeBoundedUpstreamResponse({
+  abortProvider,
+  response,
+  upstreamResponse,
+}) {
+  const declaredLength = Number(upstreamResponse.headers.get('content-length'));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_UPSTREAM_RESPONSE_BYTES
+  ) {
+    abortProvider('audio-size-limit');
+    throw new HttpError(502, 'Speech playback is temporarily unavailable.');
+  }
+  const contentType = upstreamResponse.headers.get('content-type')?.toLowerCase();
+  if (!contentType?.startsWith('audio/mpeg') || !upstreamResponse.body) {
+    abortProvider('invalid-audio-response');
+    throw new HttpError(502, 'Speech playback is temporarily unavailable.');
+  }
+
+  const reader = upstreamResponse.body.getReader();
+  let totalBytes = 0;
+  let wroteBytes = false;
+  const handleClientClose = () => {
+    if (!response.writableEnded) abortProvider('client-disconnected');
+  };
+  response.on('close', handleClientClose);
+  response.statusCode = 200;
+  response.setHeader('Content-Type', 'audio/mpeg');
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_UPSTREAM_RESPONSE_BYTES) {
+        abortProvider('audio-size-limit');
+        await reader.cancel('audio-size-limit');
+        throw new Error('Speech audio exceeded the response limit.');
+      }
+      wroteBytes = true;
+      if (!response.write(Buffer.from(value))) await once(response, 'drain');
+    }
+    if (!wroteBytes) throw new Error('Speech audio stream was empty.');
+    response.end();
+  } finally {
+    response.off('close', handleClientClose);
+    reader.releaseLock();
+  }
 }
 
 async function proxyOpenAiJson({
@@ -350,8 +401,13 @@ export function createApiHandler({
         if (!text || text.length > 240) {
           throw new HttpError(400, 'Speech text must contain 1 to 240 characters.');
         }
-        const ttsUrl = `${ELEVENLABS_API_URL}/${encodeURIComponent(config.elevenLabsVoiceId)}?output_format=mp3_44100_128`;
+        const ttsUrl = `${ELEVENLABS_API_URL}/${encodeURIComponent(config.elevenLabsVoiceId)}/stream?output_format=mp3_44100_128`;
         let upstreamResponse;
+        const providerController = new AbortController();
+        const providerHeaderTimer = setTimeout(
+          () => providerController.abort('headers-timeout'),
+          20_000,
+        );
         try {
           upstreamResponse = await fetchImpl(ttsUrl, {
             method: 'POST',
@@ -361,18 +417,25 @@ export function createApiHandler({
               'xi-api-key': config.elevenLabsApiKey,
             },
             body: JSON.stringify({ text, model_id: config.elevenLabsModelId }),
-            signal: AbortSignal.timeout(20_000),
+            signal: providerController.signal,
           });
         } catch {
           throw new HttpError(502, 'Speech playback is temporarily unavailable.');
+        } finally {
+          clearTimeout(providerHeaderTimer);
         }
-        const upstreamBody = await readBoundedUpstreamBody(upstreamResponse);
-        sendBuffer(
+        if (!upstreamResponse.ok) {
+          providerController.abort('provider-error');
+          throw new HttpError(
+            upstreamResponse.status >= 500 ? 503 : 502,
+            'Speech playback is temporarily unavailable.',
+          );
+        }
+        await pipeBoundedUpstreamResponse({
+          abortProvider: (reason) => providerController.abort(reason),
           response,
-          upstreamResponse.status,
-          upstreamBody,
-          upstreamResponse.headers.get('content-type') || 'audio/mpeg',
-        );
+          upstreamResponse,
+        });
         return;
       }
 

@@ -19,6 +19,19 @@ describe('RuntimeToolRegistry', () => {
     expect(registry.modelVisibleSpecs().every((tool) => tool.strict)).toBe(true);
   });
 
+  it('bounds each narrated guidance step to one concise 240-character instruction', () => {
+    const guidance = new RuntimeToolRegistry()
+      .modelVisibleSpecs()
+      .find((tool) => tool.name === 'show_guidance');
+    const properties = guidance?.parameters.properties as
+      | Record<string, Record<string, unknown>>
+      | undefined;
+
+    expect(properties?.description?.maxLength).toBe(240);
+    expect(guidance?.description).toContain('exactly one visible target');
+    expect(guidance?.description).toContain('playback controls');
+  });
+
   it('publishes explicitly typed discriminators in strict command variants', () => {
     const controlTool = new RuntimeToolRegistry()
       .modelVisibleSpecs()

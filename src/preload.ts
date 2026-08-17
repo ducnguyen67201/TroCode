@@ -8,7 +8,9 @@ import {
   CompanionPositionSchema,
   CancelTaskRequestSchema,
   CompanionGuidanceSchema,
+  CompanionInteractionSchema,
   CompanionSpeechSchema,
+  CompanionSpeechPlaybackReportSchema,
   CompanionStateSchema,
   CompanionVoiceActivitySchema,
   ConfigureVoiceRequestSchema,
@@ -287,6 +289,23 @@ const desktopApi: DesktopApi = {
 };
 
 const companionApi: CompanionApi = {
+  async decideApproval(input) {
+    const request = DecideApprovalRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.decideApproval,
+      request,
+    );
+    return TaskSnapshotSchema.parse(response);
+  },
+
+  async reportSpeechPlayback(input) {
+    const report = CompanionSpeechPlaybackReportSchema.parse(input);
+    await ipcRenderer.invoke(
+      IPC_CHANNELS.companionReportSpeechPlayback,
+      report,
+    );
+  },
+
   onGuidanceChange(listener) {
     const eventHandler = (
       _event: Electron.IpcRendererEvent,
@@ -299,6 +318,22 @@ const companionApi: CompanionApi = {
     return () =>
       ipcRenderer.removeListener(
         IPC_CHANNELS.companionGuidanceChanged,
+        eventHandler,
+      );
+  },
+
+  onInteractionChange(listener) {
+    const eventHandler = (
+      _event: Electron.IpcRendererEvent,
+      value: unknown,
+    ): void => {
+      listener(CompanionInteractionSchema.nullable().parse(value));
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.companionInteractionChanged, eventHandler);
+    return () =>
+      ipcRenderer.removeListener(
+        IPC_CHANNELS.companionInteractionChanged,
         eventHandler,
       );
   },
@@ -368,6 +403,19 @@ const companionApi: CompanionApi = {
         IPC_CHANNELS.companionVoiceActivityChanged,
         eventHandler,
       );
+  },
+
+  async respondToInteraction(input) {
+    const request = RespondToInteractionRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.respondToInteraction,
+      request,
+    );
+    return TaskSnapshotSchema.parse(response);
+  },
+
+  async revealMainWindow() {
+    await ipcRenderer.invoke(IPC_CHANNELS.companionRevealMainWindow);
   },
 };
 

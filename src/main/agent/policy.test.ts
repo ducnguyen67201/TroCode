@@ -28,7 +28,7 @@ describe('concrete tool policy', () => {
   });
 
   it.each(['click', 'drag', 'type_text', 'keypress'] as const)(
-    'requires host approval for desktop %s even when the model declares a benign consequence',
+    'allows benign desktop %s operations without interrupting for approval',
     (operation) => {
       expect(
         evaluateAction(contract, {
@@ -42,9 +42,49 @@ describe('concrete tool policy', () => {
           operation,
           description: 'Perform the visible desktop action.',
         }).status,
-      ).toBe('needs_approval');
+      ).toBe('allowed');
     },
   );
+
+  it('uses the declared desktop consequence for exact approval', () => {
+    expect(
+      evaluateAction(contract, {
+        action: 'click_element',
+        toolId: 'desktop.control',
+        operation: 'click',
+        description: 'Send the composed email.',
+        target: 'Gmail Send button',
+        parameters: { declaredConsequence: 'send' },
+      }).status,
+    ).toBe('needs_approval');
+  });
+
+  it.each([
+    {
+      description: 'Approve the requested Gmail compose action in TroCode.',
+      target: 'TroCode',
+    },
+    {
+      description: 'Approve the exact Gmail compose action shown in TroCode.',
+      target: 'TroCode approval card',
+    },
+    {
+      description: 'Click the approval control at the bottom of the TroCode dialog.',
+      target: 'Approve exact action button in the TroCode window',
+    },
+  ])('denies desktop actions aimed at TroCode approval controls', ({ description, target }) => {
+    const decision = evaluateAction(contract, {
+      action: 'click_element',
+      toolId: 'desktop.control',
+      operation: 'click',
+      description,
+      target,
+      parameters: { declaredConsequence: 'click_element' },
+    });
+
+    expect(decision.status).toBe('denied');
+    expect(decision.nextActions.join(' ')).toContain('user');
+  });
 
   it.each([
     'login',

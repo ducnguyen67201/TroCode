@@ -2,9 +2,12 @@ import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 
 import {
   ActivateMembershipRequestSchema,
+  CompanionSpeechPlaybackReportSchema,
   CompanionStateSchema,
   CompanionVoiceActivitySchema,
+  DecideApprovalRequestSchema,
   RecordVoiceTranscriptRequestSchema,
+  RespondToInteractionRequestSchema,
   SetVoiceAudioDuckingRequestSchema,
   SystemPermissionSchema,
   TaskUpdateSchema,
@@ -13,6 +16,7 @@ import {
   type AuthUser,
   type CompanionState,
   type CompanionVoiceActivity,
+  type CompanionSpeechPlaybackReport,
   type RecordVoiceTranscriptRequest,
   type SystemPermission,
 } from '../../shared/contracts';
@@ -40,6 +44,7 @@ interface IpcServices {
   authService: GoogleAuthService;
   cuaService: CuaService;
   executionCoordinator: TaskExecutionCoordinator;
+  getCompanionInteractionWindow(): BrowserWindow | null;
   membershipService: MembershipService;
   onAuthSignedIn?(user: AuthUser): Promise<void> | void;
   onAuthSignedOut?(): Promise<void> | void;
@@ -49,7 +54,11 @@ interface IpcServices {
   recordVoiceTranscript(
     input: RecordVoiceTranscriptRequest,
   ): Promise<void> | void;
+  reportCompanionSpeechPlayback(
+    report: CompanionSpeechPlaybackReport,
+  ): Promise<void> | void;
   requestScreenRecordingAccess(): Promise<unknown> | unknown;
+  revealMainWindow(): void;
   taskRuntime: TaskRuntime;
   taskHistoryService: TaskHistoryService;
   systemAudioDuckingService: Pick<SystemAudioDuckingService, 'setActive'>;
@@ -82,6 +91,53 @@ async function assertMembershipAuthorizedSender(
   await services.membershipService.assertActive(user);
 }
 
+function isTrustedWindowSender(
+  event: IpcMainInvokeEvent,
+  window: BrowserWindow | null,
+): boolean {
+  return Boolean(
+    window &&
+      !window.isDestroyed() &&
+      event.sender.id === window.webContents.id &&
+      event.senderFrame === window.webContents.mainFrame,
+  );
+}
+
+function assertTrustedInteractionSender(
+  event: IpcMainInvokeEvent,
+  mainWindow: BrowserWindow,
+  services: Pick<IpcServices, 'getCompanionInteractionWindow'>,
+): void {
+  if (
+    !isTrustedWindowSender(event, mainWindow) &&
+    !isTrustedWindowSender(event, services.getCompanionInteractionWindow())
+  ) {
+    throw new Error('Rejected IPC call from an untrusted renderer.');
+  }
+}
+
+function assertTrustedCompanionSender(
+  event: IpcMainInvokeEvent,
+  services: Pick<IpcServices, 'getCompanionInteractionWindow'>,
+): void {
+  if (!isTrustedWindowSender(event, services.getCompanionInteractionWindow())) {
+    throw new Error('Rejected IPC call from an untrusted renderer.');
+  }
+}
+
+async function assertMembershipAuthorizedInteractionSender(
+  event: IpcMainInvokeEvent,
+  mainWindow: BrowserWindow,
+  services: Pick<
+    IpcServices,
+    'authService' | 'getCompanionInteractionWindow' | 'membershipService'
+  >,
+): Promise<void> {
+  assertTrustedInteractionSender(event, mainWindow, services);
+  const user = await services.authService.assertSignedIn();
+  await services.membershipService.assertActive(user);
+}
+
 function assertTrustedSender(
   event: IpcMainInvokeEvent,
   mainWindow: BrowserWindow,
@@ -104,6 +160,8 @@ export function registerIpcHandlers(
     IPC_CHANNELS.cancelTask,
     IPC_CHANNELS.configureVoice,
     IPC_CHANNELS.connectComputer,
+    IPC_CHANNELS.companionReportSpeechPlayback,
+    IPC_CHANNELS.companionRevealMainWindow,
     IPC_CHANNELS.createVoiceCall,
     IPC_CHANNELS.decideApproval,
     IPC_CHANNELS.getAppPreferences,
@@ -228,19 +286,50 @@ export function registerIpcHandlers(
     return services.executionCoordinator.start(input);
   });
 
-  ipcMain.handle(IPC_CHANNELS.respondToInteraction, async (event, input: unknown) => {
-    await assertMembershipAuthorizedSender(event, mainWindow, services);
-    const snapshot = services.taskRuntime.respondToInteraction(input);
-    services.executionCoordinator.resume(snapshot.taskId);
-    return snapshot;
+  ipcMain.handle(
+    IPC_CHANNELS.respondToInteraction,
+    async (event, input: unknown) => {
+      await assertMembershipAuthorizedInteractionSender(
+        event,
+        mainWindow,
+        services,
+      );
+      const request = RespondToInteractionRequestSchema.parse(input);
+      const snapshot = services.taskRuntime.respondToInteraction(request);
+      services.executionCoordinator.resume(snapshot.taskId);
+      return snapshot;
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.decideApproval,
+    async (event, input: unknown) => {
+      await assertMembershipAuthorizedInteractionSender(
+        event,
+        mainWindow,
+        services,
+      );
+      const request = DecideApprovalRequestSchema.parse(input);
+      const snapshot = services.taskRuntime.decideApproval(request);
+      services.executionCoordinator.resume(snapshot.taskId);
+      return snapshot;
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.companionRevealMainWindow, async (event) => {
+    assertTrustedCompanionSender(event, services);
+    await services.authService.assertSignedIn();
+    services.revealMainWindow();
   });
 
-  ipcMain.handle(IPC_CHANNELS.decideApproval, async (event, input: unknown) => {
-    await assertMembershipAuthorizedSender(event, mainWindow, services);
-    const snapshot = services.taskRuntime.decideApproval(input);
-    services.executionCoordinator.resume(snapshot.taskId);
-    return snapshot;
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.companionReportSpeechPlayback,
+    async (event, input: unknown) => {
+      assertTrustedCompanionSender(event, services);
+      const report = CompanionSpeechPlaybackReportSchema.parse(input);
+      await services.reportCompanionSpeechPlayback(report);
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.steerTask, async (event, input: unknown) => {
     await assertMembershipAuthorizedSender(event, mainWindow, services);

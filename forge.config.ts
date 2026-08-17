@@ -214,6 +214,7 @@ const config: ForgeConfig = {
         "script-src 'self' 'unsafe-eval' 'unsafe-inline' data:",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data:",
+        "media-src 'self' trocode-audio:",
         "connect-src 'self' https://api.openai.com ws://localhost:* http://localhost:*",
       ].join('; '),
       loggerPort: 9100,

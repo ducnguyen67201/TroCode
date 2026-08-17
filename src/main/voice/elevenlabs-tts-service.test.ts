@@ -2,7 +2,62 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ElevenLabsTtsService } from './elevenlabs-tts-service';
 
+async function readStreamBytes(
+  stream: ReadableStream<Uint8Array>,
+): Promise<number[]> {
+  const reader = stream.getReader();
+  const bytes: number[] = [];
+  for (;;) {
+    const result = await reader.read();
+    if (result.done) return bytes;
+    bytes.push(...result.value);
+  }
+}
+
 describe('ElevenLabs TTS service', () => {
+  it('returns the first audio chunk before the provider stream completes', async () => {
+    let releaseSecondChunk: () => void = () => undefined;
+    const secondChunk = new Promise<void>((resolve) => {
+      releaseSecondChunk = () => resolve();
+    });
+    let pullCount = 0;
+    const providerBody = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        pullCount += 1;
+        if (pullCount === 1) {
+          controller.enqueue(Uint8Array.from([1, 2]));
+          return;
+        }
+        await secondChunk;
+        controller.enqueue(Uint8Array.from([3]));
+        controller.close();
+      },
+    });
+    const service = new ElevenLabsTtsService({
+      apiKey: 'eleven-test-key',
+      voiceId: 'voice-id',
+      fetchImpl: vi.fn(async () =>
+        new Response(providerBody, {
+          headers: { 'Content-Type': 'audio/mpeg' },
+          status: 200,
+        }),
+      ),
+    });
+
+    const speech = await service.stream('Start now');
+    const reader = speech?.body.getReader();
+    await expect(reader?.read()).resolves.toMatchObject({
+      done: false,
+      value: Uint8Array.from([1, 2]),
+    });
+    releaseSecondChunk();
+    await expect(reader?.read()).resolves.toMatchObject({
+      done: false,
+      value: Uint8Array.from([3]),
+    });
+    await reader?.cancel();
+  });
+
   it('uses the hosted speech endpoint without exposing the provider key', async () => {
     const accessToken = `tro_live_${'a'.repeat(43)}`;
     const fetchImpl = vi.fn<typeof fetch>(async () =>
@@ -18,10 +73,11 @@ describe('ElevenLabs TTS service', () => {
     });
 
     expect(service.isConfigured()).toBe(true);
-    await expect(service.synthesize('Xin chào')).resolves.toEqual({
-      dataBase64: 'AQID',
-      mimeType: 'audio/mpeg',
-    });
+    const speech = await service.stream('Xin chào');
+    expect(speech).toMatchObject({ mimeType: 'audio/mpeg' });
+    expect(await readStreamBytes(speech?.body as ReadableStream<Uint8Array>)).toEqual([
+      1, 2, 3,
+    ]);
     expect(fetchImpl).toHaveBeenCalledWith(
       new URL('http://127.0.0.1:8080/v1/elevenlabs/speech'),
       expect.objectContaining({
@@ -38,7 +94,7 @@ describe('ElevenLabs TTS service', () => {
     const service = new ElevenLabsTtsService({ fetchImpl });
 
     expect(service.isConfigured()).toBe(false);
-    await expect(service.synthesize('Hello')).resolves.toBeNull();
+    await expect(service.stream('Hello')).resolves.toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -55,13 +111,16 @@ describe('ElevenLabs TTS service', () => {
       fetchImpl,
     });
 
-    await expect(service.synthesize('  Xin chào  ')).resolves.toEqual({
-      dataBase64: 'AQIDBA==',
-      mimeType: 'audio/mpeg',
-    });
+    const speech = await service.stream('  Xin chào  ');
+    expect(speech).toMatchObject({ mimeType: 'audio/mpeg' });
+    expect(await readStreamBytes(speech?.body as ReadableStream<Uint8Array>)).toEqual([
+      1, 2, 3, 4,
+    ]);
     expect(service.isConfigured()).toBe(true);
     const [url, request] = fetchImpl.mock.calls[0] ?? [];
-    expect(String(url)).toContain('/voice%2Ftest%20id?output_format=mp3_44100_128');
+    expect(String(url)).toContain(
+      '/voice%2Ftest%20id/stream?output_format=mp3_44100_128',
+    );
     expect(request?.headers).toMatchObject({
       'Content-Type': 'application/json',
       'xi-api-key': 'eleven-test-key',
@@ -83,12 +142,12 @@ describe('ElevenLabs TTS service', () => {
       logger,
     });
 
-    await expect(service.synthesize('Hello')).rejects.toThrow(
+    await expect(service.stream('Hello')).rejects.toThrow(
       'ElevenLabs returned HTTP 401',
     );
     expect(logger.warn).toHaveBeenCalledWith(
-      '[voice:tts] synthesis failed',
-      { error: 'ElevenLabs returned HTTP 401.' },
+      '[voice:tts] stream failed',
+      { reason: 'provider_error' },
     );
   });
 });

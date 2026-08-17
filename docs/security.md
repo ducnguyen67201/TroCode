@@ -76,7 +76,13 @@ or application bundle. Production OpenAI and optional ElevenLabs keys are
 injected into the Railway API only. Electron sends its opaque device session to
 fixed, HTTPS provider-proxy endpoints; provider credentials never reach the
 desktop. Responses sampling remains host-driven, Realtime SDP is bounded, and
-only validated MP3 companion data crosses the narrow preload boundary.
+only a validated private media descriptor crosses the narrow preload boundary.
+MP3 bytes stream through a `trocode-audio://speech/<UUID>` protocol handler
+owned by Electron main. Tickets are short-lived, one-use, bounded, and served
+with `Cache-Control: no-store`; they contain no session or provider credential.
+Playback reports are fixed-enum payloads accepted only from the current guidance
+renderer main frame. Timing logs contain IDs, counts, status, and fixed reasons,
+not guidance text, provider bodies, credentials, or audio bytes.
 
 The Tro device credential is deliberately not a JWT. Tokens contain no user
 claims and are useful only through the API; PostgreSQL-backed digest lookup

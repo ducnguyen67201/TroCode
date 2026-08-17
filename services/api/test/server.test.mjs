@@ -212,6 +212,7 @@ test('session refresh rotates the credential and sign-out revokes it', async () 
 });
 
 test('hosted speech requires a session and keeps the provider key upstream', async () => {
+  let upstreamUrl;
   let upstreamRequest;
   await withApi(
     async ({ baseUrl }) => {
@@ -231,19 +232,71 @@ test('hosted speech requires a session and keeps the provider key upstream', asy
       );
       assert.equal(upstreamRequest.headers['xi-api-key'], 'eleven-secret');
       assert.equal(upstreamRequest.headers.Authorization, undefined);
+      assert.match(String(upstreamUrl), /\/voice-id\/stream\?output_format=mp3_44100_128$/);
     },
     {
       configOverride: {
         elevenLabsApiKey: 'eleven-secret',
         elevenLabsVoiceId: 'voice-id',
       },
-      fetchImpl: async (_url, options) => {
+      fetchImpl: async (url, options) => {
+        upstreamUrl = url;
         upstreamRequest = options;
         return new Response(Uint8Array.from([1, 2, 3]), {
           headers: { 'Content-Type': 'audio/mpeg' },
           status: 200,
         });
       },
+    },
+  );
+});
+
+test('hosted speech delivers its first chunk before provider completion', async () => {
+  let releaseSecondChunk;
+  const secondChunk = new Promise((resolve) => {
+    releaseSecondChunk = resolve;
+  });
+  let pulls = 0;
+  await withApi(
+    async ({ baseUrl }) => {
+      const session = await signIn(baseUrl);
+      const response = await fetch(`${baseUrl}/v1/elevenlabs/speech`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: 'Stream this step' }),
+      });
+      const reader = response.body.getReader();
+      const first = await reader.read();
+      assert.deepEqual(first.value, Uint8Array.from([1, 2]));
+      releaseSecondChunk();
+      const second = await reader.read();
+      assert.deepEqual(second.value, Uint8Array.from([3]));
+      await reader.cancel();
+    },
+    {
+      configOverride: {
+        elevenLabsApiKey: 'eleven-secret',
+        elevenLabsVoiceId: 'voice-id',
+      },
+      fetchImpl: async () =>
+        new Response(
+          new ReadableStream({
+            async pull(controller) {
+              pulls += 1;
+              if (pulls === 1) {
+                controller.enqueue(Uint8Array.from([1, 2]));
+                return;
+              }
+              await secondChunk;
+              controller.enqueue(Uint8Array.from([3]));
+              controller.close();
+            },
+          }),
+          { headers: { 'Content-Type': 'audio/mpeg' }, status: 200 },
+        ),
     },
   );
 });

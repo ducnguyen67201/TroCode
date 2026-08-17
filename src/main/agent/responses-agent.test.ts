@@ -85,6 +85,12 @@ describe('GptResponsesAgent', () => {
     expect(String(body.instructions)).toContain(
       'A list row, title, subject, snippet, or preview is not the full contents',
     );
+    expect(String(body.instructions)).toContain(
+      'call show_guidance once per user-controlled step',
+    );
+    expect(String(body.instructions)).toContain(
+      'Never use desktop tools to operate TroCode itself',
+    );
     expect(String(request?.headers)).not.toContain('secret-key');
   });
 

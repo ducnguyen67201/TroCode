@@ -5,18 +5,23 @@ import {
   globalShortcut,
   Menu,
   nativeImage,
+  protocol,
   screen,
   shell,
   Tray,
 } from 'electron';
-import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import type { DesktopCommand } from './main/agent/execution-contracts';
 import {
   TaskExecutionCoordinator,
   type DesktopPresentation,
+  type GuidancePresentationHandle,
 } from './main/agent/execution-coordinator';
+import {
+  registerGlobalGuidanceShortcuts,
+  type GlobalGuidanceShortcuts,
+} from './main/agent/global-guidance-shortcuts';
 import { registerGlobalTaskCancelShortcut } from './main/agent/global-task-cancel-shortcut';
 import { GptResponsesAgent } from './main/agent/responses-agent';
 import { TaskRuntime } from './main/agent/task-runtime';
@@ -26,6 +31,10 @@ import { EncryptedAuthSessionStore } from './main/auth/auth-session-store';
 import { GoogleAuthService } from './main/auth/google-auth-service';
 import { LocalOAuthBrowserFlow } from './main/auth/local-oauth-browser-flow';
 import { keepWindowAliveForBackgroundVoice } from './main/background-app-lifecycle';
+import {
+  isAuthenticatedCompanionSession,
+  toCompanionInteraction,
+} from './main/companion/companion-interaction';
 import {
   getVirtualDisplayBounds,
   interpolateCompanionPosition,
@@ -54,6 +63,7 @@ import {
 } from './main/single-instance';
 import { systemPermissionSettingsUrl } from './main/system-permission-settings';
 import { AppUpdateService } from './main/update/app-update-service';
+import { CompanionNarrationService } from './main/voice/companion-narration-service';
 import { ElevenLabsTtsService } from './main/voice/elevenlabs-tts-service';
 import { registerGlobalVoiceShortcut } from './main/voice/global-voice-shortcut';
 import {
@@ -65,13 +75,15 @@ import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-sto
 import { VoiceService } from './main/voice/voice-service';
 import {
   CompanionGuidanceSchema,
-  CompanionSpeechSchema,
   TaskUpdateSchema,
+  TROCODE_AUDIO_SCHEME,
   type AuthUser,
   type CompanionGuidance,
+  type CompanionInteraction,
   type CompanionSpeech,
   type CompanionState,
   type CompanionVoiceActivity,
+  type PendingInteraction,
   type TaskSnapshot,
 } from './shared/contracts';
 import { IPC_CHANNELS } from './shared/desktop-api';
@@ -88,6 +100,17 @@ if (require('electron-squirrel-startup')) {
 }
 
 app.setName('TroCode');
+protocol.registerSchemesAsPrivileged([
+  {
+    privileges: {
+      secure: true,
+      standard: true,
+      stream: true,
+      supportFetchAPI: true,
+    },
+    scheme: TROCODE_AUDIO_SCHEME,
+  },
+]);
 isolateDevelopmentInstance(app);
 
 const hasSingleInstanceLock = initializeSingleInstance(app, () => {
@@ -151,6 +174,10 @@ const elevenLabsTtsService = new ElevenLabsTtsService({
   accessTokenProvider: () => authService.getAccessToken(),
   apiBaseUrl: trocodeApiBaseUrl,
 });
+const companionNarrationService = new CompanionNarrationService({
+  publish: publishCompanionSpeech,
+  ttsService: elevenLabsTtsService,
+});
 const responsesAgent = new GptResponsesAgent({
   accessTokenProvider: () => authService.getAccessToken(),
   apiBaseUrl: trocodeApiBaseUrl,
@@ -162,6 +189,8 @@ const executionCoordinator = new TaskExecutionCoordinator({
   dismissPresentation: dismissCompanionGuidance,
   onGuidancePlaybackChange: (_taskId, paused) =>
     updateGuidancePlaybackState(paused),
+  onGuidanceWaitEnd: deactivateGlobalGuidanceShortcuts,
+  onGuidanceWaitStart: activateGlobalGuidanceShortcuts,
   runtime: taskRuntime,
   openExternal: async (url) => shell.openExternal(url, { activate: true }),
   prepareDesktop: async () => {
@@ -203,6 +232,8 @@ const COMPANION_GAP = 8;
 const COMPANION_GLIDE_DURATION_MS = 360;
 const COMPANION_FOLLOW_INTERVAL_MS = 16;
 const GUIDANCE_CALLOUT_SIZE = { height: 176, width: 380 } as const;
+const CLARIFICATION_CALLOUT_SIZE = { height: 286, width: 396 } as const;
+const APPROVAL_CALLOUT_SIZE = { height: 448, width: 432 } as const;
 const VOICE_ISLAND_SIZE = { height: 76, width: 420 } as const;
 const VOICE_ISLAND_TOP_GAP = 10;
 const SHUTDOWN_GRACE_PERIOD_MS = 2_000;
@@ -228,19 +259,21 @@ let companionFollowTimer: ReturnType<typeof setInterval> | null = null;
 let companionGlide: CompanionGlide | null = null;
 let companionPinnedPosition: Point | null = null;
 let activeCompanionGuidance: CompanionGuidance | null = null;
+let activeCompanionInteraction: CompanionInteraction | null = null;
 let activeCompanionSpeech: CompanionSpeech | null = null;
 let companionGuidancePreviousState: CompanionState | null = null;
 let guidancePlaybackPaused = false;
-let guidanceSpeechController: AbortController | null = null;
 let lastCompanionPosition: Point | null = null;
 let forcedExitTimer: ReturnType<typeof setTimeout> | null = null;
 let shutdownPromise: Promise<void> | null = null;
 let unregisterIpcHandlers: (() => void) | null = null;
 let unregisterGlobalTaskCancelShortcut: (() => void) | null = null;
 let unregisterGlobalVoiceShortcut: (() => void) | null = null;
+let globalGuidanceShortcuts: GlobalGuidanceShortcuts | null = null;
 let removeMainWindowCloseBehavior: (() => void) | null = null;
 let backgroundTray: Tray | null = null;
 let isShuttingDown = false;
+let auxiliaryWindowsEnabled = false;
 
 function stopCompanionFollowing(): void {
   if (companionFollowTimer) clearInterval(companionFollowTimer);
@@ -275,6 +308,7 @@ function updateCompanionVoiceActivity(
   activity: CompanionVoiceActivity | null,
 ): void {
   activeCompanionVoiceActivity = activity;
+  if (!auxiliaryWindowsEnabled) return;
   if (!voiceIslandWindow || voiceIslandWindow.isDestroyed()) return;
 
   sendCompanionVoiceActivity();
@@ -358,6 +392,14 @@ function sendCompanionGuidance(): void {
   );
 }
 
+function sendCompanionInteraction(): void {
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) return;
+  guidanceWindow.webContents.send(
+    IPC_CHANNELS.companionInteractionChanged,
+    activeCompanionInteraction,
+  );
+}
+
 function sendCompanionSpeech(): void {
   if (!guidanceWindow || guidanceWindow.isDestroyed()) return;
   guidanceWindow.webContents.send(
@@ -366,57 +408,94 @@ function sendCompanionSpeech(): void {
   );
 }
 
-function stopGuidanceSpeech(): void {
-  guidanceSpeechController?.abort();
-  guidanceSpeechController = null;
-  activeCompanionSpeech = null;
+function publishCompanionSpeech(speech: CompanionSpeech | null): void {
+  activeCompanionSpeech = speech;
   sendCompanionSpeech();
 }
 
-function startGuidanceSpeech(message: string, signal: AbortSignal): void {
+function stopGuidanceSpeech(): void {
+  companionNarrationService.cancelCurrent();
+}
+
+function registerCompanionAudioProtocol(): void {
+  protocol.handle(TROCODE_AUDIO_SCHEME, (request) =>
+    companionNarrationService.handleRequest(request),
+  );
+}
+
+function setGuidanceWindowInteractive(interactive: boolean): void {
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) return;
+  guidanceWindow.setFocusable(interactive);
+  guidanceWindow.setIgnoreMouseEvents(!interactive, { forward: true });
+}
+
+function clearCompanionInteraction(taskId?: string): void {
+  if (
+    !activeCompanionInteraction ||
+    (taskId && activeCompanionInteraction.taskId !== taskId)
+  ) {
+    return;
+  }
+
+  activeCompanionInteraction = null;
+  sendCompanionInteraction();
   stopGuidanceSpeech();
-  if (!elevenLabsTtsService.isConfigured()) return;
+  setGuidanceWindowInteractive(false);
+  if (!activeCompanionGuidance && guidanceWindow && !guidanceWindow.isDestroyed()) {
+    guidanceWindow.hide();
+  }
+}
 
-  const controller = new AbortController();
-  const handleTaskAbort = (): void => controller.abort(signal.reason);
-  signal.addEventListener('abort', handleTaskAbort, { once: true });
-  guidanceSpeechController = controller;
+function showCompanionInteraction(interaction: PendingInteraction): void {
+  if (!auxiliaryWindowsEnabled) return;
+  if (activeCompanionInteraction?.id === interaction.id) return;
 
-  void elevenLabsTtsService
-    .synthesize(message, controller.signal)
-    .then((speech) => {
-      if (
-        !speech ||
-        controller.signal.aborted ||
-        guidanceSpeechController !== controller
-      ) {
-        return;
-      }
-      activeCompanionSpeech = CompanionSpeechSchema.parse({
-        id: randomUUID(),
-        ...speech,
-      });
-      sendCompanionSpeech();
-    })
-    .catch((error: unknown) => {
-      if (controller.signal.aborted) return;
-      console.warn('[voice:tts] companion speech unavailable', {
-        error: error instanceof Error ? error.message.slice(0, 300) : 'Unknown error',
-      });
-    })
-    .finally(() => {
-      signal.removeEventListener('abort', handleTaskAbort);
-      if (guidanceSpeechController === controller) {
-        guidanceSpeechController = null;
-      }
-    });
+  dismissCompanionGuidance();
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) createGuidanceWindow();
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) {
+    if (mainWindow && !mainWindow.isDestroyed()) revealWindow(mainWindow);
+    return;
+  }
+
+  const target = getCurrentCompanionScreenPosition();
+  const display = screen.getDisplayNearestPoint(target);
+  const size =
+    interaction.kind === 'approval'
+      ? APPROVAL_CALLOUT_SIZE
+      : CLARIFICATION_CALLOUT_SIZE;
+  const position = placeGuidanceCallout(
+    target,
+    display.workArea,
+    size,
+    COMPANION_SIZE,
+  );
+  try {
+    activeCompanionInteraction = toCompanionInteraction(
+      interaction,
+      position.x < target.x ? 'left' : 'right',
+    );
+  } catch (error) {
+    console.error('[companion] Could not present pending interaction.', error);
+    if (mainWindow && !mainWindow.isDestroyed()) revealWindow(mainWindow);
+    return;
+  }
+  guidanceWindow.setBounds({ ...position, ...size }, false);
+  setGuidanceWindowInteractive(true);
+  sendCompanionInteraction();
+  guidanceWindow.showInactive();
 }
 
 function hideGuidanceCallout(): void {
-  stopGuidanceSpeech();
+  if (!activeCompanionInteraction) stopGuidanceSpeech();
   activeCompanionGuidance = null;
   sendCompanionGuidance();
-  if (guidanceWindow && !guidanceWindow.isDestroyed()) guidanceWindow.hide();
+  if (
+    !activeCompanionInteraction &&
+    guidanceWindow &&
+    !guidanceWindow.isDestroyed()
+  ) {
+    guidanceWindow.hide();
+  }
 }
 
 function dismissCompanionGuidance(): void {
@@ -443,12 +522,18 @@ function updateGuidancePlaybackState(paused: boolean): void {
 function showGuidanceCallout(
   target: Point,
   presentation: DesktopPresentation,
-): void {
-  if (!presentation.message) return;
+): boolean {
+  if (
+    !auxiliaryWindowsEnabled ||
+    activeCompanionInteraction ||
+    !presentation.message
+  ) {
+    return false;
+  }
   if (!guidanceWindow || guidanceWindow.isDestroyed()) {
     createGuidanceWindow();
   }
-  if (!guidanceWindow || guidanceWindow.isDestroyed()) return;
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) return false;
 
   const display = screen.getDisplayNearestPoint(target);
   const position = placeGuidanceCallout(
@@ -458,16 +543,19 @@ function showGuidanceCallout(
     COMPANION_SIZE,
   );
   activeCompanionGuidance = CompanionGuidanceSchema.parse({
-    message: presentation.message.slice(0, 240),
+    message: presentation.message,
     playback: guidancePlaybackPaused ? 'paused' : 'playing',
+    ...(presentation.shortcuts ? { shortcuts: presentation.shortcuts } : {}),
     side: position.x < target.x ? 'left' : 'right',
     ...(presentation.target
       ? { target: presentation.target.slice(0, 80) }
       : {}),
   });
   guidanceWindow.setBounds({ ...position, ...GUIDANCE_CALLOUT_SIZE }, false);
+  setGuidanceWindowInteractive(false);
   sendCompanionGuidance();
   guidanceWindow.showInactive();
+  return true;
 }
 
 function companionTargetForCommand(
@@ -508,7 +596,7 @@ async function presentCompanionAction(
   command: DesktopCommand,
   signal: AbortSignal,
   presentation?: DesktopPresentation,
-): Promise<void> {
+): Promise<GuidancePresentationHandle | void> {
   const isGuidancePoint = command.kind === 'point';
   const previousCompanionState = companionState;
   const to = companionTargetForCommand(command, presentation);
@@ -538,7 +626,7 @@ async function presentCompanionAction(
     companionPinnedPosition = to;
     positionCompanion();
     if (isGuidancePoint) {
-      showGuidancePresentation(command, presentation, signal);
+      return showGuidancePresentation(command, presentation, signal);
     }
     return;
   }
@@ -560,7 +648,7 @@ async function presentCompanionAction(
   });
 
   if (isGuidancePoint) {
-    showGuidancePresentation(command, presentation, signal);
+    return showGuidancePresentation(command, presentation, signal);
   }
 }
 
@@ -568,14 +656,21 @@ function showGuidancePresentation(
   command: Extract<DesktopCommand, { kind: 'point' }>,
   presentation: DesktopPresentation | undefined,
   signal: AbortSignal,
-): void {
+): GuidancePresentationHandle | undefined {
   if (presentation?.message) {
-    showGuidanceCallout(
+    const shown = showGuidanceCallout(
       presentation.screenPoint ?? { x: command.x, y: command.y },
       presentation,
     );
-    startGuidanceSpeech(presentation.message, signal);
+    if (shown) {
+      return companionNarrationService.begin(
+        presentation.message,
+        signal,
+        presentation.taskId,
+      );
+    }
   }
+  return undefined;
 }
 
 async function identifyAnalyticsUser(user: AuthUser): Promise<void> {
@@ -588,6 +683,40 @@ async function identifyAnalyticsUser(user: AuthUser): Promise<void> {
   });
 }
 
+function enableAuthenticatedAuxiliaryWindows(): void {
+  if (isShuttingDown) return;
+  auxiliaryWindowsEnabled = true;
+  createCompanionWindow();
+  createGuidanceWindow();
+  createVoiceIslandWindow();
+  ensureGlobalVoiceShortcut();
+}
+
+function disableAuthenticatedAuxiliaryWindows(): void {
+  auxiliaryWindowsEnabled = false;
+  companionState = 'idle';
+  activeCompanionVoiceActivity = null;
+  companionGuidancePreviousState = null;
+  guidancePlaybackPaused = false;
+  clearCompanionInteraction();
+  dismissCompanionGuidance();
+  stopGuidanceSpeech();
+  stopCompanionFollowing();
+  unregisterGlobalVoiceShortcut?.();
+  unregisterGlobalVoiceShortcut = null;
+  globalGuidanceShortcuts?.deactivate();
+
+  if (companionWindow && !companionWindow.isDestroyed()) {
+    companionWindow.destroy();
+  }
+  if (guidanceWindow && !guidanceWindow.isDestroyed()) {
+    guidanceWindow.destroy();
+  }
+  if (voiceIslandWindow && !voiceIslandWindow.isDestroyed()) {
+    voiceIslandWindow.destroy();
+  }
+}
+
 function finishShutdown(exitCode: number): void {
   if (forcedExitTimer) clearTimeout(forcedExitTimer);
   forcedExitTimer = null;
@@ -598,11 +727,16 @@ function prepareApplicationShutdown(): Promise<void> {
   if (shutdownPromise) return shutdownPromise;
 
   isShuttingDown = true;
+  auxiliaryWindowsEnabled = false;
   stopCompanionFollowing();
   unregisterGlobalTaskCancelShortcut?.();
   unregisterGlobalTaskCancelShortcut = null;
   unregisterGlobalVoiceShortcut?.();
   unregisterGlobalVoiceShortcut = null;
+  globalGuidanceShortcuts?.dispose();
+  globalGuidanceShortcuts = null;
+  companionNarrationService.shutdown();
+  protocol.unhandle(TROCODE_AUDIO_SCHEME);
   backgroundTray?.destroy();
   backgroundTray = null;
   oauthBrowserFlow.shutdown();
@@ -661,9 +795,16 @@ function beginShutdown(exitCode = 0): void {
 function trackTaskAnalytics(value: unknown): void {
   void analyticsService?.trackTaskUpdate(value);
   const update = TaskUpdateSchema.safeParse(value);
+  if (!update.success) return;
+
+  const snapshot = update.data.snapshot;
+  if (snapshot.pendingInteraction) {
+    showCompanionInteraction(snapshot.pendingInteraction);
+  } else {
+    clearCompanionInteraction(snapshot.taskId);
+  }
   if (
-    update.success &&
-    taskNeedsMainWindow(update.data.snapshot) &&
+    taskNeedsMainWindow(snapshot) &&
     mainWindow &&
     !mainWindow.isDestroyed()
   ) {
@@ -674,7 +815,6 @@ function trackTaskAnalytics(value: unknown): void {
 
 function taskNeedsMainWindow(snapshot: TaskSnapshot): boolean {
   return (
-    snapshot.pendingInteraction !== null ||
     snapshot.phase === 'blocked' ||
     snapshot.phase === 'completed' ||
     snapshot.phase === 'failed' ||
@@ -732,7 +872,7 @@ function revealWindow(window: BrowserWindow): void {
 }
 
 function ensureGlobalVoiceShortcut(): void {
-  if (unregisterGlobalVoiceShortcut) return;
+  if (!auxiliaryWindowsEnabled || unregisterGlobalVoiceShortcut) return;
 
   unregisterGlobalVoiceShortcut = registerGlobalVoiceShortcut({
     getTarget: () => mainWindow,
@@ -759,6 +899,27 @@ function ensureGlobalTaskCancelShortcut(): void {
     registry: globalShortcut,
     updates: taskRuntime,
   });
+}
+
+function ensureGlobalGuidanceShortcuts(): GlobalGuidanceShortcuts {
+  globalGuidanceShortcuts ??= registerGlobalGuidanceShortcuts({
+    back: (taskId) => executionCoordinator.previousGuidance(taskId),
+    next: (taskId) => executionCoordinator.nextGuidance(taskId),
+    pause: (taskId) => executionCoordinator.toggleGuidancePause(taskId),
+    registry: globalShortcut,
+  });
+  return globalGuidanceShortcuts;
+}
+
+function activateGlobalGuidanceShortcuts(
+  taskId: string,
+): CompanionGuidance['shortcuts'] | undefined {
+  if (!auxiliaryWindowsEnabled) return undefined;
+  return ensureGlobalGuidanceShortcuts().activate(taskId);
+}
+
+function deactivateGlobalGuidanceShortcuts(taskId: string): void {
+  globalGuidanceShortcuts?.deactivate(taskId);
 }
 
 function macOSVoiceShortcutHelperPath(): string {
@@ -842,9 +1003,14 @@ const createWindow = (): void => {
     authService,
     cuaService,
     executionCoordinator,
+    getCompanionInteractionWindow: () => guidanceWindow,
     membershipService,
-    onAuthSignedIn: identifyAnalyticsUser,
+    onAuthSignedIn: async (user) => {
+      await identifyAnalyticsUser(user);
+      enableAuthenticatedAuxiliaryWindows();
+    },
     onAuthSignedOut: async () => {
+      disableAuthenticatedAuxiliaryWindows();
       taskHistoryService.setCurrentOwner(null);
       await systemAudioDuckingService.setActive(false).catch((error: unknown) => {
         console.error('[voice] Could not restore system audio after sign-out.', error);
@@ -858,7 +1024,12 @@ const createWindow = (): void => {
     recordVoiceTranscript: async (input) => {
       await analyticsService?.trackVoiceTranscript(input);
     },
+    reportCompanionSpeechPlayback: (report) =>
+      companionNarrationService.report(report),
     requestScreenRecordingAccess: registerScreenRecordingHost,
+    revealMainWindow: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) revealWindow(mainWindow);
+    },
     systemAudioDuckingService,
     taskRuntime,
     taskHistoryService,
@@ -994,6 +1165,7 @@ function positionCompanion(): void {
 }
 
 const createCompanionWindow = (): void => {
+  if (!auxiliaryWindowsEnabled) return;
   if (companionWindow && !companionWindow.isDestroyed()) return;
 
   const useOverlayCompanion = shouldUseCompanionOverlay(process.platform);
@@ -1045,6 +1217,7 @@ const createCompanionWindow = (): void => {
   );
 
   companionWindow.once('ready-to-show', () => {
+    if (!auxiliaryWindowsEnabled) return;
     positionCompanion();
     companionWindow?.showInactive();
   });
@@ -1080,6 +1253,7 @@ function positionVoiceIsland(): void {
 }
 
 const createVoiceIslandWindow = (): void => {
+  if (!auxiliaryWindowsEnabled) return;
   if (voiceIslandWindow && !voiceIslandWindow.isDestroyed()) return;
 
   voiceIslandWindow = new BrowserWindow({
@@ -1115,7 +1289,7 @@ const createVoiceIslandWindow = (): void => {
     event.preventDefault();
   });
   voiceIslandWindow.once('ready-to-show', () => {
-    if (!activeCompanionVoiceActivity) return;
+    if (!auxiliaryWindowsEnabled || !activeCompanionVoiceActivity) return;
     positionVoiceIsland();
     voiceIslandWindow?.showInactive();
   });
@@ -1129,9 +1303,11 @@ const createVoiceIslandWindow = (): void => {
 };
 
 const createGuidanceWindow = (): void => {
+  if (!auxiliaryWindowsEnabled) return;
   if (guidanceWindow && !guidanceWindow.isDestroyed()) return;
 
   guidanceWindow = new BrowserWindow({
+    acceptFirstMouse: true,
     alwaysOnTop: true,
     backgroundColor: '#00000000',
     focusable: false,
@@ -1157,17 +1333,27 @@ const createGuidanceWindow = (): void => {
   guidanceWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   guidanceWindow.webContents.on('did-finish-load', () => {
     sendCompanionGuidance();
+    sendCompanionInteraction();
     sendCompanionSpeech();
   });
   guidanceWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault();
   });
   guidanceWindow.on('closed', () => {
-    guidanceSpeechController?.abort();
-    guidanceSpeechController = null;
+    const unresolvedInteraction = activeCompanionInteraction;
+    companionNarrationService.cancelCurrent();
     guidanceWindow = null;
     activeCompanionGuidance = null;
+    activeCompanionInteraction = null;
     activeCompanionSpeech = null;
+    if (
+      auxiliaryWindowsEnabled &&
+      unresolvedInteraction &&
+      mainWindow &&
+      !mainWindow.isDestroyed()
+    ) {
+      revealWindow(mainWindow);
+    }
   });
 
   const guidanceUrl = new URL(MAIN_WINDOW_WEBPACK_ENTRY);
@@ -1181,6 +1367,7 @@ const createGuidanceWindow = (): void => {
 if (hasSingleInstanceLock) {
   void app.whenReady().then(async () => {
     configureDock();
+    registerCompanionAudioProtocol();
     appUpdateService.start();
     analyticsService = new AnalyticsService({
       appVersion: app.getVersion(),
@@ -1204,13 +1391,11 @@ if (hasSingleInstanceLock) {
     ]);
     const authStatus = await authService.getStatus();
     if (authStatus.user) await identifyAnalyticsUser(authStatus.user);
+    auxiliaryWindowsEnabled = isAuthenticatedCompanionSession(authStatus);
     createWindow();
-    createCompanionWindow();
-    createGuidanceWindow();
-    createVoiceIslandWindow();
+    if (auxiliaryWindowsEnabled) enableAuthenticatedAuxiliaryWindows();
     ensureBackgroundTray();
     ensureGlobalTaskCancelShortcut();
-    ensureGlobalVoiceShortcut();
   });
 
   app.on('window-all-closed', () => {
