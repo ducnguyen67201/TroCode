@@ -153,6 +153,9 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
     'Cho phép bạn dùng lệnh giọng nói nhấn-để-nói.',
   'Manage TroCode’s interface language, voice input, and installed application.':
     'Quản lý ngôn ngữ giao diện, đầu vào giọng nói và ứng dụng TroCode đã cài đặt.',
+  'Mute other audio while speaking': 'Tắt âm thanh khác khi đang nói',
+  'Mute system output while you hold the voice shortcut, then restore its previous mute state when you release.':
+    'Tắt âm thanh hệ thống khi bạn giữ phím tắt giọng nói, sau đó khôi phục trạng thái tắt tiếng trước đó khi bạn thả phím.',
   'New task': 'Tác vụ mới',
   'Needs attention': 'Cần chú ý',
   'No conversation was recorded.': 'Không có cuộc trò chuyện nào được ghi lại.',
@@ -219,6 +222,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Success looks like': 'Kết quả thành công',
   Success: 'Thành công',
   System: 'Hệ thống',
+  'System audio muting is currently available on macOS.':
+    'Tính năng tắt âm thanh hệ thống hiện có trên macOS.',
   task: 'tác vụ',
   tasks: 'tác vụ',
   Tasks: 'Tác vụ',

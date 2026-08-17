@@ -18,6 +18,7 @@ import {
   MembershipStatusSchema,
   RecordVoiceTranscriptRequestSchema,
   RespondToInteractionRequestSchema,
+  SetVoiceAudioDuckingRequestSchema,
   StartTaskRequestSchema,
   SteerTaskRequestSchema,
   SubmitTaskRequestSchema,
@@ -238,6 +239,11 @@ const desktopApi: DesktopApi = {
       IPC_CHANNELS.setCompanionVoiceActivity,
       activity,
     );
+  },
+
+  async setVoiceAudioDucking(input) {
+    const request = SetVoiceAudioDuckingRequestSchema.parse(input);
+    await ipcRenderer.invoke(IPC_CHANNELS.setVoiceAudioDucking, request);
   },
 
   onTaskUpdate(listener) {

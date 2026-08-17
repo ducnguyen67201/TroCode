@@ -15,13 +15,16 @@ function renderSettings(appUpdateStatus: AppUpdateStatus): string {
       hasChanges: false,
       isSaving: false,
       isUpdatingApp: false,
+      muteSystemAudioWhileSpeaking: false,
       onAppLanguageChange: vi.fn(),
       onCheckForUpdates: vi.fn(),
       onLanguageChange: vi.fn(),
+      onMuteSystemAudioWhileSpeakingChange: vi.fn(),
       onRestartAndInstall: vi.fn(),
       onSave: vi.fn(),
       primaryLanguage: 'en',
       saveMessage: null,
+      systemAudioMuteSupported: true,
     }),
   );
 }
@@ -83,13 +86,16 @@ describe('SettingsPage app language', () => {
         hasChanges: true,
         isSaving: false,
         isUpdatingApp: false,
+        muteSystemAudioWhileSpeaking: true,
         onAppLanguageChange: vi.fn(),
         onCheckForUpdates: vi.fn(),
         onLanguageChange: vi.fn(),
+        onMuteSystemAudioWhileSpeakingChange: vi.fn(),
         onRestartAndInstall: vi.fn(),
         onSave: vi.fn(),
         primaryLanguage: 'vi',
         saveMessage: null,
+        systemAudioMuteSupported: true,
       }),
     );
 
@@ -97,5 +103,21 @@ describe('SettingsPage app language', () => {
     expect(markup).toContain('Ngôn ngữ ứng dụng');
     expect(markup).toContain('Ngôn ngữ nói');
     expect(markup).toContain('Lưu tùy chọn');
+    expect(markup).toContain('Tắt âm thanh khác khi đang nói');
+  });
+});
+
+describe('SettingsPage voice audio preference', () => {
+  it('offers an opt-in macOS system audio mute control', () => {
+    const markup = renderSettings({
+      currentVersion: '0.1.0',
+      message: 'No updates found.',
+      phase: 'up_to_date',
+      targetVersion: null,
+    });
+
+    expect(markup).toContain('Mute other audio while speaking');
+    expect(markup).toContain('restore its previous mute state');
+    expect(markup).toContain('type="checkbox"');
   });
 });

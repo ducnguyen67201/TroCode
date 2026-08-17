@@ -26,13 +26,21 @@ describe('primary language options', () => {
     expect(isPrimaryLanguageSetupComplete(null, false)).toBe(false);
     expect(
       isPrimaryLanguageSetupComplete(
-        { appLanguage: 'en', primaryLanguage: null },
+        {
+          appLanguage: 'en',
+          muteSystemAudioWhileSpeaking: false,
+          primaryLanguage: null,
+        },
         true,
       ),
     ).toBe(false);
     expect(
       isPrimaryLanguageSetupComplete(
-        { appLanguage: 'en', primaryLanguage: 'en' },
+        {
+          appLanguage: 'en',
+          muteSystemAudioWhileSpeaking: false,
+          primaryLanguage: 'en',
+        },
         true,
       ),
     ).toBe(true);
