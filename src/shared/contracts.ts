@@ -423,11 +423,15 @@ export const PrimaryLanguageSchema = z.enum([
   'zh',
 ]);
 
+export const AppLanguageSchema = z.enum(['en', 'vi']);
+
 export const AppPreferencesSchema = z.object({
+  appLanguage: AppLanguageSchema.default('en'),
   primaryLanguage: PrimaryLanguageSchema.nullable(),
 });
 
 export const UpdateAppPreferencesRequestSchema = z.object({
+  appLanguage: AppLanguageSchema.default('en'),
   primaryLanguage: PrimaryLanguageSchema,
 });
 
@@ -477,6 +481,7 @@ export const CompanionStateSchema = z.enum([
 ]);
 
 export const CompanionVoiceActivitySchema = z.object({
+  appLanguage: AppLanguageSchema.default('en'),
   phase: z.enum([
     'requesting_permission',
     'connecting',
@@ -578,6 +583,7 @@ export const ActivateMembershipRequestSchema = z.object({
 
 export type Capability = z.infer<typeof CapabilitySchema>;
 export type ActionApprovalGrant = z.infer<typeof ActionApprovalGrantSchema>;
+export type AppLanguage = z.infer<typeof AppLanguageSchema>;
 export type AppPreferences = z.infer<typeof AppPreferencesSchema>;
 export type AppUpdateStatus = z.infer<typeof AppUpdateStatusSchema>;
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;

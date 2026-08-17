@@ -2,33 +2,37 @@ import { useEffect, useState } from 'react';
 
 import type { CompanionVoiceActivity } from '../shared/contracts';
 
+import { translate } from './app-language';
+
 function voiceActivityLabel(
   phase: CompanionVoiceActivity['phase'],
+  appLanguage: CompanionVoiceActivity['appLanguage'],
 ): string {
   switch (phase) {
     case 'requesting_permission':
-      return 'Starting microphone';
+      return translate(appLanguage, 'Starting microphone');
     case 'connecting':
-      return 'Connecting';
+      return translate(appLanguage, 'Connecting');
     case 'listening':
-      return 'Listening';
+      return translate(appLanguage, 'Listening');
     case 'processing':
-      return 'Transcribing';
+      return translate(appLanguage, 'Transcribing');
   }
 }
 
 function voiceActivityPlaceholder(
   phase: CompanionVoiceActivity['phase'],
+  appLanguage: CompanionVoiceActivity['appLanguage'],
 ): string {
   switch (phase) {
     case 'requesting_permission':
-      return 'Waiting for microphone access…';
+      return translate(appLanguage, 'Waiting for microphone access…');
     case 'connecting':
-      return 'Getting voice ready…';
+      return translate(appLanguage, 'Getting voice ready…');
     case 'listening':
-      return 'Speak now…';
+      return translate(appLanguage, 'Speak now…');
     case 'processing':
-      return 'Finishing your request…';
+      return translate(appLanguage, 'Finishing your request…');
   }
 }
 
@@ -61,9 +65,12 @@ export function VoiceIsland() {
         </svg>
       </span>
       <span className="voice-island__copy">
-        <strong>{voiceActivityLabel(activity.phase)}</strong>
+        <strong>
+          {voiceActivityLabel(activity.phase, activity.appLanguage)}
+        </strong>
         <span className={transcript ? '' : 'voice-island__placeholder'}>
-          {transcript || voiceActivityPlaceholder(activity.phase)}
+          {transcript ||
+            voiceActivityPlaceholder(activity.phase, activity.appLanguage)}
         </span>
       </span>
       <span className="voice-island__meter" aria-hidden="true">

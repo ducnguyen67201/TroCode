@@ -318,10 +318,11 @@ describe('registerIpcHandlers auth boundary', () => {
       electronMock.handlers
         .get(IPC_CHANNELS.updateAppPreferences)
         ?.(event, { primaryLanguage: 'vi' }),
-    ).resolves.toEqual({ primaryLanguage: 'vi' });
+    ).resolves.toEqual({ appLanguage: 'en', primaryLanguage: 'vi' });
 
     expect(getAppPreferences).toHaveBeenCalledOnce();
     expect(updateAppPreferences).toHaveBeenCalledWith({
+      appLanguage: 'en',
       primaryLanguage: 'vi',
     });
     unregister();
@@ -403,6 +404,7 @@ describe('registerIpcHandlers auth boundary', () => {
       }),
     ).toBeUndefined();
     expect(updateCompanionVoiceActivity).toHaveBeenCalledWith({
+      appLanguage: 'en',
       phase: 'listening',
       transcript: 'Open YouTube',
     });

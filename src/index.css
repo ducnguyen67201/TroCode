@@ -1510,11 +1510,18 @@ textarea:focus-visible {
   text-align: center;
 }
 
+.sidebar-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: auto;
+}
+
 .sidebar-footer {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: auto;
+  margin-top: 0;
   padding: 16px 10px 6px;
   border-top: 1px solid var(--border);
   font-size: 12px;
@@ -2283,6 +2290,12 @@ h1 {
 
 .settings-card .language-field {
   max-width: 440px;
+}
+
+.settings-section-divider {
+  height: 1px;
+  margin: 24px 0;
+  background: var(--border);
 }
 
 .settings-help {

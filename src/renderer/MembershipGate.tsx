@@ -1,11 +1,13 @@
 import { useState } from 'react';
 
-import type { MembershipStatus } from '../shared/contracts';
+import type { AppLanguage, MembershipStatus } from '../shared/contracts';
 
+import { appLocale, translate } from './app-language';
 import { BrandMark } from './BrandMark';
 import { formatMembershipExpiry } from './membership';
 
 interface MembershipGateProps {
+  appLanguage: AppLanguage;
   error: string | null;
   isActivating: boolean;
   isChecking: boolean;
@@ -17,6 +19,7 @@ interface MembershipGateProps {
 }
 
 export function MembershipGate({
+  appLanguage,
   error,
   isActivating,
   isChecking,
@@ -26,19 +29,23 @@ export function MembershipGate({
   onSignOut,
   status,
 }: MembershipGateProps) {
+  const t = (message: string) => translate(appLanguage, message);
   const [activationCode, setActivationCode] = useState('');
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const normalizedCode = activationCode.trim();
-  const expiry = formatMembershipExpiry(status?.expiresAt ?? null);
+  const expiry = formatMembershipExpiry(
+    status?.expiresAt ?? null,
+    appLocale(appLanguage),
+  );
   const busy = isActivating || isChecking || isSigningOut;
 
   const copyReferenceCode = async (): Promise<void> => {
     if (!status?.referenceCode) return;
     try {
       await navigator.clipboard.writeText(status.referenceCode);
-      setCopyMessage('Copied');
+      setCopyMessage(t('Copied'));
     } catch {
-      setCopyMessage('Select and copy the code');
+      setCopyMessage(t('Select and copy the code'));
     }
   };
 
@@ -47,7 +54,7 @@ export function MembershipGate({
       <main className="membership-screen" aria-live="polite">
         <div>
           <BrandMark className="auth-loading-mark" />
-          <span className="auth-status">Checking your membership…</span>
+          <span className="auth-status">{t('Checking your membership…')}</span>
         </div>
       </main>
     );
@@ -59,7 +66,7 @@ export function MembershipGate({
         <BrandMark />
         <div>
           <strong>TroCode</strong>
-          <span>Desktop agent</span>
+          <span>{t('Desktop agent')}</span>
         </div>
       </div>
 
@@ -67,47 +74,48 @@ export function MembershipGate({
         aria-labelledby="membership-heading"
         className="membership-card"
       >
-        <span className="membership-card__step">Final setup step</span>
-        <p className="eyebrow">Membership access</p>
+        <span className="membership-card__step">{t('Final setup step')}</span>
+        <p className="eyebrow">{t('Membership access')}</p>
         <h1 id="membership-heading">
           {status?.state === 'expired'
-            ? 'Renew your TroCode membership'
-            : 'Activate your TroCode membership'}
+            ? t('Renew your TroCode membership')
+            : t('Activate your TroCode membership')}
         </h1>
         <p className="membership-card__description">
-          Send your reference code to the TroCode team. When your access is
-          approved, paste the activation code you receive below.
+          {t(
+            'Send your reference code to the TroCode team. When your access is approved, paste the activation code you receive below.',
+          )}
         </p>
 
         <div className="membership-reference">
           <div>
-            <span>Your reference code</span>
-            <strong>{status?.referenceCode ?? 'Unavailable'}</strong>
+            <span>{t('Your reference code')}</span>
+            <strong>{status?.referenceCode ?? t('Unavailable')}</strong>
           </div>
           <button
             disabled={busy || !status?.referenceCode}
             onClick={() => void copyReferenceCode()}
             type="button"
           >
-            {copyMessage ?? 'Copy'}
+            {copyMessage ?? t('Copy')}
           </button>
         </div>
 
         {expiry && (
           <p className="membership-expiry">
-            Previous access ended on <strong>{expiry}</strong>.
+            {t('Previous access ended on')} <strong>{expiry}</strong>.
           </p>
         )}
 
         <label className="membership-code-field" htmlFor="activation-code">
-          <span>Activation code</span>
+          <span>{t('Activation code')}</span>
           <textarea
             autoCapitalize="none"
             autoComplete="off"
             disabled={busy}
             id="activation-code"
             onChange={(event) => setActivationCode(event.target.value)}
-            placeholder="Paste your activation code"
+            placeholder={t('Paste your activation code')}
             rows={4}
             spellCheck={false}
             value={activationCode}
@@ -116,7 +124,7 @@ export function MembershipGate({
 
         {(error || status?.state === 'error') && (
           <div className="membership-error" role="alert">
-            <strong>Membership needs attention</strong>
+            <strong>{t('Membership needs attention')}</strong>
             <span>{error ?? status?.summary}</span>
           </div>
         )}
@@ -128,7 +136,7 @@ export function MembershipGate({
             onClick={() => onActivate(normalizedCode)}
             type="button"
           >
-            {isActivating ? 'Activating…' : 'Activate membership'}
+            {isActivating ? t('Activating…') : t('Activate membership')}
             {!isActivating && <span aria-hidden="true">→</span>}
           </button>
           <button
@@ -137,7 +145,7 @@ export function MembershipGate({
             onClick={onRefresh}
             type="button"
           >
-            {isChecking ? 'Checking…' : 'Check again'}
+            {isChecking ? t('Checking…') : t('Check again')}
           </button>
         </div>
 
@@ -147,7 +155,7 @@ export function MembershipGate({
           onClick={onSignOut}
           type="button"
         >
-          {isSigningOut ? 'Signing out…' : 'Use another Google account'}
+          {isSigningOut ? t('Signing out…') : t('Use another Google account')}
         </button>
       </section>
     </main>

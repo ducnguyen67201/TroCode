@@ -9,6 +9,7 @@ import {
 } from '../../shared/contracts';
 
 const EMPTY_PREFERENCES: AppPreferences = {
+  appLanguage: 'en',
   primaryLanguage: null,
 };
 

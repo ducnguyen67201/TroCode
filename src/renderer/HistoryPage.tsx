@@ -1,21 +1,30 @@
 import { useMemo } from 'react';
 
-import type { TaskEvent, TaskHistory, TaskSnapshot } from '../shared/contracts';
+import type {
+  AppLanguage,
+  TaskEvent,
+  TaskHistory,
+  TaskSnapshot,
+} from '../shared/contracts';
 
+import { appLocale, translate } from './app-language';
 import { createHistoryEntries } from './history';
 
-function formatLabel(value: string): string {
-  return value.replaceAll('_', ' ');
+function formatLabel(value: string, appLanguage: AppLanguage): string {
+  return translate(appLanguage, value.replaceAll('_', ' '));
 }
 
-function formatMessageRole(role: TaskSnapshot['messages'][number]['role']): string {
-  if (role === 'user') return 'You';
-  if (role === 'system') return 'System';
+function formatMessageRole(
+  role: TaskSnapshot['messages'][number]['role'],
+  appLanguage: AppLanguage,
+): string {
+  if (role === 'user') return translate(appLanguage, 'You');
+  if (role === 'system') return translate(appLanguage, 'System');
   return 'TroCode';
 }
 
-function formatTaskTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+function formatTaskTime(value: string, appLanguage: AppLanguage): string {
+  return new Intl.DateTimeFormat(appLocale(appLanguage), {
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
@@ -24,18 +33,24 @@ function formatTaskTime(value: string): string {
 }
 
 export function HistoryPage({
+  appLanguage,
   events,
   hasLiveTask,
   onOpenAgent,
   persistence,
   tasks,
 }: {
+  appLanguage: AppLanguage;
   events: readonly TaskEvent[];
   hasLiveTask: boolean;
   onOpenAgent: () => void;
   persistence: TaskHistory['persistence'];
   tasks: readonly TaskSnapshot[];
 }) {
+  const t = (
+    message: string,
+    replacements?: Readonly<Record<string, string | number>>,
+  ) => translate(appLanguage, message, replacements);
   const entries = useMemo(
     () => createHistoryEntries(tasks, events),
     [events, tasks],
@@ -47,19 +62,21 @@ export function HistoryPage({
         <div>
           <p className="eyebrow">
             {persistence.mode === 'postgres'
-              ? 'Saved task history'
-              : 'Current app session'}
+              ? t('Saved task history')
+              : t('Current app session')}
           </p>
-          <h1>Task trail</h1>
+          <h1>{t('Task trail')}</h1>
           <p>
             {persistence.mode === 'postgres'
-              ? 'A durable record of finished work, restored when you reopen TroCode.'
+              ? t(
+                  'A durable record of finished work, restored when you reopen TroCode.',
+                )
               : persistence.summary}
           </p>
         </div>
         <span className="session-badge">
           <span aria-hidden="true" />
-          {persistence.mode === 'postgres' ? 'Saved' : 'Session only'}
+          {persistence.mode === 'postgres' ? t('Saved') : t('Session only')}
         </span>
       </header>
 
@@ -69,33 +86,40 @@ export function HistoryPage({
             <span />
           </div>
           <p className="eyebrow">
-            {hasLiveTask ? 'Task in motion' : 'The trail is clear'}
+            {hasLiveTask ? t('Task in motion') : t('The trail is clear')}
           </p>
           <h2 id="history-empty-title">
             {hasLiveTask
-              ? 'Your active task has not settled yet.'
-              : 'Finished tasks will settle here.'}
+              ? t('Your active task has not settled yet.')
+              : t('Finished tasks will settle here.')}
           </h2>
           <p>
             {hasLiveTask
-              ? 'Return to Agent to watch, steer, or stop it. Its final record will appear here.'
-              : 'Completed, stopped, and unsuccessful tasks appear with their scope, conversation, and outcome.'}
+              ? t(
+                  'Return to Agent to watch, steer, or stop it. Its final record will appear here.',
+                )
+              : t(
+                  'Completed, stopped, and unsuccessful tasks appear with their scope, conversation, and outcome.',
+                )}
           </p>
           <button
             className="primary-button"
             onClick={onOpenAgent}
             type="button"
           >
-            {hasLiveTask ? 'Return to live task' : 'Start a task'}{' '}
+            {hasLiveTask ? t('Return to live task') : t('Start a task')}{' '}
             <span aria-hidden="true">→</span>
           </button>
         </section>
       ) : (
-        <ol className="history-trail" aria-label="Finished task history">
+        <ol className="history-trail" aria-label={t('Finished task history')}>
           {entries.map((entry, index) => {
             const progress = entry.progress
-              ? `${entry.progress.currentStep} of ${entry.progress.maxSteps} steps`
-              : 'No execution steps';
+              ? t('{current} of {maximum} steps', {
+                  current: entry.progress.currentStep,
+                  maximum: entry.progress.maxSteps,
+                })
+              : t('No execution steps');
             return (
               <li
                 className={`history-entry history-entry--${entry.phase}`}
@@ -113,13 +137,13 @@ export function HistoryPage({
                     <div>
                       <div className="history-entry__status-line">
                         <span className={`history-status history-status--${entry.phase}`}>
-                          {entry.phase}
+                          {formatLabel(entry.phase, appLanguage)}
                         </span>
                         <time dateTime={entry.updatedAt}>
-                          {formatTaskTime(entry.updatedAt)}
+                          {formatTaskTime(entry.updatedAt, appLanguage)}
                         </time>
                         {index === 0 && (
-                          <span className="history-latest">Latest</span>
+                          <span className="history-latest">{t('Latest')}</span>
                         )}
                       </div>
                       <h2>{entry.objective}</h2>
@@ -131,34 +155,42 @@ export function HistoryPage({
 
                   <div className="history-entry__facts">
                     <span>
-                      <small>Mode</small>
-                      {entry.behavior ?? 'Not compiled'}
+                      <small>{t('Mode')}</small>
+                      {entry.behavior
+                        ? formatLabel(entry.behavior, appLanguage)
+                        : t('Not compiled')}
                     </span>
                     <span>
-                      <small>Progress</small>
+                      <small>{t('Progress')}</small>
                       {progress}
                     </span>
                     <span>
-                      <small>Activity</small>
+                      <small>{t('Activity')}</small>
                       {entry.events.length}{' '}
-                      {entry.events.length === 1 ? 'event' : 'events'}
+                      {entry.events.length === 1 ? t('event') : t('events')}
                     </span>
                   </div>
 
                   <details className="history-details">
-                    <summary>Open task record</summary>
+                    <summary>{t('Open task record')}</summary>
                     <div className="history-details__grid">
                       <section
                         aria-labelledby={`conversation-${entry.snapshot.taskId}`}
                       >
-                        <h3 id={`conversation-${entry.snapshot.taskId}`}>Conversation</h3>
+                        <h3 id={`conversation-${entry.snapshot.taskId}`}>
+                          {t('Conversation')}
+                        </h3>
                         {entry.snapshot.messages.length === 0 ? (
-                          <p className="history-muted">No conversation was recorded.</p>
+                          <p className="history-muted">
+                            {t('No conversation was recorded.')}
+                          </p>
                         ) : (
                           <ol className="history-message-list">
                             {entry.snapshot.messages.map((message) => (
                               <li key={message.messageId}>
-                                <span>{formatMessageRole(message.role)}</span>
+                                <span>
+                                  {formatMessageRole(message.role, appLanguage)}
+                                </span>
                                 <p>{message.text}</p>
                               </li>
                             ))}
@@ -168,10 +200,14 @@ export function HistoryPage({
                       <section
                         aria-labelledby={`activity-${entry.snapshot.taskId}`}
                       >
-                        <h3 id={`activity-${entry.snapshot.taskId}`}>Outcome & activity</h3>
+                        <h3 id={`activity-${entry.snapshot.taskId}`}>
+                          {t('Outcome & activity')}
+                        </h3>
                         {entry.events.length === 0 ? (
                           <p className="history-muted">
-                            No lifecycle activity was captured for this task.
+                            {t(
+                              'No lifecycle activity was captured for this task.',
+                            )}
                           </p>
                         ) : (
                           <ol className="history-event-list">
@@ -181,7 +217,9 @@ export function HistoryPage({
                                   className={`activity-marker activity-marker--${event.status}`}
                                 />
                                 <div>
-                                  <strong>{formatLabel(event.phase)}</strong>
+                                  <strong>
+                                    {formatLabel(event.phase, appLanguage)}
+                                  </strong>
                                   <p>{event.summary}</p>
                                 </div>
                               </li>

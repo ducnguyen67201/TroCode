@@ -1,17 +1,28 @@
 import type {
+  AppLanguage,
   AppUpdateStatus,
   PrimaryLanguage,
 } from '../shared/contracts';
 
-import { PRIMARY_LANGUAGE_OPTIONS } from './language-options';
+import {
+  APP_LANGUAGE_OPTIONS,
+  appLanguageLabel,
+  translate,
+} from './app-language';
+import {
+  PRIMARY_LANGUAGE_OPTIONS,
+  primaryLanguageLabel,
+} from './language-options';
 
 interface SettingsPageProps {
+  appLanguage: AppLanguage;
   appUpdateError: string | null;
   appUpdateStatus: AppUpdateStatus | null;
   error: string | null;
   hasChanges: boolean;
   isSaving: boolean;
   isUpdatingApp: boolean;
+  onAppLanguageChange(language: AppLanguage): void;
   onCheckForUpdates(): void;
   onLanguageChange(language: PrimaryLanguage): void;
   onRestartAndInstall(): void;
@@ -47,12 +58,14 @@ function appUpdateActionLabel(
 }
 
 export function SettingsPage({
+  appLanguage,
   appUpdateError,
   appUpdateStatus,
   error,
   hasChanges,
   isSaving,
   isUpdatingApp,
+  onAppLanguageChange,
   onCheckForUpdates,
   onLanguageChange,
   onRestartAndInstall,
@@ -60,6 +73,8 @@ export function SettingsPage({
   primaryLanguage,
   saveMessage,
 }: SettingsPageProps) {
+  const t = (message: string, replacements?: Record<string, string | number>) =>
+    translate(appLanguage, message, replacements);
   const isUpdateReady = appUpdateStatus?.phase === 'ready';
   const updateActionDisabled =
     isUpdatingApp ||
@@ -70,25 +85,25 @@ export function SettingsPage({
       'downloading',
       'installing',
     ].includes(appUpdateStatus.phase);
-  const updateActionLabel = appUpdateActionLabel(
-    appUpdateStatus,
-    isUpdatingApp,
+  const updateActionLabel = t(
+    appUpdateActionLabel(appUpdateStatus, isUpdatingApp),
   );
   const updateMessage =
     appUpdateError ??
     appUpdateStatus?.message ??
-    'Loading application update status…';
+    t('Loading application update status…');
   const updateHasError =
     Boolean(appUpdateError) || appUpdateStatus?.phase === 'error';
 
   return (
     <section className="settings-page" aria-labelledby="settings-heading">
       <div className="settings-heading">
-        <p className="eyebrow">Preferences</p>
-        <h1 id="settings-heading">Settings</h1>
+        <p className="eyebrow">{t('Preferences')}</p>
+        <h1 id="settings-heading">{t('Settings')}</h1>
         <p>
-          Manage how TroCode interprets your voice and keep the installed
-          application current.
+          {t(
+            'Manage TroCode’s interface language, voice input, and installed application.',
+          )}
         </p>
       </div>
 
@@ -101,14 +116,49 @@ export function SettingsPage({
       >
         <div className="settings-card__heading">
           <div>
-            <p className="eyebrow">Voice input</p>
-            <h2>Primary language</h2>
+            <p className="eyebrow">{t('App interface')}</p>
+            <h2>{t('App language')}</h2>
+          </div>
+          <span className="settings-badge settings-badge--neutral">
+            {appLanguageLabel(appLanguage)}
+          </span>
+        </div>
+
+        <label className="language-field" htmlFor="settings-app-language">
+          <span>{t('Interface language')}</span>
+          <select
+            id="settings-app-language"
+            onChange={(event) =>
+              onAppLanguageChange(event.target.value as AppLanguage)
+            }
+            value={appLanguage}
+          >
+            {APP_LANGUAGE_OPTIONS.map((option) => (
+              <option key={option.code} value={option.code}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <p className="settings-help">
+          {t(
+            'Choose the language used for navigation, settings, and other TroCode controls.',
+          )}
+        </p>
+
+        <div className="settings-section-divider" />
+
+        <div className="settings-card__heading">
+          <div>
+            <p className="eyebrow">{t('Voice input')}</p>
+            <h2>{t('Primary language')}</h2>
           </div>
           <span className="settings-badge">OpenAI Realtime</span>
         </div>
 
         <label className="language-field" htmlFor="settings-primary-language">
-          <span>Spoken language</span>
+          <span>{t('Spoken language')}</span>
           <select
             id="settings-primary-language"
             onChange={(event) =>
@@ -118,15 +168,16 @@ export function SettingsPage({
           >
             {PRIMARY_LANGUAGE_OPTIONS.map((option) => (
               <option key={option.code} value={option.code}>
-                {option.label}
+                {primaryLanguageLabel(option.code, appLanguage)}
               </option>
             ))}
           </select>
         </label>
 
         <p className="settings-help">
-          TroCode sends this as a transcription hint so short or noisy speech is
-          less likely to be interpreted as an unexpected language or script.
+          {t(
+            'TroCode sends this as a transcription hint so short or noisy speech is less likely to be interpreted as an unexpected language or script.',
+          )}
         </p>
 
         {(error || saveMessage) && (
@@ -146,7 +197,11 @@ export function SettingsPage({
             disabled={isSaving || !hasChanges}
             type="submit"
           >
-            {isSaving ? 'Saving…' : hasChanges ? 'Save language' : 'Saved'}
+            {isSaving
+              ? t('Saving…')
+              : hasChanges
+                ? t('Save preferences')
+                : t('Saved')}
           </button>
         </div>
       </form>
@@ -154,13 +209,15 @@ export function SettingsPage({
       <section className="settings-card settings-update-card" aria-labelledby="app-update-heading">
         <div className="settings-card__heading">
           <div>
-            <p className="eyebrow">About TroCode</p>
-            <h2 id="app-update-heading">Application update</h2>
+            <p className="eyebrow">{t('About TroCode')}</p>
+            <h2 id="app-update-heading">{t('Application update')}</h2>
           </div>
           <span className="settings-badge settings-badge--neutral">
             {appUpdateStatus
-              ? `Version ${appUpdateStatus.currentVersion}`
-              : 'Loading version…'}
+              ? t('Version {version}', {
+                  version: appUpdateStatus.currentVersion,
+                })
+              : t('Loading version…')}
           </span>
         </div>
 

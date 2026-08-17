@@ -1,14 +1,21 @@
 import { useMemo } from 'react';
 
-import type { TaskEvent, TaskHistory, TaskSnapshot } from '../shared/contracts';
+import type {
+  AppLanguage,
+  TaskEvent,
+  TaskHistory,
+  TaskSnapshot,
+} from '../shared/contracts';
 
+import { translate } from './app-language';
 import { createInsightsSummary } from './insights';
 
-function formatBehavior(value: string): string {
-  return value
+function formatBehavior(value: string, appLanguage: AppLanguage): string {
+  const label = value
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+  return translate(appLanguage, label);
 }
 
 function SummaryIcon({ name }: { name: 'checks' | 'events' | 'tasks' }) {
@@ -37,27 +44,36 @@ function SummaryIcon({ name }: { name: 'checks' | 'events' | 'tasks' }) {
   );
 }
 
-function EmptyBehaviors() {
+function EmptyBehaviors({ appLanguage }: { appLanguage: AppLanguage }) {
+  const t = (message: string) => translate(appLanguage, message);
   return (
     <div className="insights-empty-state">
       <span aria-hidden="true">◇</span>
       <div>
-        <strong>No task behavior yet</strong>
-        <p>Compile or run a task and its behavior will appear here.</p>
+        <strong>{t('No task behavior yet')}</strong>
+        <p>
+          {t('Compile or run a task and its behavior will appear here.')}
+        </p>
       </div>
     </div>
   );
 }
 
 export function InsightsPage({
+  appLanguage,
   events,
   persistence,
   tasks,
 }: {
+  appLanguage: AppLanguage;
   events: readonly TaskEvent[];
   persistence: TaskHistory['persistence'];
   tasks: readonly TaskSnapshot[];
 }) {
+  const t = (
+    message: string,
+    replacements?: Readonly<Record<string, string | number>>,
+  ) => translate(appLanguage, message, replacements);
   const summary = useMemo(
     () => createInsightsSummary(tasks, events),
     [events, tasks],
@@ -70,40 +86,51 @@ export function InsightsPage({
         <div>
           <p className="eyebrow">
             {persistence.mode === 'postgres'
-              ? 'Saved task history'
-              : 'Current app session'}
+              ? t('Saved task history')
+              : t('Current app session')}
           </p>
-          <h1>Insights</h1>
+          <h1>{t('Insights')}</h1>
           <p>
             {persistence.mode === 'postgres'
-              ? 'A view of how TroCode is working across your saved tasks and lifecycle activity.'
-              : 'A private, session-only view of how TroCode is working across your tasks.'}
+              ? t(
+                  'A view of how TroCode is working across your saved tasks and lifecycle activity.',
+                )
+              : t(
+                  'A private, session-only view of how TroCode is working across your tasks.',
+                )}
           </p>
         </div>
         <span className="session-badge">
           <span aria-hidden="true" />
-          {persistence.mode === 'postgres' ? 'Across sessions' : 'Live session'}
+          {persistence.mode === 'postgres'
+            ? t('Across sessions')
+            : t('Live session')}
         </span>
       </header>
 
       <div className="insights-tabs">
-        <span className="insights-tabs__active">Overview</span>
-        <span>Updates as your agent works</span>
+        <span className="insights-tabs__active">{t('Overview')}</span>
+        <span>{t('Updates as your agent works')}</span>
       </div>
 
-      <section className="insights-summary-grid" aria-label="Session summary">
+      <section
+        className="insights-summary-grid"
+        aria-label={t('Session summary')}
+      >
         <article className="insight-card insight-card--gauge">
           <div className="insight-card__header">
             <div className="insight-icon">
               <SummaryIcon name="checks" />
             </div>
-            <span>Success</span>
+            <span>{t('Success')}</span>
           </div>
           <strong className="insight-value">{summary.completionRate}%</strong>
-          <span className="insight-label">TASK COMPLETION RATE</span>
+          <span className="insight-label">{t('TASK COMPLETION RATE')}</span>
           <div
             className="completion-gauge"
-            aria-label={`${summary.completionRate}% of finished tasks completed`}
+            aria-label={t('{rate}% of finished tasks completed', {
+              rate: summary.completionRate,
+            })}
             role="img"
           >
             <svg viewBox="0 0 164 96">
@@ -124,7 +151,7 @@ export function InsightsPage({
             </svg>
             <div>
               <strong>{summary.completedTasks}</strong>
-              <span>completed</span>
+              <span>{t('completed')}</span>
             </div>
           </div>
         </article>
@@ -134,17 +161,17 @@ export function InsightsPage({
             <div className="insight-icon">
               <SummaryIcon name="tasks" />
             </div>
-            <span>Tasks</span>
+            <span>{t('Tasks')}</span>
           </div>
           <strong className="insight-value">{summary.taskCount}</strong>
-          <span className="insight-label">TASKS OBSERVED</span>
+          <span className="insight-label">{t('TASKS OBSERVED')}</span>
           <div className="insight-stat-list">
             <div>
-              <span>Finished</span>
+              <span>{t('Finished')}</span>
               <strong>{summary.finishedTasks}</strong>
             </div>
             <div>
-              <span>Steps observed</span>
+              <span>{t('Steps observed')}</span>
               <strong>{summary.stepsObserved}</strong>
             </div>
           </div>
@@ -155,14 +182,14 @@ export function InsightsPage({
             <div className="insight-icon">
               <SummaryIcon name="events" />
             </div>
-            <span>Lifecycle activity</span>
+            <span>{t('Lifecycle activity')}</span>
           </div>
           <strong className="insight-value">{summary.eventCount}</strong>
-          <span className="insight-label">EVENTS OBSERVED</span>
+          <span className="insight-label">{t('EVENTS OBSERVED')}</span>
           <div className="event-summary">
             <div>
               <span className="event-summary__dot" aria-hidden="true" />
-              <span>Approval decisions</span>
+              <span>{t('Approval decisions')}</span>
               <strong>{summary.approvalDecisions}</strong>
             </div>
             <div>
@@ -170,7 +197,7 @@ export function InsightsPage({
                 className="event-summary__dot event-summary__dot--error"
                 aria-hidden="true"
               />
-              <span>Needs attention</span>
+              <span>{t('Needs attention')}</span>
               <strong>{summary.errorEvents}</strong>
             </div>
           </div>
@@ -181,22 +208,24 @@ export function InsightsPage({
         <article className="insight-card capability-card">
           <div className="detail-card-heading">
             <div>
-              <p className="eyebrow">How TroCode helped</p>
-              <h2>Task behavior</h2>
+              <p className="eyebrow">{t('How TroCode helped')}</p>
+              <h2>{t('Task behavior')}</h2>
             </div>
-            <span>{summary.behaviorUsage.length} active</span>
+            <span>
+              {t('{count} active', { count: summary.behaviorUsage.length })}
+            </span>
           </div>
 
           {summary.behaviorUsage.length === 0 ? (
-            <EmptyBehaviors />
+            <EmptyBehaviors appLanguage={appLanguage} />
           ) : (
             <ol className="capability-list">
               {summary.behaviorUsage.map((item) => (
                 <li key={item.behavior}>
                   <div className="capability-row">
-                    <span>{formatBehavior(item.behavior)}</span>
+                    <span>{formatBehavior(item.behavior, appLanguage)}</span>
                     <strong>
-                      {item.count} {item.count === 1 ? 'task' : 'tasks'}
+                      {item.count} {item.count === 1 ? t('task') : t('tasks')}
                     </strong>
                   </div>
                   <div className="capability-track" aria-hidden="true">
@@ -211,13 +240,17 @@ export function InsightsPage({
         <article className="insight-card activity-rhythm-card">
           <div className="detail-card-heading">
             <div>
-              <p className="eyebrow">Last six weeks</p>
+              <p className="eyebrow">{t('Last six weeks')}</p>
               <h2>
-                {summary.currentStreak} day
-                {summary.currentStreak === 1 ? '' : 's'} active
+                {t(
+                  summary.currentStreak === 1
+                    ? '{count} day active'
+                    : '{count} days active',
+                  { count: summary.currentStreak },
+                )}
               </h2>
             </div>
-            <span>Best {summary.longestStreak}d</span>
+            <span>{t('Best {count}d', { count: summary.longestStreak })}</span>
           </div>
 
           <div className="activity-heatmap-wrap">
@@ -228,24 +261,24 @@ export function InsightsPage({
             </div>
             <div
               className="activity-heatmap"
-              aria-label="Lifecycle events per day for the last six weeks"
+              aria-label={t('Lifecycle events per day for the last six weeks')}
               role="img"
             >
               {summary.activityDays.map((day) => (
                 <span
                   className={`activity-cell activity-cell--${day.level}`}
                   key={day.date}
-                  title={`${day.label}: ${day.count} ${day.count === 1 ? 'event' : 'events'}`}
+                  title={`${day.label}: ${day.count} ${day.count === 1 ? t('event') : t('events')}`}
                 />
               ))}
             </div>
           </div>
           <div className="activity-legend">
-            <span>Less</span>
+            <span>{t('Less')}</span>
             {[0, 1, 2, 3, 4].map((level) => (
               <i className={`activity-cell activity-cell--${level}`} key={level} />
             ))}
-            <span>More</span>
+            <span>{t('More')}</span>
           </div>
         </article>
       </section>

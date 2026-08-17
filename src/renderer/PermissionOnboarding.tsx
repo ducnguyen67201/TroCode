@@ -1,7 +1,15 @@
-import type { CuaStatus, PrimaryLanguage } from '../shared/contracts';
+import type {
+  AppLanguage,
+  CuaStatus,
+  PrimaryLanguage,
+} from '../shared/contracts';
 
+import { translate } from './app-language';
 import { BrandMark } from './BrandMark';
-import { PRIMARY_LANGUAGE_OPTIONS } from './language-options';
+import {
+  PRIMARY_LANGUAGE_OPTIONS,
+  primaryLanguageLabel,
+} from './language-options';
 import {
   permissionStateLabel,
   type PermissionChecklist,
@@ -9,6 +17,7 @@ import {
 } from './permission-onboarding';
 
 interface PermissionOnboardingProps {
+  appLanguage: AppLanguage;
   checklist: PermissionChecklist;
   computerStatus: CuaStatus;
   error: string | null;
@@ -56,6 +65,7 @@ function permissionTone(state: PermissionState): string {
 }
 
 export function PermissionOnboarding({
+  appLanguage,
   checklist,
   computerStatus,
   error,
@@ -69,6 +79,7 @@ export function PermissionOnboarding({
   permissionsComplete,
   primaryLanguage,
 }: PermissionOnboardingProps) {
+  const t = (message: string) => translate(appLanguage, message);
   const hasBlockedPermission = Object.values(checklist).some(
     (state) => state === 'blocked',
   );
@@ -79,7 +90,7 @@ export function PermissionOnboarding({
         <BrandMark />
         <div>
           <strong>TroCode</strong>
-          <span>Desktop agent</span>
+          <span>{t('Desktop agent')}</span>
         </div>
       </div>
 
@@ -88,20 +99,23 @@ export function PermissionOnboarding({
         className="permission-onboarding__card"
       >
         <div className="permission-onboarding__intro">
-          <span className="permission-onboarding__step">One-time setup</span>
-          <p className="eyebrow">Language &amp; permissions</p>
-          <h1 id="permission-heading">Enable TroCode to work for you</h1>
+          <span className="permission-onboarding__step">
+            {t('One-time setup')}
+          </span>
+          <p className="eyebrow">{t('Language & permissions')}</p>
+          <h1 id="permission-heading">
+            {t('Enable TroCode to work for you')}
+          </h1>
           <p>
-            Choose your spoken language, then give TroCode the macOS permissions
-            it needs to hear your request, use the computer, and confirm the
-            result. You stay in control and can revoke permissions in System
-            Settings at any time.
+            {t(
+              'Choose your spoken language, then give TroCode the macOS permissions it needs to hear your request, use the computer, and confirm the result. You stay in control and can revoke permissions in System Settings at any time.',
+            )}
           </p>
           <label
             className="language-field permission-onboarding__language"
             htmlFor="onboarding-primary-language"
           >
-            <span>What language will you usually speak?</span>
+            <span>{t('What language will you usually speak?')}</span>
             <select
               disabled={isLanguageLoading || isRequesting}
               id="onboarding-primary-language"
@@ -112,13 +126,14 @@ export function PermissionOnboarding({
             >
               {PRIMARY_LANGUAGE_OPTIONS.map((option) => (
                 <option key={option.code} value={option.code}>
-                  {option.label}
+                  {primaryLanguageLabel(option.code, appLanguage)}
                 </option>
               ))}
             </select>
             <small>
-              TroCode uses this to keep voice transcription in the language you
-              expect. You can change it later in Settings.
+              {t(
+                'TroCode uses this to keep voice transcription in the language you expect. You can change it later in Settings.',
+              )}
             </small>
           </label>
         </div>
@@ -132,16 +147,16 @@ export function PermissionOnboarding({
                   {permission.icon}
                 </span>
                 <span className="permission-list__copy">
-                  <strong>{permission.name}</strong>
-                  <span>{permission.description}</span>
+                  <strong>{t(permission.name)}</strong>
+                  <span>{t(permission.description)}</span>
                 </span>
                 <span className="permission-list__status">
                   <span
-                    aria-label={`${permission.name}: ${permissionStateLabel(state)}`}
+                    aria-label={`${t(permission.name)}: ${t(permissionStateLabel(state))}`}
                     className={`permission-state permission-state--${permissionTone(state)}`}
                   >
                     <span aria-hidden="true" />
-                    {permissionStateLabel(state)}
+                    {t(permissionStateLabel(state))}
                   </span>
                   {permission.key === 'screenRecording' &&
                     state !== 'granted' &&
@@ -153,7 +168,7 @@ export function PermissionOnboarding({
                         onClick={onOpenScreenRecordingSettings}
                         type="button"
                       >
-                        Request access
+                        {t('Request access')}
                       </button>
                     )}
                 </span>
@@ -164,7 +179,7 @@ export function PermissionOnboarding({
 
         {(error || computerStatus.state === 'error') && (
           <div className="permission-onboarding__error" role="alert">
-            <strong>Permission setup needs attention</strong>
+            <strong>{t('Permission setup needs attention')}</strong>
             <span>{error ?? computerStatus.summary}</span>
           </div>
         )}
@@ -177,12 +192,12 @@ export function PermissionOnboarding({
             type="button"
           >
             {isRequesting
-              ? 'Finishing setup…'
+              ? t('Finishing setup…')
               : permissionsComplete
-                ? 'Finish setup'
+                ? t('Finish setup')
               : hasBlockedPermission
-                ? 'Open permission settings'
-                : 'Enable all permissions'}
+                ? t('Open permission settings')
+                : t('Enable all permissions')}
             {!isRequesting && <span aria-hidden="true">→</span>}
           </button>
           <button
@@ -191,15 +206,14 @@ export function PermissionOnboarding({
             onClick={onRefresh}
             type="button"
           >
-            {isChecking ? 'Checking…' : 'Check again'}
+            {isChecking ? t('Checking…') : t('Check again')}
           </button>
         </div>
 
         <p className="permission-onboarding__note" role="status">
-          TroCode registers itself with macOS for Screen Recording. If System
-          Settings opens, switch on the TroCode row—you should not need the +
-          button. Then return here and we’ll connect automatically. Screen
-          Recording may require restarting TroCode once.
+          {t(
+            'TroCode registers itself with macOS for Screen Recording. If System Settings opens, switch on the TroCode row—you should not need the + button. Then return here and we’ll connect automatically. Screen Recording may require restarting TroCode once.',
+          )}
         </p>
       </section>
     </main>

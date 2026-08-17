@@ -45,7 +45,11 @@ describe('cursor companion state', () => {
         phase: 'listening',
         transcript: 'Open YouTube',
       }),
-    ).toEqual({ phase: 'listening', transcript: 'Open YouTube' });
+    ).toEqual({
+      appLanguage: 'en',
+      phase: 'listening',
+      transcript: 'Open YouTube',
+    });
     expect(
       CompanionVoiceActivitySchema.safeParse({
         phase: 'idle',

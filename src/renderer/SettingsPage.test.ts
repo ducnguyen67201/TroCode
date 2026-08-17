@@ -8,12 +8,14 @@ import { SettingsPage } from './SettingsPage';
 function renderSettings(appUpdateStatus: AppUpdateStatus): string {
   return renderToStaticMarkup(
     SettingsPage({
+      appLanguage: 'en',
       appUpdateError: null,
       appUpdateStatus,
       error: null,
       hasChanges: false,
       isSaving: false,
       isUpdatingApp: false,
+      onAppLanguageChange: vi.fn(),
       onCheckForUpdates: vi.fn(),
       onLanguageChange: vi.fn(),
       onRestartAndInstall: vi.fn(),
@@ -36,6 +38,8 @@ describe('SettingsPage application updates', () => {
     expect(markup).toContain('Application update');
     expect(markup).toContain('Version 0.1.0');
     expect(markup).toContain('Check for updates');
+    expect(markup).toContain('App language');
+    expect(markup).toContain('Spoken language');
   });
 
   it('offers restart only after an update is ready', () => {
@@ -60,5 +64,38 @@ describe('SettingsPage application updates', () => {
 
     expect(markup).toContain('Updates unavailable');
     expect(markup).toContain('disabled');
+  });
+});
+
+describe('SettingsPage app language', () => {
+  it('renders translated controls when Vietnamese is selected', () => {
+    const markup = renderToStaticMarkup(
+      SettingsPage({
+        appLanguage: 'vi',
+        appUpdateError: null,
+        appUpdateStatus: {
+          currentVersion: '0.1.0',
+          message: 'No updates found.',
+          phase: 'up_to_date',
+          targetVersion: null,
+        },
+        error: null,
+        hasChanges: true,
+        isSaving: false,
+        isUpdatingApp: false,
+        onAppLanguageChange: vi.fn(),
+        onCheckForUpdates: vi.fn(),
+        onLanguageChange: vi.fn(),
+        onRestartAndInstall: vi.fn(),
+        onSave: vi.fn(),
+        primaryLanguage: 'vi',
+        saveMessage: null,
+      }),
+    );
+
+    expect(markup).toContain('Cài đặt');
+    expect(markup).toContain('Ngôn ngữ ứng dụng');
+    expect(markup).toContain('Ngôn ngữ nói');
+    expect(markup).toContain('Lưu tùy chọn');
   });
 });
