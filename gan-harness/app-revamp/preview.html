@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>TroCode design preview</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      const computerStatus = {
+        state: 'disconnected',
+        available: false,
+        platform: 'darwin',
+        summary: 'Computer use is available when this task needs it.',
+        nextActions: [],
+      };
+      const noOpSubscription = () => () => undefined;
+      const resolvedVoid = () => Promise.resolve();
+
+      window.tro = {
+        activateMembership: () => Promise.reject(new Error('Preview only')),
+        cancelTask: () => Promise.reject(new Error('Preview only')),
+        checkForAppUpdates: () => Promise.reject(new Error('Preview only')),
+        configureVoice: () => Promise.reject(new Error('Preview only')),
+        connectComputer: () => Promise.resolve(computerStatus),
+        createVoiceCall: () => Promise.reject(new Error('Preview only')),
+        decideApproval: () => Promise.reject(new Error('Preview only')),
+        getAppPreferences: () => Promise.resolve({
+          appLanguage: 'en',
+          muteSystemAudioWhileSpeaking: false,
+          primaryLanguage: 'en',
+        }),
+        getAppUpdateStatus: () => Promise.resolve({
+          currentVersion: '0.1.1',
+          message: 'TroCode is up to date.',
+          phase: 'up_to_date',
+          targetVersion: null,
+        }),
+        getAuthStatus: () => Promise.resolve({
+          state: 'signed_in',
+          configured: true,
+          user: { id: 'preview-user', email: 'duc@example.com', name: 'Duc' },
+          summary: 'Signed in for design preview.',
+        }),
+        getComputerStatus: () => Promise.resolve(computerStatus),
+        getMembershipStatus: () => Promise.resolve({
+          state: 'active',
+          required: true,
+          referenceCode: 'TRC-DEMO-2026-USER',
+          expiresAt: null,
+          summary: 'Active preview membership.',
+        }),
+        getTaskHistory: () => Promise.resolve({
+          events: [],
+          persistence: { mode: 'session_only', summary: 'Design preview session.' },
+          snapshots: [],
+        }),
+        getVoiceStatus: () => Promise.resolve({
+          state: 'ready',
+          provider: 'openai',
+          model: 'gpt-realtime-whisper',
+          summary: 'Voice ready.',
+        }),
+        onAppUpdateStatusChanged: noOpSubscription,
+        onTaskUpdate: noOpSubscription,
+        onVoiceShortcut: noOpSubscription,
+        openSystemPermissionSettings: resolvedVoid,
+        recordVoiceTranscript: resolvedVoid,
+        reportVoiceDiagnostic: resolvedVoid,
+        respondToInteraction: () => Promise.reject(new Error('Preview only')),
+        restartAndInstallAppUpdate: resolvedVoid,
+        setCompanionState: resolvedVoid,
+        setCompanionVoiceActivity: resolvedVoid,
+        setVoiceAudioDucking: resolvedVoid,
+        signInWithGoogle: () => Promise.reject(new Error('Preview only')),
+        signOutGoogle: () => Promise.reject(new Error('Preview only')),
+        startTask: () => Promise.reject(new Error('Preview only')),
+        steerTask: () => Promise.reject(new Error('Preview only')),
+        submitTask: () => Promise.reject(new Error('Preview only')),
+        updateAppPreferences: () => Promise.reject(new Error('Preview only')),
+      };
+    </script>
+    <script src="../../.webpack/arm64/renderer/main_window/index.js"></script>
+  </body>
+</html>

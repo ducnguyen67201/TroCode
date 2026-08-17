@@ -1907,13 +1907,33 @@ export function App({
             systemAudioMuteSupported={voicePlatform === 'macos'}
           />
         ) : (
-        <div className="content-grid" id="task">
-          <section className="task-column">
-            <div className={`hero-copy hero-copy--${hero.state}`}>
-              <p className="eyebrow">{hero.eyebrow}</p>
-              <h1>{hero.heading}</h1>
-              <p>{hero.description}</p>
-            </div>
+          <div className="content-grid" id="task">
+            <section className="task-column">
+              <section className={`agent-stage agent-stage--${hero.state}`}>
+                <div className={`hero-copy hero-copy--${hero.state}`}>
+                  <p className="eyebrow">{hero.eyebrow}</p>
+                  <h1>{hero.heading}</h1>
+                  <p>{hero.description}</p>
+                </div>
+
+                <div className="agent-stage__map" aria-hidden="true">
+                  <div className="agent-stage__orbit agent-stage__orbit--outer" />
+                  <div className="agent-stage__orbit agent-stage__orbit--inner" />
+                  <span className="agent-stage__node agent-stage__node--scope">
+                    {t('Outcome first')}
+                  </span>
+                  <span className="agent-stage__node agent-stage__node--act">
+                    {t('Act')}
+                  </span>
+                  <span className="agent-stage__node agent-stage__node--verify">
+                    {t('Success looks like')}
+                  </span>
+                  <span className="agent-stage__core">
+                    <BrandMark className="agent-stage__mark" />
+                    <i />
+                  </span>
+                </div>
+              </section>
 
             <form
               className={`task-composer ${hasLiveTask || pendingInteraction ? 'task-composer--compact' : ''}`}
@@ -2051,6 +2071,29 @@ export function App({
           </section>
 
           <aside className="context-column">
+            <section
+              className="context-overview"
+              aria-labelledby="session-overview-heading"
+            >
+              <p className="eyebrow">{t('Current app session')}</p>
+              <div className="context-overview__metric">
+                <strong>{historyTaskCount}</strong>
+                <span>
+                  {t(
+                    historyTaskCount === 1
+                      ? '{count} finished task'
+                      : '{count} finished tasks',
+                    { count: historyTaskCount },
+                  ).replace(`${historyTaskCount} `, '')}
+                </span>
+              </div>
+              <h2 id="session-overview-heading">{taskPhase}</h2>
+              <div className="context-overview__guardrails">
+                <span>{t('Bounded by default')}</span>
+                <span>{t('Approval gates enabled')}</span>
+                <span>{t('Tools selected at runtime')}</span>
+              </div>
+            </section>
             <ComputerConnection
               appLanguage={appLanguageDraft}
               isConnecting={isRequestingPermissions}
