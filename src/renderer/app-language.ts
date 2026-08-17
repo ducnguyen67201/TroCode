@@ -75,6 +75,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Choose how you talk with TroCode': 'Chọn cách bạn trò chuyện với TroCode',
   'Choose your spoken language, then give TroCode the macOS permissions it needs to hear your request, use the computer, and confirm the result. You stay in control and can revoke permissions in System Settings at any time.':
     'Chọn ngôn ngữ nói, sau đó cấp cho TroCode các quyền macOS cần thiết để nghe yêu cầu, sử dụng máy tính và xác nhận kết quả. Bạn luôn nắm quyền kiểm soát và có thể thu hồi quyền trong Cài đặt hệ thống bất cứ lúc nào.',
+  'Collapse sidebar': 'Thu gọn thanh bên',
   'Compile or run a task and its behavior will appear here.':
     'Biên dịch hoặc chạy một tác vụ và cách hoạt động của tác vụ sẽ xuất hiện tại đây.',
   Connected: 'Đã kết nối',
@@ -108,6 +109,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
     'Nhập mã truy cập do đội ngũ TroCode cung cấp. Mỗi tài khoản chỉ có thể dùng một mã và mỗi mã có số lượng người dùng giới hạn.',
   'Enter your access code': 'Nhập mã truy cập của bạn',
   'Enter your TroCode access code': 'Nhập mã truy cập TroCode của bạn',
+  'Expand sidebar': 'Mở rộng thanh bên',
   event: 'sự kiện',
   events: 'sự kiện',
   'EVENTS OBSERVED': 'SỰ KIỆN ĐÃ GHI NHẬN',

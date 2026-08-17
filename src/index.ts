@@ -992,6 +992,12 @@ const createWindow = (): void => {
     minWidth: 960,
     show: false,
     title: 'TroCode',
+    ...(process.platform === 'darwin'
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 16, y: 17 },
+        }
+      : {}),
     width: 1280,
     webPreferences: {
       backgroundThrottling: false,

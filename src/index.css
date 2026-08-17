@@ -1648,11 +1648,17 @@ textarea:focus-visible {
 }
 
 .app-shell {
+  --sidebar-width: 252px;
   display: grid;
   height: 100vh;
   overflow: hidden;
   background: var(--shell);
-  grid-template-columns: 252px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  transition: grid-template-columns 180ms ease;
+}
+
+.app-shell--sidebar-collapsed {
+  --sidebar-width: 82px;
 }
 
 .sidebar {
@@ -1660,15 +1666,68 @@ textarea:focus-visible {
   flex-direction: column;
   gap: 21px;
   min-width: 0;
-  padding: 34px 19px 20px;
+  padding: 10px 19px 20px;
   border-right: 1px solid rgba(39, 39, 34, 0.05);
   background: var(--shell);
+  transition: padding 180ms ease;
   -webkit-app-region: drag;
 }
 
 .sidebar button,
 .sidebar a {
   -webkit-app-region: no-drag;
+}
+
+.sidebar-chrome {
+  min-height: 34px;
+  flex: 0 0 34px;
+  transition:
+    flex-basis 180ms ease,
+    min-height 180ms ease;
+}
+
+.sidebar-toggle {
+  position: fixed;
+  z-index: 4;
+  top: 10px;
+  left: 199px;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: rgba(255, 254, 250, 0.58);
+  color: var(--muted);
+  cursor: pointer;
+  place-items: center;
+  transition:
+    top 180ms ease,
+    left 180ms ease,
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.sidebar-toggle:hover {
+  border-color: var(--border);
+  background: rgba(255, 254, 250, 0.92);
+  color: var(--text);
+}
+
+.sidebar-toggle svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.app-shell--sidebar-collapsed .sidebar-toggle {
+  top: 50px;
+  left: 23px;
 }
 
 .brand {
@@ -1850,6 +1909,51 @@ textarea:focus-visible {
   box-shadow: 0 2px 0 rgba(39, 39, 34, 0.05);
 }
 
+.app-shell--sidebar-collapsed .sidebar {
+  gap: 18px;
+  padding-right: 14px;
+  padding-left: 14px;
+}
+
+.app-shell--sidebar-collapsed .sidebar-chrome {
+  min-height: 72px;
+  flex-basis: 72px;
+}
+
+.app-shell--sidebar-collapsed .brand {
+  justify-content: center;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.app-shell--sidebar-collapsed .brand > .brand-copy,
+.app-shell--sidebar-collapsed .sidebar-item-label,
+.app-shell--sidebar-collapsed .nav-label,
+.app-shell--sidebar-collapsed .nav-count,
+.app-shell--sidebar-collapsed .sidebar-footer > div {
+  display: none;
+}
+
+.app-shell--sidebar-collapsed .new-task-button,
+.app-shell--sidebar-collapsed .nav-item {
+  width: 44px;
+  align-self: center;
+  justify-content: center;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.app-shell--sidebar-collapsed .nav-item--active::before {
+  top: 9px;
+  bottom: 9px;
+}
+
+.app-shell--sidebar-collapsed .sidebar-footer {
+  justify-content: center;
+  padding-right: 0;
+  padding-left: 0;
+}
+
 .topbar {
   position: sticky;
   z-index: 2;
@@ -1857,8 +1961,8 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 76px;
-  padding: 15px 46px;
+  min-height: 68px;
+  padding: 12px 36px;
   border-bottom: 1px solid var(--border);
   border-radius: 22px 22px 0 0;
   background: rgba(255, 254, 250, 0.94);
@@ -1875,7 +1979,7 @@ textarea:focus-visible {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 11px;
   -webkit-app-region: no-drag;
 }
 
@@ -1925,57 +2029,73 @@ textarea:focus-visible {
   text-transform: capitalize;
 }
 
-.prototype-pill {
-  padding: 6px 9px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
 .account-chip {
   display: inline-flex;
-  max-width: 180px;
+  max-width: 160px;
   align-items: center;
-  gap: 7px;
-  padding: 4px 8px 4px 5px;
+  gap: 8px;
+  padding: 3px 2px;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 8px;
   color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
 }
 
-.account-chip > span:last-child {
+.account-name {
   overflow: hidden;
+  font-weight: 700;
   text-overflow: ellipsis;
 }
 
 .account-avatar {
   display: grid;
-  width: 22px;
-  height: 22px;
+  width: 30px;
+  height: 30px;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 5px;
-  background: rgba(242, 201, 76, 0.3);
+  border: 1px solid rgba(118, 86, 0, 0.16);
+  border-radius: 50%;
+  background: rgba(242, 201, 76, 0.24);
   color: var(--accent-text);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
 }
 
 .sign-out-button {
-  padding: 6px 8px;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--text);
   cursor: pointer;
   font-size: 11px;
+  font-weight: 750;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.sign-out-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .sign-out-button:hover:not(:disabled) {
-  color: var(--text);
+  border-color: rgba(185, 71, 63, 0.38);
+  background: rgba(185, 71, 63, 0.07);
+  color: var(--danger);
+  transform: translateY(-1px);
 }
 
 .sign-out-button:disabled {
@@ -4061,7 +4181,15 @@ h1 {
 
 @media (max-width: 1020px) {
   .app-shell {
-    grid-template-columns: 216px minmax(0, 1fr);
+    --sidebar-width: 216px;
+  }
+
+  .app-shell.app-shell--sidebar-collapsed {
+    --sidebar-width: 82px;
+  }
+
+  .app-shell:not(.app-shell--sidebar-collapsed) .sidebar-toggle {
+    left: 163px;
   }
 
   .topbar,
@@ -4078,9 +4206,10 @@ h1 {
     padding: 34px 32px 96px;
   }
 
-  .prototype-pill {
+  .account-name {
     display: none;
   }
+
 }
 
 @media (prefers-reduced-motion: reduce) {

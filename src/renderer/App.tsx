@@ -695,6 +695,7 @@ export function App({
   onSignOut: () => void;
 }) {
   const [activeView, setActiveView] = useState<ActiveView>('agent');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [input, setInput] = useState('');
   const [voiceTranscript, setVoiceTranscript] = useState('');
   const [snapshot, setSnapshot] = useState<TaskSnapshot | null>(null);
@@ -1614,64 +1615,99 @@ export function App({
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div
+      className={
+        isSidebarCollapsed
+          ? 'app-shell app-shell--sidebar-collapsed'
+          : 'app-shell'
+      }
+    >
+      <aside className="sidebar" id="primary-sidebar">
+        <div className="sidebar-chrome">
+          <button
+            aria-controls="primary-sidebar"
+            aria-expanded={!isSidebarCollapsed}
+            aria-label={t(
+              isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar',
+            )}
+            className="sidebar-toggle"
+            onClick={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
+            title={t(
+              isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar',
+            )}
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <rect height="16" rx="2" width="18" x="3" y="4" />
+              <path d="M9 4v16" />
+            </svg>
+          </button>
+        </div>
+
         <div className="brand">
           <BrandMark />
-          <div>
+          <div className="brand-copy">
             <strong>TroCode</strong>
             <span>{t('Desktop agent')}</span>
           </div>
         </div>
 
         <button
+          aria-label={t('New task')}
           className="new-task-button"
           disabled={isSubmitting}
           onClick={() => {
             setActiveView('agent');
             void resetTask();
           }}
+          title={isSidebarCollapsed ? t('New task') : undefined}
           type="button"
         >
           <span aria-hidden="true">＋</span>
-          {t('New task')}
+          <span className="sidebar-item-label">{t('New task')}</span>
         </button>
 
         <nav aria-label={t('Workspace')}>
           <span className="nav-label">{t('Workspace')}</span>
           <button
+            aria-label={t('Agent')}
             aria-current={activeView === 'agent' ? 'page' : undefined}
             className={`nav-item ${
               activeView === 'agent' ? 'nav-item--active' : ''
             }`}
             onClick={() => setActiveView('agent')}
+            title={isSidebarCollapsed ? t('Agent') : undefined}
             type="button"
           >
             <NavigationIcon name="agent" />
-            {t('Agent')}
+            <span className="sidebar-item-label">{t('Agent')}</span>
           </button>
           <button
+            aria-label={t('History')}
             aria-current={activeView === 'history' ? 'page' : undefined}
             className={`nav-item ${
               activeView === 'history' ? 'nav-item--active' : ''
             }`}
             onClick={() => setActiveView('history')}
+            title={isSidebarCollapsed ? t('History') : undefined}
             type="button"
           >
             <NavigationIcon name="history" />
-            {t('History')}
+            <span className="sidebar-item-label">{t('History')}</span>
             <span className="nav-count">{historyTaskCount}</span>
           </button>
           <button
+            aria-label={t('Insights')}
             aria-current={activeView === 'insights' ? 'page' : undefined}
             className={`nav-item ${
               activeView === 'insights' ? 'nav-item--active' : ''
             }`}
             onClick={() => setActiveView('insights')}
+            title={isSidebarCollapsed ? t('Insights') : undefined}
             type="button"
           >
             <NavigationIcon name="insights" />
-            {t('Insights')}
+            <span className="sidebar-item-label">{t('Insights')}</span>
           </button>
         </nav>
 
@@ -1679,6 +1715,7 @@ export function App({
           <nav aria-label={t('Observe')}>
             <span className="nav-label">{t('Observe')}</span>
             <button
+              aria-label={t('Live activity')}
               className="nav-item"
               onClick={() => {
                 setActiveView('agent');
@@ -1690,10 +1727,11 @@ export function App({
                   0,
                 );
               }}
+              title={isSidebarCollapsed ? t('Live activity') : undefined}
               type="button"
             >
               <NavigationIcon name="activity" />
-              {t('Live activity')}
+              <span className="sidebar-item-label">{t('Live activity')}</span>
               <span className="nav-count">{events.length}</span>
             </button>
           </nav>
@@ -1702,15 +1740,17 @@ export function App({
         <div className="sidebar-bottom">
           <nav aria-label={t('Settings')}>
             <button
+              aria-label={t('Settings')}
               aria-current={activeView === 'settings' ? 'page' : undefined}
               className={`nav-item ${
                 activeView === 'settings' ? 'nav-item--active' : ''
               }`}
               onClick={() => setActiveView('settings')}
+              title={isSidebarCollapsed ? t('Settings') : undefined}
               type="button"
             >
               <NavigationIcon name="settings" />
-              {t('Settings')}
+              <span className="sidebar-item-label">{t('Settings')}</span>
             </button>
           </nav>
 
@@ -1763,12 +1803,11 @@ export function App({
                 <kbd>Esc</kbd>
               </button>
             )}
-            <span className="prototype-pill">Foundation · v0.1</span>
             <span className="account-chip" title={currentUser.email}>
               <span className="account-avatar" aria-hidden="true">
                 {currentUser.name.slice(0, 1).toUpperCase()}
               </span>
-              <span>{currentUser.name}</span>
+              <span className="account-name">{currentUser.name}</span>
             </span>
             <button
               className="sign-out-button"
@@ -1776,7 +1815,11 @@ export function App({
               onClick={onSignOut}
               type="button"
             >
-              {isSigningOut ? t('Signing out…') : t('Sign out')}
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M10 5H6.5A2.5 2.5 0 0 0 4 7.5v9A2.5 2.5 0 0 0 6.5 19H10" />
+                <path d="M14.5 8.5 18 12l-3.5 3.5M18 12H9" />
+              </svg>
+              <span>{isSigningOut ? t('Signing out…') : t('Sign out')}</span>
             </button>
           </div>
         </header>

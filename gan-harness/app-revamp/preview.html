@@ -17,6 +17,12 @@
       };
       const noOpSubscription = () => () => undefined;
       const resolvedVoid = () => Promise.resolve();
+      const emptyBudgetPeriod = () => ({
+        limitMicroUsd: 0,
+        remainingMicroUsd: 0,
+        reservedMicroUsd: 0,
+        settledMicroUsd: 0,
+      });
 
       window.tro = {
         activateMembership: () => Promise.reject(new Error('Preview only')),
@@ -50,6 +56,18 @@
           referenceCode: 'TRC-DEMO-2026-USER',
           expiresAt: null,
           summary: 'Active preview membership.',
+        }),
+        getUsageBudget: () => Promise.resolve({
+          actualMicroUsd: 0,
+          daily: emptyBudgetPeriod(),
+          enforcementMode: 'observe',
+          estimatedMicroUsd: 0,
+          monthEndsAt: '2026-09-01T00:00:00.000Z',
+          monthly: emptyBudgetPeriod(),
+          periodStartsAt: '2026-08-01T00:00:00.000Z',
+          source: 'local_advisory',
+          task: emptyBudgetPeriod(),
+          warningThresholdMicroUsd: 0,
         }),
         getTaskHistory: () => Promise.resolve({
           events: [],
