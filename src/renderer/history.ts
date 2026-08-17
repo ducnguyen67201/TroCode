@@ -1,6 +1,5 @@
 import type {
-  Capability,
-  InteractionMode,
+  TaskBehavior,
   TaskEvent,
   TaskPhase,
   TaskSnapshot,
@@ -13,9 +12,8 @@ const TERMINAL_PHASES = new Set<TaskPhase>([
 ]);
 
 export interface HistoryEntry {
-  capabilities: Capability[];
+  behavior: TaskBehavior | null;
   events: TaskEvent[];
-  interactionMode: InteractionMode | null;
   objective: string;
   phase: 'completed' | 'failed' | 'cancelled';
   progress: TaskSnapshot['progress'];
@@ -48,11 +46,10 @@ export function createHistoryEntries(
       } => TERMINAL_PHASES.has(snapshot.phase),
     )
     .map((snapshot) => ({
-      capabilities: snapshot.goal?.capabilities ?? [],
+      behavior: snapshot.goal?.behavior ?? null,
       events: [...(eventsByTaskId.get(snapshot.taskId)?.values() ?? [])].sort(
         (left, right) => left.timestamp.localeCompare(right.timestamp),
       ),
-      interactionMode: snapshot.goal?.interactionMode ?? null,
       objective: snapshot.goal?.objective ?? snapshot.request,
       phase: snapshot.phase,
       progress: snapshot.progress,

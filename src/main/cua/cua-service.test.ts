@@ -95,6 +95,7 @@ function fakeCuaModule() {
     DesktopScope: { Desktop: 0 },
     ScrollDirection: { Up: 0, Down: 1, Left: 2, Right: 3 },
     ClickInput: recordFactory(),
+    DragInput: recordFactory(),
     EndSessionInput: recordFactory(),
     GetDesktopStateInput: recordFactory(),
     HotkeyInput: recordFactory(),
@@ -223,6 +224,51 @@ describe('CUA task sessions', () => {
       undefined,
     );
     expect(actionOrder).toEqual(['move', 'click']);
+  });
+
+  it('dispatches a bounded drag through the typed CUA driver contract', async () => {
+    const taskId = randomUUID();
+    const driver = {
+      isAvailable: vi.fn(() => true),
+      startSession: vi.fn(async () => ({ active: true })),
+      drag: vi.fn(async () => ({
+        text: 'Dragged.',
+        images: [],
+        isError: false,
+        action: { effect: 0 },
+        degraded: false,
+        rawJson: '{}',
+      })),
+    };
+    const service = new CuaService();
+    Reflect.set(service, 'cuaModule', fakeCuaModule());
+    Reflect.set(service, 'driver', driver);
+
+    await service.startTaskSession(taskId);
+    await expect(
+      service.executeCommand(taskId, {
+        kind: 'drag',
+        fromX: 100,
+        fromY: 200,
+        toX: 500,
+        toY: 600,
+        durationMs: 750,
+        button: 'left',
+      }),
+    ).resolves.toEqual({ status: 'confirmed', summary: 'Dragged.' });
+    expect(driver.drag).toHaveBeenCalledWith(
+      {
+        session: taskId,
+        scope: 0,
+        fromX: 100,
+        fromY: 200,
+        toX: 500,
+        toY: 600,
+        durationMs: 750n,
+        button: 0,
+      },
+      undefined,
+    );
   });
 
   it('can point for visual guidance without clicking', async () => {

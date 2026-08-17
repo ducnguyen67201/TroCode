@@ -339,28 +339,25 @@ function LiveTaskRail({
         </div>
 
         <div className="live-task-rail__summary">
-          <span>{goal ? formatLabel(goal.interactionMode) : 'Defining interaction'}</span>
-          <span aria-hidden="true">·</span>
           <span>
             {goal
-              ? `${goal.capabilities.length} ${goal.capabilities.length === 1 ? 'capability' : 'capabilities'} in scope`
-              : 'Capability scope pending'}
+              ? formatLabel(goal.behavior)
+              : 'Understanding request'}
           </span>
+          <span aria-hidden="true">·</span>
+          <span>{goal ? 'Tools selected at runtime' : 'Preparing task'}</span>
         </div>
 
         {goal && (
           <details className="live-task-details">
-            <summary>Scope</summary>
+            <summary>Task details</summary>
             <div className="live-task-details__content">
               <div>
-                <span className="field-label">Capabilities</span>
-                <div className="tag-list">
-                  {goal.capabilities.map((capability) => (
-                    <span className="tag" key={capability}>
-                      {formatLabel(capability)}
-                    </span>
-                  ))}
-                </div>
+                <span className="field-label">Execution</span>
+                <p>
+                  TroCode chooses from the tools currently available and asks
+                  before consequential actions.
+                </p>
               </div>
               <div>
                 <span className="field-label">Success looks like</span>
@@ -948,6 +945,10 @@ export function App({
     computerStatus.state === 'ready' &&
     computerStatus.available &&
     voiceProviderStatus.state === 'ready';
+  const activeTaskExecutionReady =
+    snapshot?.goal?.behavior === 'answer'
+      ? voiceProviderStatus.state === 'ready'
+      : executionReady;
 
   const refreshMembership = useCallback(async () => {
     const refreshId = membershipRefreshIdRef.current + 1;
@@ -1410,7 +1411,7 @@ export function App({
     if (
       !snapshot ||
       !shouldAutoStartTask(snapshot, {
-        executionReady,
+        executionReady: activeTaskExecutionReady,
         isBusy: isSubmitting,
       }) ||
       autoStartAttemptedTaskIdsRef.current.has(snapshot.taskId)
@@ -1421,7 +1422,7 @@ export function App({
     autoStartAttemptedTaskIdsRef.current.add(snapshot.taskId);
     const taskId = snapshot.taskId;
     queueMicrotask(() => void startTask(taskId));
-  }, [executionReady, isSubmitting, snapshot, startTask]);
+  }, [activeTaskExecutionReady, isSubmitting, snapshot, startTask]);
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent): void => {
@@ -1724,7 +1725,7 @@ export function App({
                       ? 'Send answer'
                       : isSteering
                         ? 'Send steering'
-                        : 'Compile goal'}
+                        : 'Start task'}
                   <span aria-hidden="true">→</span>
                 </button>
               </div>
@@ -1747,7 +1748,7 @@ export function App({
             {hasLiveTask && snapshot && (
               <LiveTaskRail
                 autoStartFailed={autoStartFailedTaskId === snapshot.taskId}
-                canStart={executionReady}
+                canStart={activeTaskExecutionReady}
                 goal={snapshot.goal}
                 isStarting={isSubmitting}
                 lastEvent={snapshot.lastEvent}

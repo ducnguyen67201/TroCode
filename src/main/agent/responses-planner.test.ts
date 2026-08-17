@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PlannerStepInput } from './desktop-planner';
 import { compileGoal } from './goal-router';
 import { GptResponsesPlanner } from './responses-planner';
+import { RuntimeToolRegistry } from './runtime-tool-registry';
+import { createTaskContract } from './task-contract';
 
 const retinaCoordinateSpace = {
   screenHeight: 1_117,
@@ -57,6 +59,59 @@ function worksheetInput(
 }
 
 describe('GPT Responses desktop planner', () => {
+  it('answers a general text request without requiring a screenshot or desktop tool', async () => {
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+    const goal = createTaskContract('What is 37 times 19?', {
+      behavior: 'answer',
+      objective: 'Calculate 37 times 19.',
+      successDescription: 'Return the correct product.',
+    });
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      functionResponse('complete_desktop_task', {
+        summary: '37 × 19 = 703.',
+      }),
+    );
+    const planner = new GptResponsesPlanner({
+      credentialStore: { read: async () => 'sk-test-key', write: async () => undefined },
+      environmentApiKey: '',
+      fetchImpl,
+    });
+    const input: PlannerStepInput = {
+      goal,
+      guidancePoints: [],
+      observation: {
+        observationId,
+        taskId,
+        capturedAt: new Date().toISOString(),
+        text: 'Text-only task. No desktop observation is needed.',
+        degraded: false,
+        fingerprint: 'b'.repeat(64),
+      },
+      recentMessages: [],
+      remainingSteps: goal.limits.maxSteps,
+      steering: [],
+    };
+
+    await planner.start(taskId, goal);
+    await expect(planner.decide(taskId, input)).resolves.toEqual({
+      kind: 'complete',
+      summary: '37 × 19 = 703.',
+    });
+
+    const request = fetchImpl.mock.calls[0];
+    const body = JSON.parse(String(request?.[1]?.body)) as {
+      input: unknown;
+      tools: Array<{ name: string }>;
+    };
+    expect(JSON.stringify(body.input)).not.toContain('input_image');
+    expect(body.tools.map((tool) => tool.name)).toEqual([
+      'request_user_input',
+      'complete_desktop_task',
+      'block_desktop_task',
+    ]);
+  });
+
   it('uses Luna with the transcript and screenshot, then owns worksheet order locally', async () => {
     const taskId = randomUUID();
     const firstObservationId = randomUUID();
@@ -236,7 +291,8 @@ describe('GPT Responses desktop planner', () => {
       functionResponse('propose_desktop_action', {
         observationId,
         intent: 'click_element',
-        capability: 'computer_use',
+        toolId: 'desktop.control',
+        operation: 'click',
         description: 'Click the visible YouTube result.',
         target: 'YouTube result',
         command: { kind: 'click', x: 500, y: 500 },
@@ -263,6 +319,68 @@ describe('GPT Responses desktop planner', () => {
       'complete_desktop_task',
       'block_desktop_task',
     ]);
+  });
+
+  it('advertises and parses a future direct music adapter generically', async () => {
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+    const goal = compileGoal('Generate a lo-fi MP3 for me');
+    const input: PlannerStepInput = {
+      ...worksheetInput(taskId, observationId),
+      goal,
+      remainingSteps: goal.limits.maxSteps,
+    };
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      functionResponse('propose_desktop_action', {
+        observationId,
+        intent: 'write_file',
+        toolId: 'music.generate',
+        operation: 'create_track',
+        description: 'Generate a playable lo-fi MP3.',
+        target: 'new-track.mp3',
+        command: {
+          kind: 'direct_tool',
+          toolId: 'music.generate',
+          operation: 'create_track',
+          input: { prompt: 'Warm lo-fi beat', format: 'mp3' },
+        },
+      }),
+    );
+    const planner = new GptResponsesPlanner({
+      credentialStore: {
+        read: async () => 'sk-test-key',
+        write: async () => undefined,
+      },
+      environmentApiKey: '',
+      fetchImpl,
+      toolRegistry: new RuntimeToolRegistry([
+        {
+          id: 'music.generate',
+          description: 'Generate audio through a configured provider.',
+          operations: ['create_track'],
+        },
+      ]),
+    });
+    await planner.start(taskId, goal);
+
+    await expect(planner.decide(taskId, input)).resolves.toMatchObject({
+      kind: 'action',
+      toolId: 'music.generate',
+      operation: 'create_track',
+      command: { kind: 'direct_tool', toolId: 'music.generate' },
+    });
+    const requestBody = JSON.parse(
+      String(fetchImpl.mock.calls[0]?.[1]?.body),
+    ) as {
+      tools: Array<{
+        name: string;
+        parameters?: { properties?: { toolId?: { enum?: string[] } } };
+      }>;
+    };
+    expect(
+      requestBody.tools.find((tool) => tool.name === 'propose_desktop_action')
+        ?.parameters?.properties?.toolId?.enum,
+    ).toEqual(['music.generate']);
   });
 
   it('requires an API key before starting', async () => {

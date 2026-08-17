@@ -132,7 +132,7 @@ export function HistoryPage({
                   <div className="history-entry__facts">
                     <span>
                       <small>Mode</small>
-                      {entry.interactionMode ?? 'Not compiled'}
+                      {entry.behavior ?? 'Not compiled'}
                     </span>
                     <span>
                       <small>Progress</small>
@@ -144,17 +144,6 @@ export function HistoryPage({
                       {entry.events.length === 1 ? 'event' : 'events'}
                     </span>
                   </div>
-
-                  {entry.capabilities.length > 0 && (
-                    <div
-                      aria-label="Capabilities in scope"
-                      className="history-capabilities"
-                    >
-                      {entry.capabilities.map((capability) => (
-                        <span key={capability}>{formatLabel(capability)}</span>
-                      ))}
-                    </div>
-                  )}
 
                   <details className="history-details">
                     <summary>Open task record</summary>

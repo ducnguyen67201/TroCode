@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { TaskEvent, TaskSnapshot } from '../shared/contracts';
+import {
+  TaskSnapshotSchema,
+  type TaskEvent,
+  type TaskSnapshot,
+} from '../shared/contracts';
 
 import { createHistoryEntries } from './history';
 
@@ -40,6 +44,24 @@ function createEvent(
     taskId,
     timestamp,
   };
+}
+
+function completedSnapshot(goal: unknown) {
+  const timestamp = '2026-08-17T05:00:00.000Z';
+  return TaskSnapshotSchema.parse({
+    taskId: '11111111-1111-4111-8111-111111111111',
+    request: 'Complete the task',
+    phase: 'completed',
+    goal,
+    messages: [],
+    pendingInteraction: null,
+    approvalGrant: null,
+    progress: { currentStep: 1, maxSteps: 12 },
+    queuedSteering: [],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    lastEvent: null,
+  });
 }
 
 describe('createHistoryEntries', () => {
@@ -94,5 +116,49 @@ describe('createHistoryEntries', () => {
       earlier.eventId,
       later.eventId,
     ]);
+  });
+});
+
+describe('task history view model', () => {
+  it('shows v2 behavior without exposing a capability grant', () => {
+    const snapshot = completedSnapshot({
+      schemaVersion: 2,
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      originalRequest: 'Create a beat in GarageBand',
+      behavior: 'act',
+      objective: 'Create a beat in GarageBand',
+      successCriteria: [
+        { description: 'A beat is playable', verifier: 'Observe playback' },
+      ],
+      approvalPolicy: { alwaysConfirm: ['write_file'] },
+      limits: { maxMinutes: 10, maxSteps: 30 },
+    });
+
+    expect(createHistoryEntries([snapshot], [])).toMatchObject([
+      { behavior: 'act', objective: 'Create a beat in GarageBand' },
+    ]);
+  });
+
+  it('normalizes persisted v1 history into the same behavior view', () => {
+    const snapshot = completedSnapshot({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      originalRequest: 'Research the subject for me',
+      domain: 'research',
+      interactionMode: 'mixed',
+      objective: 'Research the subject',
+      successCriteria: [
+        { description: 'Return findings', verifier: 'Findings are present' },
+      ],
+      capabilities: ['browser', 'conversation'],
+      scope: { allowedApps: [], allowedDomains: [], allowedPaths: [] },
+      approvals: { alwaysConfirm: ['send'] },
+      limits: { maxMinutes: 15, maxSteps: 12 },
+    });
+
+    expect(snapshot.goal).toMatchObject({ schemaVersion: 2, behavior: 'act' });
+    expect(createHistoryEntries([snapshot], [])[0]).toMatchObject({
+      behavior: 'act',
+      objective: 'Research the subject',
+    });
   });
 });

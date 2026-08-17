@@ -25,6 +25,11 @@ import { createActionDigest } from './action-approval';
 import { canTransition, isTerminalPhase, transitionTask } from './goal-machine';
 import { compileGoal, requestNeedsClarification } from './goal-router';
 import { evaluateAction } from './policy';
+import {
+  defaultRuntimeToolRegistry,
+  type RuntimeToolRegistry,
+} from './runtime-tool-registry';
+import { createTaskContract, taskBehavior, type CompiledTaskIntent } from './task-contract';
 
 const APPROVAL_TTL_MS = 5 * 60 * 1_000;
 const MAX_TASK_MESSAGES = 200;
@@ -40,6 +45,7 @@ const STEERABLE_PHASES: ReadonlySet<TaskSnapshot['phase']> = new Set([
 
 interface TaskRuntimeOptions {
   now?: () => Date;
+  toolRegistry?: Pick<RuntimeToolRegistry, 'supports'>;
 }
 
 interface MessageDetails {
@@ -82,12 +88,15 @@ export class TaskRuntime extends EventEmitter {
 
   private readonly now: () => Date;
 
+  private readonly toolRegistry: Pick<RuntimeToolRegistry, 'supports'>;
+
   constructor(options: TaskRuntimeOptions = {}) {
     super();
     this.now = options.now ?? (() => new Date());
+    this.toolRegistry = options.toolRegistry ?? defaultRuntimeToolRegistry;
   }
 
-  submit(input: unknown): TaskSnapshot {
+  create(input: unknown): TaskSnapshot {
     const request = SubmitTaskRequestSchema.parse(input);
     const timestamp = this.timestamp();
     let snapshot: TaskSnapshot = {
@@ -111,9 +120,17 @@ export class TaskRuntime extends EventEmitter {
       timestamp,
     );
     snapshot = this.move(snapshot, 'interpreting', {
-      summary: 'Interpreting the request and compiling a bounded goal.',
-      nextActions: ['Classify domain, interaction mode, and capabilities.'],
+      summary: 'Interpreting the requested outcome.',
+      nextActions: ['Compile the objective and success condition.'],
     });
+
+    return snapshot;
+  }
+
+  /** @deprecated Production submission uses TaskSubmissionService. */
+  submit(input: unknown): TaskSnapshot {
+    const snapshot = this.create(input);
+    const request = { text: snapshot.request };
 
     if (requestNeedsClarification(request.text)) {
       return this.askForClarification(
@@ -124,6 +141,43 @@ export class TaskRuntime extends EventEmitter {
     }
 
     return this.compileReadyGoal(snapshot);
+  }
+
+  applyCompiledIntent(
+    taskId: string,
+    intent: CompiledTaskIntent,
+  ): TaskSnapshot {
+    const snapshot = this.getTask(taskId);
+    if (snapshot.phase !== 'interpreting') {
+      throw new Error(`Task ${taskId} is not waiting for intent compilation.`);
+    }
+    const goal = createTaskContract(snapshot.request, intent);
+    return this.move(
+      {
+        ...snapshot,
+        goal,
+        pendingInteraction: null,
+        approvalGrant: null,
+        progress: { currentStep: 0, maxSteps: goal.limits.maxSteps },
+      },
+      'ready',
+      {
+        summary: 'Task understood and ready to start.',
+        nextActions: ['Start the task when the execution provider is available.'],
+      },
+    );
+  }
+
+  requestInitialClarification(
+    taskId: string,
+    prompt: string,
+    choices?: Array<{ id: string; label: string }>,
+  ): TaskSnapshot {
+    const snapshot = this.getTask(taskId);
+    if (snapshot.phase !== 'interpreting') {
+      throw new Error(`Task ${taskId} is not being interpreted.`);
+    }
+    return this.askForClarification(snapshot, prompt, 'clarifying', choices);
   }
 
   start(input: unknown): TaskSnapshot {
@@ -179,7 +233,7 @@ export class TaskRuntime extends EventEmitter {
     const snapshot = this.getTask(taskId);
     if (!snapshot.goal) throw new Error('Desktop action requires a compiled goal.');
 
-    const decision = evaluateAction(snapshot.goal, action);
+    const decision = evaluateAction(snapshot.goal, action, this.toolRegistry);
     if (decision.status !== 'allowed') {
       throw new Error(`Action is not directly dispatchable: ${decision.summary}`);
     }
@@ -216,8 +270,7 @@ export class TaskRuntime extends EventEmitter {
       snapshot,
       {
         kind:
-          snapshot.goal?.interactionMode === 'answer' ||
-          snapshot.goal?.interactionMode === 'guide'
+          (snapshot.goal && taskBehavior(snapshot.goal) !== 'act')
             ? 'answer'
             : 'status',
         role: 'assistant',
@@ -320,7 +373,7 @@ export class TaskRuntime extends EventEmitter {
 
     answeredSnapshot = {
       ...answeredSnapshot,
-      request: request.text,
+      request: `${snapshot.request}\n\nClarification: ${request.text}`,
     };
     answeredSnapshot = this.move(answeredSnapshot, 'interpreting', {
       summary: 'Clarification received. Recompiling the bounded goal.',
@@ -338,6 +391,29 @@ export class TaskRuntime extends EventEmitter {
     return this.compileReadyGoal(answeredSnapshot);
   }
 
+  acceptIntentClarification(input: unknown): TaskSnapshot {
+    const request = RespondToInteractionRequestSchema.parse(input);
+    const snapshot = this.getTask(request.taskId);
+    const pending = this.matchPendingInteraction(snapshot, request.interactionId);
+    if (pending.kind !== 'clarification' || snapshot.phase !== 'clarifying') {
+      throw new Error(`Task ${request.taskId} is not waiting for intent clarification.`);
+    }
+    const timestamp = this.timestamp();
+    const answeredSnapshot = appendMessage(
+      {
+        ...snapshot,
+        pendingInteraction: null,
+        request: `${snapshot.request}\n\nClarification: ${request.text}`,
+      },
+      { kind: 'answer', role: 'user', text: request.text },
+      timestamp,
+    );
+    return this.move(answeredSnapshot, 'interpreting', {
+      summary: 'Clarification received. Interpreting the refined outcome.',
+      nextActions: ['Compile the objective and success condition.'],
+    });
+  }
+
   requestApproval(input: unknown): TaskSnapshot {
     const request = RequestApprovalSchema.parse(input);
     const snapshot = this.getTask(request.taskId);
@@ -345,7 +421,11 @@ export class TaskRuntime extends EventEmitter {
     this.assertCanCreateInteraction(snapshot, 'awaiting_approval');
     if (!snapshot.goal) throw new Error('Approval requires a compiled goal.');
 
-    const policyDecision = evaluateAction(snapshot.goal, request.action);
+    const policyDecision = evaluateAction(
+      snapshot.goal,
+      request.action,
+      this.toolRegistry,
+    );
     if (policyDecision.status !== 'needs_approval') {
       throw new Error(
         `Approval cannot be requested for this action: ${policyDecision.summary}`,
@@ -546,7 +626,11 @@ export class TaskRuntime extends EventEmitter {
     }
     if (!snapshot.goal) throw new Error('Approved action requires a compiled goal.');
 
-    const policyDecision = evaluateAction(snapshot.goal, request.action);
+    const policyDecision = evaluateAction(
+      snapshot.goal,
+      request.action,
+      this.toolRegistry,
+    );
     if (policyDecision.status !== 'needs_approval') {
       throw new Error(
         `Approved action cannot be dispatched: ${policyDecision.summary}`,

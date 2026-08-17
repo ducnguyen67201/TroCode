@@ -50,6 +50,44 @@ class FakeCua {
 }
 
 describe('task execution coordinator', () => {
+  it('answers a general text task without starting a desktop session', async () => {
+    const runtime = new TaskRuntime();
+    const cua = new FakeCua();
+    const planner: DesktopPlanner = {
+      start: vi.fn(async () => undefined),
+      end: vi.fn(async () => undefined),
+      decide: vi.fn(async (_taskId, input: PlannerStepInput) => {
+        expect(input.observation.screenshot).toBeUndefined();
+        expect(input.observation.text).toContain('Text-only task');
+        return {
+          kind: 'complete',
+          summary: '37 × 19 = 703.',
+        } as const;
+      }),
+    };
+    const coordinator = new TaskExecutionCoordinator({ runtime, cua, planner });
+    const interpreting = runtime.create({ text: 'What is 37 times 19?' });
+    const ready = runtime.applyCompiledIntent(interpreting.taskId, {
+      behavior: 'answer',
+      objective: 'Calculate 37 times 19.',
+      successDescription: 'Return the correct product.',
+    });
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    const completed = runtime.getSnapshot(ready.taskId);
+    expect(completed.phase).toBe('completed');
+    expect(completed.messages.at(-1)).toMatchObject({
+      kind: 'answer',
+      role: 'assistant',
+      text: '37 × 19 = 703.',
+    });
+    expect(cua.startTaskSession).not.toHaveBeenCalled();
+    expect(cua.observe).not.toHaveBeenCalled();
+    expect(cua.executeCommand).not.toHaveBeenCalled();
+  });
+
   it('opens Gmail, re-observes, and completes without visual retry', async () => {
     const runtime = new TaskRuntime();
     const cua = new FakeCua();
@@ -327,7 +365,7 @@ describe('task execution coordinator', () => {
     expect(cua.executeCommand).not.toHaveBeenCalled();
   });
 
-  it('blocks after an unknown action outcome without retrying', async () => {
+  it('re-observes a harmless unknown action outcome without retrying', async () => {
     const runtime = new TaskRuntime();
     const cua = new FakeCua();
     cua.executeCommand.mockResolvedValue({
@@ -337,14 +375,23 @@ describe('task execution coordinator', () => {
     const planner: DesktopPlanner = {
       start: vi.fn(async () => undefined),
       end: vi.fn(async () => undefined),
-      decide: vi.fn(async (_taskId, input: PlannerStepInput) => ({
-        kind: 'action',
-        observationId: input.observation.observationId,
-        intent: 'click_element',
-        capability: 'computer_use',
-        description: 'Click the visible button.',
-        command: { kind: 'click', x: 400, y: 300, button: 'left', count: 1 },
-      } as const)),
+      decide: vi
+        .fn()
+        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => ({
+          kind: 'action',
+          observationId: input.observation.observationId,
+          intent: 'click_element',
+          capability: 'computer_use',
+          description: 'Click the visible button.',
+          command: { kind: 'click', x: 400, y: 300, button: 'left', count: 1 },
+        } as const))
+        .mockImplementationOnce(async (_taskId, input: PlannerStepInput) => {
+          expect(input.previousOutcome?.status).toBe('unknown');
+          return {
+            kind: 'complete',
+            summary: 'The requested view is now visible.',
+          } as const;
+        }),
     };
     const coordinator = new TaskExecutionCoordinator({ runtime, cua, planner });
     const ready = runtime.submit({ text: 'Click the button on screen' });
@@ -352,11 +399,72 @@ describe('task execution coordinator', () => {
     coordinator.start({ taskId: ready.taskId });
     await coordinator.waitForIdle(ready.taskId);
 
+    const completed = runtime.getSnapshot(ready.taskId);
+    expect(completed.phase).toBe('completed');
+    expect(cua.executeCommand).toHaveBeenCalledOnce();
+    expect(cua.observe).toHaveBeenCalledTimes(2);
+    expect(planner.decide).toHaveBeenCalledTimes(2);
+  });
+
+  it('still blocks an unknown consequential action without retrying', async () => {
+    const runtime = new TaskRuntime();
+    const cua = new FakeCua();
+    cua.executeCommand.mockResolvedValue({
+      status: 'unknown',
+      summary: 'CUA could not prove whether the message was sent.',
+    });
+    const planner: DesktopPlanner = {
+      start: vi.fn(async () => undefined),
+      end: vi.fn(async () => undefined),
+      decide: vi.fn(
+        async (
+          _taskId,
+          input: PlannerStepInput,
+        ): Promise<DesktopStepDecision> => ({
+          kind: 'action',
+          observationId: input.observation.observationId,
+          intent: 'send',
+          capability: 'email',
+          description: 'Send the displayed message.',
+          target: 'Gmail Send button',
+          sendPayload: {
+            account: 'me@example.com',
+            recipients: ['friend@example.com'],
+            subject: 'Hello',
+            body: 'Hello there.',
+          },
+          command: {
+            kind: 'click',
+            x: 400,
+            y: 300,
+            button: 'left',
+            count: 1,
+          },
+        }),
+      ),
+    };
+    const coordinator = new TaskExecutionCoordinator({ runtime, cua, planner });
+    const ready = runtime.submit({ text: 'Send the displayed email' });
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+    const waiting = runtime.getSnapshot(ready.taskId);
+    const approval = waiting.pendingInteraction;
+    if (approval?.kind !== 'approval') throw new Error('Expected approval.');
+    runtime.decideApproval({
+      taskId: ready.taskId,
+      interactionId: approval.id,
+      kind: 'approval',
+      decision: 'approve',
+      actionDigest: approval.actionDigest,
+    });
+    coordinator.resume(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
+
     const blocked = runtime.getSnapshot(ready.taskId);
     expect(blocked.phase).toBe('blocked');
-    expect(blocked.lastEvent?.summary).toContain('unknown');
+    expect(blocked.lastEvent?.summary).toContain('will not retry');
     expect(cua.executeCommand).toHaveBeenCalledOnce();
-    expect(planner.decide).toHaveBeenCalledOnce();
   });
 
   it('fails closed when the model references a stale observation', async () => {

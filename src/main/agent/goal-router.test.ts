@@ -12,7 +12,7 @@ describe('goal router', () => {
     const goal = compileGoal('How do I open YouTube?');
 
     expect(goal.interactionMode).toBe('guide');
-    expect(goal.scope.allowedDomains).toContain('youtube.com');
+    expect(goal.scope?.allowedDomains).toContain('youtube.com');
     expect(goal.capabilities).toEqual(
       expect.arrayContaining(['browser', 'computer_use', 'conversation']),
     );
@@ -67,7 +67,7 @@ describe('goal router', () => {
     expect(goal.capabilities).toEqual(
       expect.arrayContaining(['filesystem', 'terminal', 'code_editor']),
     );
-    expect(goal.approvals.alwaysConfirm).toContain('write_file');
+    expect(goal.approvals?.alwaysConfirm).toContain('write_file');
   });
 
   it('classifies research as its own general-purpose domain', () => {
@@ -82,7 +82,7 @@ describe('goal router', () => {
     expect(goal.capabilities).toEqual(
       expect.arrayContaining(['browser', 'computer_use', 'email']),
     );
-    expect(goal.scope.allowedDomains).toContain('mail.google.com');
+    expect(goal.scope?.allowedDomains).toContain('mail.google.com');
   });
 
   it('asks for clarification when there is no usable outcome', () => {

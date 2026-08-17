@@ -40,7 +40,7 @@ This is not a long prerecorded click script. It is a bounded loop that observes 
 The current implementation supports:
 
 ```text
-voice or text -> compile GoalSpec -> automatically start when dependencies are ready
+voice or text -> compile TaskContract v2 -> automatically start when dependencies are ready
   -> start GPT Realtime + CUA task sessions
   -> fresh screenshot -> one typed model decision -> host policy
   -> one admitted action -> fresh screenshot -> verify or continue
@@ -68,7 +68,7 @@ flowchart TD
     USER["User voice, text, or controls"] --> UI["Main window or companion"]
     UI --> API["Narrow DesktopApi"]
     API --> COORD["Task coordinator"]
-    COORD --> GOAL["Immutable GoalSpec"]
+    COORD --> GOAL["Immutable TaskContract v2"]
     COORD --> FACTS["Mutable task facts and messages"]
     COORD --> LOOP["Agent loop"]
     LOOP --> OBS["Observe"]
@@ -90,7 +90,8 @@ flowchart TD
     VERIFY -->|"unsafe or unknown"| STOP["Blocked for user"]
 ```
 
-The model proposes decisions. It does not call CUA directly, grant itself capabilities, approve an action, or change the goal scope.
+The model proposes decisions. It does not call CUA directly, register tools,
+approve an action, change host limits, or make a target admissible.
 
 ## Task lifecycle
 
@@ -101,7 +102,7 @@ stateDiagram-v2
     [*] --> interpreting
     interpreting --> clarifying: goal is underspecified
     clarifying --> interpreting: user answers
-    interpreting --> ready: valid GoalSpec
+    interpreting --> ready: valid TaskContract
     ready --> planning: dependencies ready; execution starts automatically
     planning --> observing
     observing --> acting: safe action admitted
@@ -203,7 +204,7 @@ type AgentDecision =
 
 ## Goal revisions and task facts
 
-The compiled `GoalSpec` remains immutable for one execution revision. Conversational answers normally update a separate `TaskFacts` record, such as the selected Gmail thread or the reply wording.
+The compiled `TaskContract` remains immutable for one execution revision. Conversational answers normally update a separate `TaskFacts` record, such as the selected Gmail thread or the reply wording.
 
 If steering changes the objective, grants a new capability, adds an application or domain, changes a recipient, or widens the consequence, the coordinator must:
 
@@ -247,7 +248,7 @@ check cancellation, steering, limits, and pending interactions
   -> capture the target application's current state
   -> summarize the state into a bounded observation
   -> ask for one typed decision when deterministic logic is insufficient
-  -> evaluate scope, capability, and approval policy
+  -> validate the registered tool operation, target, and approval policy
   -> execute at most one admitted action or atomic action group
   -> capture fresh state
   -> verify the action and the overall goal

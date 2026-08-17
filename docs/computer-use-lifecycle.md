@@ -4,17 +4,17 @@
 
 A goal is an outcome plus proof. It is not a list of clicks.
 
-Every `GoalSpec` contains:
+Every active `TaskContract` v2 contains:
 
-- Domain and interaction mode.
+- `answer`, `guide`, or `act` behavior.
 - Natural-language objective.
 - Observable success criteria and verifier descriptions.
-- Granted capabilities.
-- Allowed applications, domains, and paths.
 - Actions that always require user approval.
 - Step and time budgets.
 
-The goal, scope, and limits are immutable during one execution. A planner may revise its route but cannot widen its own authority.
+The contract and limits are immutable during one execution. Tools come from the
+trusted runtime registry, not the request. A planner may revise its route but
+cannot register a tool or widen its own authority.
 
 ## Task states
 
@@ -50,16 +50,16 @@ The implemented computer-use iteration is:
    Guide-mode points stop at a host-owned playback boundary: autoplay advances
    after 15 seconds, J replays the previous cached point, K pauses/resumes, and
    L advances. Cached replay does not invoke the model or increment progress.
-4. Evaluate capability, resource, and approval policy.
+4. Validate the registered tool operation, target, consequence, and approval policy.
 5. Ask the user if approval is required.
-6. Execute the action through CUA.
+6. Dispatch the action once through its registered adapter.
 7. Inspect CUA delivery/effect metadata.
 8. Stop without retry when completion is unknown.
 9. Re-observe and let the latest screenshot prove progress or completion.
 10. Continue, ask, block, fail, or complete.
 
 The current vertical slice supports coordinates, typing, keypresses, scrolling,
-and direct HTTPS navigation. Accessibility element actions and app-specific
+dragging, and direct public HTTPS navigation. Accessibility element actions and app-specific
 independent verifiers remain the next hardening step. Non-idempotent actions
 with unknown completion are never retried automatically.
 

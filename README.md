@@ -1,21 +1,23 @@
 # TroCode
 
-TroCode is a cross-platform, general-purpose desktop agent foundation. It turns a user request into a typed, bounded goal before any tool or computer action is allowed.
+TroCode is a cross-platform, general-purpose desktop agent foundation. GPT interprets a user request into a small typed task contract, then the trusted host chooses from tools that are actually installed.
 
-The desktop application uses Electron, React, TypeScript, and [CUA Driver](https://github.com/trycua/cua). The current foundation compiles and previews goals, enforces lifecycle transitions, evaluates proposed actions against capability and resource scopes, and automatically initializes CUA after operating-system permissions have been granted.
+The desktop application uses Electron, React, TypeScript, and [CUA Driver](https://github.com/trycua/cua). It is domain-agnostic: requests are not placed into a Gold domain/capability grant before execution. The host still enforces concrete tool availability, public HTTPS targets, fresh observations, exact consequential-action approvals, cancellation, and task limits.
 
 ## Current status
 
 Implemented:
 
 - Secure Electron main/preload/renderer separation.
-- General-purpose goal routing across education, productivity, coding, research, business, creative, and general domains.
-- `answer`, `guide`, `act`, and `mixed` interaction modes.
+- GPT-backed multilingual intent compilation into `answer`, `guide`, or `act`
+  behavior without keyword domain routing.
+- A trusted runtime tool registry with browser navigation, desktop control, and
+  grounded guidance adapters.
 - Typed task lifecycle with guarded transitions.
 - Task-scoped clarification replies that continue the same goal conversation.
 - Structured pending interactions and exact, single-use approval decisions.
 - Task steering queued for goal review at the next safe execution boundary.
-- Capability, resource-scope, and approval policy evaluation.
+- Concrete tool/operation, target, and approval policy evaluation.
 - Native Google OAuth sign-in with Authorization Code + PKCE, verified identity
   claims, and an operating-system-encrypted one-time local session.
 - A post-login permission checklist for Microphone, Accessibility, and Screen
@@ -24,12 +26,12 @@ Implemented:
   account-bound, time-limited activation codes verified by Ed25519 signatures.
 - Automatic CUA initialization after explicit first-run permission onboarding.
 - Task-scoped CUA sessions with bounded screenshots, typed clicks, text entry,
-  keypresses, scrolling, and session cleanup.
+  keypresses, scrolling, dragging, and session cleanup.
 - GPT-5.6 Luna visual reasoning through the Responses API, with GPT-5.6 Terra
   fallback and host-owned worksheet sequence state.
 - A serialized observe → policy → act → verify loop with step/time limits,
   cancellation, safe steering, and no automatic retry after an unknown result.
-- Direct HTTPS navigation for allowed domains and exact, revalidated approval
+- Direct public HTTPS navigation and exact, revalidated approval
   before consequential CUA actions such as Send.
 - Focused-window push-to-talk plus system-wide background voice shortcuts
   through OpenAI Realtime using `gpt-realtime-whisper`.
@@ -55,7 +57,13 @@ Not implemented yet:
 - Accessibility-first element targeting and production application allowlists.
 - Direct Gmail/Calendar connectors and app-specific independent verifiers.
 - Persistent screenshot-rich execution trajectory storage.
-- Production capability manifests and release-credential provisioning.
+- Direct media/music generation providers and release-credential provisioning.
+
+Music and other creative work can already be performed through an installed or
+browser-based application using navigation, visible guidance, clicks, hotkeys,
+typing, scrolling, and drag. TroCode does not yet claim to generate an MP3
+directly: that requires a separately configured `music.generate` adapter, which
+can be added to the registry without changing request classification.
 
 When a compiled goal reaches `ready`, TroCode starts the task-scoped Responses
 planner and CUA session. The visible **Stop task** control and
@@ -357,4 +365,7 @@ src/
 
 ## Design rule
 
-CUA is a capability, not the planner. A task must have an outcome, success criteria, capability scope, resource scope, approval rules, and execution limits before computer use can begin.
+CUA is an execution adapter, not the planner and not an authority grant. A task
+must have an outcome, success criteria, host approval rules, and execution
+limits before computer use can begin; each action must also name an available
+tool and admissible operation.

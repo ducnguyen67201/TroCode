@@ -169,10 +169,8 @@ describe('AnalyticsService', () => {
     expect(serializedEvents).not.toContain('private acquisition');
     expect(serializedEvents).not.toContain('/Users/example');
     expect(client.events.at(-1)?.properties).toMatchObject({
-      capability_count: expect.any(Number),
-      domain: 'research',
-      interaction_mode: expect.any(String),
-      requires_computer_use: expect.any(Boolean),
+      behavior: expect.any(String),
+      contract_version: expect.any(Number),
     });
   });
 

@@ -8,7 +8,8 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
 - The preload exposes a fixed, typed API rather than raw Electron IPC.
 - The main process validates the sending renderer and parses all payloads.
 - Only trusted main-process code creates and destroys the CUA runtime.
-- A model cannot approve an action, change a capability grant, or widen resource scope.
+- A model cannot register a tool, approve an action, alter host limits, or make
+  a private/local browser target admissible.
 
 ## Default behavior
 
@@ -35,9 +36,10 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
 - `guide` mode observes and explains; it does not act.
 - Consequential actions require explicit approval.
 - Remote navigation and creation of unexpected Electron windows are denied.
-- Current CUA actions are bounded by the compiled goal, host policy, task
-  budget, fresh observation, and exact approvals. Per-skill native capability
-  manifests remain a release hardening requirement.
+- Current actions are bounded by registered tool operations, public-target
+  checks, task budgets, fresh observations, and exact approvals. A task does
+  not gain authority from a keyword, domain label, or model-produced capability
+  string.
 
 ## Sensitive data
 

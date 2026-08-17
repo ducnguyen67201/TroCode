@@ -48,7 +48,7 @@ describe('createInsightsSummary', () => {
     expect(summary.taskCount).toBe(0);
     expect(summary.eventCount).toBe(0);
     expect(summary.completionRate).toBe(0);
-    expect(summary.capabilityUsage).toEqual([]);
+    expect(summary.behaviorUsage).toEqual([]);
     expect(summary.activityDays).toHaveLength(42);
   });
 
@@ -58,6 +58,9 @@ describe('createInsightsSummary', () => {
       phase: 'completed',
       progress: { currentStep: 3, maxSteps: 12 },
       goal: {
+        schemaVersion: 2,
+        behavior: 'act',
+        approvalPolicy: { alwaysConfirm: ['send'] },
         approvals: { alwaysConfirm: ['send'] },
         capabilities: ['browser', 'conversation'],
         domain: 'research',
@@ -76,6 +79,9 @@ describe('createInsightsSummary', () => {
       taskId: '22222222-2222-4222-8222-222222222222',
       phase: 'failed',
       goal: {
+        schemaVersion: 2,
+        behavior: 'act',
+        approvalPolicy: { alwaysConfirm: [] },
         approvals: { alwaysConfirm: [] },
         capabilities: ['browser'],
         domain: 'general',
@@ -107,9 +113,8 @@ describe('createInsightsSummary', () => {
     expect(summary.completionRate).toBe(50);
     expect(summary.eventCount).toBe(1);
     expect(summary.stepsObserved).toBe(3);
-    expect(summary.capabilityUsage).toEqual([
-      { capability: 'browser', count: 2, percentage: 100 },
-      { capability: 'conversation', count: 1, percentage: 50 },
+    expect(summary.behaviorUsage).toEqual([
+      { behavior: 'act', count: 2, percentage: 100 },
     ]);
     expect(summary.currentStreak).toBe(1);
   });

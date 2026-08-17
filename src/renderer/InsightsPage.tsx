@@ -4,7 +4,7 @@ import type { TaskEvent, TaskHistory, TaskSnapshot } from '../shared/contracts';
 
 import { createInsightsSummary } from './insights';
 
-function formatCapability(value: string): string {
+function formatBehavior(value: string): string {
   return value
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
@@ -37,13 +37,13 @@ function SummaryIcon({ name }: { name: 'checks' | 'events' | 'tasks' }) {
   );
 }
 
-function EmptyCapabilities() {
+function EmptyBehaviors() {
   return (
     <div className="insights-empty-state">
       <span aria-hidden="true">◇</span>
       <div>
-        <strong>No capability usage yet</strong>
-        <p>Compile or run a task and its capabilities will appear here.</p>
+        <strong>No task behavior yet</strong>
+        <p>Compile or run a task and its behavior will appear here.</p>
       </div>
     </div>
   );
@@ -181,20 +181,20 @@ export function InsightsPage({
         <article className="insight-card capability-card">
           <div className="detail-card-heading">
             <div>
-              <p className="eyebrow">What TroCode used</p>
-              <h2>Capability mix</h2>
+              <p className="eyebrow">How TroCode helped</p>
+              <h2>Task behavior</h2>
             </div>
-            <span>{summary.capabilityUsage.length} active</span>
+            <span>{summary.behaviorUsage.length} active</span>
           </div>
 
-          {summary.capabilityUsage.length === 0 ? (
-            <EmptyCapabilities />
+          {summary.behaviorUsage.length === 0 ? (
+            <EmptyBehaviors />
           ) : (
             <ol className="capability-list">
-              {summary.capabilityUsage.map((item) => (
-                <li key={item.capability}>
+              {summary.behaviorUsage.map((item) => (
+                <li key={item.behavior}>
                   <div className="capability-row">
-                    <span>{formatCapability(item.capability)}</span>
+                    <span>{formatBehavior(item.behavior)}</span>
                     <strong>
                       {item.count} {item.count === 1 ? 'task' : 'tasks'}
                     </strong>

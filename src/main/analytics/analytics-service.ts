@@ -12,6 +12,7 @@ import {
   TaskUpdateSchema,
   type TaskSnapshot,
 } from '../../shared/contracts';
+import { toolIdentityForAction } from '../agent/runtime-tool-registry';
 
 import type {
   AnalyticsIdentity,
@@ -170,11 +171,8 @@ export class AnalyticsService {
 
     const goalProperties: AnalyticsProperties = snapshot.goal
       ? {
-          capability_count: snapshot.goal.capabilities.length,
-          domain: snapshot.goal.domain,
-          interaction_mode: snapshot.goal.interactionMode,
-          requires_computer_use:
-            snapshot.goal.capabilities.includes('computer_use'),
+          behavior: snapshot.goal.behavior,
+          contract_version: snapshot.goal.schemaVersion,
         }
       : {};
 
@@ -191,11 +189,15 @@ export class AnalyticsService {
       return;
     }
     if (snapshot.phase === 'awaiting_approval') {
+      const action =
+        snapshot.pendingInteraction?.kind === 'approval'
+          ? snapshot.pendingInteraction.action
+          : null;
+      const toolIdentity = action ? toolIdentityForAction(action) : null;
       this.capture('approval requested', {
-        action_type:
-          snapshot.pendingInteraction?.kind === 'approval'
-            ? snapshot.pendingInteraction.action.action
-            : 'unknown',
+        action_type: action?.action ?? 'unknown',
+        operation: toolIdentity?.operation ?? 'unknown',
+        tool_id: toolIdentity?.toolId ?? 'unknown',
       });
       return;
     }

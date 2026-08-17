@@ -43,6 +43,22 @@ describe('action approval digest', () => {
     expect(first).not.toBe(second);
   });
 
+  it('binds approval to the exact runtime tool and operation', () => {
+    const base = {
+      action: 'write_file' as const,
+      description: 'Create an audio artifact.',
+      operation: 'create_track',
+      toolId: 'music.generate',
+    };
+
+    expect(createActionDigest(base)).not.toBe(
+      createActionDigest({ ...base, toolId: 'desktop.control' }),
+    );
+    expect(createActionDigest(base)).not.toBe(
+      createActionDigest({ ...base, operation: 'overwrite_track' }),
+    );
+  });
+
   it('rejects an unbounded action payload', () => {
     const parameters = Object.fromEntries(
       Array.from({ length: 65 }, (_, index) => [`field-${index}`, 'value']),

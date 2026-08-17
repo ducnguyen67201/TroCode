@@ -16,6 +16,7 @@ import {
 import { IPC_CHANNELS } from '../../shared/desktop-api';
 import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
 import type { TaskRuntime } from '../agent/task-runtime';
+import type { TaskSubmissionService } from '../agent/task-submission-service';
 import type { GoogleAuthService } from '../auth/google-auth-service';
 import type { CuaService } from '../cua/cua-service';
 import type { TaskHistoryService } from '../history/task-history-service';
@@ -47,6 +48,7 @@ interface IpcServices {
   ): Promise<void> | void;
   requestScreenRecordingAccess(): Promise<unknown> | unknown;
   taskRuntime: TaskRuntime;
+  taskSubmissionService: TaskSubmissionService;
   taskHistoryService: TaskHistoryService;
   updateCompanionState(state: CompanionState): void;
   voiceService: VoiceService;
@@ -204,7 +206,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.submitTask, async (event, input: unknown) => {
     await assertMembershipAuthorizedSender(event, mainWindow, services);
-    return services.taskRuntime.submit(input);
+    return services.taskSubmissionService.submit(input);
   });
 
   ipcMain.handle(IPC_CHANNELS.cancelTask, async (event, input: unknown) => {
@@ -219,7 +221,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.respondToInteraction, async (event, input: unknown) => {
     await assertMembershipAuthorizedSender(event, mainWindow, services);
-    const snapshot = services.taskRuntime.respondToInteraction(input);
+    const snapshot = await services.taskSubmissionService.respondToInteraction(
+      input,
+    );
     services.executionCoordinator.resume(snapshot.taskId);
     return snapshot;
   });

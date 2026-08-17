@@ -7,6 +7,7 @@ import type {
   InteractionMode,
   SensitiveAction,
 } from '../../shared/contracts';
+import { GoalSpecSchema } from '../../shared/contracts';
 
 const DOMAIN_TERMS: Readonly<Record<Domain, readonly string[]>> = {
   education: [
@@ -336,7 +337,7 @@ export function compileGoal(request: string): GoalSpec {
   const domain = inferDomain(normalizedRequest);
   const interactionMode = inferInteractionMode(normalizedRequest, domain);
 
-  return {
+  return GoalSpecSchema.parse({
     id: randomUUID(),
     originalRequest: normalizedRequest,
     domain,
@@ -358,7 +359,7 @@ export function compileGoal(request: string): GoalSpec {
       maxMinutes:
         interactionMode === 'act' || interactionMode === 'guide' ? 10 : 5,
     },
-  };
+  });
 }
 
 export function requestNeedsClarification(request: string): boolean {

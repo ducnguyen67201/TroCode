@@ -16,7 +16,7 @@ interface LifecycleUpdate {
 }
 
 const guideGoal = {
-  interactionMode: 'guide',
+  behavior: 'guide',
 } as GoalSpec;
 
 function updateSource() {
@@ -88,7 +88,7 @@ describe('global guidance shortcuts', () => {
 
     updates.emit({
       snapshot: {
-        goal: { ...guideGoal, interactionMode: 'act' },
+        goal: { ...guideGoal, behavior: 'act' },
         phase: 'planning',
         taskId: 'action-1',
       },

@@ -5,6 +5,8 @@ import {
   type ProposedAction,
 } from '../../shared/contracts';
 
+import { toolIdentityForAction } from './runtime-tool-registry';
+
 function normalizeParameters(
   parameters: ProposedAction['parameters'],
 ): Record<string, string | string[]> {
@@ -17,9 +19,11 @@ function normalizeParameters(
 
 export function createActionDigest(input: unknown): string {
   const action = ProposedActionSchema.parse(input);
+  const identity = toolIdentityForAction(action);
   const normalizedAction = {
     action: action.action,
-    capability: action.capability,
+    operation: identity.operation,
+    toolId: identity.toolId,
     description: action.description,
     parameters: normalizeParameters(action.parameters),
     target: action.target ?? null,

@@ -69,7 +69,15 @@ introduced.
 
 ### Goal runtime
 
-The current deterministic router establishes the contract before model integration. The runtime also owns task-scoped clarification and approval interactions, rejects stale or replayed responses, and resumes through observation rather than acting directly. A future model-backed compiler may improve classification, but its output must parse as `GoalSpec` and pass the same policy checks.
+The GPT intent compiler sees only the current user request and returns an objective, `answer`/`guide`/`act` behavior, an observable success description, or one clarification question. It does not see screenshots and cannot select tools, approvals, limits, credentials, or resource authority. The host merges that semantic result into `TaskContract` v2 with fixed approval rules and budgets. Persisted v1 `GoalSpec` records are normalized when parsed; their domain and capability fields are compatibility data and never authorize execution.
+
+The trusted runtime tool registry advertises only adapters available in the main
+process. The planner may propose one operation from that catalog; the host
+schema-parses it, derives its concrete consequence, evaluates target and
+approval policy, and dispatches it through the exact registered adapter. The
+initial adapters are `browser.navigate`, `desktop.control`, and
+`task.guidance`. Future filesystem, connector, image, audio, or music adapters
+register at this boundary rather than expanding a keyword router.
 
 ### Execution coordinator and planner
 
@@ -93,7 +101,7 @@ Accessibility, and Screen Recording, reports each grant independently, and
 rechecks when the application regains focus. The workspace remains unavailable
 until required permissions and the driver are ready. Internal methods
 start/end task sessions, capture desktop state, and dispatch typed clicks, text,
-keypresses, and scrolling. These methods are never exposed through `DesktopApi`.
+keypresses, scrolling, and dragging. These methods are never exposed through `DesktopApi`.
 Shutdown cancels task loops and ends their sessions before stopping native
 admission and destroying the UniFFI handle.
 

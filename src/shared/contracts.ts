@@ -17,6 +17,15 @@ export const InteractionModeSchema = z.enum([
   'mixed',
 ]);
 
+export const TaskBehaviorSchema = z.enum(['answer', 'guide', 'act']);
+
+export const RuntimeToolIdSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(100)
+  .regex(/^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$/u);
+
 export const CapabilitySchema = z.enum([
   'conversation',
   'web_search',
@@ -45,6 +54,10 @@ export const SensitiveActionSchema = z.enum([
   'write_file',
 ]);
 
+export const HOST_ALWAYS_CONFIRM_ACTIONS = [
+  ...SensitiveActionSchema.options,
+] as const;
+
 export const ProposedActionSchema = z.object({
   action: SensitiveActionSchema.or(
     z.enum([
@@ -56,10 +69,14 @@ export const ProposedActionSchema = z.object({
       'type_text',
       'press_key',
       'scroll',
+      'drag',
       'read_file',
     ]),
   ),
-  capability: CapabilitySchema,
+  toolId: RuntimeToolIdSchema.optional(),
+  operation: z.string().trim().min(1).max(100).optional(),
+  /** @deprecated Read only for persisted v1 tasks. Policy does not use it. */
+  capability: CapabilitySchema.optional(),
   description: z.string().min(1),
   target: z.string().optional(),
   parameters: z
@@ -81,27 +98,65 @@ export const SuccessCriterionSchema = z.object({
   verifier: z.string().min(1),
 });
 
-export const GoalSpecSchema = z.object({
+const GoalSpecObjectSchema = z.object({
+  schemaVersion: z.literal(2),
   id: z.string().uuid(),
   originalRequest: z.string().min(2).max(8_000),
-  domain: DomainSchema,
-  interactionMode: InteractionModeSchema,
+  behavior: TaskBehaviorSchema,
   objective: z.string().min(2),
   successCriteria: z.array(SuccessCriterionSchema).min(1),
-  capabilities: z.array(CapabilitySchema).min(1),
-  scope: z.object({
-    allowedApps: z.array(z.string()),
-    allowedDomains: z.array(z.string()),
-    allowedPaths: z.array(z.string()),
-  }),
-  approvals: z.object({
+  approvalPolicy: z.object({
     alwaysConfirm: z.array(SensitiveActionSchema),
   }),
   limits: z.object({
     maxSteps: z.number().int().positive().max(200),
     maxMinutes: z.number().int().positive().max(120),
   }),
+
+  // Accepted only so existing persisted records remain readable. New task
+  // contracts do not emit these fields and policy never consults them.
+  domain: DomainSchema.optional(),
+  interactionMode: InteractionModeSchema.optional(),
+  capabilities: z.array(CapabilitySchema).min(1).optional(),
+  scope: z
+    .object({
+      allowedApps: z.array(z.string()),
+      allowedDomains: z.array(z.string()),
+      allowedPaths: z.array(z.string()),
+    })
+    .optional(),
+  approvals: z
+    .object({
+      alwaysConfirm: z.array(SensitiveActionSchema),
+    })
+    .optional(),
 });
+
+function normalizeLegacyGoal(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value;
+  const goal = value as Record<string, unknown>;
+  if (goal.schemaVersion !== undefined && goal.schemaVersion !== 2) {
+    return goal;
+  }
+  const legacyMode = goal.interactionMode;
+  const behavior =
+    goal.behavior ??
+    (legacyMode === 'mixed' ? 'act' : legacyMode);
+  return {
+    ...goal,
+    schemaVersion: 2,
+    behavior,
+    approvalPolicy: { alwaysConfirm: [...HOST_ALWAYS_CONFIRM_ACTIONS] },
+  };
+}
+
+export const TaskContractSchema = z.preprocess(
+  normalizeLegacyGoal,
+  GoalSpecObjectSchema,
+);
+
+/** @deprecated Use TaskContractSchema for new code. */
+export const GoalSpecSchema = TaskContractSchema;
 
 export const TaskPhaseSchema = z.enum([
   'idle',
@@ -539,6 +594,7 @@ export type DecideApprovalRequest = z.infer<
 >;
 export type Domain = z.infer<typeof DomainSchema>;
 export type GoalSpec = z.infer<typeof GoalSpecSchema>;
+export type TaskContract = z.infer<typeof TaskContractSchema>;
 export type InteractionMode = z.infer<typeof InteractionModeSchema>;
 export type MembershipStatus = z.infer<typeof MembershipStatusSchema>;
 export type PendingInteraction = z.infer<typeof PendingInteractionSchema>;
@@ -550,6 +606,7 @@ export type RecordVoiceTranscriptRequest = z.infer<
 export type RespondToInteractionRequest = z.infer<
   typeof RespondToInteractionRequestSchema
 >;
+export type RuntimeToolId = z.infer<typeof RuntimeToolIdSchema>;
 export type SensitiveAction = z.infer<typeof SensitiveActionSchema>;
 export type StartTaskRequest = z.infer<typeof StartTaskRequestSchema>;
 export type SteeringInstruction = z.infer<typeof SteeringInstructionSchema>;
@@ -557,6 +614,7 @@ export type SystemPermission = z.infer<typeof SystemPermissionSchema>;
 export type SteerTaskRequest = z.infer<typeof SteerTaskRequestSchema>;
 export type SubmitTaskRequest = z.infer<typeof SubmitTaskRequestSchema>;
 export type TaskEvent = z.infer<typeof TaskEventSchema>;
+export type TaskBehavior = z.infer<typeof TaskBehaviorSchema>;
 export type TaskHistory = z.infer<typeof TaskHistorySchema>;
 export type TaskMessage = z.infer<typeof TaskMessageSchema>;
 export type TaskPhase = z.infer<typeof TaskPhaseSchema>;

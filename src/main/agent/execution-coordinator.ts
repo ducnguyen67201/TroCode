@@ -1,6 +1,9 @@
-import type { TaskSnapshot } from '../../shared/contracts';
+import { createHash, randomUUID } from 'node:crypto';
+
+import type { ProposedAction, TaskSnapshot } from '../../shared/contracts';
 import type { CuaService } from '../cua/cua-service';
 
+import { createActionDigest } from './action-approval';
 import type {
   DesktopPlanner,
   PlannerGuidancePoint,
@@ -16,6 +19,12 @@ import {
 } from './execution-contracts';
 import { GuidancePlaybackController } from './guidance-playback';
 import { evaluateAction } from './policy';
+import { RuntimeToolDispatcher } from './runtime-tool-dispatcher';
+import {
+  defaultRuntimeToolRegistry,
+  type RuntimeToolRegistry,
+} from './runtime-tool-registry';
+import { taskBehavior } from './task-contract';
 import type { TaskRuntime } from './task-runtime';
 
 interface ExecutionCoordinatorOptions {
@@ -41,6 +50,8 @@ interface ExecutionCoordinatorOptions {
     presentation?: DesktopPresentation,
   ) => Promise<void>;
   runtime: TaskRuntime;
+  toolDispatcher?: Pick<RuntimeToolDispatcher, 'dispatch'>;
+  toolRegistry?: Pick<RuntimeToolRegistry, 'supports'>;
 }
 
 export interface DesktopPointGrounding {
@@ -60,12 +71,14 @@ export interface DesktopPresentation {
 interface ExecutionContext {
   controller: AbortController;
   deadlineTimer?: ReturnType<typeof setTimeout>;
+  desktopSessionStarted: boolean;
   guidanceHistory: GuidanceHistoryEntry[];
   guidanceHistoryIndex: number;
   guidancePoints: PlannerGuidancePoint[];
   initialized: boolean;
   playback: GuidancePlaybackController;
   previousOutcome?: DesktopActionOutcome;
+  unknownActionDigest?: string;
   running?: Promise<void>;
   startedAt: Date;
 }
@@ -113,6 +126,21 @@ function isAbort(error: unknown, signal: AbortSignal): boolean {
   return signal.aborted || (error instanceof Error && error.name === 'AbortError');
 }
 
+function textOnlyObservation(taskId: string, capturedAt: Date): DesktopObservation {
+  const text =
+    'Text-only task. No desktop observation is needed; answer from the user request and conversation.';
+  return {
+    observationId: randomUUID(),
+    taskId,
+    capturedAt: capturedAt.toISOString(),
+    text,
+    degraded: false,
+    fingerprint: createHash('sha256')
+      .update(`${taskId}:${capturedAt.toISOString()}:${text}`)
+      .digest('hex'),
+  };
+}
+
 function presentationPoint(
   command: DesktopCommand,
   coordinateSpace: DesktopCoordinateSpace | undefined,
@@ -139,8 +167,6 @@ export class TaskExecutionCoordinator {
 
   private readonly now: () => Date;
 
-  private readonly openExternal: (url: string) => Promise<void>;
-
   private readonly onGuidancePlaybackChange: NonNullable<
     ExecutionCoordinatorOptions['onGuidancePlaybackChange']
   >;
@@ -159,6 +185,10 @@ export class TaskExecutionCoordinator {
 
   private readonly runtime: TaskRuntime;
 
+  private readonly toolDispatcher: Pick<RuntimeToolDispatcher, 'dispatch'>;
+
+  private readonly toolRegistry: Pick<RuntimeToolRegistry, 'supports'>;
+
   constructor({
     cua,
     dismissPresentation = () => undefined,
@@ -173,18 +203,56 @@ export class TaskExecutionCoordinator {
     prepareDesktop = async () => undefined,
     presentAction = async () => undefined,
     runtime,
+    toolDispatcher,
+    toolRegistry = defaultRuntimeToolRegistry,
   }: ExecutionCoordinatorOptions) {
     this.cua = cua;
     this.dismissPresentation = dismissPresentation;
     this.guidanceAutoAdvanceMs = guidanceAutoAdvanceMs;
     this.now = now;
     this.onGuidancePlaybackChange = onGuidancePlaybackChange;
-    this.openExternal = openExternal;
     this.planner = planner;
     this.pointGrounder = pointGrounder;
     this.prepareDesktop = prepareDesktop;
     this.presentAction = presentAction;
     this.runtime = runtime;
+    this.toolDispatcher =
+      toolDispatcher ??
+      new RuntimeToolDispatcher([
+        {
+          id: 'browser.navigate',
+          execute: async (_action, input) => {
+            const command = input as DesktopCommand;
+            if (command.kind !== 'open_url') {
+              throw new Error('The browser adapter accepts only URL navigation.');
+            }
+            await openExternal(command.url);
+            return {
+              status: 'confirmed',
+              summary: 'The browser accepted the HTTPS navigation request.',
+            };
+          },
+        },
+        {
+          id: 'desktop.control',
+          execute: (_action, input, context) =>
+            cua.executeCommand(
+              context.taskId,
+              input as DesktopCommand,
+              context.signal,
+            ),
+        },
+        {
+          id: 'task.guidance',
+          execute: (_action, input, context) =>
+            cua.executeCommand(
+              context.taskId,
+              input as DesktopCommand,
+              context.signal,
+            ),
+        },
+      ]);
+    this.toolRegistry = toolRegistry;
   }
 
   start(input: unknown): TaskSnapshot {
@@ -192,6 +260,7 @@ export class TaskExecutionCoordinator {
     if (!snapshot.goal) throw new Error('Task has no compiled goal.');
     const context: ExecutionContext = {
       controller: new AbortController(),
+      desktopSessionStarted: false,
       guidanceHistory: [],
       guidanceHistoryIndex: -1,
       guidancePoints: [],
@@ -278,7 +347,10 @@ export class TaskExecutionCoordinator {
       if (!snapshot.goal) throw new Error('Task has no compiled goal.');
 
       if (!context.initialized) {
-        await this.cua.startTaskSession(taskId, context.controller.signal);
+        if (taskBehavior(snapshot.goal) !== 'answer') {
+          await this.cua.startTaskSession(taskId, context.controller.signal);
+          context.desktopSessionStarted = true;
+        }
         await this.planner.start(taskId, snapshot.goal, context.controller.signal);
         context.initialized = true;
       }
@@ -319,19 +391,31 @@ export class TaskExecutionCoordinator {
           );
         }
 
-        const restoreDesktopPresentation = await this.prepareDesktop();
-        this.runtime.beginObservation(
-          taskId,
-          'Observing the desktop before the next bounded step.',
-        );
         let observation: DesktopObservation;
-        try {
-          observation = await this.cua.observe(
+        const currentGoal = snapshot.goal;
+        if (!currentGoal) {
+          throw new Error('The running task lost its goal before observation.');
+        }
+        if (taskBehavior(currentGoal) === 'answer') {
+          this.runtime.beginObservation(
             taskId,
-            context.controller.signal,
+            'Reasoning about the request without using desktop control.',
           );
-        } finally {
-          await restoreDesktopPresentation?.();
+          observation = textOnlyObservation(taskId, this.now());
+        } else {
+          const restoreDesktopPresentation = await this.prepareDesktop();
+          this.runtime.beginObservation(
+            taskId,
+            'Observing the desktop before the next bounded step.',
+          );
+          try {
+            observation = await this.cua.observe(
+              taskId,
+              context.controller.signal,
+            );
+          } finally {
+            await restoreDesktopPresentation?.();
+          }
         }
         snapshot = this.runtime.getSnapshot(taskId);
         const goal = snapshot.goal;
@@ -432,17 +516,15 @@ export class TaskExecutionCoordinator {
           }
         }
 
-        if (
-          goal.interactionMode === 'answer' ||
-          goal.interactionMode === 'guide'
-        ) {
+        const behavior = taskBehavior(goal);
+        if (behavior === 'answer' || behavior === 'guide') {
           if (decision.command.kind === 'point') {
             // A point command only moves the teaching pointer. It cannot click,
             // type, scroll, navigate, or otherwise mutate the visible surface.
           } else {
             this.runtime.block(
               taskId,
-              `${goal.interactionMode} mode does not authorize desktop actions.`,
+              `${behavior} mode does not authorize desktop actions.`,
               [
                 'Create an explicit action goal if you want TroCode to operate the desktop.',
               ],
@@ -452,7 +534,16 @@ export class TaskExecutionCoordinator {
         }
 
         const action = proposedActionForDecision(decision);
-        const policyDecision = evaluateAction(goal, action);
+        const actionDigest = createActionDigest(action);
+        if (context.unknownActionDigest === actionDigest) {
+          this.runtime.block(
+            taskId,
+            'The previous action could not be verified, so TroCode will not dispatch the exact same action again.',
+            ['Inspect the target application or give TroCode a different instruction.'],
+          );
+          return;
+        }
+        const policyDecision = evaluateAction(goal, action, this.toolRegistry);
         if (policyDecision.status === 'denied') {
           this.runtime.discardApprovalGrant(
             taskId,
@@ -542,6 +633,7 @@ export class TaskExecutionCoordinator {
           decision.command,
           context.controller.signal,
           presentation,
+          action,
         );
         context.previousOutcome = outcome;
         console.info(
@@ -582,13 +674,18 @@ export class TaskExecutionCoordinator {
 
         this.runtime.beginVerification(taskId, outcome.summary, true);
         if (outcome.status === 'unknown') {
-          this.runtime.block(
-            taskId,
-            `The ${decision.command.kind} outcome is unknown: ${outcome.summary} TroCode will not retry it.`,
-            ['Inspect the target application before continuing.'],
-          );
-          return;
+          if (policyDecision.status === 'needs_approval') {
+            this.runtime.block(
+              taskId,
+              `The ${decision.command.kind} outcome is unknown: ${outcome.summary} TroCode will not retry a consequential action.`,
+              ['Inspect the target application before continuing.'],
+            );
+            return;
+          }
+          context.unknownActionDigest = actionDigest;
+          continue;
         }
+        context.unknownActionDigest = undefined;
         if (
           decision.command.kind === 'point' &&
           outcome.status === 'confirmed'
@@ -652,26 +749,70 @@ export class TaskExecutionCoordinator {
     command: DesktopCommand,
     signal: AbortSignal,
     presentation?: DesktopPresentation,
+    action?: ProposedAction,
   ): Promise<DesktopActionOutcome> {
+    if (!action && command.kind === 'direct_tool') {
+      throw new Error('A direct tool command requires its normalized action.');
+    }
+    const dispatchAction: ProposedAction =
+      action ??
+      (command.kind === 'point'
+        ? {
+            action: 'guide',
+            toolId: 'task.guidance',
+            operation: 'guide',
+            description: 'Replay grounded visual guidance.',
+          }
+        : command.kind === 'open_url'
+          ? {
+              action: 'open_url',
+              toolId: 'browser.navigate',
+              operation: 'open_url',
+              description: 'Open the public HTTPS destination.',
+              target: command.url,
+            }
+          : command.kind === 'direct_tool'
+            ? {
+                action: 'write_file',
+                toolId: command.toolId,
+                operation: command.operation,
+                description: `Perform direct tool operation ${command.operation}.`,
+              }
+          : {
+              action:
+                command.kind === 'click'
+                  ? 'click_element'
+                  : command.kind === 'keypress'
+                    ? 'press_key'
+                    : command.kind,
+              toolId: 'desktop.control',
+              operation: command.kind,
+              description: `Perform desktop ${command.kind}.`,
+            });
+
     if (command.kind === 'open_url') {
-      await this.openExternal(command.url);
+      const outcome = await this.toolDispatcher.dispatch(
+        dispatchAction,
+        command,
+        { signal, taskId },
+      );
       await this.presentAction(command, signal);
-      return {
-        status: 'confirmed',
-        summary: 'The browser accepted the HTTPS navigation request.',
-      };
+      return outcome;
     }
 
     if (command.kind === 'point') {
       const [outcome] = await Promise.all([
-        this.cua.executeCommand(taskId, command, signal),
+        this.toolDispatcher.dispatch(dispatchAction, command, { signal, taskId }),
         this.presentAction(command, signal, presentation),
       ]);
       return outcome;
     }
 
     await this.presentAction(command, signal, presentation);
-    return this.cua.executeCommand(taskId, command, signal);
+    return this.toolDispatcher.dispatch(dispatchAction, command, {
+      signal,
+      taskId,
+    });
   }
 
   private async cleanup(
@@ -685,7 +826,9 @@ export class TaskExecutionCoordinator {
     if (context.deadlineTimer) clearTimeout(context.deadlineTimer);
     await Promise.allSettled([
       this.planner.end(taskId),
-      this.cua.endTaskSession(taskId),
+      ...(context.desktopSessionStarted
+        ? [this.cua.endTaskSession(taskId)]
+        : []),
     ]);
   }
 

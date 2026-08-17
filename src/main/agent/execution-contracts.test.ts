@@ -91,7 +91,9 @@ describe('desktop execution contracts', () => {
       action: 'send',
       capability: 'email',
       description: 'Send the drafted email to the selected recipient.',
+      operation: 'click',
       target: 'Gmail compose window',
+      toolId: 'desktop.control',
       parameters: {
         account: 'me@example.com',
         recipients: ['alex@example.com'],
@@ -117,6 +119,61 @@ describe('desktop execution contracts', () => {
         command: { kind: 'click', x: 812, y: 744 },
       }).success,
     ).toBe(false);
+  });
+
+  it('rejects a tool or operation that does not match the concrete command', () => {
+    const base = {
+      kind: 'action' as const,
+      observationId: randomUUID(),
+      intent: 'open_url' as const,
+      description: 'Open Gmail.',
+      command: { kind: 'open_url' as const, url: 'https://mail.google.com/' },
+    };
+
+    expect(
+      DesktopStepDecisionSchema.safeParse({
+        ...base,
+        toolId: 'desktop.control',
+        operation: 'click',
+      }).success,
+    ).toBe(false);
+    expect(
+      DesktopStepDecisionSchema.safeParse({
+        ...base,
+        toolId: 'browser.navigate',
+        operation: 'open_url',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('normalizes a future direct tool without adding another command enum', () => {
+    const decision = DesktopStepDecisionSchema.parse({
+      kind: 'action',
+      observationId: randomUUID(),
+      intent: 'write_file',
+      toolId: 'music.generate',
+      operation: 'create_track',
+      description: 'Generate a playable lo-fi track.',
+      target: 'new-track.mp3',
+      command: {
+        kind: 'direct_tool',
+        toolId: 'music.generate',
+        operation: 'create_track',
+        input: { prompt: 'Warm lo-fi beat', format: 'mp3' },
+      },
+    });
+    if (decision.kind !== 'action') throw new Error('Expected an action.');
+
+    expect(proposedActionForDecision(decision)).toMatchObject({
+      action: 'write_file',
+      toolId: 'music.generate',
+      operation: 'create_track',
+      parameters: {
+        command: 'direct_tool',
+        prompt: 'Warm lo-fi beat',
+        format: 'mp3',
+      },
+    });
   });
 
   it('rejects insecure navigation and oversized desktop coordinates', () => {

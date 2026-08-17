@@ -3,10 +3,22 @@ import { z } from 'zod';
 import {
   CapabilitySchema,
   ProposedActionSchema,
+  RuntimeToolIdSchema,
   type ProposedAction,
 } from '../../shared/contracts';
 
 const CoordinateSchema = z.number().int().nonnegative().max(100_000);
+const DirectToolInputSchema = z
+  .record(
+    z.string().min(1).max(100),
+    z.union([
+      z.string().max(100_000),
+      z.array(z.string().max(8_000)).max(100),
+    ]),
+  )
+  .refine((input) => Object.keys(input).length <= 64, {
+    message: 'A direct tool call cannot contain more than 64 fields.',
+  });
 export const MAX_GUIDANCE_SEQUENCE_LENGTH = 20;
 export const PLANNER_COORDINATE_MAX = 1_000;
 
@@ -52,6 +64,21 @@ export const DesktopCommandSchema = z.discriminatedUnion('kind', [
     kind: z.literal('point'),
     x: CoordinateSchema,
     y: CoordinateSchema,
+  }),
+  z.object({
+    kind: z.literal('drag'),
+    fromX: CoordinateSchema,
+    fromY: CoordinateSchema,
+    toX: CoordinateSchema,
+    toY: CoordinateSchema,
+    durationMs: z.number().int().min(50).max(10_000).default(500),
+    button: z.enum(['left', 'right', 'middle']).default('left'),
+  }),
+  z.object({
+    kind: z.literal('direct_tool'),
+    toolId: RuntimeToolIdSchema,
+    operation: z.string().trim().min(1).max(100),
+    input: DirectToolInputSchema,
   }),
   z.object({
     kind: z.literal('type_text'),
@@ -107,7 +134,10 @@ export const DesktopActionDecisionSchema = z
     kind: z.literal('action'),
     observationId: z.string().uuid(),
     intent: ActionIntentSchema,
-    capability: CapabilitySchema,
+    toolId: RuntimeToolIdSchema.optional(),
+    operation: z.string().trim().min(1).max(100).optional(),
+    /** @deprecated Accepted for planner/session compatibility. */
+    capability: CapabilitySchema.optional(),
     description: z.string().min(1).max(2_000),
     target: z.string().max(8_000).optional(),
     guidanceSequence: GuidanceSequenceSchema.optional(),
@@ -145,17 +175,47 @@ export const DesktopActionDecisionSchema = z
       });
     }
 
+    const expectedToolId =
+      decision.command.kind === 'direct_tool'
+        ? decision.command.toolId
+        : decision.command.kind === 'open_url'
+        ? 'browser.navigate'
+        : decision.command.kind === 'point'
+          ? 'task.guidance'
+          : 'desktop.control';
+    const expectedOperation =
+      decision.command.kind === 'direct_tool'
+        ? decision.command.operation
+        : decision.command.kind === 'point'
+          ? 'guide'
+          : decision.command.kind;
+    if (decision.toolId && decision.toolId !== expectedToolId) {
+      context.addIssue({
+        code: 'custom',
+        message: `The ${decision.command.kind} command requires ${expectedToolId}.`,
+        path: ['toolId'],
+      });
+    }
+    if (decision.operation && decision.operation !== expectedOperation) {
+      context.addIssue({
+        code: 'custom',
+        message: `The ${decision.command.kind} command requires operation ${expectedOperation}.`,
+        path: ['operation'],
+      });
+    }
+
     const allowed = (() => {
       switch (decision.command.kind) {
         case 'open_url':
-          return decision.intent === 'open_url' && decision.capability === 'browser';
+          return decision.intent === 'open_url';
         case 'type_text':
           return decision.intent === 'type_text';
         case 'point':
-          return (
-            decision.intent === 'guide' &&
-            decision.capability === 'computer_use'
-          );
+          return decision.intent === 'guide';
+        case 'drag':
+          return decision.intent === 'drag';
+        case 'direct_tool':
+          return true;
         case 'scroll':
           return decision.intent === 'scroll';
         case 'click':
@@ -174,7 +234,7 @@ export const DesktopActionDecisionSchema = z
     if (!allowed) {
       context.addIssue({
         code: 'custom',
-        message: 'The command, semantic intent, and capability do not agree.',
+        message: 'The command and semantic intent do not agree.',
         path: ['intent'],
       });
     }
@@ -283,6 +343,21 @@ function commandParameters(
         x: String(command.x),
         y: String(command.y),
       };
+    case 'drag':
+      return {
+        button: command.button,
+        command: command.kind,
+        durationMs: String(command.durationMs),
+        fromX: String(command.fromX),
+        fromY: String(command.fromY),
+        toX: String(command.toX),
+        toY: String(command.toY),
+      };
+    case 'direct_tool':
+      return {
+        command: command.kind,
+        ...command.input,
+      };
     case 'type_text':
       return { command: command.kind, text: command.text };
     case 'keypress':
@@ -323,7 +398,23 @@ export function proposedActionForDecision(
 
   return ProposedActionSchema.parse({
     action: decision.intent,
-    capability: decision.capability,
+    toolId:
+      decision.toolId ??
+      (decision.command.kind === 'direct_tool'
+        ? decision.command.toolId
+        : decision.command.kind === 'open_url'
+        ? 'browser.navigate'
+        : decision.command.kind === 'point'
+          ? 'task.guidance'
+          : 'desktop.control'),
+    operation:
+      decision.operation ??
+      (decision.command.kind === 'direct_tool'
+        ? decision.command.operation
+        : decision.command.kind === 'point'
+          ? 'guide'
+          : decision.command.kind),
+    ...(decision.capability ? { capability: decision.capability } : {}),
     description: decision.description,
     ...(target ? { target } : {}),
     parameters: {

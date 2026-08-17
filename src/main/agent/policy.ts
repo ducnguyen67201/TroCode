@@ -1,8 +1,15 @@
 import {
+  GoalSpecSchema,
   ProposedActionSchema,
   type GoalSpec,
   type ProposedAction,
 } from '../../shared/contracts';
+
+import {
+  defaultRuntimeToolRegistry,
+  type RuntimeToolRegistry,
+} from './runtime-tool-registry';
+import { taskApprovalPolicy } from './task-contract';
 
 export { ProposedActionSchema };
 export type { ProposedAction };
@@ -13,50 +20,86 @@ export interface PolicyDecision {
   nextActions: string[];
 }
 
-function hostnameMatchesAllowedDomain(
-  hostname: string,
-  allowedDomains: readonly string[],
-): boolean {
-  return allowedDomains.some(
-    (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
-  );
-}
-
-function isTargetInScope(goal: GoalSpec, action: ProposedAction): boolean {
+function isTargetAdmissible(action: ProposedAction): boolean {
   if (action.action !== 'open_url' || !action.target) return true;
-  if (goal.scope.allowedDomains.length === 0) return false;
 
   try {
     const url = new URL(action.target);
-    return hostnameMatchesAllowedDomain(url.hostname, goal.scope.allowedDomains);
+    if (
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      !isPublicHostname(url.hostname)
+    ) {
+      return false;
+    }
+    return true;
   } catch {
     return false;
   }
 }
 
+function isPublicHostname(hostname: string): boolean {
+  const normalized = hostname
+    .toLocaleLowerCase()
+    .replace(/^\[|\]$/gu, '')
+    .replace(/\.$/u, '');
+  if (
+    normalized === 'localhost' ||
+    normalized.endsWith('.localhost') ||
+    normalized.endsWith('.local') ||
+    normalized.endsWith('.internal') ||
+    normalized.endsWith('.lan') ||
+    normalized === 'host.docker.internal' ||
+    normalized === '0.0.0.0' ||
+    normalized === '::1' ||
+    (normalized.includes(':') &&
+      (normalized.startsWith('fc') ||
+        normalized.startsWith('fd') ||
+        normalized.startsWith('fe80:')))
+  ) {
+    return false;
+  }
+  const octets = normalized.split('.').map(Number);
+  if (octets.length !== 4 || octets.some((value) => !Number.isInteger(value))) {
+    return true;
+  }
+  const [first = 0, second = 0] = octets;
+  return !(
+    first === 10 ||
+    first === 127 ||
+    first === 0 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
 export function evaluateAction(
   goal: GoalSpec,
   proposedAction: ProposedAction,
+  toolRegistry: Pick<RuntimeToolRegistry, 'supports'> = defaultRuntimeToolRegistry,
 ): PolicyDecision {
+  GoalSpecSchema.parse(goal);
   const action = ProposedActionSchema.parse(proposedAction);
 
-  if (!goal.capabilities.includes(action.capability)) {
+  if (!toolRegistry.supports(action)) {
     return {
       status: 'denied',
-      summary: `Capability ${action.capability} is outside this goal's grant.`,
-      nextActions: ['Re-plan using an allowed capability.'],
+      summary: 'The requested runtime tool operation is unavailable.',
+      nextActions: ['Choose an operation exposed by the current runtime.'],
     };
   }
 
-  if (!isTargetInScope(goal, action)) {
+  if (!isTargetAdmissible(action)) {
     return {
       status: 'denied',
-      summary: 'The proposed target is outside the goal resource scope.',
-      nextActions: ['Ask the user to expand the domain or resource scope.'],
+      summary: 'The proposed browser target is not an admissible public HTTPS URL.',
+      nextActions: ['Choose a public HTTPS target without embedded credentials.'],
     };
   }
 
-  if (goal.approvals.alwaysConfirm.includes(action.action as never)) {
+  if (taskApprovalPolicy().includes(action.action as never)) {
     return {
       status: 'needs_approval',
       summary: `${action.description} requires explicit user approval.`,

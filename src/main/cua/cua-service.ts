@@ -346,6 +346,8 @@ export class CuaService {
       switch (command.kind) {
         case 'open_url':
           throw new Error('URL navigation is handled outside the CUA driver.');
+        case 'direct_tool':
+          throw new Error('Direct tools are handled outside the CUA driver.');
         case 'click': {
           const movement = await movePointer(command.x, command.y);
           if (
@@ -374,6 +376,26 @@ export class CuaService {
         }
         case 'point':
           return movePointer(command.x, command.y);
+        case 'drag': {
+          const button = {
+            left: cua.ClickButton.Left,
+            middle: cua.ClickButton.Middle,
+            right: cua.ClickButton.Right,
+          }[command.button];
+          return driver.drag(
+            cua.DragInput.new({
+              session: taskId,
+              scope: cua.DesktopScope.Desktop,
+              fromX: command.fromX,
+              fromY: command.fromY,
+              toX: command.toX,
+              toY: command.toY,
+              durationMs: BigInt(command.durationMs),
+              button,
+            }),
+            asyncOptions,
+          );
+        }
         case 'type_text':
           return driver.typeText(
             cua.TypeTextInput.new({

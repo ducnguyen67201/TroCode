@@ -24,7 +24,9 @@ import {
   MacOSVisionGrounder,
 } from './main/agent/macos-vision-grounder';
 import { GptResponsesPlanner } from './main/agent/responses-planner';
+import { GptTaskIntentCompiler } from './main/agent/task-intent-compiler';
 import { TaskRuntime } from './main/agent/task-runtime';
+import { TaskSubmissionService } from './main/agent/task-submission-service';
 import { FileAnalyticsIdentityStore } from './main/analytics/analytics-identity-store';
 import { AnalyticsService } from './main/analytics/analytics-service';
 import { EncryptedAuthSessionStore } from './main/auth/auth-session-store';
@@ -145,6 +147,13 @@ const voiceService = new VoiceService({
 const elevenLabsTtsService = new ElevenLabsTtsService();
 const responsesPlanner = new GptResponsesPlanner({
   credentialStore: voiceCredentialStore,
+});
+const taskIntentCompiler = new GptTaskIntentCompiler({
+  credentialStore: voiceCredentialStore,
+});
+const taskSubmissionService = new TaskSubmissionService({
+  compiler: taskIntentCompiler,
+  runtime: taskRuntime,
 });
 const visionGrounder = new MacOSVisionGrounder({
   executablePath: macOSVisionOcrHelperPath(),
@@ -848,6 +857,7 @@ const createWindow = (): void => {
     },
     requestScreenRecordingAccess: registerScreenRecordingHost,
     taskRuntime,
+    taskSubmissionService,
     taskHistoryService,
     updateCompanionState,
     voiceService,

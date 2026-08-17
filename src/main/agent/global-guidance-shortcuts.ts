@@ -1,5 +1,7 @@
 import type { GoalSpec, TaskPhase } from '../../shared/contracts';
 
+import { taskBehavior } from './task-contract';
+
 export const GLOBAL_GUIDANCE_SHORTCUTS = {
   back: 'J',
   pause: 'K',
@@ -103,7 +105,7 @@ export function registerGlobalGuidanceShortcuts({
 
   const handleTaskUpdate = (update: TaskLifecycleUpdate): void => {
     const { goal, phase, taskId } = update.snapshot;
-    if (TERMINAL_PHASES.has(phase) || goal?.interactionMode !== 'guide') {
+    if (TERMINAL_PHASES.has(phase) || !goal || taskBehavior(goal) !== 'guide') {
       activeGuideTaskIds.delete(taskId);
     } else {
       activeGuideTaskIds.delete(taskId);

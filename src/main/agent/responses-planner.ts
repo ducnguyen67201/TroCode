@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 import {
-  CapabilitySchema,
   ProposedActionSchema,
+  RuntimeToolIdSchema,
   type GoalSpec,
 } from '../../shared/contracts';
 import type { VoiceCredentialStore } from '../voice/voice-service';
@@ -21,6 +21,11 @@ import {
   type DesktopObservation,
   type DesktopStepDecision,
 } from './execution-contracts';
+import {
+  defaultRuntimeToolRegistry,
+  type RuntimeToolRegistry,
+} from './runtime-tool-registry';
+import { taskBehavior } from './task-contract';
 
 const RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const DEFAULT_MODEL = 'gpt-5.6-luna';
@@ -72,6 +77,27 @@ const NormalizedCommandSchema = z.discriminatedUnion('kind', [
     count: z.number().int().min(1).max(2).default(1),
   }),
   z.object({
+    kind: z.literal('drag'),
+    fromX: z.number().int().min(0).max(PLANNER_COORDINATE_MAX),
+    fromY: z.number().int().min(0).max(PLANNER_COORDINATE_MAX),
+    toX: z.number().int().min(0).max(PLANNER_COORDINATE_MAX),
+    toY: z.number().int().min(0).max(PLANNER_COORDINATE_MAX),
+    durationMs: z.number().int().min(50).max(10_000).default(500),
+    button: z.enum(['left', 'right', 'middle']).default('left'),
+  }),
+  z.object({
+    kind: z.literal('direct_tool'),
+    toolId: RuntimeToolIdSchema,
+    operation: z.string().trim().min(1).max(100),
+    input: z.record(
+      z.string().min(1).max(100),
+      z.union([
+        z.string().max(100_000),
+        z.array(z.string().max(8_000)).max(100),
+      ]),
+    ),
+  }),
+  z.object({
     kind: z.literal('type_text'),
     text: z.string().min(1).max(100_000),
   }),
@@ -89,7 +115,8 @@ const NormalizedCommandSchema = z.discriminatedUnion('kind', [
 const ActionArgumentsSchema = z.object({
   observationId: z.string().uuid(),
   intent: ProposedActionSchema.shape.action,
-  capability: CapabilitySchema,
+  toolId: RuntimeToolIdSchema,
+  operation: z.string().trim().min(1).max(100),
   description: z.string().min(1).max(2_000),
   target: z.string().max(8_000).optional(),
   sendPayload: z.object({
@@ -123,6 +150,7 @@ interface ResponsesPlannerOptions {
   fetchImpl?: typeof fetch;
   model?: string;
   timeoutMs?: number;
+  toolRegistry?: Pick<RuntimeToolRegistry, 'list'>;
 }
 
 interface PendingGuidancePlan {
@@ -158,11 +186,13 @@ The user's transcribed request, follow-up answers, steering, and bounded goal ar
 
 Call exactly one supplied function. For normalized coordinates, use 0..${PLANNER_COORDINATE_MAX}, where (0,0) is the screenshot top-left and (${PLANNER_COORDINATE_MAX},${PLANNER_COORDINATE_MAX}) is the bottom-right.
 
+For a text-only answer goal, solve the user's request directly using your reasoning and knowledge. Math, explanations, writing, translation, brainstorming, plans, lyrics, and code do not require desktop evidence. Return the useful final result through ${COMPLETE_TOOL_NAME}; do not block merely because no screenshot or specialized runtime tool is present.
+
 For educational worksheets, solve the visible work autonomously while teaching. Call ${GUIDANCE_PLAN_TOOL_NAME} once with an ordered item for every distinct visible numbered question that fits the host-provided budget. Each item must contain the exact completed answer for every blank in that question and one short reason. Do not hand the exercise back to the student, merely tell them to look, or use a field label as the answer. Use continuation "complete" for a static worksheet and make finalSummary a concise answer key in the user's language.
 
 For a dynamic UI guide, return only the exact next visible target with continuation "reobserve" so the host can capture a fresh screenshot. For one standalone visible problem, return one item. The host assigns progress and sequence numbers locally.
 
-For answer or guide goals, never propose a mutating desktop action. For act or mixed goals, propose only one atomic action and use the semantic intent matching its real consequence. Sending uses intent "send" and exact visible sendPayload. Submission uses "submit", authentication uses "login", and purchases use "purchase". Ask when a material choice is missing. Never type a password or secret. Complete an action goal only when the current screenshot visibly proves the requested outcome.`;
+For answer or guide goals, never propose a mutating desktop action. For act goals, propose only one atomic action through a runtime tool actually listed by the host, and use the semantic intent matching its real consequence. Use command kind "direct_tool" only for a non-desktop registered tool, copying its exact tool ID and advertised operation. Sending uses intent "send" and exact visible sendPayload. Submission uses "submit", authentication uses "login", and purchases use "purchase". Creating or overwriting a local artifact uses "write_file". Ask when a material choice is missing. Never type a password or secret. When the previous action outcome is unknown, inspect the fresh state and never propose the exact same action again. Complete an action goal only when the current screenshot or direct tool result proves the requested outcome.`;
 
 const GUIDANCE_PLAN_TOOL = {
   type: 'function',
@@ -233,19 +263,16 @@ const ACTION_TOOL = {
         type: 'string',
         enum: [
           'answer', 'guide', 'observe_screen', 'open_url', 'click_element',
-          'type_text', 'press_key', 'scroll', 'read_file', 'login', 'send',
+          'type_text', 'press_key', 'scroll', 'drag', 'read_file', 'login', 'send',
           'submit', 'upload', 'download', 'delete', 'purchase', 'install',
           'run_command', 'write_file',
         ],
       },
-      capability: {
+      toolId: {
         type: 'string',
-        enum: [
-          'conversation', 'web_search', 'browser', 'computer_use',
-          'filesystem', 'terminal', 'code_editor', 'documents', 'email',
-          'calendar', 'connectors', 'media',
-        ],
+        enum: defaultRuntimeToolRegistry.list().map((tool) => tool.id),
       },
+      operation: { type: 'string' },
       description: { type: 'string' },
       target: { type: 'string' },
       sendPayload: {
@@ -280,6 +307,34 @@ const ACTION_TOOL = {
           },
           {
             type: 'object', additionalProperties: false,
+            properties: {
+              kind: { const: 'drag' }, fromX: { type: 'integer' },
+              fromY: { type: 'integer' }, toX: { type: 'integer' },
+              toY: { type: 'integer' }, durationMs: { type: 'integer' },
+              button: { type: 'string', enum: ['left', 'right', 'middle'] },
+            },
+            required: ['kind', 'fromX', 'fromY', 'toX', 'toY'],
+          },
+          {
+            type: 'object', additionalProperties: false,
+            properties: {
+              kind: { const: 'direct_tool' },
+              toolId: { type: 'string' },
+              operation: { type: 'string' },
+              input: {
+                type: 'object',
+                additionalProperties: {
+                  oneOf: [
+                    { type: 'string' },
+                    { type: 'array', items: { type: 'string' } },
+                  ],
+                },
+              },
+            },
+            required: ['kind', 'toolId', 'operation', 'input'],
+          },
+          {
+            type: 'object', additionalProperties: false,
             properties: { kind: { const: 'type_text' }, text: { type: 'string' } },
             required: ['kind', 'text'],
           },
@@ -305,7 +360,7 @@ const ACTION_TOOL = {
       },
     },
     required: [
-      'observationId', 'intent', 'capability', 'description', 'command',
+      'observationId', 'intent', 'toolId', 'operation', 'description', 'command',
     ],
   },
 } as const;
@@ -353,21 +408,40 @@ const BLOCKED_TOOL = {
   },
 } as const;
 
-function toolsForInput(input: PlannerStepInput): readonly unknown[] {
+function actionTool(
+  toolRegistry: Pick<RuntimeToolRegistry, 'list'>,
+): typeof ACTION_TOOL {
+  return {
+    ...ACTION_TOOL,
+    parameters: {
+      ...ACTION_TOOL.parameters,
+      properties: {
+        ...ACTION_TOOL.parameters.properties,
+        toolId: {
+          type: 'string',
+          enum: toolRegistry.list().map((tool) => tool.id),
+        },
+      },
+    },
+  } as typeof ACTION_TOOL;
+}
+
+function toolsForInput(
+  input: PlannerStepInput,
+  toolRegistry: Pick<RuntimeToolRegistry, 'list'>,
+): readonly unknown[] {
   const tools: unknown[] = [];
   if (
-    (input.goal.interactionMode === 'answer' ||
-      input.goal.interactionMode === 'guide') &&
-    input.goal.capabilities.includes('computer_use') &&
+    (taskBehavior(input.goal) === 'answer' ||
+      taskBehavior(input.goal) === 'guide') &&
     input.observation.screenshot
   ) {
     tools.push(GUIDANCE_PLAN_TOOL);
   }
   if (
-    input.goal.interactionMode === 'act' ||
-    input.goal.interactionMode === 'mixed'
+    taskBehavior(input.goal) === 'act'
   ) {
-    tools.push(ACTION_TOOL);
+    tools.push(actionTool(toolRegistry));
   }
   tools.push(ASK_USER_TOOL, COMPLETE_TOOL, BLOCKED_TOOL);
   return tools;
@@ -400,17 +474,17 @@ function normalizeGuidanceItems(
   return unique.slice(0, Math.max(1, limit));
 }
 
-function inputText(input: PlannerStepInput): string {
+function inputText(
+  input: PlannerStepInput,
+  toolRegistry: Pick<RuntimeToolRegistry, 'list'>,
+): string {
   return JSON.stringify({
     goal: {
       transcript: input.goal.originalRequest,
       objective: input.goal.objective,
-      domain: input.goal.domain,
-      interactionMode: input.goal.interactionMode,
+      behavior: taskBehavior(input.goal),
       successCriteria: input.goal.successCriteria,
-      capabilities: input.goal.capabilities,
-      scope: input.goal.scope,
-      approvals: input.goal.approvals,
+      availableTools: toolRegistry.list(),
       remainingSteps: input.remainingSteps,
     },
     observation: {
@@ -462,13 +536,41 @@ function mapActionToScreenshot(
             })(),
           ),
         }
-      : command;
+      : command.kind === 'drag'
+        ? {
+            ...command,
+            ...(() => {
+              const coordinateSpace =
+                observation.coordinateSpace ??
+                (() => {
+                  throw new Error(
+                    'CUA did not report the screenshot coordinate space.',
+                  );
+                })();
+              const from = mapNormalizedPointToScreenshot(
+                { x: command.fromX, y: command.fromY },
+                coordinateSpace,
+              );
+              const to = mapNormalizedPointToScreenshot(
+                { x: command.toX, y: command.toY },
+                coordinateSpace,
+              );
+              return {
+                fromX: from.x,
+                fromY: from.y,
+                toX: to.x,
+                toY: to.y,
+              };
+            })(),
+          }
+        : command;
 
   return DesktopStepDecisionSchema.parse({
     kind: 'action',
     observationId: action.observationId,
     intent: action.intent,
-    capability: action.capability,
+    toolId: action.toolId,
+    operation: action.operation,
     description: action.description,
     target: action.target,
     sendPayload: action.sendPayload,
@@ -493,7 +595,8 @@ function guidanceDecision(
     kind: 'action',
     observationId: input.observation.observationId,
     intent: 'guide',
-    capability: 'computer_use',
+    toolId: 'task.guidance',
+    operation: 'guide',
     description: `${item.answer} — ${item.explanation}`,
     target: item.target,
     guidanceSequence: { index, total },
@@ -544,6 +647,8 @@ export class GptResponsesPlanner implements DesktopPlanner {
 
   private readonly timeoutMs: number;
 
+  private readonly toolRegistry: Pick<RuntimeToolRegistry, 'list'>;
+
   constructor({
     credentialStore,
     environmentApiKey = process.env.OPENAI_API_KEY,
@@ -552,6 +657,7 @@ export class GptResponsesPlanner implements DesktopPlanner {
     fetchImpl = fetch,
     model = process.env.TROCODE_PLANNER_MODEL ?? DEFAULT_MODEL,
     timeoutMs = DEFAULT_TIMEOUT_MS,
+    toolRegistry = defaultRuntimeToolRegistry,
   }: ResponsesPlannerOptions) {
     this.credentialStore = credentialStore;
     this.environmentApiKey = environmentApiKey?.trim() || undefined;
@@ -559,6 +665,7 @@ export class GptResponsesPlanner implements DesktopPlanner {
     this.fetchImpl = fetchImpl;
     this.model = model.trim() || DEFAULT_MODEL;
     this.timeoutMs = timeoutMs;
+    this.toolRegistry = toolRegistry;
   }
 
   async start(
@@ -666,7 +773,7 @@ export class GptResponsesPlanner implements DesktopPlanner {
     signal?: AbortSignal,
   ): Promise<DesktopStepDecision> {
     const content: Array<Record<string, string>> = [
-      { type: 'input_text', text: inputText(input) },
+      { type: 'input_text', text: inputText(input, this.toolRegistry) },
     ];
     if (input.observation.screenshot) {
       content.push({
@@ -695,7 +802,7 @@ export class GptResponsesPlanner implements DesktopPlanner {
           model,
           instructions: SYSTEM_INSTRUCTIONS,
           input: [{ role: 'user', content }],
-          tools: toolsForInput(input),
+          tools: toolsForInput(input, this.toolRegistry),
           tool_choice: 'required',
           parallel_tool_calls: false,
           reasoning: { effort: 'low' },

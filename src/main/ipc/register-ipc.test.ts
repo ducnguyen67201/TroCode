@@ -110,7 +110,10 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   const taskRuntime = {
     off: vi.fn(),
     on: vi.fn(),
+  };
+  const taskSubmissionService = {
     submit,
+    respondToInteraction: vi.fn(),
   };
   const executionCoordinator = {
     cancelActiveTasks: vi.fn(() => []),
@@ -186,6 +189,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     recordVoiceTranscript,
     requestScreenRecordingAccess,
     taskRuntime,
+    taskSubmissionService,
     taskHistoryService: { load: getTaskHistory },
     updateCompanionState: vi.fn(),
     voiceService: { createCall: createVoiceCall },

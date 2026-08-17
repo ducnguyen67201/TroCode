@@ -18,6 +18,8 @@ import {
   type DesktopObservation,
   type DesktopStepDecision,
 } from './execution-contracts';
+import { defaultRuntimeToolRegistry } from './runtime-tool-registry';
+import { taskBehavior } from './task-contract';
 
 const REALTIME_URL = 'wss://api.openai.com/v1/realtime';
 const DEFAULT_MODEL = 'gpt-realtime-2.1-mini';
@@ -407,10 +409,7 @@ const STEP_TOOLS = [
 ] as const;
 
 function toolsForGoal(goal: GoalSpec): readonly (typeof STEP_TOOLS)[number][] {
-  if (
-    goal.interactionMode === 'answer' ||
-    goal.interactionMode === 'guide'
-  ) {
+  if (taskBehavior(goal) === 'answer' || taskBehavior(goal) === 'guide') {
     return STEP_TOOLS.filter((tool) => tool.name !== ACTION_TOOL_NAME);
   }
 
@@ -578,20 +577,16 @@ function waitForServerEvent(
 
 function turnText(input: PlannerStepInput): string {
   const mustPointBeforeCompletion =
-    input.goal.interactionMode === 'guide' &&
-    input.goal.capabilities.includes('computer_use') &&
+    taskBehavior(input.goal) === 'guide' &&
     Boolean(input.observation.screenshot) &&
     input.guidancePoints.length === 0;
 
   return JSON.stringify({
     goal: {
       objective: input.goal.objective,
-      domain: input.goal.domain,
-      interactionMode: input.goal.interactionMode,
+      behavior: taskBehavior(input.goal),
       successCriteria: input.goal.successCriteria,
-      capabilities: input.goal.capabilities,
-      scope: input.goal.scope,
-      approvals: input.goal.approvals,
+      availableTools: defaultRuntimeToolRegistry.list(),
       remainingSteps: input.remainingSteps,
     },
     observation: {
@@ -631,8 +626,7 @@ function plannerDecisionRejection(
   decision: DesktopStepDecision,
 ): string | null {
   const requiresInitialPoint =
-    input.goal.interactionMode === 'guide' &&
-    input.goal.capabilities.includes('computer_use') &&
+    taskBehavior(input.goal) === 'guide' &&
     Boolean(input.observation.screenshot) &&
     input.guidancePoints.length === 0;
 
@@ -688,7 +682,7 @@ function plannerDecisionRejection(
     return 'Every declared teaching point has already been shown. Complete the guide with the full user-facing explanation now.';
   }
 
-  if (input.goal.domain === 'education') {
+  if (taskBehavior(input.goal) === 'guide') {
     const [answer, explanation] = decision.description.split(' — ', 2);
     const genericAnswer =
       /^(?:look|notice|focus|read|fill|enter|type|click|point|question|item|input field|hãy|chú ý|nhìn|điền|ô trống|câu hỏi)(?:\s|:|$)/iu;

@@ -1,5 +1,5 @@
 import type {
-  Capability,
+  TaskBehavior,
   TaskEvent,
   TaskSnapshot,
 } from '../shared/contracts';
@@ -7,8 +7,8 @@ import type {
 const ACTIVITY_DAY_COUNT = 42;
 const FINISHED_PHASES = new Set(['completed', 'failed', 'cancelled']);
 
-export interface CapabilityUsage {
-  capability: Capability;
+export interface BehaviorUsage {
+  behavior: TaskBehavior;
   count: number;
   percentage: number;
 }
@@ -24,7 +24,7 @@ export interface ActivityDay {
 export interface InsightsSummary {
   activityDays: ActivityDay[];
   approvalDecisions: number;
-  capabilityUsage: CapabilityUsage[];
+  behaviorUsage: BehaviorUsage[];
   completedTasks: number;
   completionRate: number;
   currentStreak: number;
@@ -90,30 +90,27 @@ export function createInsightsSummary(
   const finishedTasks = tasks.filter((task) =>
     FINISHED_PHASES.has(task.phase),
   ).length;
-  const capabilityCounts = new Map<Capability, number>();
+  const behaviorCounts = new Map<TaskBehavior, number>();
 
   for (const task of tasks) {
-    for (const capability of task.goal?.capabilities ?? []) {
-      capabilityCounts.set(
-        capability,
-        (capabilityCounts.get(capability) ?? 0) + 1,
-      );
-    }
+    if (!task.goal) continue;
+    const behavior = task.goal.behavior;
+    behaviorCounts.set(behavior, (behaviorCounts.get(behavior) ?? 0) + 1);
   }
 
-  const highestCapabilityCount = Math.max(
+  const highestBehaviorCount = Math.max(
     1,
-    ...capabilityCounts.values(),
+    ...behaviorCounts.values(),
   );
-  const capabilityUsage = [...capabilityCounts.entries()]
-    .map(([capability, count]) => ({
-      capability,
+  const behaviorUsage = [...behaviorCounts.entries()]
+    .map(([behavior, count]) => ({
+      behavior,
       count,
-      percentage: Math.round((count / highestCapabilityCount) * 100),
+      percentage: Math.round((count / highestBehaviorCount) * 100),
     }))
     .sort((left, right) =>
       right.count === left.count
-        ? left.capability.localeCompare(right.capability)
+        ? left.behavior.localeCompare(right.behavior)
         : right.count - left.count,
     );
 
@@ -183,7 +180,7 @@ export function createInsightsSummary(
   return {
     activityDays,
     approvalDecisions: approvalMessageIds.size,
-    capabilityUsage,
+    behaviorUsage,
     completedTasks,
     completionRate:
       finishedTasks === 0
