@@ -476,6 +476,16 @@ export const CompanionStateSchema = z.enum([
   'error',
 ]);
 
+export const CompanionVoiceActivitySchema = z.object({
+  phase: z.enum([
+    'requesting_permission',
+    'connecting',
+    'listening',
+    'processing',
+  ]),
+  transcript: z.string().max(8_000),
+});
+
 export const CompanionPositionSchema = z.object({
   x: z.number().int().min(0).max(100_000),
   y: z.number().int().min(0).max(100_000),
@@ -577,6 +587,9 @@ export type ActivateMembershipRequest = z.infer<
 >;
 export type CompanionPosition = z.infer<typeof CompanionPositionSchema>;
 export type CompanionState = z.infer<typeof CompanionStateSchema>;
+export type CompanionVoiceActivity = z.infer<
+  typeof CompanionVoiceActivitySchema
+>;
 export type CompanionGuidance = z.infer<typeof CompanionGuidanceSchema>;
 export type CompanionSpeech = z.infer<typeof CompanionSpeechSchema>;
 export type ConfigureVoiceRequest = z.infer<

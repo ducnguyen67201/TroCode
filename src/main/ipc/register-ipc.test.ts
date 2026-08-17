@@ -56,6 +56,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   recordVoiceTranscript: ReturnType<typeof vi.fn>;
   submit: ReturnType<typeof vi.fn>;
   updateAppPreferences: ReturnType<typeof vi.fn>;
+  updateCompanionVoiceActivity: ReturnType<typeof vi.fn>;
   unregister: () => void;
 } {
   electronMock.handlers.clear();
@@ -170,6 +171,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     phase: 'checking' as const,
   }));
   const restartAndInstallUpdate = vi.fn(async () => undefined);
+  const updateCompanionVoiceActivity = vi.fn();
   const services = {
     appUpdateService: {
       checkForUpdates,
@@ -192,6 +194,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     taskSubmissionService,
     taskHistoryService: { load: getTaskHistory },
     updateCompanionState: vi.fn(),
+    updateCompanionVoiceActivity,
     voiceService: { createCall: createVoiceCall },
   } as unknown as Parameters<typeof registerIpcHandlers>[1];
 
@@ -213,6 +216,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     requestScreenRecordingAccess,
     submit,
     updateAppPreferences,
+    updateCompanionVoiceActivity,
     unregister: registerIpcHandlers(mainWindow, services),
   };
 }
@@ -383,6 +387,30 @@ describe('registerIpcHandlers auth boundary', () => {
     expect(recordVoiceTranscript).toHaveBeenCalledWith({
       text: 'Open YouTube for me',
     });
+    unregister();
+  });
+
+  it('validates live transcript activity before forwarding it to the island', () => {
+    const { event, unregister, updateCompanionVoiceActivity } = setup(false);
+    const handler = electronMock.handlers.get(
+      IPC_CHANNELS.setCompanionVoiceActivity,
+    );
+
+    expect(
+      handler?.(event, {
+        phase: 'listening',
+        transcript: 'Open YouTube',
+      }),
+    ).toBeUndefined();
+    expect(updateCompanionVoiceActivity).toHaveBeenCalledWith({
+      phase: 'listening',
+      transcript: 'Open YouTube',
+    });
+    expect(() =>
+      handler?.(event, { phase: 'idle', transcript: '' }),
+    ).toThrow();
+    expect(handler?.(event, null)).toBeUndefined();
+    expect(updateCompanionVoiceActivity).toHaveBeenLastCalledWith(null);
     unregister();
   });
 

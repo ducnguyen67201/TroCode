@@ -218,51 +218,6 @@ function voiceStatusMessage(
   }
 }
 
-function VoiceConnection({
-  inputStatus,
-  primaryLanguage,
-  status,
-}: {
-  inputStatus: VoiceInputStatus;
-  primaryLanguage: PrimaryLanguage;
-  status: VoiceStatus;
-}) {
-  const configured = status.state === 'ready';
-  const connected =
-    configured && inputStatus !== 'connecting' && inputStatus !== 'unavailable';
-  const connectionLabel = !configured
-    ? 'Not configured'
-    : inputStatus === 'connecting'
-      ? 'Connecting'
-      : connected
-        ? 'Connected'
-        : 'Not connected';
-
-  return (
-    <section className="computer-card" aria-labelledby="voice-heading">
-      <div className="section-heading-row">
-        <div>
-          <p className="eyebrow">Voice input</p>
-          <h2 id="voice-heading">OpenAI Realtime</h2>
-        </div>
-        <span
-          className={`status-dot status-dot--${connected ? 'ready' : 'disconnected'}`}
-        >
-          {connectionLabel}
-        </span>
-      </div>
-      <p>
-        {connected
-          ? 'Realtime voice is ready. The microphone stays off until you hold the shortcut.'
-          : status.summary}
-      </p>
-      <p className="metadata">
-        Model {status.model} · {primaryLanguageLabel(primaryLanguage)}
-      </p>
-    </section>
-  );
-}
-
 function VoiceShortcut({ platform }: { platform: PushToTalkPlatform }) {
   if (platform === 'unsupported') return null;
 
@@ -603,6 +558,7 @@ export function App({
 }) {
   const [activeView, setActiveView] = useState<ActiveView>('agent');
   const [input, setInput] = useState('');
+  const [voiceTranscript, setVoiceTranscript] = useState('');
   const [snapshot, setSnapshot] = useState<TaskSnapshot | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [sessionEvents, setSessionEvents] = useState<TaskEvent[]>([]);
@@ -1220,6 +1176,15 @@ export function App({
     }
   }, [clearError, recordSnapshot, reportError, snapshot]);
 
+  const handleVoiceAttemptStart = useCallback(() => {
+    clearError();
+    setVoiceTranscript('');
+  }, [clearError]);
+  const handleVoiceTranscriptChange = useCallback((transcript: string) => {
+    setInput(transcript);
+    setVoiceTranscript(transcript);
+  }, []);
+
   const { platform: voicePlatform, status: voiceStatus } = usePushToTalk({
     disabled:
       !permissionSetupComplete ||
@@ -1231,9 +1196,9 @@ export function App({
       languageSetupComplete &&
       membershipAccessAllowed &&
       voiceProviderStatus.state === 'ready',
-    onAttemptStart: clearError,
+    onAttemptStart: handleVoiceAttemptStart,
     onError: reportError,
-    onTranscriptChange: setInput,
+    onTranscriptChange: handleVoiceTranscriptChange,
     onTranscriptSubmit: (transcript) => void sendInput(transcript, 'voice'),
   });
   const companionState = getCompanionState({
@@ -1250,6 +1215,29 @@ export function App({
   useEffect(() => {
     void window.tro.setCompanionState(companionState);
   }, [companionState]);
+
+  useEffect(() => {
+    const voiceActive =
+      voiceStatus === 'requesting_permission' ||
+      voiceStatus === 'connecting' ||
+      voiceStatus === 'listening' ||
+      voiceStatus === 'processing';
+    void window.tro.setCompanionVoiceActivity(
+      voiceActive
+        ? {
+            phase: voiceStatus,
+            transcript: voiceTranscript,
+          }
+        : null,
+    );
+  }, [voiceStatus, voiceTranscript]);
+
+  useEffect(
+    () => () => {
+      void window.tro.setCompanionVoiceActivity(null);
+    },
+    [],
+  );
 
   const enablePermissions = useCallback(async () => {
     setPermissionError(null);
@@ -1667,7 +1655,10 @@ export function App({
             saveMessage={settingsSaveMessage}
           />
         ) : (
-        <div className="content-grid" id="task">
+        <div
+          className={`content-grid ${hasLiveTask ? '' : 'content-grid--single'}`}
+          id="task"
+        >
           <section className="task-column">
             <div className={`hero-copy hero-copy--${hero.state}`}>
               <p className="eyebrow">{hero.eyebrow}</p>
@@ -1784,16 +1775,8 @@ export function App({
             )}
           </section>
 
-          <aside className="context-column">
-            <VoiceConnection
-              inputStatus={voiceStatus}
-              primaryLanguage={
-                appPreferences?.primaryLanguage ?? languageDraft
-              }
-              status={voiceProviderStatus}
-            />
-
-            {hasLiveTask && (
+          {hasLiveTask && (
+            <aside className="context-column">
               <section className="activity-card" id="activity" aria-labelledby="activity-heading">
                 <div className="section-heading-row">
                   <div>
@@ -1804,8 +1787,8 @@ export function App({
                 </div>
                 <ActivityList events={events} />
               </section>
-            )}
-          </aside>
+            </aside>
+          )}
         </div>
         )}
       </main>

@@ -7,6 +7,7 @@ import {
   placeCompanionInOverlay,
   placeCompanionNearCursor,
   placeGuidanceCallout,
+  placeVoiceIsland,
   shouldUseCompanionOverlay,
 } from './companion-position';
 
@@ -70,6 +71,22 @@ describe('cursor companion placement', () => {
         COMPANION,
       ),
     ).toEqual({ x: 858, y: 674 });
+  });
+
+  it('centers the voice island below the active display work area', () => {
+    expect(
+      placeVoiceIsland(
+        { height: 770, width: 1200, x: 0, y: 30 },
+        { height: 76, width: 420 },
+      ),
+    ).toEqual({ x: 390, y: 40 });
+
+    expect(
+      placeVoiceIsland(
+        { height: 80, width: 300, x: -300, y: -20 },
+        { height: 76, width: 420 },
+      ),
+    ).toEqual({ x: -300, y: -16 });
   });
 
   it('builds one overlay covering every display', () => {

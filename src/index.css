@@ -705,13 +705,146 @@ html.companion-mode body,
 html.companion-mode #root,
 html.guidance-mode,
 html.guidance-mode body,
-html.guidance-mode #root {
+html.guidance-mode #root,
+html.voice-island-mode,
+html.voice-island-mode body,
+html.voice-island-mode #root {
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
   background: transparent;
+}
+
+.voice-island {
+  display: grid;
+  width: calc(100% - 12px);
+  height: calc(100% - 12px);
+  min-height: 58px;
+  align-items: center;
+  gap: 11px;
+  margin: 6px auto;
+  padding: 9px 13px 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 24px;
+  background: rgba(20, 20, 19, 0.96);
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.34),
+    0 3px 12px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #f9f7ef;
+  animation: voice-island-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  backdrop-filter: blur(20px);
+  grid-template-columns: 38px minmax(0, 1fr) 38px;
+  pointer-events: none;
+  transition-property: width, border-radius;
+  transition-duration: 180ms;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  -webkit-font-smoothing: antialiased;
+}
+
+.voice-island--compact {
+  width: 246px;
+  border-radius: 30px;
+}
+
+.voice-island__signal {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(242, 201, 76, 0.32);
+  border-radius: 14px;
+  background: rgba(242, 201, 76, 0.16);
+  color: #f2c94c;
+  place-items: center;
+}
+
+.voice-island__signal svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.voice-island__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.voice-island__copy strong {
+  color: #f2c94c;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.voice-island__copy > span {
+  overflow: hidden;
+  color: #f9f7ef;
+  font-size: 13px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-island__copy .voice-island__placeholder {
+  color: rgba(249, 247, 239, 0.62);
+  font-weight: 520;
+}
+
+.voice-island__meter {
+  display: flex;
+  width: 38px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.voice-island__meter i {
+  width: 2px;
+  height: 13px;
+  border-radius: 99px;
+  background: #f2c94c;
+  animation: voice-island-meter 720ms ease-in-out infinite alternate;
+  transform-origin: center;
+}
+
+.voice-island__meter i:nth-child(2) {
+  height: 21px;
+  animation-delay: -360ms;
+}
+
+.voice-island__meter i:nth-child(3) {
+  height: 27px;
+  animation-delay: -180ms;
+}
+
+.voice-island__meter i:nth-child(4) {
+  height: 19px;
+  animation-delay: -540ms;
+}
+
+.voice-island__meter i:nth-child(5) {
+  height: 11px;
+  animation-delay: -90ms;
+}
+
+.voice-island--processing .voice-island__meter i,
+.voice-island--connecting .voice-island__meter i,
+.voice-island--requesting_permission .voice-island__meter i {
+  height: 5px;
+  animation-name: voice-island-processing;
 }
 
 .guidance-callout {
@@ -1154,13 +1287,46 @@ html.guidance-mode #root {
   }
 }
 
+@keyframes voice-island-enter {
+  from {
+    opacity: 0;
+    filter: blur(5px);
+    transform: translateY(-7px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes voice-island-meter {
+  to {
+    opacity: 0.48;
+    transform: scaleY(0.32);
+  }
+}
+
+@keyframes voice-island-processing {
+  to {
+    opacity: 0.36;
+    transform: translateY(-4px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cursor-companion img {
     animation: none;
   }
 
-  .guidance-callout {
+  .guidance-callout,
+  .voice-island {
     animation: guidance-callout-fade 200ms ease-out both;
+  }
+
+  .voice-island__meter i {
+    animation: none;
   }
 }
 
@@ -1510,6 +1676,11 @@ textarea:focus-visible {
   margin: 0 auto;
   padding: 48px 40px 80px;
   grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.content-grid--single {
+  max-width: 840px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .task-column,

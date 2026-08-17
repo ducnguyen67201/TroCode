@@ -3,6 +3,7 @@ import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import {
   ActivateMembershipRequestSchema,
   CompanionStateSchema,
+  CompanionVoiceActivitySchema,
   RecordVoiceTranscriptRequestSchema,
   SystemPermissionSchema,
   TaskUpdateSchema,
@@ -10,6 +11,7 @@ import {
   VoiceDiagnosticSchema,
   type AuthUser,
   type CompanionState,
+  type CompanionVoiceActivity,
   type RecordVoiceTranscriptRequest,
   type SystemPermission,
 } from '../../shared/contracts';
@@ -51,6 +53,9 @@ interface IpcServices {
   taskSubmissionService: TaskSubmissionService;
   taskHistoryService: TaskHistoryService;
   updateCompanionState(state: CompanionState): void;
+  updateCompanionVoiceActivity(
+    activity: CompanionVoiceActivity | null,
+  ): void;
   voiceService: VoiceService;
 }
 
@@ -113,6 +118,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.reportVoiceDiagnostic,
     IPC_CHANNELS.restartAndInstallAppUpdate,
     IPC_CHANNELS.setCompanionState,
+    IPC_CHANNELS.setCompanionVoiceActivity,
     IPC_CHANNELS.startTask,
     IPC_CHANNELS.signInWithGoogle,
     IPC_CHANNELS.signOutGoogle,
@@ -319,6 +325,16 @@ export function registerIpcHandlers(
     assertTrustedSender(event, mainWindow);
     services.updateCompanionState(CompanionStateSchema.parse(input));
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.setCompanionVoiceActivity,
+    (event, input: unknown) => {
+      assertTrustedSender(event, mainWindow);
+      services.updateCompanionVoiceActivity(
+        CompanionVoiceActivitySchema.nullable().parse(input),
+      );
+    },
+  );
 
   const forwardTaskUpdate = (value: unknown): void => {
     if (mainWindow.isDestroyed()) return;

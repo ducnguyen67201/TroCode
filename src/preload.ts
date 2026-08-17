@@ -10,6 +10,7 @@ import {
   CompanionGuidanceSchema,
   CompanionSpeechSchema,
   CompanionStateSchema,
+  CompanionVoiceActivitySchema,
   ConfigureVoiceRequestSchema,
   CreateVoiceCallRequestSchema,
   CuaStatusSchema,
@@ -231,6 +232,14 @@ const desktopApi: DesktopApi = {
     await ipcRenderer.invoke(IPC_CHANNELS.setCompanionState, state);
   },
 
+  async setCompanionVoiceActivity(input) {
+    const activity = CompanionVoiceActivitySchema.nullable().parse(input);
+    await ipcRenderer.invoke(
+      IPC_CHANNELS.setCompanionVoiceActivity,
+      activity,
+    );
+  },
+
   onTaskUpdate(listener) {
     const eventHandler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
       listener(TaskUpdateSchema.parse(value));
@@ -332,6 +341,25 @@ const companionApi: CompanionApi = {
     return () =>
       ipcRenderer.removeListener(
         IPC_CHANNELS.companionStateChanged,
+        eventHandler,
+      );
+  },
+
+  onVoiceActivityChange(listener) {
+    const eventHandler = (
+      _event: Electron.IpcRendererEvent,
+      value: unknown,
+    ): void => {
+      listener(CompanionVoiceActivitySchema.nullable().parse(value));
+    };
+
+    ipcRenderer.on(
+      IPC_CHANNELS.companionVoiceActivityChanged,
+      eventHandler,
+    );
+    return () =>
+      ipcRenderer.removeListener(
+        IPC_CHANNELS.companionVoiceActivityChanged,
         eventHandler,
       );
   },
