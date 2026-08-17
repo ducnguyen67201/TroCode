@@ -38,6 +38,8 @@ a user message, and never interrupts an already dispatched atomic action.
 
 Send, submit, upload, download, delete, purchase, install, login, command
 execution, and file writes always pause immediately before the concrete action.
+Desktop clicks, drags, text entry, and keypresses also pause because the trusted
+host cannot infer a control's real-world effect from a model-provided label.
 The UI shows target, description, and exact bounded parameters. Typed or spoken
 “yes” is not approval. A grant is single-use, expires, and matches a digest of
 tool, operation, consequence, target, payload, command, coordinates, and desktop

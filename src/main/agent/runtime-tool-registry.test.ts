@@ -136,6 +136,55 @@ describe('RuntimeToolRegistry', () => {
     ).toThrow('Observe the desktop');
   });
 
+  it('derives desktop action identity from the trusted command', () => {
+    const registry = new RuntimeToolRegistry();
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+    const invocation = registry.resolve(
+      {
+        callId: 'call-delete',
+        name: 'control_desktop',
+        arguments: JSON.stringify({
+          observationId,
+          consequence: 'delete',
+          description: 'Click the visible delete button.',
+          target: 'Delete button',
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 250,
+            button: 'left',
+            count: 1,
+          },
+        }),
+      },
+      {
+        taskId,
+        latestObservation: {
+          observationId,
+          taskId,
+          capturedAt: '2026-08-17T00:00:00.000Z',
+          text: 'A delete button is visible.',
+          degraded: false,
+          fingerprint: 'a'.repeat(64),
+          coordinateSpace: {
+            screenHeight: 500,
+            screenWidth: 1000,
+            screenshotHeight: 1000,
+            screenshotWidth: 2000,
+          },
+        },
+      },
+    );
+
+    expect(invocation.action).toMatchObject({
+      action: 'click_element',
+      toolId: 'desktop.control',
+      operation: 'click',
+      parameters: { declaredConsequence: 'delete' },
+    });
+  });
+
   it('can register an optional music provider without changing the agent', () => {
     const musicTool: RuntimeToolDefinition<{ prompt: string }> = {
       id: 'music.generate',

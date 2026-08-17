@@ -20,6 +20,22 @@ export interface PolicyDecision {
   nextActions: string[];
 }
 
+const HOST_APPROVAL_DESKTOP_OPERATIONS: ReadonlySet<string> = new Set([
+  'click',
+  'drag',
+  'type_text',
+  'keypress',
+]);
+
+function hostRequiresApproval(action: ProposedAction): boolean {
+  return (
+    action.toolId === 'desktop.control' &&
+    Boolean(
+      action.operation && HOST_APPROVAL_DESKTOP_OPERATIONS.has(action.operation),
+    )
+  );
+}
+
 function isTargetAdmissible(action: ProposedAction): boolean {
   if (action.action !== 'open_url' || !action.target) return true;
 
@@ -99,7 +115,10 @@ export function evaluateAction(
     };
   }
 
-  if (taskApprovalPolicy().includes(action.action as never)) {
+  if (
+    hostRequiresApproval(action) ||
+    taskApprovalPolicy().includes(action.action as never)
+  ) {
     return {
       status: 'needs_approval',
       summary: `${action.description} requires explicit user approval.`,
