@@ -385,6 +385,18 @@ SignPath Foundation application. It must not be presented as a trusted customer
 release; Windows will warn when it is installed. Stable customer releases use
 the SignPath workflow or the certificate-file workflow above.
 
+For macOS CI, run **macOS build and release**. The workflow builds separate
+Apple silicon (`arm64`) and Intel (`x64`) ZIPs on native GitHub-hosted runners,
+checks each application bundle, writes SHA-256 checksum files, and retains the
+artifacts for 30 days. Leave `publish_release` disabled for a private CI build.
+To add the ZIPs to a shared desktop prerelease, set `source_ref` and
+`release_tag` to that existing tag, enable `publish_release`, and—until Apple
+credentials are configured—explicitly enable `allow_unsigned_preview`.
+Unsigned, unnotarized Mac builds are previews and may be blocked by Gatekeeper;
+the workflow will never attach one to a stable release. Once all six Apple
+secrets listed above exist, enable `require_signing` to require Developer ID
+signing and notarization before upload.
+
 ## Architecture
 
 ```text
