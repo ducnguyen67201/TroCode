@@ -4,6 +4,7 @@ import {
   ActivateMembershipRequestSchema,
   CompanionStateSchema,
   CompanionVoiceActivitySchema,
+  GetUsageBudgetRequestSchema,
   RecordVoiceTranscriptRequestSchema,
   SetVoiceAudioDuckingRequestSchema,
   SystemPermissionSchema,
@@ -15,11 +16,14 @@ import {
   type CompanionVoiceActivity,
   type RecordVoiceTranscriptRequest,
   type SystemPermission,
+  type UsageBudgetSnapshot,
 } from '../../shared/contracts';
 import { IPC_CHANNELS } from '../../shared/desktop-api';
 import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
 import type { TaskRuntime } from '../agent/task-runtime';
+import type { TaskApplicationService } from '../application/task-application-service';
 import type { GoogleAuthService } from '../auth/google-auth-service';
+import type { UsageBudgetService } from '../budget/usage-budget-service';
 import type { CuaService } from '../cua/cua-service';
 import type { TaskHistoryService } from '../history/task-history-service';
 import type { MembershipService } from '../membership/membership-service';
@@ -43,6 +47,7 @@ interface IpcServices {
   membershipService: MembershipService;
   onAuthSignedIn?(user: AuthUser): Promise<void> | void;
   onAuthSignedOut?(): Promise<void> | void;
+  onUsageBudgetSnapshot?(snapshot: UsageBudgetSnapshot): void;
   openSystemPermissionSettings(
     permission: SystemPermission,
   ): Promise<unknown> | unknown;
@@ -51,6 +56,7 @@ interface IpcServices {
   ): Promise<void> | void;
   requestScreenRecordingAccess(): Promise<unknown> | unknown;
   taskRuntime: TaskRuntime;
+  taskApplicationService: TaskApplicationService;
   taskHistoryService: TaskHistoryService;
   systemAudioDuckingService: Pick<SystemAudioDuckingService, 'setActive'>;
   updateCompanionState(state: CompanionState): void;
@@ -58,6 +64,7 @@ interface IpcServices {
     activity: CompanionVoiceActivity | null,
   ): void;
   voiceService: VoiceService;
+  usageBudgetService: UsageBudgetService;
 }
 
 async function assertAuthorizedSender(
@@ -111,6 +118,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.getComputerStatus,
     IPC_CHANNELS.getAuthStatus,
     IPC_CHANNELS.getMembershipStatus,
+    IPC_CHANNELS.getUsageBudget,
     IPC_CHANNELS.getTaskHistory,
     IPC_CHANNELS.getVoiceStatus,
     IPC_CHANNELS.openSystemPermissionSettings,
@@ -202,6 +210,14 @@ export function registerIpcHandlers(
     return services.taskHistoryService.load(user.id);
   });
 
+  ipcMain.handle(IPC_CHANNELS.getUsageBudget, async (event, input: unknown) => {
+    await assertAuthorizedSender(event, mainWindow, services.authService);
+    const request = GetUsageBudgetRequestSchema.parse(input ?? {});
+    const snapshot = await services.usageBudgetService.get(request.taskId);
+    services.onUsageBudgetSnapshot?.(snapshot);
+    return snapshot;
+  });
+
   ipcMain.handle(
     IPC_CHANNELS.updateAppPreferences,
     async (event, input: unknown) => {
@@ -214,39 +230,32 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.submitTask, async (event, input: unknown) => {
     await assertMembershipAuthorizedSender(event, mainWindow, services);
-    const submitted = services.taskRuntime.submit(input);
-    return services.executionCoordinator.start({ taskId: submitted.taskId });
+    return services.taskApplicationService.submitAndStart(input);
   });
 
   ipcMain.handle(IPC_CHANNELS.cancelTask, async (event, input: unknown) => {
     await assertMembershipAuthorizedSender(event, mainWindow, services);
-    return services.executionCoordinator.cancel(input);
+    return services.taskApplicationService.cancel(input);
   });
 
   ipcMain.handle(IPC_CHANNELS.startTask, async (event, input: unknown) => {
     await assertMembershipAuthorizedSender(event, mainWindow, services);
-    return services.executionCoordinator.start(input);
+    return services.taskApplicationService.start(input);
   });
 
   ipcMain.handle(IPC_CHANNELS.respondToInteraction, async (event, input: unknown) => {
     await assertMembershipAuthorizedSender(event, mainWindow, services);
-    const snapshot = services.taskRuntime.respondToInteraction(input);
-    services.executionCoordinator.resume(snapshot.taskId);
-    return snapshot;
+    return services.taskApplicationService.respond(input);
   });
 
   ipcMain.handle(IPC_CHANNELS.decideApproval, async (event, input: unknown) => {
     await assertMembershipAuthorizedSender(event, mainWindow, services);
-    const snapshot = services.taskRuntime.decideApproval(input);
-    services.executionCoordinator.resume(snapshot.taskId);
-    return snapshot;
+    return services.taskApplicationService.decideApproval(input);
   });
 
   ipcMain.handle(IPC_CHANNELS.steerTask, async (event, input: unknown) => {
     await assertMembershipAuthorizedSender(event, mainWindow, services);
-    const snapshot = services.taskRuntime.steer(input);
-    services.executionCoordinator.resume(snapshot.taskId);
-    return snapshot;
+    return services.taskApplicationService.steer(input);
   });
 
   ipcMain.handle(IPC_CHANNELS.getComputerStatus, async (event) => {

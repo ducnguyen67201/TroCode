@@ -3,10 +3,14 @@ import { createServer } from 'node:http';
 import pg from 'pg';
 
 import { loadConfig } from './config.mjs';
+import { BudgetService } from './budget-service.mjs';
 import { verifyGoogleIdToken } from './google-token-verifier.mjs';
 import { runMigrations } from './migrate.mjs';
+import { ModelCatalog } from './model-catalog.mjs';
+import { OpenAiResponsesService } from './openai-responses-service.mjs';
 import { createApiHandler } from './server.mjs';
 import { PostgresSessionRepository } from './session-repository.mjs';
+import { PostgresUsageRepository } from './usage-repository.mjs';
 
 const config = loadConfig();
 const pool = new pg.Pool({
@@ -24,7 +28,17 @@ const sessionRepository = new PostgresSessionRepository(pool, {
   hmacKey: config.sessionTokenHmacKey,
   sessionDurationDays: config.sessionDurationDays,
 });
+const modelCatalog = new ModelCatalog();
+for (const model of config.openAiModels) modelCatalog.priceFor(model);
+const usageRepository = new PostgresUsageRepository(pool);
+const budgetService = new BudgetService(usageRepository, config.costGuard);
+const responsesService = new OpenAiResponsesService({
+  budgetService,
+  catalog: modelCatalog,
+  openAiApiKey: config.openAiApiKey,
+});
 const handler = createApiHandler({
+  budgetService,
   config,
   healthCheck: async () => {
     try {
@@ -35,6 +49,7 @@ const handler = createApiHandler({
     }
   },
   sessionRepository,
+  responsesService,
   verifyGoogleIdToken,
 });
 const server = createServer(handler);

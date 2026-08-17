@@ -26,6 +26,8 @@ import {
   TaskHistorySchema,
   TaskSnapshotSchema,
   TaskUpdateSchema,
+  UsageBudgetSnapshotSchema,
+  GetUsageBudgetRequestSchema,
   UpdateAppPreferencesRequestSchema,
   VoiceCallAnswerSchema,
   VoiceDiagnosticSchema,
@@ -106,6 +108,15 @@ const desktopApi: DesktopApi = {
       IPC_CHANNELS.getTaskHistory,
     );
     return TaskHistorySchema.parse(response);
+  },
+
+  async getUsageBudget(taskId) {
+    const request = GetUsageBudgetRequestSchema.parse({ taskId });
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.getUsageBudget,
+      request,
+    );
+    return UsageBudgetSnapshotSchema.parse(response);
   },
 
   async updateAppPreferences(input) {

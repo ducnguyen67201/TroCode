@@ -12,8 +12,10 @@ flowchart LR
     UI["Sandboxed React renderer"] -->|"Narrow DesktopApi"| PRELOAD["Validated preload"]
     PRELOAD -->|"Authenticated IPC"| MAIN["Electron main"]
     MAIN --> RUNTIME["Task runtime v3"]
-    RUNTIME --> AGENT["Persistent Responses session"]
-    AGENT -->|"Opaque device session over HTTPS"| API["Railway API"]
+    RUNTIME --> AGENT["CostAwareAgent + bounded InferenceSession"]
+    AGENT -->|"Request UUID + opaque session"| API["Railway API"]
+    API --> BUDGET["BudgetService"]
+    BUDGET --> USAGE["Reservation + usage ledger"]
     API --> OPENAI["OpenAI Responses + Realtime"]
     API --> ELEVEN["Optional ElevenLabs TTS"]
     API --> SESSIONS["PostgreSQL sessions"]
@@ -28,9 +30,10 @@ flowchart LR
 
 ## Assistant-or-tool loop
 
-A new request synchronously creates a host-owned `TaskContract` v3 containing
+A new request synchronously creates a host-owned `TaskContract` v4 containing
 the original request, fixed exact-approval policy, tool-call limit, and time
-limit. It contains no domain, behavior, capability grant, application allowlist,
+limit plus model-sample, image, and task-spend ceilings. It contains no domain,
+behavior, capability grant, application allowlist,
 or model-authored authority.
 
 One in-memory Responses session receives the user message and the tool specs
@@ -42,8 +45,8 @@ retained only in this bounded main-process session so the following tool output
 has correct continuity.
 
 A self-contained assistant message with no tool or visible-context dependency
-ends immediately. If a task used a tool or refers to visible context such as
-“this assignment,” the first assistant candidate stays private and triggers one
+ends immediately. If a task refers to visible context or requires
+outcome-critical tool verification, the first assistant candidate stays private and triggers one
 trusted GPT completion checkpoint in the same session. GPT must compare every
 requested outcome with the accumulated evidence and either call the next tool or
 return the final answer. This is a completion invariant, not a capability router:
@@ -99,8 +102,8 @@ authority.
 
 ## Persistence and analytics
 
-PostgreSQL stores validated snapshots and lifecycle events. Persisted v1/v2
-contracts remain readable as legacy history; new tasks emit v3 contracts and
+PostgreSQL stores validated snapshots and lifecycle events. Persisted v1/v2/v3
+contracts remain readable as legacy history; new tasks emit v4 contracts and
 tool-call progress. Screenshots, Responses items, pending raw tool arguments,
 and reasoning never enter task history.
 
@@ -118,5 +121,6 @@ resolve from a real filesystem. Each macOS or Windows release must be built on
 its matching target.
 
 The local PostgreSQL task-history adapter remains a development foundation. The
-hosted PostgreSQL database stores users and revocable device-session digests;
-it does not receive task history, screenshots, or desktop action payloads.
+hosted PostgreSQL database stores users, revocable device-session digests, cost
+reservations, and sanitized immutable usage events. It does not receive task
+history, prompts, model outputs, screenshots, or desktop action payloads.

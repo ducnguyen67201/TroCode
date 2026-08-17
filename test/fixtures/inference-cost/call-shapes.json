@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    {
+      "id": "text-answer",
+      "beforeMicroUsd": 10100,
+      "afterMicroUsd": 2700,
+      "facts": { "samplesBefore": 1, "samplesAfter": 1, "imagesAfter": 0 }
+    },
+    {
+      "id": "five-step-visual-task",
+      "beforeMicroUsd": 190000,
+      "afterMicroUsd": 35000,
+      "facts": { "samplesBefore": 7, "samplesAfter": 6, "imagesAfterPerSample": 1 }
+    },
+    {
+      "id": "ambiguous-provider-failure",
+      "beforeMicroUsd": 220000,
+      "afterMicroUsd": 20000,
+      "facts": { "automaticTerraFallbackBefore": true, "automaticFallbackAfter": false }
+    }
+  ]
+}

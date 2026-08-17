@@ -8,7 +8,7 @@ import type {
   ResolvedToolInvocation,
   ToolExecutionResult,
 } from './agent-contracts';
-import { shouldRequestCompletionReview } from './completion-policy';
+import { decideCompletionReview } from './completion-policy';
 import {
   mapScreenshotPointToDesktop,
   type DesktopCommand,
@@ -25,7 +25,7 @@ import {
   type OpenUrlToolInput,
   type RuntimeToolRegistry,
 } from './runtime-tool-registry';
-import { taskMaxToolCalls } from './task-contract';
+import { taskMaxModelSamples, taskMaxToolCalls } from './task-contract';
 import type { TaskRuntime } from './task-runtime';
 
 interface ExecutionCoordinatorOptions {
@@ -43,6 +43,9 @@ interface ExecutionCoordinatorOptions {
   onGuidancePlaybackChange?: (taskId: string, paused: boolean) => void;
   openExternal?: (url: string) => Promise<void>;
   prepareDesktop?: () => Promise<DesktopObservationCleanup | void>;
+  prepareObservation?: (
+    observation: DesktopObservation,
+  ) => DesktopObservation;
   presentAction?: (
     command: DesktopCommand,
     signal: AbortSignal,
@@ -87,6 +90,7 @@ interface ExecutionContext {
   playback: GuidancePlaybackController;
   rerunRequested: boolean;
   resolvedToolCalls: number;
+  modelSamples: number;
   running?: Promise<void>;
   unknownActionDigests: Set<string>;
 }
@@ -283,6 +287,10 @@ export class TaskExecutionCoordinator {
 
   private readonly prepareDesktop: () => Promise<DesktopObservationCleanup | void>;
 
+  private readonly prepareObservation: (
+    observation: DesktopObservation,
+  ) => DesktopObservation;
+
   private readonly presentAction: NonNullable<
     ExecutionCoordinatorOptions['presentAction']
   >;
@@ -306,6 +314,7 @@ export class TaskExecutionCoordinator {
       throw new Error('URL navigation is not configured.');
     },
     prepareDesktop = async () => undefined,
+    prepareObservation = (observation) => observation,
     presentAction = async () => undefined,
     runtime,
     toolDispatcher,
@@ -317,6 +326,7 @@ export class TaskExecutionCoordinator {
     this.guidanceAutoAdvanceMs = guidanceAutoAdvanceMs;
     this.onGuidancePlaybackChange = onGuidancePlaybackChange;
     this.prepareDesktop = prepareDesktop;
+    this.prepareObservation = prepareObservation;
     this.presentAction = presentAction;
     this.runtime = runtime;
     this.toolRegistry = toolRegistry;
@@ -440,6 +450,7 @@ export class TaskExecutionCoordinator {
       playback: new GuidancePlaybackController(this.guidanceAutoAdvanceMs),
       rerunRequested: false,
       resolvedToolCalls: 0,
+      modelSamples: 0,
       unknownActionDigests: new Set<string>(),
     };
     this.contexts.set(taskId, context);
@@ -459,7 +470,18 @@ export class TaskExecutionCoordinator {
         if (isAbort(error, context.controller.signal)) return;
         const snapshot = this.runtime.getSnapshot(taskId);
         if (!TERMINAL_PHASES.has(snapshot.phase)) {
-          this.runtime.fail(taskId, errorMessage(error));
+          if (
+            error &&
+            typeof error === 'object' &&
+            'status' in error &&
+            error.status === 402
+          ) {
+            this.runtime.block(taskId, errorMessage(error), [
+              'Review the remaining budget before starting a narrower task.',
+            ]);
+          } else {
+            this.runtime.fail(taskId, errorMessage(error));
+          }
         }
       })
       .finally(async () => {
@@ -545,24 +567,30 @@ export class TaskExecutionCoordinator {
         await this.cleanup(taskId);
         return;
       }
+      if (context.modelSamples >= taskMaxModelSamples(snapshot.goal)) {
+        this.runtime.block(taskId, 'The task reached its model-sample limit.', [
+          'Provide steering to narrow the task or start a new task.',
+        ]);
+        await this.cleanup(taskId);
+        return;
+      }
 
       for (const steering of this.runtime.takeSteering(taskId)) {
         this.agent.appendUserMessage(taskId, steering.instruction);
       }
       this.runtime.recordModelSampling(taskId);
+      context.modelSamples += 1;
       const turn = await this.agent.sample(
         taskId,
         this.toolRegistry.modelVisibleSpecs(),
         signal,
       );
       if (turn.kind === 'assistant_message') {
-        if (
-          !context.completionReviewRequested &&
-          shouldRequestCompletionReview({
+        const reviewDecision = decideCompletionReview({
             request: snapshot.request,
             resolvedToolCalls: context.resolvedToolCalls,
-          })
-        ) {
+          });
+        if (!context.completionReviewRequested && reviewDecision.required) {
           context.completionReviewRequested = true;
           this.agent.requestCompletionReview(taskId);
           this.runtime.resumePlanning(
@@ -918,7 +946,9 @@ export class TaskExecutionCoordinator {
     this.runtime.beginObservation(taskId, summary);
     const cleanup = await this.prepareDesktop();
     try {
-      const observation = await this.cua.observe(taskId, context.controller.signal);
+      const observation = this.prepareObservation(
+        await this.cua.observe(taskId, context.controller.signal),
+      );
       context.latestObservation = observation;
       return observation;
     } finally {

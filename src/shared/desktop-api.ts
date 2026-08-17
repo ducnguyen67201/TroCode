@@ -22,6 +22,7 @@ import type {
   TaskHistory,
   TaskSnapshot,
   TaskUpdate,
+  UsageBudgetSnapshot,
   UpdateAppPreferencesRequest,
   VoiceCallAnswer,
   VoiceDiagnostic,
@@ -48,6 +49,7 @@ export const IPC_CHANNELS = {
   getComputerStatus: 'cua:status',
   getAuthStatus: 'auth:status',
   getMembershipStatus: 'membership:status',
+  getUsageBudget: 'usage:budget',
   getTaskHistory: 'task:history',
   getVoiceStatus: 'voice:status',
   openSystemPermissionSettings: 'system:open-permission-settings',
@@ -82,6 +84,7 @@ export interface DesktopApi {
   getAppUpdateStatus(): Promise<AppUpdateStatus>;
   getComputerStatus(): Promise<CuaStatus>;
   getMembershipStatus(): Promise<MembershipStatus>;
+  getUsageBudget(taskId?: string): Promise<UsageBudgetSnapshot>;
   getTaskHistory(): Promise<TaskHistory>;
   getAuthStatus(): Promise<AuthStatus>;
   getVoiceStatus(): Promise<VoiceStatus>;

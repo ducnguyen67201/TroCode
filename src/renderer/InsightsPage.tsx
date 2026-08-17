@@ -5,6 +5,7 @@ import type {
   TaskEvent,
   TaskHistory,
   TaskSnapshot,
+  UsageBudgetSnapshot,
 } from '../shared/contracts';
 
 import { translate } from './app-language';
@@ -62,11 +63,13 @@ function EmptyTools({ appLanguage }: { appLanguage: AppLanguage }) {
 
 export function InsightsPage({
   appLanguage,
+  budget,
   events,
   persistence,
   tasks,
 }: {
   appLanguage: AppLanguage;
+  budget: UsageBudgetSnapshot | null;
   events: readonly TaskEvent[];
   persistence: TaskHistory['persistence'];
   tasks: readonly TaskSnapshot[];
@@ -80,6 +83,11 @@ export function InsightsPage({
     [events, tasks],
   );
   const weekdayLabels = summary.activityDays.slice(0, 7);
+  const formatUsd = (microUsd: number): string =>
+    new Intl.NumberFormat(appLanguage === 'vi' ? 'vi-VN' : 'en-US', {
+      currency: 'USD',
+      style: 'currency',
+    }).format(microUsd / 1_000_000);
 
   return (
     <div className="insights-page">
@@ -200,6 +208,33 @@ export function InsightsPage({
               />
               <span>{t('Needs attention')}</span>
               <strong>{summary.errorEvents}</strong>
+            </div>
+          </div>
+        </article>
+
+        <article className="insight-card insight-card--tasks">
+          <div className="insight-card__header">
+            <div className="insight-icon">
+              <SummaryIcon name="events" />
+            </div>
+            <span>{t('Model budget')}</span>
+          </div>
+          <strong className="insight-value">
+            {budget ? formatUsd(budget.actualMicroUsd) : '—'}
+          </strong>
+          <span className="insight-label">{t('SETTLED THIS MONTH')}</span>
+          <div className="insight-stat-list">
+            <div>
+              <span>{t('Remaining')}</span>
+              <strong>
+                {budget ? formatUsd(budget.monthly.remainingMicroUsd) : '—'}
+              </strong>
+            </div>
+            <div>
+              <span>{t('Pending estimate')}</span>
+              <strong>
+                {budget ? formatUsd(budget.estimatedMicroUsd) : '—'}
+              </strong>
             </div>
           </div>
         </article>
