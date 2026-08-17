@@ -10,7 +10,9 @@ export interface SynthesizedSpeech {
 }
 
 interface ElevenLabsTtsServiceOptions {
+  accessTokenProvider?: () => Promise<string | null>;
   apiKey?: string;
+  apiBaseUrl?: string;
   fetchImpl?: typeof fetch;
   logger?: Pick<Console, 'warn'>;
   model?: string;
@@ -25,7 +27,11 @@ function abortError(): Error {
 }
 
 export class ElevenLabsTtsService {
+  private readonly accessTokenProvider?: () => Promise<string | null>;
+
   private readonly apiKey?: string;
+
+  private readonly apiBaseUrl: string;
 
   private readonly fetchImpl: typeof fetch;
 
@@ -38,14 +44,18 @@ export class ElevenLabsTtsService {
   private readonly voiceId?: string;
 
   constructor({
+    accessTokenProvider,
     apiKey = process.env.ELEVENLABS_API_KEY,
+    apiBaseUrl,
     fetchImpl = fetch,
     logger = console,
     model = process.env.ELEVENLABS_MODEL_ID ?? DEFAULT_MODEL,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     voiceId = process.env.ELEVENLABS_VOICE_ID,
   }: ElevenLabsTtsServiceOptions = {}) {
+    this.accessTokenProvider = accessTokenProvider;
     this.apiKey = apiKey?.trim() || undefined;
+    this.apiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
     this.fetchImpl = fetchImpl;
     this.logger = logger;
     this.model = model.trim() || DEFAULT_MODEL;
@@ -54,14 +64,17 @@ export class ElevenLabsTtsService {
   }
 
   isConfigured(): boolean {
-    return Boolean(this.apiKey && this.voiceId);
+    return Boolean(
+      (this.apiBaseUrl && this.accessTokenProvider) ||
+        (this.apiKey && this.voiceId),
+    );
   }
 
   async synthesize(
     rawText: string,
     signal?: AbortSignal,
   ): Promise<SynthesizedSpeech | null> {
-    if (!this.apiKey || !this.voiceId) return null;
+    if (!this.apiBaseUrl && (!this.apiKey || !this.voiceId)) return null;
     const text = rawText.trim().slice(0, MAX_SPEECH_CHARACTERS);
     if (!text) return null;
     if (signal?.aborted) throw abortError();
@@ -72,18 +85,34 @@ export class ElevenLabsTtsService {
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const url = new URL(
-        `${ELEVENLABS_API_URL}/${encodeURIComponent(this.voiceId)}`,
-      );
-      url.searchParams.set('output_format', 'mp3_44100_128');
+      const accessToken = this.apiBaseUrl
+        ? await this.accessTokenProvider?.()
+        : null;
+      if (this.apiBaseUrl && !accessToken) return null;
+      const url = this.apiBaseUrl
+        ? new URL(`${this.apiBaseUrl}/v1/elevenlabs/speech`)
+        : new URL(
+            `${ELEVENLABS_API_URL}/${encodeURIComponent(this.voiceId ?? '')}`,
+          );
+      if (!this.apiBaseUrl) {
+        url.searchParams.set('output_format', 'mp3_44100_128');
+      }
       const response = await this.fetchImpl(url, {
         method: 'POST',
-        headers: {
-          Accept: 'audio/mpeg',
-          'Content-Type': 'application/json',
-          'xi-api-key': this.apiKey,
-        },
-        body: JSON.stringify({ text, model_id: this.model }),
+        headers: this.apiBaseUrl
+          ? {
+              Accept: 'audio/mpeg',
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            }
+          : {
+              Accept: 'audio/mpeg',
+              'Content-Type': 'application/json',
+              'xi-api-key': this.apiKey ?? '',
+            },
+        body: JSON.stringify(
+          this.apiBaseUrl ? { text } : { text, model_id: this.model },
+        ),
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -115,4 +144,18 @@ export class ElevenLabsTtsService {
       signal?.removeEventListener('abort', handleAbort);
     }
   }
+}
+
+function normalizeApiBaseUrl(value: string | undefined): string {
+  const trimmed = value?.trim().replace(/\/+$/, '') ?? '';
+  if (!trimmed) return '';
+  const url = new URL(trimmed);
+  if (
+    url.protocol !== 'https:' &&
+    url.hostname !== '127.0.0.1' &&
+    url.hostname !== 'localhost'
+  ) {
+    throw new Error('TROCODE_API_BASE_URL must use HTTPS.');
+  }
+  return url.toString().replace(/\/+$/, '');
 }

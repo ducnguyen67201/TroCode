@@ -10,6 +10,43 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('GptResponsesAgent', () => {
+  it('uses the hosted session proxy without reading a provider key', async () => {
+    const readProviderKey = vi.fn(async () => 'must-not-be-used');
+    const accessToken = `tro_live_${'a'.repeat(43)}`;
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'Hosted.' }],
+          },
+        ],
+      }),
+    );
+    const agent = new GptResponsesAgent({
+      accessTokenProvider: vi.fn(async () => accessToken),
+      apiBaseUrl: 'http://127.0.0.1:8080',
+      credentialStore: { read: readProviderKey },
+      fallbackModel: 'test-model',
+      fetchImpl,
+      model: 'test-model',
+    });
+
+    await agent.start('hosted-task', 'Help me.');
+    await agent.sample('hosted-task', []);
+
+    expect(readProviderKey).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://127.0.0.1:8080/v1/openai/responses',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: `Bearer ${accessToken}`,
+        }),
+      }),
+    );
+  });
+
   it('uses an assistant-or-tool request with host tool specs and no server storage', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({
@@ -245,6 +282,16 @@ describe('GptResponsesAgent', () => {
     });
     await expect(missing.start('missing', 'Help me.')).rejects.toThrow(
       'Connect an OpenAI API key',
+    );
+
+    const missingHosted = new GptResponsesAgent({
+      accessTokenProvider: vi.fn(async () => null),
+      apiBaseUrl: 'https://api.example.com',
+      credentialStore: { read: vi.fn(async () => 'must-not-be-used') },
+      fetchImpl: vi.fn<typeof fetch>(),
+    });
+    await expect(missingHosted.start('hosted', 'Help me.')).rejects.toThrow(
+      'Sign in with Google',
     );
 
     const fetchImpl = vi

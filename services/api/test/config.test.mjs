@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { loadConfig } from '../src/config.mjs';
+
+const VALID_ENVIRONMENT = {
+  DATABASE_URL: 'postgres://example.test/trocode',
+  GOOGLE_OAUTH_CLIENT_ID: 'client.apps.googleusercontent.com',
+  OPENAI_API_KEY: 'sk-test-not-a-real-secret',
+  TROCODE_SESSION_TOKEN_HMAC_KEY: 'a'.repeat(32),
+};
+
+test('loadConfig validates required production secrets', () => {
+  assert.throws(
+    () => loadConfig({ ...VALID_ENVIRONMENT, OPENAI_API_KEY: '' }),
+    /OPENAI_API_KEY is required/,
+  );
+  assert.throws(
+    () =>
+      loadConfig({
+        ...VALID_ENVIRONMENT,
+        TROCODE_SESSION_TOKEN_HMAC_KEY: 'too-short',
+      }),
+    /at least 32 characters/,
+  );
+});
+
+test('loadConfig restricts requests to configured models', () => {
+  const config = loadConfig({
+    ...VALID_ENVIRONMENT,
+    TROCODE_PLANNER_FALLBACK_MODEL: 'fallback-model',
+    TROCODE_PLANNER_MODEL: 'primary-model',
+  });
+
+  assert.deepEqual([...config.openAiModels], ['primary-model', 'fallback-model']);
+  assert.equal(config.sessionDurationDays, 30);
+});

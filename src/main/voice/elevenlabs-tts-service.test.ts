@@ -3,6 +3,36 @@ import { describe, expect, it, vi } from 'vitest';
 import { ElevenLabsTtsService } from './elevenlabs-tts-service';
 
 describe('ElevenLabs TTS service', () => {
+  it('uses the hosted speech endpoint without exposing the provider key', async () => {
+    const accessToken = `tro_live_${'a'.repeat(43)}`;
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      new Response(Uint8Array.from([1, 2, 3]), {
+        status: 200,
+        headers: { 'Content-Type': 'audio/mpeg' },
+      }),
+    );
+    const service = new ElevenLabsTtsService({
+      accessTokenProvider: vi.fn(async () => accessToken),
+      apiBaseUrl: 'http://127.0.0.1:8080',
+      fetchImpl,
+    });
+
+    expect(service.isConfigured()).toBe(true);
+    await expect(service.synthesize('Xin chào')).resolves.toEqual({
+      dataBase64: 'AQID',
+      mimeType: 'audio/mpeg',
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      new URL('http://127.0.0.1:8080/v1/elevenlabs/speech'),
+      expect.objectContaining({
+        body: JSON.stringify({ text: 'Xin chào' }),
+        headers: expect.objectContaining({
+          Authorization: `Bearer ${accessToken}`,
+        }),
+      }),
+    );
+  });
+
   it('stays disabled until both server-side credentials are configured', async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const service = new ElevenLabsTtsService({ fetchImpl });

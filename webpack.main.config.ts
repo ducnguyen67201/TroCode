@@ -45,6 +45,9 @@ export const mainConfig: Configuration = {
       'process.env.TROCODE_MEMBERSHIP_PUBLIC_KEY': JSON.stringify(
         process.env.TROCODE_MEMBERSHIP_PUBLIC_KEY ?? '',
       ),
+      'process.env.TROCODE_API_BASE_URL': JSON.stringify(
+        process.env.TROCODE_API_BASE_URL ?? '',
+      ),
     }),
   ],
   resolve: {

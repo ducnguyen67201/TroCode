@@ -43,7 +43,8 @@ describe('encrypted auth session store', () => {
   it('persists the Google session with asynchronous OS encryption', async () => {
     const store = new EncryptedAuthSessionStore();
     const session = {
-      refreshToken: 'refresh-token',
+      accessToken: `tro_live_${'a'.repeat(43)}`,
+      accessTokenExpiresAt: '2026-09-15T07:00:00.000Z',
       signedInAt: '2026-08-15T07:00:00.000Z',
       user: {
         email: 'user@example.com',

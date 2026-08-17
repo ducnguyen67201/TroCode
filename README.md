@@ -21,12 +21,12 @@ Implemented:
 - Structured pending interactions and exact, single-use approval decisions.
 - Task steering queued for goal review at the next safe execution boundary.
 - Concrete tool/operation, target, and approval policy evaluation.
-- Native Google OAuth sign-in with Authorization Code + PKCE, verified identity
-  claims, and an operating-system-encrypted one-time local session.
+- Native Google OAuth sign-in with Authorization Code + PKCE, locally verified
+  identity claims, and an operating-system-encrypted, revocable hosted session.
 - Text-first workspace readiness; microphone and computer permissions are
   optional and requested only when their feature is used.
-- A production-only membership gate after language setup, with
-  account-bound, time-limited activation codes verified by Ed25519 signatures.
+- Hosted production access for signed-in users; offline builds retain the
+  account-bound, time-limited Ed25519 activation-code fallback.
 - Lazy CUA initialization after a model desktop-observation request or an
   explicit user-clicked Connect computer action.
 - Task-scoped CUA sessions with bounded screenshots, typed clicks, text entry,
@@ -41,8 +41,8 @@ Implemented:
 - Optional ElevenLabs `eleven_flash_v2_5` speech for short companion
   explanations, with local system-speech fallback; TTS failures never block the
   desktop task.
-- Doppler-injected OpenAI voice setup; only short-lived Realtime session
-  secrets cross into the renderer.
+- Railway-hosted Responses, Realtime, and optional ElevenLabs access; provider
+  keys are never compiled into or stored by the customer application.
 - PostHog product analytics for count-only app, model, and tool activity; task
   text, voice transcripts, screenshots, and tool arguments are excluded.
 - Account-scoped PostgreSQL task history that saves the latest validated task
@@ -154,12 +154,43 @@ and `npm run publish`) use `tro-app/prd`; `npm run package:dev` and
 `npm run make:dev` remain available for local packaged-build testing. Copy
 `.env.example` only as a reference; never commit a populated environment file.
 
-The production desktop build may receive public build-time configuration such
-as the Google desktop OAuth client metadata, PostHog project token, and
-`TROCODE_MEMBERSHIP_PUBLIC_KEY`. Do not compile `OPENAI_API_KEY`,
+The production desktop build receives public build-time configuration such as
+the Google desktop OAuth client metadata, PostHog project token, and
+`TROCODE_API_BASE_URL`. Do not compile `OPENAI_API_KEY`,
 `ELEVENLABS_API_KEY`, `DATABASE_URL`, or database passwords into the desktop
-application. Those secrets belong in the hosted backend's Doppler `prd` runtime
-once that service exists.
+application. Those secrets belong only in the hosted API's Railway runtime;
+Doppler `tro-app/prd` is their administrative source.
+
+### Hosted production API
+
+The production API runs at
+`https://api-production-3022a.up.railway.app` with a separate Railway
+PostgreSQL service. `GET /healthz` checks process liveness and `GET /readyz`
+checks database readiness. Railway starts the API from
+[`services/api`](services/api) and applies its idempotent session migration
+before accepting traffic.
+
+At sign-in, Electron verifies Google's JWT nonce and signature locally, then
+the API verifies it independently and exchanges it for a random opaque device
+session. TroCode does not issue a JWT. Only a HMAC digest of the device token is
+stored in PostgreSQL, enabling expiration, rotation, and immediate sign-out
+revocation. The desktop stores the token with operating-system encryption.
+
+The API requires these production variables:
+
+- `DATABASE_URL`, supplied through a Railway reference to PostgreSQL
+- `GOOGLE_OAUTH_CLIENT_ID`
+- `OPENAI_API_KEY`
+- `TROCODE_SESSION_TOKEN_HMAC_KEY`
+- `TROCODE_PLANNER_MODEL` and `TROCODE_PLANNER_FALLBACK_MODEL`
+- optional `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, and
+  `ELEVENLABS_MODEL_ID`
+
+Provider endpoints require the opaque session, enforce per-user limits and
+bounded bodies, restrict Responses models to the configured allowlist, and
+keep `store: false`. The API does not store task prompts, model responses,
+screenshots, or desktop actions. Native computer-use policy remains in the
+trusted Electron main process.
 
 ### PostgreSQL task history
 
@@ -183,9 +214,11 @@ OAuth/model credentials are not part of the task snapshot contract.
 
 ### Production memberships
 
-Membership checks are bypassed by raw local development (`npm start`) and are
-required whenever Electron is running a packaged build. A packaged build fails
-closed when `TROCODE_MEMBERSHIP_PUBLIC_KEY` is missing or invalid.
+Membership checks are bypassed by raw local development (`npm start`). Hosted
+packaged builds use the revocable Google-backed device session and allow access
+after sign-in. Packaged builds without `TROCODE_API_BASE_URL` retain the offline
+activation gate and fail closed when `TROCODE_MEMBERSHIP_PUBLIC_KEY` is missing
+or invalid.
 
 Generate the signing keys once. Keep the private key outside this repository
 and never place it in Doppler or the application bundle:
@@ -248,10 +281,11 @@ after release until the transcript returns. When TroCode has asked a
 clarification, the next transcript answers that same task rather than creating
 another one. Short pending prompts are also spoken locally.
 
-When `OPENAI_API_KEY` is injected by Doppler, TroCode enables voice and visual
-planning automatically at launch. The renderer never asks for or receives the
-long-lived API key; only short-lived voice session secrets come back. OpenAI
-Responses requests and optional ElevenLabs synthesis remain in the main process.
+When `TROCODE_API_BASE_URL` is compiled into a production build, TroCode enables
+agent and voice access from the signed-in device session. The renderer and
+Electron main never ask for or receive long-lived provider keys. OpenAI
+Responses, Realtime call setup, and ElevenLabs synthesis are authenticated and
+proxied by Railway.
 
 ### First Gmail execution test
 

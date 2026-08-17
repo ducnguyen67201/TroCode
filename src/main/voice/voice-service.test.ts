@@ -31,6 +31,39 @@ function memoryStore(initial: string | null = null): {
 }
 
 describe('VoiceService', () => {
+  it('uses the hosted session for realtime calls without a provider key', async () => {
+    const { store, read } = memoryStore(TEST_API_KEY);
+    const accessToken = `tro_live_${'a'.repeat(43)}`;
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      new Response('v=0\r\nanswer', { status: 200 }),
+    );
+    const service = new VoiceService({
+      accessTokenProvider: vi.fn(async () => accessToken),
+      apiBaseUrl: 'http://127.0.0.1:8080',
+      credentialStore: store,
+      fetchImpl,
+    });
+
+    await expect(service.getStatus()).resolves.toMatchObject({ state: 'ready' });
+    await expect(
+      service.createCall({ offerSdp: 'v=0\r\noffer' }),
+    ).resolves.toEqual({ answerSdp: 'v=0\r\nanswer' });
+    expect(read).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://127.0.0.1:8080/v1/openai/realtime/calls',
+      expect.objectContaining({
+        body: JSON.stringify({ language: 'en', offerSdp: 'v=0\r\noffer' }),
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+    await expect(
+      service.configure({ apiKey: TEST_API_KEY }),
+    ).rejects.toThrow('managed by the hosted service');
+  });
+
   it('enables voice automatically from an injected environment key', async () => {
     const { store, read } = memoryStore();
     const service = new VoiceService({

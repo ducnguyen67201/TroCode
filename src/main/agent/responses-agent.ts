@@ -48,6 +48,8 @@ const COMPLETION_REVIEW_INSTRUCTIONS = [
 ].join('\n');
 
 interface ResponsesAgentOptions {
+  accessTokenProvider?: () => Promise<string | null>;
+  apiBaseUrl?: string;
   credentialStore: Pick<VoiceCredentialStore, 'read'>;
   environmentApiKey?: string;
   fallbackModel?: string;
@@ -57,9 +59,10 @@ interface ResponsesAgentOptions {
 }
 
 interface AgentSession {
-  apiKey: string;
+  credential: string;
   items: Array<Record<string, unknown>>;
   pendingCallIds: Set<string>;
+  responsesUrl: string;
 }
 
 class AgentHttpError extends Error {
@@ -110,6 +113,10 @@ function canFallbackAfter(error: unknown): boolean {
 }
 
 export class GptResponsesAgent implements AgentModel {
+  private readonly accessTokenProvider?: () => Promise<string | null>;
+
+  private readonly apiBaseUrl: string;
+
   private readonly credentialStore: Pick<VoiceCredentialStore, 'read'>;
 
   private readonly environmentApiKey?: string;
@@ -125,6 +132,8 @@ export class GptResponsesAgent implements AgentModel {
   private readonly timeoutMs: number;
 
   constructor({
+    accessTokenProvider,
+    apiBaseUrl,
     credentialStore,
     environmentApiKey = process.env.OPENAI_API_KEY,
     fallbackModel =
@@ -138,6 +147,8 @@ export class GptResponsesAgent implements AgentModel {
       DEFAULT_MODEL,
     timeoutMs = DEFAULT_TIMEOUT_MS,
   }: ResponsesAgentOptions) {
+    this.accessTokenProvider = accessTokenProvider;
+    this.apiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
     this.credentialStore = credentialStore;
     this.environmentApiKey = environmentApiKey?.trim() || undefined;
     this.fallbackModel = fallbackModel.trim() || DEFAULT_FALLBACK_MODEL;
@@ -153,14 +164,23 @@ export class GptResponsesAgent implements AgentModel {
   ): Promise<void> {
     if (this.sessions.has(taskId)) return;
     if (signal?.aborted) throw abortError();
-    const apiKey = this.environmentApiKey ?? (await this.credentialStore.read());
-    if (!apiKey) {
-      throw new Error('Connect an OpenAI API key before starting the task.');
+    const credential = this.apiBaseUrl
+      ? await this.accessTokenProvider?.()
+      : this.environmentApiKey ?? (await this.credentialStore.read());
+    if (!credential) {
+      throw new Error(
+        this.apiBaseUrl
+          ? 'Sign in with Google before starting the task.'
+          : 'Connect an OpenAI API key before starting the task.',
+      );
     }
     this.sessions.set(taskId, {
-      apiKey,
+      credential,
       items: [userMessageInputItem(request)],
       pendingCallIds: new Set(),
+      responsesUrl: this.apiBaseUrl
+        ? `${this.apiBaseUrl}/v1/openai/responses`
+        : RESPONSES_URL,
     });
   }
 
@@ -293,10 +313,10 @@ export class GptResponsesAgent implements AgentModel {
     signal?.addEventListener('abort', handleAbort, { once: true });
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetchImpl(RESPONSES_URL, {
+      const response = await this.fetchImpl(session.responsesUrl, {
         method: 'POST',
         headers: {
-          Authorization: 'Bearer ' + session.apiKey,
+          Authorization: 'Bearer ' + session.credential,
           'Content-Type': 'application/json',
           'OpenAI-Safety-Identifier': createHash('sha256')
             .update(taskId)
@@ -345,4 +365,18 @@ export class GptResponsesAgent implements AgentModel {
       signal?.removeEventListener('abort', handleAbort);
     }
   }
+}
+
+function normalizeApiBaseUrl(value: string | undefined): string {
+  const trimmed = value?.trim().replace(/\/+$/, '') ?? '';
+  if (!trimmed) return '';
+  const url = new URL(trimmed);
+  if (
+    url.protocol !== 'https:' &&
+    url.hostname !== '127.0.0.1' &&
+    url.hostname !== 'localhost'
+  ) {
+    throw new Error('TROCODE_API_BASE_URL must use HTTPS.');
+  }
+  return url.toString().replace(/\/+$/, '');
 }

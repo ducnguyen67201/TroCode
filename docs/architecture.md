@@ -13,6 +13,10 @@ flowchart LR
     PRELOAD -->|"Authenticated IPC"| MAIN["Electron main"]
     MAIN --> RUNTIME["Task runtime v3"]
     RUNTIME --> AGENT["Persistent Responses session"]
+    AGENT -->|"Opaque device session over HTTPS"| API["Railway API"]
+    API --> OPENAI["OpenAI Responses + Realtime"]
+    API --> ELEVEN["Optional ElevenLabs TTS"]
+    API --> SESSIONS["PostgreSQL sessions"]
     AGENT -->|"Assistant candidate"| REVIEW["One completion checkpoint when contextual"]
     REVIEW -->|"Complete"| DONE["Task complete"]
     REVIEW -->|"More work"| AGENT
@@ -75,6 +79,24 @@ access when invoked. A desktop observation that lacks OS permission pauses with
 a typed Connect computer choice; only the user's click can initiate permission
 onboarding or open System Settings.
 
+## Hosted identity and provider access
+
+Google OAuth and nonce verification remain in Electron main. In a production
+build, the verified Google ID token is also sent once to the fixed
+`TROCODE_API_BASE_URL`. The API independently verifies Google's RS256
+signature, issuer, audience, timestamps, and verified-email claim, then returns
+a random `tro_live_…` device credential. TroCode stores that credential with
+Electron `safeStorage`; the API stores only its HMAC-SHA256 digest in
+PostgreSQL. It is an opaque, revocable session—not a Tro JWT.
+
+Responses, Realtime, and optional ElevenLabs requests use the opaque session
+over HTTPS. Provider credentials exist only in Railway's runtime environment.
+The API authenticates every provider request, applies IP/user rate limits,
+restricts models to the configured allowlist, bounds request and response sizes,
+and never stores Responses input or output. Native desktop policy and exact
+action approvals remain in Electron main; the API does not grant computer-use
+authority.
+
 ## Persistence and analytics
 
 PostgreSQL stores validated snapshots and lifecycle events. Persisted v1/v2
@@ -95,7 +117,6 @@ dependency island under `app.asar.unpacked/cua-runtime` so platform libraries
 resolve from a real filesystem. Each macOS or Windows release must be built on
 its matching target.
 
-The current PostgreSQL adapter is a desktop-foundation implementation. A future
-cloud service may isolate credentials, retention, synchronization, or billing,
-but it must not become an authority that bypasses local approvals and native
-policy.
+The local PostgreSQL task-history adapter remains a development foundation. The
+hosted PostgreSQL database stores users and revocable device-session digests;
+it does not receive task history, screenshots, or desktop action payloads.

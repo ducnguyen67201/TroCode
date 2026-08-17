@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import {
   AuthStatusSchema,
+  AuthUserSchema,
   type AuthStatus,
   type AuthUser,
 } from '../../shared/contracts';
@@ -19,11 +20,17 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
 const GoogleTokenResponseSchema = z.object({
   id_token: z.string().min(1),
-  refresh_token: z.string().min(1).optional(),
+});
+
+const HostedSessionResponseSchema = z.object({
+  accessToken: z.string().regex(/^tro_live_[A-Za-z0-9_-]{43}$/),
+  expiresAt: z.string().datetime(),
+  user: AuthUserSchema,
 });
 
 export interface AuthSession {
-  refreshToken?: string;
+  accessToken?: string;
+  accessTokenExpiresAt?: string;
   signedInAt: string;
   user: AuthUser;
 }
@@ -40,6 +47,7 @@ type VerifyIdToken = (
 ) => Promise<AuthUser>;
 
 export interface GoogleAuthServiceOptions {
+  apiBaseUrl?: string;
   browserFlow: OAuthBrowserFlow;
   clientId?: string;
   clientSecret?: string;
@@ -57,6 +65,8 @@ function codeChallenge(verifier: string): string {
 }
 
 export class GoogleAuthService {
+  private readonly apiBaseUrl: string;
+
   private readonly clientId: string;
   private readonly clientSecret: string;
   private readonly fetchImpl: typeof fetch;
@@ -64,6 +74,7 @@ export class GoogleAuthService {
   private signInPromise: Promise<AuthStatus> | null = null;
 
   constructor(private readonly options: GoogleAuthServiceOptions) {
+    this.apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl);
     this.clientId = options.clientId?.trim() ?? '';
     this.clientSecret = options.clientSecret?.trim() ?? '';
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -90,6 +101,20 @@ export class GoogleAuthService {
           user: null,
           summary: 'Sign in with Google to continue.',
         });
+      }
+      if (this.apiBaseUrl) {
+        const expiresAt = session.accessTokenExpiresAt
+          ? Date.parse(session.accessTokenExpiresAt)
+          : Number.NaN;
+        if (!session.accessToken || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+          await this.options.sessionStore.clear();
+          return AuthStatusSchema.parse({
+            state: 'signed_out',
+            configured: true,
+            user: null,
+            summary: 'Your TroCode session expired. Sign in again.',
+          });
+        }
       }
       return AuthStatusSchema.parse({
         state: 'signed_in',
@@ -118,6 +143,14 @@ export class GoogleAuthService {
   }
 
   async signOut(): Promise<AuthStatus> {
+    const session = await this.options.sessionStore.read().catch(() => null);
+    if (this.apiBaseUrl && session?.accessToken) {
+      await this.fetchImpl(`${this.apiBaseUrl}/v1/auth/session`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+        signal: AbortSignal.timeout(10_000),
+      }).catch(() => undefined);
+    }
     await this.options.sessionStore.clear();
     return AuthStatusSchema.parse({
       state: 'signed_out',
@@ -135,6 +168,14 @@ export class GoogleAuthService {
     return status.user;
   }
 
+  async getAccessToken(): Promise<string | null> {
+    if (!this.apiBaseUrl) return null;
+    const status = await this.getStatus();
+    if (status.state !== 'signed_in') return null;
+    const session = await this.options.sessionStore.read();
+    return session?.accessToken ?? null;
+  }
+
   private async performSignIn(): Promise<AuthStatus> {
     if (!this.clientId) {
       throw new Error(
@@ -150,12 +191,12 @@ export class GoogleAuthService {
       buildAuthorizationUrl: (redirectUri) => {
         const url = new URL(GOOGLE_AUTHORIZATION_URL);
         url.search = new URLSearchParams({
-          access_type: 'offline',
+          access_type: 'online',
           client_id: this.clientId,
           code_challenge: codeChallenge(verifier),
           code_challenge_method: 'S256',
           nonce,
-          prompt: 'consent select_account',
+          prompt: 'select_account',
           redirect_uri: redirectUri,
           response_type: 'code',
           scope: 'openid email profile',
@@ -189,17 +230,63 @@ export class GoogleAuthService {
       expectedNonce: nonce,
       fetchImpl: this.fetchImpl,
     });
+    const hostedSession = this.apiBaseUrl
+      ? await this.exchangeHostedSession(tokens.id_token)
+      : null;
+    if (hostedSession && hostedSession.user.id !== user.id) {
+      throw new Error('TroCode sign-in returned a mismatched account.');
+    }
     await this.options.sessionStore.write({
-      ...(tokens.refresh_token ? { refreshToken: tokens.refresh_token } : {}),
+      ...(hostedSession
+        ? {
+            accessToken: hostedSession.accessToken,
+            accessTokenExpiresAt: hostedSession.expiresAt,
+          }
+        : {}),
       signedInAt: new Date().toISOString(),
-      user,
+      user: hostedSession?.user ?? user,
     });
 
     return AuthStatusSchema.parse({
       state: 'signed_in',
       configured: true,
-      user,
-      summary: `Signed in as ${user.email}.`,
+      user: hostedSession?.user ?? user,
+      summary: `Signed in as ${(hostedSession?.user ?? user).email}.`,
     });
   }
+
+  private async exchangeHostedSession(idToken: string): Promise<
+    z.infer<typeof HostedSessionResponseSchema>
+  > {
+    const response = await this.fetchImpl(
+      `${this.apiBaseUrl}/v1/auth/google/exchange`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(
+        response.status === 401
+          ? 'TroCode could not verify this Google account.'
+          : 'TroCode sign-in service is temporarily unavailable.',
+      );
+    }
+    const hostedSession = HostedSessionResponseSchema.parse(
+      await response.json(),
+    );
+    return hostedSession;
+  }
+}
+
+function normalizeApiBaseUrl(value: string | undefined): string {
+  const trimmed = value?.trim().replace(/\/+$/, '') ?? '';
+  if (!trimmed) return '';
+  const url = new URL(trimmed);
+  if (url.protocol !== 'https:' && url.hostname !== '127.0.0.1' && url.hostname !== 'localhost') {
+    throw new Error('TROCODE_API_BASE_URL must use HTTPS.');
+  }
+  return url.toString().replace(/\/+$/, '');
 }

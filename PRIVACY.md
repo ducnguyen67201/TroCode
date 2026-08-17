@@ -12,6 +12,15 @@ and the data stored locally or by an operator-configured service.
 TroCode transfers data only for configured application features or actions the
 user requests:
 
+- **TroCode hosted API on Railway:** production builds send the verified Google
+  ID token once during sign-in, then send an opaque device-session token with
+  model, voice, and companion-speech requests. The API stores the Google user
+  ID, email, display name, session expiry, and only an HMAC digest of the device
+  token in PostgreSQL. It proxies task content, observations, tool results,
+  Realtime SDP, and short speech text to the providers below but does not store
+  those request or response bodies. Railway processes standard network and
+  service logs; TroCode application logs exclude tokens and task content.
+
 - **OpenAI:** typed task text, conversation messages, model tool results, and
   desktop observations needed for a task can be sent to the Responses API.
   Desktop observations can include screenshots and visible text. Push-to-talk
@@ -46,8 +55,9 @@ user requests:
 
 ## Data stored by TroCode
 
-- Google session data is encrypted with the operating system's secure storage.
-  Signing out deletes the saved Google session.
+- Google and hosted device-session data is encrypted with the operating
+  system's secure storage. Signing out revokes the server session and deletes
+  the saved local session.
 - Preferences, membership state, and a random analytics installation ID are
   stored locally in the Electron application-data directory.
 - Task history is persisted only when the operator configures `DATABASE_URL`.
@@ -64,10 +74,10 @@ email used to sign in.
 
 ## Security
 
-The Electron renderer is sandboxed. OAuth tokens, provider credentials,
-analytics, database access, and computer-use execution remain in the trusted
-main process behind validated IPC contracts. Credentials are not intentionally
-included in analytics or release artifacts. See the
+The Electron renderer is sandboxed. OAuth and device tokens remain in the
+trusted main process behind validated IPC contracts. Provider and hosted
+database credentials remain in Railway and do not enter the desktop build.
+Credentials are not intentionally included in analytics or release artifacts. See the
 [security model](docs/security.md) for implementation details.
 
 ## Contact and changes

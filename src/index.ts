@@ -119,15 +119,18 @@ taskRuntime.on('task-update', taskHistoryService.recordTaskUpdate);
 const oauthBrowserFlow = new LocalOAuthBrowserFlow({
   openExternal: async (url) => shell.openExternal(url, { activate: true }),
 });
+const trocodeApiBaseUrl = process.env.TROCODE_API_BASE_URL?.trim() ?? '';
+const authSessionStore = new EncryptedAuthSessionStore();
 const authService = new GoogleAuthService({
+  apiBaseUrl: trocodeApiBaseUrl,
   browserFlow: oauthBrowserFlow,
   clientId: process.env.GOOGLE_OAUTH_CLIENT_ID,
   clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
-  sessionStore: new EncryptedAuthSessionStore(),
+  sessionStore: authSessionStore,
 });
 const membershipService = new MembershipService({
   publicKey: process.env.TROCODE_MEMBERSHIP_PUBLIC_KEY,
-  required: app.isPackaged,
+  required: app.isPackaged && !trocodeApiBaseUrl,
   store: new EncryptedMembershipActivationStore(),
 });
 const cuaService = new CuaService();
@@ -139,11 +142,18 @@ const appPreferencesService = new AppPreferencesService(
 const systemAudioDuckingService = createSystemAudioDuckingService();
 const voiceCredentialStore = new EncryptedVoiceCredentialStore();
 const voiceService = new VoiceService({
+  accessTokenProvider: () => authService.getAccessToken(),
+  apiBaseUrl: trocodeApiBaseUrl,
   credentialStore: voiceCredentialStore,
   preferencesService: appPreferencesService,
 });
-const elevenLabsTtsService = new ElevenLabsTtsService();
+const elevenLabsTtsService = new ElevenLabsTtsService({
+  accessTokenProvider: () => authService.getAccessToken(),
+  apiBaseUrl: trocodeApiBaseUrl,
+});
 const responsesAgent = new GptResponsesAgent({
+  accessTokenProvider: () => authService.getAccessToken(),
+  apiBaseUrl: trocodeApiBaseUrl,
   credentialStore: voiceCredentialStore,
 });
 const executionCoordinator = new TaskExecutionCoordinator({

@@ -17,20 +17,23 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
   state, nonce, and PKCE. The main process verifies the ID token signature,
   issuer, audience, timestamps, nonce, and verified-email claim.
 - The renderer receives only an allowlisted user ID, email, display name, and
-  sign-in status. OAuth codes and tokens never cross the preload boundary. The
-  saved session is encrypted through Electron `safeStorage`; sign-out deletes
-  it.
+  sign-in status. OAuth codes and tokens never cross the preload boundary. For
+  hosted builds, the Railway API independently verifies the Google ID token and
+  exchanges it for a random opaque device token. Electron `safeStorage`
+  encrypts that token locally; PostgreSQL stores only its HMAC digest. Sign-out
+  revokes the server session and deletes the local copy.
 - On macOS, launch checks Accessibility and Screen Recording state without
   prompting. Text work does not require microphone or CUA permissions.
   Push-to-talk requests microphone access when used; desktop work pauses until
   the user clicks Connect computer. Model output cannot open System Settings.
-- Packaged builds require an active membership after language setup.
+- Packaged builds without a hosted API require an active membership after language setup.
   The renderer can inspect and submit membership codes only through narrow,
   schema-validated IPC. The main process verifies an Ed25519 signature, binds
   the signed payload to a reference derived from the verified Google user ID,
   checks its expiry, and rechecks membership before task and voice operations.
-  Local development bypasses this gate; packaged builds fail closed if the
-  public verification key is absent.
+  Local development bypasses this gate; legacy packaged builds fail closed if
+  the public verification key is absent. Hosted builds authorize access through
+  the revocable Google-backed device session instead of an offline activation.
 - Assistant text and tool calls share one model session. A model tool call is a
   proposal, not permission or proof that an effect occurred.
 - Consequential actions require explicit approval. For desktop control, the
@@ -68,12 +71,19 @@ Anonymous activity uses a random local installation ID without a person
 profile. Email and display name are sent only after successful Google
 authentication.
 
-Do not ship a shared model-provider API key inside the renderer or application
-bundle. Doppler injects the developer-owned OpenAI and optional ElevenLabs keys
-into the Electron main process at runtime. Responses sampling and speech
-synthesis stay in that process; only short-lived Realtime transcription secrets
-and validated MP3 companion data cross narrow preload boundaries. A production
-service may replace this with an authenticated cloud gateway.
+Do not ship a shared model-provider API key inside the renderer, Electron main,
+or application bundle. Production OpenAI and optional ElevenLabs keys are
+injected into the Railway API only. Electron sends its opaque device session to
+fixed, HTTPS provider-proxy endpoints; provider credentials never reach the
+desktop. Responses sampling remains host-driven, Realtime SDP is bounded, and
+only validated MP3 companion data crosses the narrow preload boundary.
+
+The Tro device credential is deliberately not a JWT. Tokens contain no user
+claims and are useful only through the API; PostgreSQL-backed digest lookup
+supports immediate revocation and rotation. Public endpoints reject browser
+origins, validate content types and body sizes, apply rate limits, return
+generic errors, and emit logs without identity tokens, provider keys, task text,
+or model output.
 
 The membership signing private key is an administrative secret and must never
 be added to the repository, Doppler application runtime, analytics, or a

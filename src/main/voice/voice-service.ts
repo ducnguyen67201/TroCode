@@ -47,6 +47,8 @@ type VoiceDiagnosticLogger = (
 ) => void;
 
 interface VoiceServiceOptions {
+  accessTokenProvider?: () => Promise<string | null>;
+  apiBaseUrl?: string;
   credentialStore: VoiceCredentialStore;
   diagnosticLogger?: VoiceDiagnosticLogger;
   environmentApiKey?: string;
@@ -153,6 +155,10 @@ function serializeVoiceError(error: unknown): {
 }
 
 export class VoiceService {
+  private readonly accessTokenProvider?: () => Promise<string | null>;
+
+  private readonly apiBaseUrl: string;
+
   private readonly credentialStore: VoiceCredentialStore;
 
   private readonly diagnosticLogger: VoiceDiagnosticLogger;
@@ -169,6 +175,8 @@ export class VoiceService {
   >;
 
   constructor({
+    accessTokenProvider,
+    apiBaseUrl,
     credentialStore,
     diagnosticLogger = defaultVoiceDiagnosticLogger,
     environmentApiKey = process.env.OPENAI_API_KEY,
@@ -178,6 +186,8 @@ export class VoiceService {
       getPrimaryLanguage: async () => 'en',
     },
   }: VoiceServiceOptions) {
+    this.accessTokenProvider = accessTokenProvider;
+    this.apiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
     this.credentialStore = credentialStore;
     this.diagnosticLogger = diagnosticLogger;
     this.environmentApiKey = environmentApiKey?.trim() || undefined;
@@ -200,7 +210,9 @@ export class VoiceService {
         state: 'not_configured',
         provider: 'openai',
         model: VOICE_MODEL,
-        summary: 'OPENAI_API_KEY is missing from Doppler. Add it and restart TroCode.',
+        summary: this.apiBaseUrl
+          ? 'Sign in with Google to use voice input.'
+          : 'OPENAI_API_KEY is missing from Doppler. Add it and restart TroCode.',
       });
     } catch (error) {
       this.diagnosticLogger(
@@ -218,6 +230,9 @@ export class VoiceService {
 
   async configure(input: unknown): Promise<VoiceStatus> {
     this.diagnosticLogger('configure.start');
+    if (this.apiBaseUrl) {
+      throw new Error('TroCode voice is managed by the hosted service.');
+    }
     const { apiKey } = ConfigureVoiceRequestSchema.parse(input);
 
     // Validate model access before persisting the credential. The returned
@@ -235,7 +250,9 @@ export class VoiceService {
     if (!apiKey) {
       this.diagnosticLogger('call.missing-credential');
       throw new Error(
-        'OPENAI_API_KEY is missing from Doppler. Add it and restart TroCode.',
+        this.apiBaseUrl
+          ? 'Sign in with Google to use voice input.'
+          : 'OPENAI_API_KEY is missing from Doppler. Add it and restart TroCode.',
       );
     }
 
@@ -245,6 +262,14 @@ export class VoiceService {
   }
 
   private async readApiKey(): Promise<string | null> {
+    if (this.apiBaseUrl) {
+      const accessToken = await this.accessTokenProvider?.();
+      this.diagnosticLogger(
+        accessToken ? 'credential.available' : 'credential.missing',
+        { source: 'hosted-session' },
+      );
+      return accessToken ?? null;
+    }
     if (this.environmentApiKey) {
       this.diagnosticLogger('credential.available', {
         source: 'environment',
@@ -338,22 +363,36 @@ export class VoiceService {
       timeoutMs: REQUEST_TIMEOUT_MS,
     });
     const formData = new FormData();
-    formData.set('sdp', offerSdp);
-    formData.set(
-      'session',
-      JSON.stringify(transcriptionSessionConfig(language)),
-    );
+    if (!this.apiBaseUrl) {
+      formData.set('sdp', offerSdp);
+      formData.set(
+        'session',
+        JSON.stringify(transcriptionSessionConfig(language)),
+      );
+    }
 
     let response: Response;
     try {
-      response = await this.fetchImpl(OPENAI_REALTIME_CALLS_URL, {
+      response = await this.fetchImpl(
+        this.apiBaseUrl
+          ? `${this.apiBaseUrl}/v1/openai/realtime/calls`
+          : OPENAI_REALTIME_CALLS_URL,
+        {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: formData,
+        headers: this.apiBaseUrl
+          ? {
+              Authorization: `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            }
+          : {
+              Authorization: `Bearer ${apiKey}`,
+            },
+        body: this.apiBaseUrl
+          ? JSON.stringify({ language, offerSdp })
+          : formData,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
+        },
+      );
     } catch (error) {
       this.diagnosticLogger(
         'call.request-failed',
@@ -403,4 +442,18 @@ export class VoiceService {
       answerSdp: responseText,
     });
   }
+}
+
+function normalizeApiBaseUrl(value: string | undefined): string {
+  const trimmed = value?.trim().replace(/\/+$/, '') ?? '';
+  if (!trimmed) return '';
+  const url = new URL(trimmed);
+  if (
+    url.protocol !== 'https:' &&
+    url.hostname !== '127.0.0.1' &&
+    url.hostname !== 'localhost'
+  ) {
+    throw new Error('TROCODE_API_BASE_URL must use HTTPS.');
+  }
+  return url.toString().replace(/\/+$/, '');
 }

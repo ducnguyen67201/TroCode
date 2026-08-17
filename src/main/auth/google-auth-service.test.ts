@@ -105,7 +105,7 @@ describe('GoogleAuthService', () => {
     );
     expect(actualAuthorizationUrl.searchParams.get('code_challenge')).toBeTruthy();
     expect(actualAuthorizationUrl.searchParams.get('nonce')).toBeTruthy();
-    expect(actualAuthorizationUrl.searchParams.get('access_type')).toBe('offline');
+    expect(actualAuthorizationUrl.searchParams.get('access_type')).toBe('online');
 
     const request = fetchImpl.mock.calls[0]?.[1];
     const body = new URLSearchParams(String(request?.body));
@@ -120,7 +120,6 @@ describe('GoogleAuthService', () => {
     );
     expect(write).toHaveBeenCalledWith(
       expect.objectContaining({
-        refreshToken: 'refresh-token',
         user: TEST_USER,
       }),
     );
@@ -128,6 +127,77 @@ describe('GoogleAuthService', () => {
       state: 'signed_in',
       user: TEST_USER,
     });
+  });
+
+  it('exchanges the verified Google identity for a hosted TroCode session', async () => {
+    const { store, write } = memoryStore();
+    const accessToken = `tro_live_${'a'.repeat(43)}`;
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.includes('oauth2.googleapis.com')) {
+        return new Response(
+          JSON.stringify({ id_token: 'signed-google-id-token' }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          accessToken,
+          expiresAt: '2026-09-17T00:00:00.000Z',
+          user: TEST_USER,
+        }),
+        { status: 201 },
+      );
+    });
+    const service = new GoogleAuthService({
+      apiBaseUrl: 'http://127.0.0.1:8080',
+      browserFlow: browserFlow(),
+      clientId: 'desktop-client.apps.googleusercontent.com',
+      fetchImpl,
+      sessionStore: store,
+      verifyIdToken: vi.fn(async () => TEST_USER),
+    });
+
+    await expect(service.signIn()).resolves.toMatchObject({
+      state: 'signed_in',
+      user: TEST_USER,
+    });
+    expect(fetchImpl).toHaveBeenLastCalledWith(
+      'http://127.0.0.1:8080/v1/auth/google/exchange',
+      expect.objectContaining({
+        body: JSON.stringify({ idToken: 'signed-google-id-token' }),
+        method: 'POST',
+      }),
+    );
+    expect(write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accessToken,
+        accessTokenExpiresAt: '2026-09-17T00:00:00.000Z',
+        user: TEST_USER,
+      }),
+    );
+    await expect(service.getAccessToken()).resolves.toBe(accessToken);
+  });
+
+  it('clears an expired hosted session', async () => {
+    const { clear, store } = memoryStore({
+      accessToken: `tro_live_${'b'.repeat(43)}`,
+      accessTokenExpiresAt: '2026-01-01T00:00:00.000Z',
+      signedInAt: '2025-12-01T00:00:00.000Z',
+      user: TEST_USER,
+    });
+    const service = new GoogleAuthService({
+      apiBaseUrl: 'https://api.example.com',
+      browserFlow: browserFlow(),
+      clientId: 'desktop-client.apps.googleusercontent.com',
+      sessionStore: store,
+    });
+
+    await expect(service.getStatus()).resolves.toMatchObject({
+      state: 'signed_out',
+      user: null,
+    });
+    expect(clear).toHaveBeenCalledOnce();
   });
 
   it('restores and clears a persisted session', async () => {

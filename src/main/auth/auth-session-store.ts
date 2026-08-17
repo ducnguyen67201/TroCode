@@ -10,7 +10,8 @@ import type { AuthSession, AuthSessionStore } from './google-auth-service';
 
 const SESSION_FILE_NAME = 'google-auth-session.enc';
 const StoredAuthSessionSchema = z.object({
-  refreshToken: z.string().min(1).optional(),
+  accessToken: z.string().regex(/^tro_live_[A-Za-z0-9_-]{43}$/).optional(),
+  accessTokenExpiresAt: z.string().datetime().optional(),
   signedInAt: z.string().datetime(),
   user: AuthUserSchema,
 });

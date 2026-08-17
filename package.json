@@ -1,7 +1,7 @@
 {
   "name": "trocode",
   "productName": "TroCode",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A general-purpose, goal-driven desktop agent powered by CUA.",
   "main": ".webpack/main",
   "private": true,
@@ -20,7 +20,7 @@
     "membership:keygen": "node scripts/membership-codes.mjs keygen",
     "membership:issue": "node scripts/membership-codes.mjs issue",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run && node --test scripts/windows-release-metadata.test.mjs",
+    "test": "vitest run && node --test scripts/windows-release-metadata.test.mjs && npm --prefix services/api test",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "check": "npm run lint && npm run typecheck && npm run test"
@@ -39,6 +39,13 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/ducnguyen67201/TroCode.git"
+  },
+  "overrides": {
+    "@electron/rebuild": "4.2.0",
+    "extract-zip": "npm:@electron-internal/extract-zip@1.0.1",
+    "tmp": "0.2.7",
+    "uuid": "11.1.1",
+    "webpack-dev-server": "5.2.6"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
