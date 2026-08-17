@@ -70,15 +70,18 @@ describe('cursor companion state', () => {
     expect(
       CompanionSpeechSchema.parse({
         id: '00000000-0000-4000-8000-000000000001',
-        dataBase64: 'AQIDBA==',
+        mediaUrl:
+          'trocode-audio://speech/00000000-0000-4000-8000-000000000001',
         mimeType: 'audio/mpeg',
+        source: 'elevenlabs',
       }),
-    ).toMatchObject({ mimeType: 'audio/mpeg' });
+    ).toMatchObject({ mimeType: 'audio/mpeg', source: 'elevenlabs' });
     expect(
       CompanionSpeechSchema.safeParse({
         id: 'not-an-id',
-        dataBase64: 'AQIDBA==',
+        mediaUrl: 'https://example.com/speech.mp3',
         mimeType: 'audio/wav',
+        source: 'elevenlabs',
       }).success,
     ).toBe(false);
   });

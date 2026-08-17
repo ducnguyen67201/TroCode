@@ -4,8 +4,10 @@ import type {
   AppUpdateStatus,
   AuthStatus,
   CompanionGuidance,
+  CompanionInteraction,
   CompanionPosition,
   CompanionSpeech,
+  CompanionSpeechPlaybackReport,
   CompanionState,
   CompanionVoiceActivity,
   ConfigureVoiceRequest,
@@ -37,9 +39,12 @@ export const IPC_CHANNELS = {
   checkForAppUpdates: 'update:check',
   companionPositionChanged: 'companion:position-changed',
   companionGuidanceChanged: 'companion:guidance-changed',
+  companionInteractionChanged: 'companion:interaction-changed',
   companionSpeechChanged: 'companion:speech-changed',
+  companionReportSpeechPlayback: 'companion:report-speech-playback',
   companionStateChanged: 'companion:state-changed',
   companionVoiceActivityChanged: 'companion:voice-activity-changed',
+  companionRevealMainWindow: 'companion:reveal-main-window',
   configureVoice: 'voice:configure',
   connectComputer: 'cua:connect',
   createVoiceCall: 'voice:create-call',
@@ -116,8 +121,12 @@ export interface DesktopApi {
 }
 
 export interface CompanionApi {
+  decideApproval(request: DecideApprovalRequest): Promise<TaskSnapshot>;
   onGuidanceChange(
     listener: (guidance: CompanionGuidance | null) => void,
+  ): () => void;
+  onInteractionChange(
+    listener: (interaction: CompanionInteraction | null) => void,
   ): () => void;
   onPositionChange(listener: (position: CompanionPosition) => void): () => void;
   onSpeechChange(listener: (speech: CompanionSpeech | null) => void): () => void;
@@ -125,4 +134,9 @@ export interface CompanionApi {
   onVoiceActivityChange(
     listener: (activity: CompanionVoiceActivity | null) => void,
   ): () => void;
+  reportSpeechPlayback(report: CompanionSpeechPlaybackReport): Promise<void>;
+  respondToInteraction(
+    request: RespondToInteractionRequest,
+  ): Promise<TaskSnapshot>;
+  revealMainWindow(): Promise<void>;
 }

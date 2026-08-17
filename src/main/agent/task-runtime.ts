@@ -206,7 +206,9 @@ export class TaskRuntime extends EventEmitter {
       ),
       {
         summary: guidance,
-        nextActions: ['Follow the visible pointer to the referenced item.'],
+        nextActions: [
+          'Follow the visible pointer; use Back, Pause/Resume, or Next while narration plays.',
+        ],
         tool: { toolId: 'task.guidance', operation: 'show' },
       },
     );

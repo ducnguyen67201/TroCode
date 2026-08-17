@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 const MAX_AUTH_BODY_BYTES = 32_000;
@@ -45,6 +46,14 @@ function createRateLimiter({ limit, windowMs }) {
 }
 
 const limitAuth = createRateLimiter({ limit: 15, windowMs: 15 * 60_000 });
+const limitAccessCodeIp = createRateLimiter({
+  limit: 100,
+  windowMs: 15 * 60_000,
+});
+const limitAccessCodeUser = createRateLimiter({
+  limit: 10,
+  windowMs: 15 * 60_000,
+});
 const limitModel = createRateLimiter({ limit: 30, windowMs: 60_000 });
 const limitModelDaily = createRateLimiter({ limit: 500, windowMs: 24 * 60 * 60_000 });
 const limitVoice = createRateLimiter({ limit: 30, windowMs: 60_000 });
@@ -130,6 +139,56 @@ async function readBoundedUpstreamBody(response) {
   return body;
 }
 
+async function pipeBoundedUpstreamResponse({
+  abortProvider,
+  response,
+  upstreamResponse,
+}) {
+  const declaredLength = Number(upstreamResponse.headers.get('content-length'));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_UPSTREAM_RESPONSE_BYTES
+  ) {
+    abortProvider('audio-size-limit');
+    throw new HttpError(502, 'Speech playback is temporarily unavailable.');
+  }
+  const contentType = upstreamResponse.headers.get('content-type')?.toLowerCase();
+  if (!contentType?.startsWith('audio/mpeg') || !upstreamResponse.body) {
+    abortProvider('invalid-audio-response');
+    throw new HttpError(502, 'Speech playback is temporarily unavailable.');
+  }
+
+  const reader = upstreamResponse.body.getReader();
+  let totalBytes = 0;
+  let wroteBytes = false;
+  const handleClientClose = () => {
+    if (!response.writableEnded) abortProvider('client-disconnected');
+  };
+  response.on('close', handleClientClose);
+  response.statusCode = 200;
+  response.setHeader('Content-Type', 'audio/mpeg');
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_UPSTREAM_RESPONSE_BYTES) {
+        abortProvider('audio-size-limit');
+        await reader.cancel('audio-size-limit');
+        throw new Error('Speech audio exceeded the response limit.');
+      }
+      wroteBytes = true;
+      if (!response.write(Buffer.from(value))) await once(response, 'drain');
+    }
+    if (!wroteBytes) throw new Error('Speech audio stream was empty.');
+    response.end();
+  } finally {
+    response.off('close', handleClientClose);
+    reader.releaseLock();
+  }
+}
+
 async function proxyOpenAiJson({
   body,
   config,
@@ -167,6 +226,14 @@ async function requireSession(request, sessionRepository) {
   return session;
 }
 
+async function requireAccess(session, accessCodeRepository) {
+  const status = await accessCodeRepository.getStatus(session.user.id);
+  if (status.state !== 'active') {
+    throw new HttpError(403, 'Enter a valid access code to use TroCode.');
+  }
+  return status;
+}
+
 function modelSafetyIdentifier(userId) {
   return createHash('sha256').update(`trocode:${userId}`).digest('hex');
 }
@@ -188,6 +255,7 @@ function transcriptionSessionConfig(language) {
 }
 
 export function createApiHandler({
+  accessCodeRepository,
   budgetService,
   config,
   fetchImpl = fetch,
@@ -267,8 +335,64 @@ export function createApiHandler({
         return;
       }
 
+      if (
+        request.method === 'GET' &&
+        path === '/v1/access-code-redemptions/me'
+      ) {
+        const session = await requireSession(request, sessionRepository);
+        sendJson(
+          response,
+          200,
+          await accessCodeRepository.getStatus(session.user.id),
+        );
+        return;
+      }
+
+      if (
+        request.method === 'POST' &&
+        path === '/v1/access-code-redemptions'
+      ) {
+        const session = await requireSession(request, sessionRepository);
+        enforceRateLimit(
+          limitAccessCodeUser(`access-user:${session.user.id}`),
+        );
+        enforceRateLimit(
+          limitAccessCodeIp(`access-ip:${requestIp(request)}`),
+        );
+        const body = await readJson(request, MAX_AUTH_BODY_BYTES);
+        if (!body || typeof body !== 'object' || typeof body.code !== 'string') {
+          throw new HttpError(400, 'Access code is required.');
+        }
+        const result = await accessCodeRepository.redeem(
+          session.user.id,
+          body.code,
+        );
+        if (result.kind === 'invalid_code') {
+          throw new HttpError(400, 'This access code is not valid.');
+        }
+        if (result.kind === 'code_full') {
+          throw new HttpError(
+            409,
+            'This access code has reached its user limit.',
+          );
+        }
+        if (result.kind === 'account_already_linked') {
+          throw new HttpError(
+            409,
+            'This account is already linked to a different access code.',
+          );
+        }
+        sendJson(
+          response,
+          result.status.newlyRedeemed ? 201 : 200,
+          result.status,
+        );
+        return;
+      }
+
       if (request.method === 'POST' && path === '/v1/openai/responses') {
         const session = await requireSession(request, sessionRepository);
+        await requireAccess(session, accessCodeRepository);
         enforceRateLimit(limitModel(session.user.id));
         enforceRateLimit(limitModelDaily(`daily:${session.user.id}`));
         const body = await readJson(request, MAX_RESPONSES_BODY_BYTES);
@@ -332,6 +456,7 @@ export function createApiHandler({
 
       if (request.method === 'POST' && path === '/v1/openai/realtime/calls') {
         const session = await requireSession(request, sessionRepository);
+        await requireAccess(session, accessCodeRepository);
         enforceRateLimit(limitVoice(session.user.id));
         const requestBody = await readJson(request, MAX_REALTIME_BODY_BYTES);
         const language = requestBody?.language;
@@ -413,6 +538,7 @@ export function createApiHandler({
 
       if (request.method === 'POST' && path === '/v1/elevenlabs/speech') {
         const session = await requireSession(request, sessionRepository);
+        await requireAccess(session, accessCodeRepository);
         enforceRateLimit(limitVoice(`tts:${session.user.id}`));
         if (!config.elevenLabsApiKey || !config.elevenLabsVoiceId) {
           throw new HttpError(503, 'Speech playback is not configured.');
@@ -422,7 +548,7 @@ export function createApiHandler({
         if (!text || text.length > 240) {
           throw new HttpError(400, 'Speech text must contain 1 to 240 characters.');
         }
-        const ttsUrl = `${ELEVENLABS_API_URL}/${encodeURIComponent(config.elevenLabsVoiceId)}?output_format=mp3_44100_128`;
+        const ttsUrl = `${ELEVENLABS_API_URL}/${encodeURIComponent(config.elevenLabsVoiceId)}/stream?output_format=mp3_44100_128`;
         let upstreamResponse;
         const reservedMicroUsd = budgetService.speechEstimateMicroUsd(
           text.length,
@@ -437,6 +563,11 @@ export function createApiHandler({
           userId: session.user.id,
         });
         await budgetService.markDispatched(session.user.id, requestId);
+        const providerController = new AbortController();
+        const providerHeaderTimer = setTimeout(
+          () => providerController.abort('headers-timeout'),
+          20_000,
+        );
         try {
           upstreamResponse = await fetchImpl(ttsUrl, {
             method: 'POST',
@@ -446,13 +577,14 @@ export function createApiHandler({
               'xi-api-key': config.elevenLabsApiKey,
             },
             body: JSON.stringify({ text, model_id: config.elevenLabsModelId }),
-            signal: AbortSignal.timeout(20_000),
+            signal: providerController.signal,
           });
         } catch {
           await budgetService.markUncertain(session.user.id, requestId);
           throw new HttpError(502, 'Speech playback is temporarily unavailable.');
+        } finally {
+          clearTimeout(providerHeaderTimer);
         }
-        const upstreamBody = await readBoundedUpstreamBody(upstreamResponse);
         if (upstreamResponse.ok) {
           await budgetService.settle({
             actualMicroUsd: reservedMicroUsd,
@@ -479,12 +611,18 @@ export function createApiHandler({
         } else {
           await budgetService.markUncertain(session.user.id, requestId);
         }
-        sendBuffer(
+        if (!upstreamResponse.ok) {
+          providerController.abort('provider-error');
+          throw new HttpError(
+            upstreamResponse.status >= 500 ? 503 : 502,
+            'Speech playback is temporarily unavailable.',
+          );
+        }
+        await pipeBoundedUpstreamResponse({
+          abortProvider: (reason) => providerController.abort(reason),
           response,
-          upstreamResponse.status,
-          upstreamBody,
-          upstreamResponse.headers.get('content-type') || 'audio/mpeg',
-        );
+          upstreamResponse,
+        });
         return;
       }
 

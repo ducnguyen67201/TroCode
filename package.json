@@ -18,10 +18,11 @@
     "make:dev": "doppler run --project tro-app --config dev -- npm exec -- electron-forge make",
     "publish": "doppler run --project tro-app --config prd -- npm exec -- electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
+    "access-code:create": "node scripts/access-codes.mjs create",
     "membership:keygen": "node scripts/membership-codes.mjs keygen",
     "membership:issue": "node scripts/membership-codes.mjs issue",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run && node --test scripts/windows-release-metadata.test.mjs && npm --prefix services/api test",
+    "test": "vitest run && node --test scripts/access-codes.test.mjs scripts/windows-release-metadata.test.mjs && npm --prefix services/api test",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "check": "npm run lint && npm run typecheck && npm run test"

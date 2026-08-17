@@ -40,7 +40,11 @@ user requests:
   automatic exception capture are disabled. See the
   [PostHog privacy policy](https://posthog.com/privacy).
 - **ElevenLabs:** when an operator configures ElevenLabs companion speech,
-  short assistant explanations are sent for text-to-speech generation. See the
+  the short visible text of each grounded guidance step is sent for
+  text-to-speech generation. Generated audio is streamed to the current
+  guidance window and is not persisted by TroCode. Clarification, approval,
+  internal action, observation, and final-response text is not sent to
+  ElevenLabs for narration. See the
   [ElevenLabs privacy policy](https://elevenlabs.io/privacy-policy).
 - **GitHub and Electron's update service:** installed builds contact the fixed
   TroCode GitHub release feed to check for, download, and install application

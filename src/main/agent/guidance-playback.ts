@@ -52,7 +52,10 @@ export class GuidancePlaybackController {
     return this.paused;
   }
 
-  async wait(signal: AbortSignal): Promise<GuidanceNavigation> {
+  async wait(
+    signal: AbortSignal,
+    narrationCompletion: Promise<unknown> = Promise.resolve(),
+  ): Promise<GuidanceNavigation> {
     if (signal.aborted) throw abortError();
     const buffered = this.bufferedNavigation.shift();
     if (buffered) return buffered;
@@ -62,6 +65,8 @@ export class GuidancePlaybackController {
 
     return new Promise<GuidanceNavigation>((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | null = null;
+      let dwellComplete = false;
+      let narrationComplete = false;
       const handleAbort = (): void => {
         cleanup();
         reject(abortError());
@@ -81,8 +86,16 @@ export class GuidancePlaybackController {
         timer = null;
       };
       const scheduleAutoAdvance = (): void => {
-        if (this.paused || timer) return;
-        timer = setTimeout(() => settle('next'), this.autoAdvanceMs);
+        if (dwellComplete && narrationComplete && !this.paused) {
+          settle('next');
+          return;
+        }
+        if (this.paused || timer || dwellComplete) return;
+        timer = setTimeout(() => {
+          timer = null;
+          dwellComplete = true;
+          if (narrationComplete && !this.paused) settle('next');
+        }, this.autoAdvanceMs);
       };
 
       this.pendingWait = {
@@ -93,6 +106,13 @@ export class GuidancePlaybackController {
       };
       signal.addEventListener('abort', handleAbort, { once: true });
       scheduleAutoAdvance();
+      void narrationCompletion
+        .catch(() => undefined)
+        .then(() => {
+          if (this.pendingWait?.cleanup !== cleanup) return;
+          narrationComplete = true;
+          if (dwellComplete && !this.paused) settle('next');
+        });
     });
   }
 

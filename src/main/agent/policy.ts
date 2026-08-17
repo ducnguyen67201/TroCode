@@ -15,11 +15,16 @@ export { ProposedActionSchema };
 export type { ProposedAction };
 
 export interface PolicyDecision {
+  terminal?: boolean;
   status: 'allowed' | 'needs_approval' | 'denied';
   summary: string;
   nextActions: string[];
 }
 
+const APPROVAL_PATTERN = /\bapprov(?:e|al|ed|ing)\b/iu;
+const INTERNAL_APPROVAL_LABEL_PATTERN =
+  /\b(?:approve exact action|deny exact action|approval control|approval dialog)\b/iu;
+const TROCODE_PATTERN = /\btro\s*code\b/iu;
 const HOST_APPROVAL_DESKTOP_OPERATIONS: ReadonlySet<string> = new Set([
   'click',
   'drag',
@@ -27,11 +32,38 @@ const HOST_APPROVAL_DESKTOP_OPERATIONS: ReadonlySet<string> = new Set([
   'keypress',
 ]);
 
-function hostRequiresApproval(action: ProposedAction): boolean {
+function declaredConsequence(action: ProposedAction): string | undefined {
+  const value = action.parameters?.declaredConsequence;
+  return typeof value === 'string' ? value : undefined;
+}
+
+function isTroCodeApprovalUiAction(action: ProposedAction): boolean {
+  if (action.toolId !== 'desktop.control') return false;
+
+  const actionText = [action.description, action.target]
+    .filter((value): value is string => Boolean(value))
+    .join(' ');
+  const referencesApprovalControl = APPROVAL_PATTERN.test(actionText);
   return (
-    action.toolId === 'desktop.control' &&
+    (referencesApprovalControl && TROCODE_PATTERN.test(actionText)) ||
+    INTERNAL_APPROVAL_LABEL_PATTERN.test(actionText)
+  );
+}
+
+function requiresApproval(action: ProposedAction): boolean {
+  const alwaysConfirm = taskApprovalPolicy() as readonly string[];
+  const consequence = declaredConsequence(action);
+  return (
+    (action.toolId === 'desktop.control' &&
+      Boolean(
+        action.operation &&
+          HOST_APPROVAL_DESKTOP_OPERATIONS.has(action.operation),
+      )) ||
+    alwaysConfirm.includes(action.action) ||
     Boolean(
-      action.operation && HOST_APPROVAL_DESKTOP_OPERATIONS.has(action.operation),
+      action.toolId === 'desktop.control' &&
+        consequence &&
+        alwaysConfirm.includes(consequence),
     )
   );
 }
@@ -115,10 +147,19 @@ export function evaluateAction(
     };
   }
 
-  if (
-    hostRequiresApproval(action) ||
-    taskApprovalPolicy().includes(action.action as never)
-  ) {
+  if (isTroCodeApprovalUiAction(action)) {
+    return {
+      status: 'denied',
+      terminal: true,
+      summary:
+        'TroCode stopped an approval loop. The agent cannot operate TroCode approval controls.',
+      nextActions: [
+        'Only the user can approve or deny a consequential action from the approval card.',
+      ],
+    };
+  }
+
+  if (requiresApproval(action)) {
     return {
       status: 'needs_approval',
       summary: `${action.description} requires explicit user approval.`,

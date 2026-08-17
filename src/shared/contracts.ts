@@ -588,21 +588,127 @@ export const CompanionPositionSchema = z.object({
   y: z.number().int().min(0).max(100_000),
 });
 
+export const TROCODE_AUDIO_SCHEME = 'trocode-audio' as const;
+
+const CompanionSpeechMediaUrlSchema = z
+  .string()
+  .url()
+  .superRefine((value, context) => {
+    const url = new URL(value);
+    const pathMatch = /^\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/iu.exec(
+      url.pathname,
+    );
+    if (
+      url.protocol !== `${TROCODE_AUDIO_SCHEME}:` ||
+      url.hostname !== 'speech' ||
+      url.username ||
+      url.password ||
+      url.port ||
+      url.search ||
+      url.hash ||
+      !pathMatch
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Speech media URLs must use the private TroCode audio scheme.',
+      });
+    }
+  });
+
+const CompanionGuidanceShortcutSchema = z.object({
+  available: z.boolean(),
+  label: z.string().trim().min(1).max(40),
+});
+
+export const CompanionGuidanceShortcutsSchema = z.object({
+  back: CompanionGuidanceShortcutSchema,
+  pause: CompanionGuidanceShortcutSchema,
+  next: CompanionGuidanceShortcutSchema,
+});
+
 export const CompanionGuidanceSchema = z.object({
   message: z.string().trim().min(1).max(240),
   playback: z.enum(['playing', 'paused']).default('playing'),
+  shortcuts: CompanionGuidanceShortcutsSchema.optional(),
   side: z.enum(['left', 'right']),
   target: z.string().trim().min(1).max(80).optional(),
 });
 
-export const CompanionSpeechSchema = z.object({
+const CompanionInteractionBaseSchema = z.object({
   id: z.string().uuid(),
-  dataBase64: z
-    .string()
-    .min(1)
-    .max(7_000_000)
-    .regex(/^[A-Za-z0-9+/]+={0,2}$/),
-  mimeType: z.literal('audio/mpeg'),
+  taskId: z.string().uuid(),
+  prompt: z.string().trim().min(1).max(1_000),
+  side: z.enum(['left', 'right']),
+});
+
+export const CompanionClarificationInteractionSchema =
+  CompanionInteractionBaseSchema.extend({
+    kind: z.literal('clarification'),
+    choices: z
+      .array(
+        z.object({
+          id: z.string().trim().min(1).max(100),
+          label: z.string().trim().min(1).max(240),
+        }),
+      )
+      .max(9)
+      .optional(),
+  });
+
+export const CompanionApprovalInteractionSchema =
+  CompanionInteractionBaseSchema.extend({
+    kind: z.literal('approval'),
+    expiresAt: z.string().datetime(),
+    actionDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    consequence: z.string().trim().min(1).max(1_000),
+    action: z.object({
+      label: z.string().trim().min(1).max(120),
+      description: z.string().trim().min(1).max(1_000),
+      target: z.string().trim().min(1).max(500).optional(),
+      details: z
+        .array(
+          z.object({
+            label: z.string().trim().min(1).max(80),
+            value: z.string().trim().min(1).max(2_000),
+          }),
+        )
+        .max(10),
+      hasMoreDetails: z.boolean(),
+    }),
+  });
+
+export const CompanionInteractionSchema = z.discriminatedUnion('kind', [
+  CompanionClarificationInteractionSchema,
+  CompanionApprovalInteractionSchema,
+]);
+
+export const CompanionSpeechSchema = z.discriminatedUnion('source', [
+  z.object({
+    id: z.string().uuid(),
+    mediaUrl: CompanionSpeechMediaUrlSchema,
+    mimeType: z.literal('audio/mpeg'),
+    source: z.literal('elevenlabs'),
+  }),
+  z.object({
+    id: z.string().uuid(),
+    source: z.literal('system'),
+  }),
+]);
+
+export const CompanionSpeechPlaybackReasonSchema = z.enum([
+  'not_configured',
+  'provider_error',
+  'startup_timeout',
+  'autoplay_rejected',
+  'decode_error',
+  'fallback_error',
+]);
+
+export const CompanionSpeechPlaybackReportSchema = z.object({
+  id: z.string().uuid(),
+  phase: z.enum(['playing', 'fallback_started', 'ended', 'failed']),
+  source: z.enum(['elevenlabs', 'system']),
+  reason: CompanionSpeechPlaybackReasonSchema.optional(),
 });
 
 export const ConfigureVoiceRequestSchema = z.object({
@@ -664,13 +770,16 @@ export const AuthStatusSchema = z.object({
 export const MembershipStatusSchema = z.object({
   state: z.enum(['bypassed', 'inactive', 'active', 'expired', 'error']),
   required: z.boolean(),
-  referenceCode: z.string().regex(/^TRC-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/),
+  referenceCode: z
+    .string()
+    .regex(/^TRC-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/)
+    .nullable(),
   expiresAt: z.string().datetime().nullable(),
   summary: z.string().min(1).max(1_000),
 });
 
 export const ActivateMembershipRequestSchema = z.object({
-  code: z.string().trim().min(40).max(4_096),
+  code: z.string().trim().min(4).max(4_096),
 });
 
 export type Capability = z.infer<typeof CapabilitySchema>;
@@ -690,7 +799,14 @@ export type CompanionVoiceActivity = z.infer<
   typeof CompanionVoiceActivitySchema
 >;
 export type CompanionGuidance = z.infer<typeof CompanionGuidanceSchema>;
+export type CompanionInteraction = z.infer<typeof CompanionInteractionSchema>;
 export type CompanionSpeech = z.infer<typeof CompanionSpeechSchema>;
+export type CompanionSpeechPlaybackReason = z.infer<
+  typeof CompanionSpeechPlaybackReasonSchema
+>;
+export type CompanionSpeechPlaybackReport = z.infer<
+  typeof CompanionSpeechPlaybackReportSchema
+>;
 export type ConfigureVoiceRequest = z.infer<
   typeof ConfigureVoiceRequestSchema
 >;

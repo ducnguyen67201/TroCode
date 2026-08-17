@@ -1,5 +1,6 @@
 import type {
   CompanionState,
+  PendingInteraction,
   PresentationState,
   TaskSnapshot,
 } from '../../shared/contracts';
@@ -21,12 +22,20 @@ export class ElectronPresentationPresenter implements PresentationPresenter {
     private readonly setCompanionState: (state: CompanionState) => void,
     private readonly revealMainWindow: () => void,
     private readonly resetGuidance: () => void,
+    private readonly showInteraction: (interaction: PendingInteraction) => void,
+    private readonly clearInteraction: (taskId?: string) => void,
   ) {}
 
   apply(state: PresentationState, task: TaskSnapshot | null): void {
-    void task;
+    if (task?.pendingInteraction) this.showInteraction(task.pendingInteraction);
+    else this.clearInteraction(task?.taskId);
     this.setCompanionState(COMPANION_STATES[state]);
-    if (state === 'needs_attention' || state === 'done' || state === 'error') {
+    if (
+      state === 'needs_attention' ||
+      state === 'done' ||
+      state === 'error' ||
+      task?.phase === 'cancelled'
+    ) {
       this.resetGuidance();
       this.revealMainWindow();
     }

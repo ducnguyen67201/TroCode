@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 
 import pg from 'pg';
 
+import { PostgresAccessCodeRepository } from './access-code-repository.mjs';
 import { loadConfig } from './config.mjs';
 import { BudgetService } from './budget-service.mjs';
 import { verifyGoogleIdToken } from './google-token-verifier.mjs';
@@ -28,6 +29,9 @@ const sessionRepository = new PostgresSessionRepository(pool, {
   hmacKey: config.sessionTokenHmacKey,
   sessionDurationDays: config.sessionDurationDays,
 });
+const accessCodeRepository = new PostgresAccessCodeRepository(pool, {
+  hmacKey: config.sessionTokenHmacKey,
+});
 const modelCatalog = new ModelCatalog();
 for (const model of config.openAiModels) modelCatalog.priceFor(model);
 const usageRepository = new PostgresUsageRepository(pool);
@@ -38,6 +42,7 @@ const responsesService = new OpenAiResponsesService({
   openAiApiKey: config.openAiApiKey,
 });
 const handler = createApiHandler({
+  accessCodeRepository,
   budgetService,
   config,
   healthCheck: async () => {

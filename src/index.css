@@ -855,9 +855,9 @@ html.voice-island-mode #root {
   width: calc(100% - 12px);
   margin: 6px;
   padding: 12px 16px 13px;
-  border: 1px solid rgba(42, 78, 138, 0.24);
+  border: 1px solid rgba(39, 39, 34, 0.2);
   border-radius: 16px;
-  background: rgba(251, 252, 255, 0.96);
+  background: rgba(255, 254, 250, 0.97);
   box-shadow:
     0 14px 38px rgba(23, 33, 50, 0.2),
     0 2px 8px rgba(23, 33, 50, 0.12);
@@ -885,8 +885,8 @@ html.voice-island-mode #root {
   width: 20px;
   height: 20px;
   border-radius: 7px;
-  background: #316fce;
-  color: #fff;
+  background: #f2c94c;
+  color: #2c2300;
   font-size: 11px;
   place-items: center;
 }
@@ -910,9 +910,9 @@ html.voice-island-mode #root {
   left: -5px;
   width: 10px;
   height: 10px;
-  border-bottom: 1px solid rgba(42, 78, 138, 0.18);
-  border-left: 1px solid rgba(42, 78, 138, 0.18);
-  background: rgba(251, 252, 255, 0.96);
+  border-bottom: 1px solid rgba(39, 39, 34, 0.18);
+  border-left: 1px solid rgba(39, 39, 34, 0.18);
+  background: rgba(255, 254, 250, 0.97);
   content: "";
   transform: rotate(45deg);
 }
@@ -927,7 +927,7 @@ html.voice-island-mode #root {
   display: block;
   overflow: hidden;
   margin-top: 7px;
-  color: #316fce;
+  color: #8b6a00;
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.1em;
@@ -944,7 +944,7 @@ html.voice-island-mode #root {
   overflow: hidden;
   margin-top: 9px;
   padding-top: 8px;
-  border-top: 1px solid rgba(42, 78, 138, 0.12);
+  border-top: 1px solid rgba(39, 39, 34, 0.12);
   color: #6f7683;
   font-size: 9px;
   font-weight: 700;
@@ -961,10 +961,10 @@ html.voice-island-mode #root {
 .guidance-callout__controls kbd {
   min-width: 15px;
   padding: 2px 4px;
-  border: 1px solid rgba(49, 111, 206, 0.24);
+  border: 1px solid rgba(139, 106, 0, 0.24);
   border-radius: 4px;
-  background: rgba(49, 111, 206, 0.08);
-  color: #316fce;
+  background: rgba(242, 201, 76, 0.14);
+  color: #765600;
   font: inherit;
   text-align: center;
 }
@@ -983,6 +983,205 @@ html.voice-island-mode #root {
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+.guidance-callout--interactive {
+  width: calc(100% - 12px);
+  height: calc(100% - 12px);
+  overflow: auto;
+  padding: 14px 16px 15px;
+  pointer-events: auto;
+  scrollbar-width: thin;
+}
+
+.guidance-callout--interactive p {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+
+.guidance-callout--interactive h2 {
+  margin: 4px 0 10px;
+  color: #20211e;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.guidance-callout__eyebrow {
+  color: #8b6a00;
+  font-size: 9px !important;
+  font-weight: 850 !important;
+  letter-spacing: 0.11em !important;
+  line-height: 1.2 !important;
+  text-transform: uppercase;
+}
+
+.guidance-callout__choices {
+  display: grid;
+  max-height: 92px;
+  gap: 5px;
+  margin: 8px 0;
+  overflow: auto;
+}
+
+.guidance-callout__choices button,
+.guidance-callout__answer button,
+.guidance-callout__approval-actions button {
+  min-height: 34px;
+  border: 1px solid rgba(39, 39, 34, 0.18);
+  border-radius: 9px;
+  background: #f5f3ec;
+  color: #20211e;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.guidance-callout__choices button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.guidance-callout__choices kbd,
+.guidance-callout__hint kbd {
+  padding: 2px 5px;
+  border: 1px solid rgba(39, 39, 34, 0.16);
+  border-radius: 5px;
+  background: #fffefa;
+  font: inherit;
+}
+
+.guidance-callout__answer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.guidance-callout__answer input {
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(39, 39, 34, 0.24);
+  border-radius: 9px;
+  outline: none;
+  background: #fffefa;
+  color: #20211e;
+  font: inherit;
+  font-size: 12px;
+}
+
+.guidance-callout__answer input:focus {
+  border-color: #d6aa21;
+  box-shadow: 0 0 0 3px rgba(242, 201, 76, 0.22);
+}
+
+.guidance-callout__answer button {
+  padding: 0 13px;
+  background: #20211e;
+  color: #fffefa;
+}
+
+.guidance-callout__consequence {
+  margin: 0 0 9px !important;
+  color: #5d5e57;
+  font-size: 12px !important;
+  font-weight: 550 !important;
+  line-height: 1.45 !important;
+}
+
+.guidance-callout__approval-details {
+  max-height: 190px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid rgba(39, 39, 34, 0.13);
+  border-radius: 10px;
+  background: #f8f7f2;
+}
+
+.guidance-callout__approval-details div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+  padding: 7px 9px;
+  border-bottom: 1px solid rgba(39, 39, 34, 0.09);
+}
+
+.guidance-callout__approval-details div:last-child {
+  border-bottom: 0;
+}
+
+.guidance-callout__approval-details dt {
+  color: #7d7e76;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.guidance-callout__approval-details dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: #20211e;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
+.guidance-callout__details-link {
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #765600;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.guidance-callout__approval-actions {
+  display: grid;
+  grid-template-columns: 0.7fr 1.3fr;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.guidance-callout__approval-actions .guidance-callout__approve {
+  border-color: #d6aa21;
+  background: #f2c94c;
+  color: #2c2300;
+}
+
+.guidance-callout__hint {
+  margin: 8px 0 0 !important;
+  color: #7d7e76;
+  font-size: 9px !important;
+  font-weight: 650 !important;
+  line-height: 1.35 !important;
+}
+
+.guidance-callout__error,
+.guidance-callout__expired {
+  margin-top: 8px !important;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(185, 71, 63, 0.1);
+  color: #9c342e;
+  font-size: 10px !important;
+  font-weight: 750 !important;
+  line-height: 1.35 !important;
+}
+
+.guidance-callout button:disabled,
+.guidance-callout input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .cursor-companion {

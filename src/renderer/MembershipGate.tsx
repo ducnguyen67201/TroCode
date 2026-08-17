@@ -38,6 +38,7 @@ export function MembershipGate({
     appLocale(appLanguage),
   );
   const busy = isActivating || isChecking || isSigningOut;
+  const usesSharedAccessCode = status?.referenceCode === null;
 
   const copyReferenceCode = async (): Promise<void> => {
     if (!status?.referenceCode) return;
@@ -75,31 +76,39 @@ export function MembershipGate({
         className="membership-card"
       >
         <span className="membership-card__step">{t('Final setup step')}</span>
-        <p className="eyebrow">{t('Membership access')}</p>
+        <p className="eyebrow">
+          {t(usesSharedAccessCode ? 'Access required' : 'Membership access')}
+        </p>
         <h1 id="membership-heading">
-          {status?.state === 'expired'
-            ? t('Renew your TroCode membership')
-            : t('Activate your TroCode membership')}
+          {usesSharedAccessCode
+            ? t('Enter your TroCode access code')
+            : status?.state === 'expired'
+              ? t('Renew your TroCode membership')
+              : t('Activate your TroCode membership')}
         </h1>
         <p className="membership-card__description">
           {t(
-            'Send your reference code to the TroCode team. When your access is approved, paste the activation code you receive below.',
+            usesSharedAccessCode
+              ? 'Enter the access code provided by the TroCode team. Each account can use one code, and each code has a limited number of users.'
+              : 'Send your reference code to the TroCode team. When your access is approved, paste the activation code you receive below.',
           )}
         </p>
 
-        <div className="membership-reference">
-          <div>
-            <span>{t('Your reference code')}</span>
-            <strong>{status?.referenceCode ?? t('Unavailable')}</strong>
+        {!usesSharedAccessCode && (
+          <div className="membership-reference">
+            <div>
+              <span>{t('Your reference code')}</span>
+              <strong>{status?.referenceCode ?? t('Unavailable')}</strong>
+            </div>
+            <button
+              disabled={busy || !status?.referenceCode}
+              onClick={() => void copyReferenceCode()}
+              type="button"
+            >
+              {copyMessage ?? t('Copy')}
+            </button>
           </div>
-          <button
-            disabled={busy || !status?.referenceCode}
-            onClick={() => void copyReferenceCode()}
-            type="button"
-          >
-            {copyMessage ?? t('Copy')}
-          </button>
-        </div>
+        )}
 
         {expiry && (
           <p className="membership-expiry">
@@ -108,15 +117,21 @@ export function MembershipGate({
         )}
 
         <label className="membership-code-field" htmlFor="activation-code">
-          <span>{t('Activation code')}</span>
+          <span>
+            {t(usesSharedAccessCode ? 'Access code' : 'Activation code')}
+          </span>
           <textarea
             autoCapitalize="none"
             autoComplete="off"
             disabled={busy}
             id="activation-code"
             onChange={(event) => setActivationCode(event.target.value)}
-            placeholder={t('Paste your activation code')}
-            rows={4}
+            placeholder={t(
+              usesSharedAccessCode
+                ? 'Enter your access code'
+                : 'Paste your activation code',
+            )}
+            rows={usesSharedAccessCode ? 1 : 4}
             spellCheck={false}
             value={activationCode}
           />
@@ -132,11 +147,19 @@ export function MembershipGate({
         <div className="membership-actions">
           <button
             className="primary-button"
-            disabled={busy || normalizedCode.length < 40}
+            disabled={
+              busy || normalizedCode.length < (usesSharedAccessCode ? 4 : 40)
+            }
             onClick={() => onActivate(normalizedCode)}
             type="button"
           >
-            {isActivating ? t('Activating…') : t('Activate membership')}
+            {isActivating
+              ? t('Checking…')
+              : t(
+                  usesSharedAccessCode
+                    ? 'Continue with access code'
+                    : 'Activate membership',
+                )}
             {!isActivating && <span aria-hidden="true">→</span>}
           </button>
           <button

@@ -43,9 +43,10 @@ Implemented:
   before consequential CUA actions such as Send.
 - Focused-window push-to-talk plus system-wide background voice shortcuts
   through OpenAI Realtime using `gpt-realtime-whisper`.
-- Optional ElevenLabs `eleven_flash_v2_5` speech for short companion
-  explanations, with local system-speech fallback; TTS failures never block the
-  desktop task.
+- Every grounded `show_guidance` step has one narration attempt. Optional
+  ElevenLabs `eleven_flash_v2_5` audio streams progressively through a private,
+  one-time Electron media URL; unavailable or slow startup falls back once to
+  local system speech and never blocks the desktop task.
 - Railway-hosted Responses, Realtime, and optional ElevenLabs access; provider
   keys are never compiled into or stored by the customer application.
 - PostHog product analytics for count-only app, model, and tool activity; task
@@ -141,6 +142,11 @@ named, eval-backed quality override selected before dispatch. See the
 [inference cost lifecycle](docs/inference-cost-lifecycle.md) for the text,
 screen, reservation, settlement, and presentation flow.
 
+During a visible walkthrough, use **Command/Control + Alt + J** for Back,
+**Command/Control + Alt + K** for Pause/Resume, and **Command/Control + Alt + L**
+for Next. TroCode registers each shortcut only while a guidance step is waiting
+and hides any shortcut that the operating system would not grant.
+
 Paste the value at Doppler's prompt, then enter a line containing only `.`.
 Doppler injects the values while Electron Forge builds and starts the app. The
 OpenAI key and Google tokens stay main-process-only. A desktop OAuth client
@@ -221,13 +227,36 @@ usable and labels History as **Session only**. Task requests, conversation
 messages, goal scope, and lifecycle outcomes are stored; raw screenshots and
 OAuth/model credentials are not part of the task snapshot contract.
 
-### Production memberships
+### Production access codes
 
-Membership checks are bypassed by raw local development (`npm start`). Hosted
-packaged builds use the revocable Google-backed device session and allow access
-after sign-in. Packaged builds without `TROCODE_API_BASE_URL` retain the offline
-activation gate and fail closed when `TROCODE_MEMBERSHIP_PUBLIC_KEY` is missing
-or invalid.
+Access checks are bypassed by raw local development (`npm start`). Every
+packaged build requires a code after Google sign-in and permission onboarding.
+
+Hosted builds configured with `TROCODE_API_BASE_URL` store shared access codes
+and account redemptions in PostgreSQL. Create codes with the administrator CLI;
+do not insert them manually:
+
+```bash
+doppler run --project tro-app --config prd -- \
+  npm run access-code:create -- \
+  --code CODEA \
+  --max-users 10 \
+  --label "Private beta batch A"
+```
+
+Omit `--code CODEA` to generate a strong random code. The command applies
+pending API migrations, stores only a keyed HMAC digest of the code, and prints
+the code once for secure distribution. `CODEA --max-users 10` admits at most ten
+distinct Google accounts. Each account is permanently linked to its first code;
+when a code is full, existing linked accounts retain access while new accounts
+are rejected.
+
+The API checks access again before proxying model, realtime voice, or speech
+requests, so bypassing the renderer does not bypass the quota.
+
+Packaged builds without `TROCODE_API_BASE_URL` use the offline signed-membership
+fallback and fail closed when `TROCODE_MEMBERSHIP_PUBLIC_KEY` is missing or
+invalid.
 
 Generate the signing keys once. Keep the private key outside this repository
 and never place it in Doppler or the application bundle:
@@ -239,9 +268,9 @@ npm run membership:keygen -- \
 ```
 
 The command prints `TROCODE_MEMBERSHIP_PUBLIC_KEY=...`. Put that public value in
-the environment used to package TroCode. After a user finishes permissions,
-their membership screen shows a reference such as `TRC-AAAA-BBBB-CCCC`. Issue
-an activation for the desired number of days:
+the environment used to package the offline build. After a user finishes
+permissions, their membership screen shows a reference such as
+`TRC-AAAA-BBBB-CCCC`. Issue an activation for the desired number of days:
 
 ```bash
 npm run membership:issue -- \
@@ -288,7 +317,8 @@ macOS; on Windows, hold **Ctrl + Alt + Space** globally and release it to finish
 The cursor companion shows audio bars while listening and a processing spinner
 after release until the transcript returns. When TroCode has asked a
 clarification, the next transcript answers that same task rather than creating
-another one. Short pending prompts are also spoken locally.
+another one. Short pending prompts use local system speech; ElevenLabs
+narration is reserved for grounded walkthrough steps.
 
 When `TROCODE_API_BASE_URL` is compiled into a production build, TroCode enables
 agent and voice access from the signed-in device session. The renderer and

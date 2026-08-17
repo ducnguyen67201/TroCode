@@ -417,7 +417,7 @@ function defaultTools(): RuntimeToolDefinition[] {
   });
   const guidanceSchema = normalizedPoint.extend({
     observationId: z.string().uuid(),
-    description: z.string().trim().min(1).max(2_000),
+    description: z.string().trim().min(1).max(240),
     target: z
       .string()
       .trim()
@@ -686,12 +686,12 @@ function defaultTools(): RuntimeToolDefinition[] {
       id: 'task.guidance',
       modelName: 'show_guidance',
       description:
-        'Point at one visible target and explain it without clicking or changing the application.',
+        'Point at exactly one visible target and speak one concise instruction (240 characters maximum). Do not click or change the application. The host waits for the user to use playback controls before continuing.',
       operations: ['show'],
       parameters: objectSchema(
         {
           observationId: { type: 'string' },
-          description: { type: 'string', maxLength: 2_000 },
+          description: { type: 'string', maxLength: 240 },
           target: {
             anyOf: [{ type: 'string', maxLength: 80 }, { type: 'null' }],
           },

@@ -26,6 +26,14 @@ flowchart TD
     OUTPUT --> MODEL
 ```
 
+`show_guidance` adds one user-controlled pacing boundary to this loop. The host
+shows and narrates one grounded target, appends the tool output exactly once,
+then holds the next model sample until narration and the dwell interval finish
+or the user presses Next. Back replays earlier saved presentations without a
+model call or new task event. Pause stops both active audio and auto-advance.
+The global controls are Command/Control+Alt+J/K/L and exist only during this
+wait.
+
 There is no special complete function. Self-contained math, explanations,
 translation, writing, code, lyrics, chords, and plans can finish with zero tool
 calls, zero reviews, and zero CUA starts.

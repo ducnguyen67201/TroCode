@@ -15,6 +15,7 @@ import type { AuthUser } from '../../shared/contracts';
 
 import {
   MembershipService,
+  membershipRequiredForBuild,
   membershipReferenceCode,
   type MembershipActivationStore,
 } from './membership-service';
@@ -70,6 +71,24 @@ function issueCode(
 }
 
 describe('MembershipService', () => {
+  it('requires an activation code in every packaged build', () => {
+    expect(
+      membershipRequiredForBuild({
+        apiBaseUrl: 'https://api.trocode.example',
+        isPackaged: true,
+      }),
+    ).toBe(true);
+    expect(
+      membershipRequiredForBuild({ apiBaseUrl: '', isPackaged: true }),
+    ).toBe(true);
+    expect(
+      membershipRequiredForBuild({
+        apiBaseUrl: 'https://api.trocode.example',
+        isPackaged: false,
+      }),
+    ).toBe(false);
+  });
+
   it('bypasses membership outside packaged production builds', async () => {
     const { read, store } = memoryStore();
     const service = new MembershipService({
@@ -87,6 +106,100 @@ describe('MembershipService', () => {
     });
     await expect(service.assertActive(TEST_USER)).resolves.toBeUndefined();
     expect(read).not.toHaveBeenCalled();
+  });
+
+  it('uses hosted access-code status and redemption when an API is configured', async () => {
+    const { read, store, write } = memoryStore();
+    const accessTokenProvider = vi.fn(async () => `tro_live_${'a'.repeat(43)}`);
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            maxUsers: null,
+            state: 'inactive',
+            summary: 'Enter an access code to continue.',
+            usedUsers: null,
+          }),
+          { headers: { 'Content-Type': 'application/json' }, status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            maxUsers: 10,
+            newlyRedeemed: true,
+            state: 'active',
+            summary: 'Access code accepted.',
+            usedUsers: 1,
+          }),
+          { headers: { 'Content-Type': 'application/json' }, status: 201 },
+        ),
+      );
+    const service = new MembershipService({
+      accessTokenProvider,
+      apiBaseUrl: 'https://api.trocode.example',
+      fetchImpl,
+      publicKey: '',
+      required: true,
+      store,
+    });
+
+    await expect(service.getStatus(TEST_USER)).resolves.toMatchObject({
+      expiresAt: null,
+      referenceCode: null,
+      required: true,
+      state: 'inactive',
+    });
+    await expect(service.activate(TEST_USER, ' codea ')).resolves.toMatchObject({
+      referenceCode: null,
+      state: 'active',
+    });
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      'https://api.trocode.example/v1/access-code-redemptions/me',
+      expect.objectContaining({
+        headers: { Authorization: `Bearer tro_live_${'a'.repeat(43)}` },
+        method: 'GET',
+      }),
+    );
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      'https://api.trocode.example/v1/access-code-redemptions',
+      expect.objectContaining({
+        body: JSON.stringify({ code: 'codea' }),
+        headers: {
+          Authorization: `Bearer tro_live_${'a'.repeat(43)}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      }),
+    );
+    expect(read).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a hosted access code user-limit error', async () => {
+    const { store } = memoryStore();
+    const service = new MembershipService({
+      accessTokenProvider: vi.fn(async () => `tro_live_${'a'.repeat(43)}`),
+      apiBaseUrl: 'https://api.trocode.example',
+      fetchImpl: vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            error: 'This access code has reached its user limit.',
+          }),
+          { headers: { 'Content-Type': 'application/json' }, status: 409 },
+        ),
+      ),
+      publicKey: '',
+      required: true,
+      store,
+    });
+
+    await expect(service.activate(TEST_USER, 'CODEA')).rejects.toThrow(
+      'reached its user limit',
+    );
   });
 
   it('returns an inactive production status with a stable reference code', async () => {
@@ -109,7 +222,7 @@ describe('MembershipService', () => {
     });
     expect(status.referenceCode).toMatch(/^TRC-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
     await expect(service.assertActive(TEST_USER)).rejects.toThrow(
-      'active membership',
+      'valid access code',
     );
   });
 

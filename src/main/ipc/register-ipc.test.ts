@@ -35,8 +35,10 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     signOut: ReturnType<typeof vi.fn>;
   };
   event: unknown;
+  interactionEvent: unknown;
   executionCoordinator: {
     cancelActiveTasks: ReturnType<typeof vi.fn>;
+    resume: ReturnType<typeof vi.fn>;
     start: ReturnType<typeof vi.fn>;
   };
   cuaConnect: ReturnType<typeof vi.fn>;
@@ -56,6 +58,12 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   openSystemPermissionSettings: ReturnType<typeof vi.fn>;
   requestScreenRecordingAccess: ReturnType<typeof vi.fn>;
   recordVoiceTranscript: ReturnType<typeof vi.fn>;
+  reportCompanionSpeechPlayback: ReturnType<typeof vi.fn>;
+  revealMainWindow: ReturnType<typeof vi.fn>;
+  taskRuntime: {
+    decideApproval: ReturnType<typeof vi.fn>;
+    respondToInteraction: ReturnType<typeof vi.fn>;
+  };
   submit: ReturnType<typeof vi.fn>;
   updateAppPreferences: ReturnType<typeof vi.fn>;
   updateCompanionVoiceActivity: ReturnType<typeof vi.fn>;
@@ -75,6 +83,19 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   const event = {
     sender: { id: 42 },
     senderFrame: mainFrame,
+  };
+  const interactionFrame = {};
+  const interactionWebContents = {
+    id: 84,
+    mainFrame: interactionFrame,
+  };
+  const interactionWindow = {
+    isDestroyed: () => false,
+    webContents: interactionWebContents,
+  };
+  const interactionEvent = {
+    sender: { id: 84 },
+    senderFrame: interactionFrame,
   };
   const submit = vi.fn((input: unknown) => {
     void input;
@@ -115,14 +136,21 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   };
   const taskRuntime = {
     submit,
-    respondToInteraction: vi.fn(),
-    decideApproval: vi.fn(),
+    respondToInteraction: vi.fn((input: { taskId: string }) => ({
+      taskId: input.taskId,
+      phase: 'planning',
+    })),
+    decideApproval: vi.fn((input: { taskId: string }) => ({
+      taskId: input.taskId,
+      phase: 'planning',
+    })),
     steer: vi.fn(),
     off: vi.fn(),
     on: vi.fn(),
   };
   const executionCoordinator = {
     cancelActiveTasks: vi.fn(() => []),
+    resume: vi.fn(),
     start: vi.fn((input: unknown) => {
       void input;
       return { taskId: 'task-id', phase: 'planning' };
@@ -130,8 +158,16 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   };
   const taskApplicationService = {
     cancel: vi.fn((input: unknown) => input),
-    decideApproval: vi.fn((input: unknown) => input),
-    respond: vi.fn((input: unknown) => input),
+    decideApproval: vi.fn((input: { taskId: string }) => {
+      const snapshot = taskRuntime.decideApproval(input);
+      executionCoordinator.resume(snapshot.taskId);
+      return snapshot;
+    }),
+    respond: vi.fn((input: { taskId: string }) => {
+      const snapshot = taskRuntime.respondToInteraction(input);
+      executionCoordinator.resume(snapshot.taskId);
+      return snapshot;
+    }),
     start: executionCoordinator.start,
     steer: vi.fn((input: unknown) => input),
     submitAndStart: vi.fn((input: unknown) => {
@@ -193,6 +229,8 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   const restartAndInstallUpdate = vi.fn(async () => undefined);
   const updateCompanionVoiceActivity = vi.fn();
   const setVoiceAudioDucking = vi.fn(async () => undefined);
+  const revealMainWindow = vi.fn();
+  const reportCompanionSpeechPlayback = vi.fn();
   const services = {
     appUpdateService: {
       checkForUpdates,
@@ -207,10 +245,13 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     authService,
     cuaService: { connect: cuaConnect, getStatus: cuaGetStatus },
     executionCoordinator,
+    getCompanionInteractionWindow: () => interactionWindow,
     membershipService,
     openSystemPermissionSettings,
     recordVoiceTranscript,
+    reportCompanionSpeechPlayback,
     requestScreenRecordingAccess,
+    revealMainWindow,
     systemAudioDuckingService: { setActive: setVoiceAudioDucking },
     taskRuntime,
     taskApplicationService,
@@ -242,16 +283,20 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     cuaConnect,
     cuaGetStatus,
     event,
+    interactionEvent,
     executionCoordinator,
     getAppPreferences,
     getTaskHistory,
     membershipService,
     openSystemPermissionSettings,
     recordVoiceTranscript,
+    reportCompanionSpeechPlayback,
+    revealMainWindow,
     restartAndInstallUpdate,
     setVoiceAudioDucking,
     requestScreenRecordingAccess,
     submit,
+    taskRuntime,
     updateAppPreferences,
     updateCompanionVoiceActivity,
     unregister: registerIpcHandlers(mainWindow, services),
@@ -341,6 +386,139 @@ describe('registerIpcHandlers auth boundary', () => {
     expect(executionCoordinator.start).toHaveBeenCalledWith({
       taskId: 'task-id',
     });
+    unregister();
+  });
+
+  it('lets the authenticated cursor card answer a clarification and resume', async () => {
+    const {
+      executionCoordinator,
+      interactionEvent,
+      taskRuntime,
+      unregister,
+    } = setup(true);
+    const request = {
+      interactionId: '00000000-0000-4000-8000-000000000002',
+      kind: 'answer',
+      taskId: '00000000-0000-4000-8000-000000000001',
+      text: 'Use my work account',
+    } as const;
+
+    await expect(
+      electronMock.handlers
+        .get(IPC_CHANNELS.respondToInteraction)
+        ?.(interactionEvent, request),
+    ).resolves.toMatchObject({ taskId: request.taskId, phase: 'planning' });
+    expect(taskRuntime.respondToInteraction).toHaveBeenCalledWith(request);
+    expect(executionCoordinator.resume).toHaveBeenCalledWith(request.taskId);
+    unregister();
+  });
+
+  it('lets the authenticated cursor card decide only a parsed exact approval', async () => {
+    const {
+      executionCoordinator,
+      interactionEvent,
+      taskRuntime,
+      unregister,
+    } = setup(true);
+    const request = {
+      actionDigest: 'a'.repeat(64),
+      decision: 'approve',
+      interactionId: '00000000-0000-4000-8000-000000000002',
+      kind: 'approval',
+      taskId: '00000000-0000-4000-8000-000000000001',
+    } as const;
+    const handler = electronMock.handlers.get(IPC_CHANNELS.decideApproval);
+
+    await expect(handler?.(interactionEvent, request)).resolves.toMatchObject({
+      taskId: request.taskId,
+      phase: 'planning',
+    });
+    expect(taskRuntime.decideApproval).toHaveBeenCalledWith(request);
+    expect(executionCoordinator.resume).toHaveBeenCalledWith(request.taskId);
+
+    await expect(
+      handler?.(interactionEvent, { ...request, actionDigest: 'not-a-digest' }),
+    ).rejects.toThrow();
+    expect(taskRuntime.decideApproval).toHaveBeenCalledOnce();
+    unregister();
+  });
+
+  it('rejects protected cursor-card commands from other renderers', async () => {
+    const { revealMainWindow, taskRuntime, unregister } = setup(true);
+    const untrustedEvent = { sender: { id: 99 }, senderFrame: {} };
+
+    await expect(
+      electronMock.handlers
+        .get(IPC_CHANNELS.respondToInteraction)
+        ?.(untrustedEvent, {}),
+    ).rejects.toThrow('untrusted renderer');
+    await expect(
+      electronMock.handlers
+        .get(IPC_CHANNELS.companionRevealMainWindow)
+        ?.(untrustedEvent),
+    ).rejects.toThrow('untrusted renderer');
+    await expect(
+      electronMock.handlers
+        .get(IPC_CHANNELS.companionReportSpeechPlayback)
+        ?.(untrustedEvent, {}),
+    ).rejects.toThrow('untrusted renderer');
+    expect(taskRuntime.respondToInteraction).not.toHaveBeenCalled();
+    expect(revealMainWindow).not.toHaveBeenCalled();
+    unregister();
+  });
+
+  it('rejects cursor-card responses before authentication or membership', async () => {
+    const signedOut = setup(false);
+    await expect(
+      electronMock.handlers
+        .get(IPC_CHANNELS.respondToInteraction)
+        ?.(signedOut.interactionEvent, {}),
+    ).rejects.toThrow('Sign in with Google first.');
+    expect(signedOut.taskRuntime.respondToInteraction).not.toHaveBeenCalled();
+    signedOut.unregister();
+
+    const inactive = setup(true, false);
+    await expect(
+      electronMock.handlers
+        .get(IPC_CHANNELS.respondToInteraction)
+        ?.(inactive.interactionEvent, {}),
+    ).rejects.toThrow('active membership');
+    expect(inactive.taskRuntime.respondToInteraction).not.toHaveBeenCalled();
+    inactive.unregister();
+  });
+
+  it('lets only the signed-in cursor card reveal the fallback main window', async () => {
+    const { interactionEvent, revealMainWindow, unregister } = setup(true);
+
+    await expect(
+      electronMock.handlers
+        .get(IPC_CHANNELS.companionRevealMainWindow)
+        ?.(interactionEvent),
+    ).resolves.toBeUndefined();
+    expect(revealMainWindow).toHaveBeenCalledOnce();
+    unregister();
+  });
+
+  it('accepts only parsed cursor-card speech playback reports', async () => {
+    const {
+      interactionEvent,
+      reportCompanionSpeechPlayback,
+      unregister,
+    } = setup(true);
+    const handler = electronMock.handlers.get(
+      IPC_CHANNELS.companionReportSpeechPlayback,
+    );
+    const report = {
+      id: '00000000-0000-4000-8000-000000000002',
+      phase: 'playing',
+      source: 'elevenlabs',
+    } as const;
+
+    await expect(handler?.(interactionEvent, report)).resolves.toBeUndefined();
+    expect(reportCompanionSpeechPlayback).toHaveBeenCalledWith(report);
+    await expect(
+      handler?.(interactionEvent, { ...report, phase: 'buffering' }),
+    ).rejects.toThrow();
     unregister();
   });
 

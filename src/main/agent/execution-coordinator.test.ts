@@ -15,7 +15,11 @@ import type {
   DesktopCommand,
   DesktopObservation,
 } from './execution-contracts';
-import { TaskExecutionCoordinator } from './execution-coordinator';
+import {
+  TaskExecutionCoordinator,
+  type DesktopPresentation,
+  type GuidancePresentationHandle,
+} from './execution-coordinator';
 import { RuntimeToolRegistry } from './runtime-tool-registry';
 import { TaskRuntime } from './task-runtime';
 
@@ -94,7 +98,18 @@ function observation(
   };
 }
 
-function setup(turns: AgentTurn[], observations: DesktopObservation[] = []) {
+function setup(
+  turns: AgentTurn[],
+  observations: DesktopObservation[] = [],
+  options: {
+    guidanceAutoAdvanceMs?: number;
+    presentAction?: (
+      command: DesktopCommand,
+      signal: AbortSignal,
+      presentation?: DesktopPresentation,
+    ) => Promise<GuidancePresentationHandle | void>;
+  } = {},
+) {
   const runtime = new TaskRuntime({ toolRegistry: new RuntimeToolRegistry() });
   const agent = new FakeAgent(turns);
   const cua = {
@@ -132,11 +147,103 @@ function setup(turns: AgentTurn[], observations: DesktopObservation[] = []) {
     openExternal,
     runtime,
     toolRegistry: registry,
+    ...options,
   });
   return { agent, coordinator, cua, openExternal, runtime };
 }
 
 describe('TaskExecutionCoordinator', () => {
+  it('does not sample the next guidance step until the current one advances', async () => {
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId);
+    const cancelNarration = vi.fn();
+    const presentAction = vi.fn(async () => ({
+      cancel: cancelNarration,
+      completion: new Promise<void>(() => undefined),
+    }));
+    const { agent, coordinator, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect the inbox.' }),
+        tool('call-guide', 'show_guidance', {
+          observationId,
+          description: 'Choose the visible filter.',
+          target: 'Filter',
+          x: 500,
+          y: 100,
+        }),
+        assistant('Continue with the filter.'),
+        assistant('Continue with the filter.'),
+      ],
+      [first],
+      { guidanceAutoAdvanceMs: 60_000, presentAction },
+    );
+    const ready = runtime.submit({ text: 'Guide me through filtering this inbox.' });
+    first.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledOnce());
+    expect(agent.sample).toHaveBeenCalledTimes(2);
+
+    coordinator.nextGuidance(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
+    expect(cancelNarration).toHaveBeenCalledOnce();
+    expect(agent.sample).toHaveBeenCalledTimes(4);
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+  });
+
+  it('replays Back and forward guidance without sampling, dispatching, or recording again', async () => {
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId);
+    const presentAction = vi.fn(async () => ({
+      cancel: vi.fn(),
+      completion: Promise.resolve(),
+    }));
+    const { agent, coordinator, cua, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect the inbox.' }),
+        tool('call-guide-1', 'show_guidance', {
+          observationId,
+          description: 'Open the visible filter menu.',
+          target: 'Filter',
+          x: 500,
+          y: 100,
+        }),
+        tool('call-guide-2', 'show_guidance', {
+          observationId,
+          description: 'Choose unread messages.',
+          target: 'Unread',
+          x: 500,
+          y: 180,
+        }),
+        assistant('The walkthrough is complete.'),
+        assistant('The walkthrough is complete.'),
+      ],
+      [first],
+      { guidanceAutoAdvanceMs: 60_000, presentAction },
+    );
+    const ready = runtime.submit({ text: 'Guide me through filtering this inbox.' });
+    first.taskId = ready.taskId;
+    coordinator.start({ taskId: ready.taskId });
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(1));
+    coordinator.nextGuidance(ready.taskId);
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(2));
+    const samplesAtSecondStep = agent.sample.mock.calls.length;
+    const dispatchesAtSecondStep = cua.executeCommand.mock.calls.length;
+    const progressAtSecondStep = runtime.getSnapshot(ready.taskId).progress;
+
+    coordinator.previousGuidance(ready.taskId);
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(3));
+    expect(agent.sample).toHaveBeenCalledTimes(samplesAtSecondStep);
+    expect(cua.executeCommand).toHaveBeenCalledTimes(dispatchesAtSecondStep);
+    expect(runtime.getSnapshot(ready.taskId).progress).toEqual(progressAtSecondStep);
+
+    coordinator.nextGuidance(ready.taskId);
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(4));
+    coordinator.nextGuidance(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+  });
+
   it.each([
     ['What is 27 × 14?', '27 × 14 = 378.'],
     ['Dịch “Hello” sang tiếng Việt.', 'Bản dịch hữu ích.'],
@@ -399,9 +506,9 @@ describe('TaskExecutionCoordinator', () => {
         tool('call-observe', 'observe_desktop', { reason: 'Inspect the inbox.' }),
         tool('call-click', 'control_desktop', {
           observationId,
-          consequence: 'click_element',
-          description: 'Click the visible action button.',
-          target: 'Action button',
+          consequence: 'delete',
+          description: 'Delete the visible message.',
+          target: 'Delete button',
           command: {
             kind: 'click',
             x: 500,
@@ -413,7 +520,7 @@ describe('TaskExecutionCoordinator', () => {
       ],
       [first, approvedCurrent, after],
     );
-    const ready = runtime.submit({ text: 'Click the visible action button.' });
+    const ready = runtime.submit({ text: 'Delete the visible message.' });
     first.taskId = ready.taskId;
     approvedCurrent.taskId = ready.taskId;
     after.taskId = ready.taskId;
@@ -545,8 +652,6 @@ describe('TaskExecutionCoordinator', () => {
           count: 1,
         },
       }),
-      assistant('The screen changed, so I did not delete anything.'),
-      assistant('The screen changed, so I did not delete anything.'),
     ]);
     const ready = runtime.submit({ text: 'Delete that email.' });
     cua.observe
@@ -573,7 +678,49 @@ describe('TaskExecutionCoordinator', () => {
     expect(JSON.stringify(agent.outputs.at(-1)?.output)).toContain(
       'screen changed',
     );
-    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+    expect(agent.sample).toHaveBeenCalledTimes(2);
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'blocked',
+      lastEvent: {
+        status: 'warning',
+        summary: expect.stringContaining('screen changed'),
+      },
+    });
+  });
+
+  it('blocks a model attempt to operate TroCode approval UI before requesting approval', async () => {
+    const observationId = randomUUID();
+    const { agent, coordinator, cua, runtime } = setup([
+      tool('call-observe', 'observe_desktop', { reason: 'Inspect the desktop.' }),
+      tool('call-self-approve', 'control_desktop', {
+        observationId,
+        consequence: 'click_element',
+        description: 'Click the approval control at the bottom of the TroCode dialog.',
+        target: 'Approve exact action button in the TroCode window',
+        command: {
+          kind: 'click',
+          x: 700,
+          y: 900,
+          button: 'left',
+          count: 1,
+        },
+      }),
+    ]);
+    const ready = runtime.submit({ text: 'Send the email.' });
+    cua.observe.mockResolvedValueOnce(observation(ready.taskId, observationId));
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(cua.executeCommand).not.toHaveBeenCalled();
+    expect(agent.sample).toHaveBeenCalledTimes(2);
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'blocked',
+      pendingInteraction: null,
+      lastEvent: {
+        summary: expect.stringContaining('approval loop'),
+      },
+    });
   });
 
   it('pauses on missing computer permission while keeping the model session alive', async () => {

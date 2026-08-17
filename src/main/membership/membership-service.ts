@@ -17,6 +17,17 @@ const REFERENCE_CODE_PATTERN = /^TRC-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 const CODE_SEGMENT_PATTERN = /^[A-Za-z0-9_-]+$/;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 
+const HostedAccessStatusSchema = z.object({
+  maxUsers: z.number().int().positive().nullable(),
+  state: z.enum(['inactive', 'active']),
+  summary: z.string().min(1).max(1_000),
+  usedUsers: z.number().int().nonnegative().nullable(),
+});
+
+const HostedErrorSchema = z.object({
+  error: z.string().min(1).max(1_000),
+});
+
 const MembershipActivationPayloadSchema = z
   .object({
     expiresAt: z.string().datetime(),
@@ -45,6 +56,9 @@ export interface MembershipActivationStore {
 }
 
 interface MembershipServiceOptions {
+  accessTokenProvider?: () => Promise<string | null>;
+  apiBaseUrl?: string;
+  fetchImpl?: typeof fetch;
   now?: () => Date;
   publicKey?: string;
   required: boolean;
@@ -57,6 +71,13 @@ type Inspection =
   | { kind: 'invalid' }
   | { kind: 'not_yet_valid' }
   | { kind: 'wrong_account' };
+
+export function membershipRequiredForBuild(input: {
+  apiBaseUrl: string;
+  isPackaged: boolean;
+}): boolean {
+  return input.isPackaged;
+}
 
 export function membershipReferenceCode(user: AuthUser): string {
   const digest = createHash('sha256')
@@ -84,6 +105,20 @@ function configuredPublicKey(value: string | undefined): KeyObject | null {
   }
 }
 
+function normalizeApiBaseUrl(value: string | undefined): string {
+  const trimmed = value?.trim().replace(/\/+$/u, '') ?? '';
+  if (!trimmed) return '';
+  const url = new URL(trimmed);
+  if (
+    url.protocol !== 'https:' &&
+    url.hostname !== '127.0.0.1' &&
+    url.hostname !== 'localhost'
+  ) {
+    throw new Error('TROCODE_API_BASE_URL must use HTTPS.');
+  }
+  return url.toString().replace(/\/+$/u, '');
+}
+
 function status(
   input: Omit<MembershipStatus, 'summary'> & { summary: string },
 ): MembershipStatus {
@@ -91,10 +126,14 @@ function status(
 }
 
 export class MembershipService {
+  private readonly apiBaseUrl: string;
+  private readonly fetchImpl: typeof fetch;
   private readonly now: () => Date;
   private readonly publicKey: KeyObject | null;
 
   constructor(private readonly options: MembershipServiceOptions) {
+    this.apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl);
+    this.fetchImpl = options.fetchImpl ?? fetch;
     this.now = options.now ?? (() => new Date());
     this.publicKey = configuredPublicKey(options.publicKey);
   }
@@ -110,6 +149,8 @@ export class MembershipService {
         summary: 'Membership checks are disabled in local development.',
       });
     }
+
+    if (this.apiBaseUrl) return this.getHostedStatus();
 
     if (!this.publicKey) {
       return status({
@@ -184,6 +225,7 @@ export class MembershipService {
 
   async activate(user: AuthUser, activationCode: string): Promise<MembershipStatus> {
     if (!this.options.required) return this.getStatus(user);
+    if (this.apiBaseUrl) return this.activateHostedCode(activationCode);
     if (!this.publicKey) {
       throw new Error('Membership verification is not configured for this build.');
     }
@@ -221,7 +263,72 @@ export class MembershipService {
     if (currentStatus.state === 'error') {
       throw new Error(currentStatus.summary);
     }
-    throw new Error('An active membership is required to use TroCode.');
+    throw new Error('A valid access code is required to use TroCode.');
+  }
+
+  private async activateHostedCode(code: string): Promise<MembershipStatus> {
+    return this.requestHostedStatus('/v1/access-code-redemptions', {
+      body: JSON.stringify({ code: code.trim() }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+  }
+
+  private async getHostedStatus(): Promise<MembershipStatus> {
+    try {
+      return await this.requestHostedStatus(
+        '/v1/access-code-redemptions/me',
+        { method: 'GET' },
+      );
+    } catch (error) {
+      return status({
+        expiresAt: null,
+        referenceCode: null,
+        required: true,
+        state: 'error',
+        summary:
+          error instanceof Error
+            ? error.message
+            : 'TroCode could not check your access code.',
+      });
+    }
+  }
+
+  private async requestHostedStatus(
+    path: string,
+    init: RequestInit,
+  ): Promise<MembershipStatus> {
+    const accessToken = await this.options.accessTokenProvider?.();
+    if (!accessToken) {
+      throw new Error('Sign in with Google before checking your access code.');
+    }
+
+    const response = await this.fetchImpl(`${this.apiBaseUrl}${path}`, {
+      ...init,
+      headers: {
+        ...init.headers,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const parsedError = HostedErrorSchema.safeParse(body);
+      throw new Error(
+        parsedError.success
+          ? parsedError.data.error
+          : 'TroCode could not verify this access code.',
+      );
+    }
+
+    const hostedStatus = HostedAccessStatusSchema.parse(body);
+    return status({
+      expiresAt: null,
+      referenceCode: null,
+      required: true,
+      state: hostedStatus.state,
+      summary: hostedStatus.summary,
+    });
   }
 
   private inspect(user: AuthUser, activationCode: string): Inspection {

@@ -3,6 +3,33 @@ import { describe, expect, it, vi } from 'vitest';
 import { GuidancePlaybackController } from './guidance-playback';
 
 describe('guidance playback controller', () => {
+  it('auto-advances only after both dwell and narration complete', async () => {
+    vi.useFakeTimers();
+    try {
+      let finishNarration: () => void = () => undefined;
+      const narration = new Promise<void>((resolve) => {
+        finishNarration = () => resolve();
+      });
+      const playback = new GuidancePlaybackController(1_000);
+      const navigation = playback.wait(
+        new AbortController().signal,
+        narration,
+      );
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      let settled = false;
+      void navigation.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      finishNarration();
+      await expect(navigation).resolves.toBe('next');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('autoplays only after the slower guidance interval', async () => {
     vi.useFakeTimers();
     try {
