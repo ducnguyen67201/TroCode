@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
 
-import type { DesktopCommand, DesktopObservation } from './execution-contracts';
 import {
   approvalObservationMatches,
   type DecodedDesktopImage,
 } from './approval-observation';
+import type { DesktopCommand, DesktopObservation } from './execution-contracts';
 
 function observation(key: string, fingerprint: string): DesktopObservation {
   return {
@@ -113,6 +113,36 @@ describe('approved desktop observation matching', () => {
         observation('before', 'a'.repeat(64)),
         observation('after', 'b'.repeat(64)),
         click,
+        (data) => images.get(data.toString('utf8')),
+      ),
+    ).toBe(false);
+  });
+
+  it('rejects changes that fall between a fixed sampling grid', () => {
+    const sampledColumns = new Set(
+      Array.from({ length: 80 }, (_, column) =>
+        Math.round(((column + 0.5) / 80) * 99),
+      ),
+    );
+    const images = new Map<string, DecodedDesktopImage>([
+      ['before', image()],
+      [
+        'after',
+        image((pixels, width, height) => {
+          for (let x = 0; x < width; x += 1) {
+            if (!sampledColumns.has(x)) {
+              paint(pixels, width, x, 0, x + 1, height);
+            }
+          }
+        }),
+      ],
+    ]);
+
+    expect(
+      approvalObservationMatches(
+        observation('before', 'a'.repeat(64)),
+        observation('after', 'b'.repeat(64)),
+        { kind: 'type_text', text: 'Approved text' },
         (data) => images.get(data.toString('utf8')),
       ),
     ).toBe(false);

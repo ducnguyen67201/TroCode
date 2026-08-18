@@ -1201,7 +1201,7 @@ describe('TaskExecutionCoordinator', () => {
     expect(matches).toHaveBeenCalledWith(
       approved,
       current,
-      expect.objectContaining({ kind: 'click', x: 1800, y: 200 }),
+      expect.objectContaining({ kind: 'click', x: 1800, y: 100 }),
     );
     expect(cua.executeCommand).toHaveBeenCalledOnce();
     expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');

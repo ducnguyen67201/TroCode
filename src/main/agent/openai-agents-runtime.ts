@@ -45,6 +45,8 @@ const SYSTEM_INSTRUCTIONS = [
   'If visible context cannot be resolved from conversation text, call observe_desktop.',
   'When the original request includes a trusted host initial desktop observation, treat its observation ID and screenshot as the latest visible state. Do not call observe_desktop again before the first grounded action unless that state is degraded or the screen may have changed.',
   'Call observe_desktop before coordinate-grounded actions and use only the latest observation ID.',
+  'When entering a table into a visible spreadsheet, use one paste_table command with rectangular rows so each value lands in its own cell. Never simulate a multi-cell table with space-separated type_text.',
+  'Declare paste_table as type_text. Reserve write_file, submit, send, and other consequential labels for actions that actually have those effects.',
   'Never use desktop tools to operate TroCode itself, including its approval cards, dialogs, or controls. Approval and denial are user-only decisions handled by the trusted host.',
   'When the user asks for a visible walkthrough, call show_guidance once per user-controlled step with one visible target and one concise spoken instruction. Wait for that tool output before observing and emitting the next step. Do not substitute control_desktop unless the user asked TroCode to act.',
   'Navigation alone does not complete a request to read, edit, submit, or act.',

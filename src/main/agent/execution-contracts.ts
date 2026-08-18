@@ -3,6 +3,28 @@ import { z } from 'zod';
 import { RuntimeToolIdSchema } from '../../shared/contracts';
 
 const CoordinateSchema = z.number().int().nonnegative().max(100_000);
+const SpreadsheetRowsSchema = z
+  .array(z.array(z.string().max(8_000)).min(1).max(50))
+  .min(1)
+  .max(200)
+  .superRefine((rows, context) => {
+    const columnCount = rows[0]?.length ?? 0;
+    for (const [rowIndex, row] of rows.entries()) {
+      if (row.length !== columnCount) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Every spreadsheet row must contain the same number of cells.',
+          path: [rowIndex],
+        });
+      }
+    }
+    if (tableRowsToTsv(rows).length > 100_000) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Spreadsheet table data cannot exceed 100,000 characters.',
+      });
+    }
+  });
 const DirectToolInputSchema = z
   .record(
     z.string().min(1).max(100),
@@ -80,6 +102,10 @@ export const DesktopCommandSchema = z.discriminatedUnion('kind', [
     text: z.string().min(1).max(100_000),
   }),
   z.object({
+    kind: z.literal('paste_table'),
+    rows: SpreadsheetRowsSchema,
+  }),
+  z.object({
     kind: z.literal('keypress'),
     keys: z.array(z.string().trim().min(1).max(40)).min(1).max(8),
   }),
@@ -103,6 +129,14 @@ export type DesktopCoordinateSpace = z.infer<
   typeof DesktopCoordinateSpaceSchema
 >;
 export type DesktopObservation = z.infer<typeof DesktopObservationSchema>;
+
+export function tableRowsToTsv(rows: readonly (readonly string[])[]): string {
+  return rows
+    .map((row) =>
+      row.map((cell) => cell.replace(/[\t\r\n]+/gu, ' ')).join('\t'),
+    )
+    .join('\n');
+}
 
 export interface DesktopRegion {
   height: number;

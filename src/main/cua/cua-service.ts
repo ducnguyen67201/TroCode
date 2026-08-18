@@ -14,6 +14,7 @@ import {
   type DesktopActionOutcome,
   type DesktopCommand,
   type DesktopObservation,
+  tableRowsToTsv,
 } from '../agent/execution-contracts';
 
 const DesktopStateMetadataSchema = z.object({
@@ -68,6 +69,12 @@ function getSupportedPlatform(): CuaStatus['platform'] {
   if (process.platform === 'win32') return 'win32';
   if (process.platform === 'linux') return 'linux';
   return 'unsupported';
+}
+
+export function pasteShortcutForPlatform(
+  platform: NodeJS.Platform,
+): string[] {
+  return platform === 'darwin' ? ['cmd', 'v'] : ['ctrl', 'v'];
 }
 
 function errorMessage(error: unknown): string {
@@ -405,6 +412,35 @@ export class CuaService {
             }),
             asyncOptions,
           );
+        case 'paste_table': {
+          const clipboardResult = await driver.clipboardWrite(
+            cua.ClipboardWriteInput.new({
+              session: taskId,
+              text: tableRowsToTsv(command.rows),
+            }),
+            asyncOptions,
+          );
+          logCuaResult(
+            'clipboard.table-write-result',
+            taskId,
+            command,
+            clipboardResult,
+          );
+          if (
+            clipboardResult.isError ||
+            clipboardResult.action?.effect === cua.ActionEffect.Refused
+          ) {
+            return clipboardResult;
+          }
+          return driver.hotkey(
+            cua.HotkeyInput.new({
+              session: taskId,
+              scope: cua.DesktopScope.Desktop,
+              keys: pasteShortcutForPlatform(process.platform),
+            }),
+            asyncOptions,
+          );
+        }
         case 'keypress':
           if (command.keys.length === 1) {
             return driver.pressKey(

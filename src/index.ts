@@ -16,6 +16,7 @@ import path from 'node:path';
 
 import { AgentActivityService } from './main/agent/agent-activity-service';
 import { AgentRuntimeFactory } from './main/agent/agent-runtime-factory';
+import { approvalObservationMatches } from './main/agent/approval-observation';
 import type { DesktopCommand } from './main/agent/execution-contracts';
 import {
   TaskExecutionCoordinator,
@@ -244,12 +245,20 @@ const agentRuntimeFactory = new AgentRuntimeFactory({
 });
 const executionCoordinator = new TaskExecutionCoordinator({
   agentRuntimeFactory,
+  approvalObservationMatches: (approved, current, command) =>
+    approvalObservationMatches(approved, current, command, (data) => {
+      const image = nativeImage.createFromBuffer(data);
+      const { height, width } = image.getSize();
+      if (image.isEmpty() || height <= 0 || width <= 0) return undefined;
+      return { height, pixels: image.toBitmap(), width };
+    }),
   cua: cuaService,
   dismissPresentation: dismissCompanionGuidance,
   onGuidancePlaybackChange: (_taskId, paused) =>
     updateGuidancePlaybackState(paused),
   onActivity: (taskId, activity) =>
     agentActivityService.publish(taskId, activity),
+  onDesktopControlChange: updateDesktopControlIndicator,
   onGuidanceWaitEnd: deactivateGlobalGuidanceShortcuts,
   onGuidanceWaitStart: activateGlobalGuidanceShortcuts,
   runtime: taskRuntime,
@@ -266,6 +275,12 @@ const executionCoordinator = new TaskExecutionCoordinator({
     if (restoreCompanion) companionWindow?.hide();
     if (guidanceWindow && !guidanceWindow.isDestroyed()) guidanceWindow.hide();
     hideGuidanceTargetMarker();
+    const restoreControlIndicator = Boolean(
+      desktopControlIndicatorWindow &&
+        !desktopControlIndicatorWindow.isDestroyed() &&
+        desktopControlIndicatorWindow.isVisible(),
+    );
+    if (restoreControlIndicator) desktopControlIndicatorWindow?.hide();
     await new Promise<void>((resolve) => setTimeout(resolve, 120));
 
     return () => {
@@ -275,6 +290,14 @@ const executionCoordinator = new TaskExecutionCoordinator({
         !companionWindow.isDestroyed()
       ) {
         companionWindow.showInactive();
+      }
+      if (
+        restoreControlIndicator &&
+        activeDesktopControlTasks.size > 0 &&
+        desktopControlIndicatorWindow &&
+        !desktopControlIndicatorWindow.isDestroyed()
+      ) {
+        desktopControlIndicatorWindow.showInactive();
       }
     };
   },
@@ -322,6 +345,8 @@ const CLARIFICATION_CALLOUT_SIZE = { height: 286, width: 396 } as const;
 const APPROVAL_CALLOUT_SIZE = { height: 448, width: 432 } as const;
 const VOICE_ISLAND_SIZE = { height: 76, width: 420 } as const;
 const VOICE_ISLAND_TOP_GAP = 10;
+const CONTROL_INDICATOR_MIN_VISIBLE_MS = 400;
+const CONTROL_INDICATOR_HIDE_SETTLE_MS = 80;
 const SHUTDOWN_GRACE_PERIOD_MS = 2_000;
 const MAX_TRACKED_PRESENTATION_TASKS = 128;
 
@@ -337,12 +362,15 @@ interface CompanionGlide {
 
 let mainWindow: BrowserWindow | null = null;
 let companionWindow: BrowserWindow | null = null;
+let desktopControlIndicatorWindow: BrowserWindow | null = null;
 let guidanceWindow: BrowserWindow | null = null;
 let guidanceTargetWindow: BrowserWindow | null = null;
 let voiceIslandWindow: BrowserWindow | null = null;
 let analyticsService: AnalyticsService | null = null;
 let companionState: CompanionState = 'idle';
 let activeCompanionVoiceActivity: CompanionVoiceActivity | null = null;
+const activeDesktopControlTasks = new Set<string>();
+const desktopControlStartedAt = new Map<string, number>();
 let companionFollowTimer: ReturnType<typeof setInterval> | null = null;
 let companionGlide: CompanionGlide | null = null;
 let companionPinnedPosition: Point | null = null;
@@ -431,6 +459,45 @@ function pointEqual(left: Point | null, right: Point): boolean {
 function getCompanionOverlayBounds(): Rectangle {
   return getVirtualDisplayBounds(
     screen.getAllDisplays().map((display) => display.bounds),
+  );
+}
+
+async function updateDesktopControlIndicator(
+  taskId: string,
+  active: boolean,
+): Promise<void> {
+  if (active) {
+    activeDesktopControlTasks.add(taskId);
+    desktopControlStartedAt.set(taskId, Date.now());
+    createDesktopControlIndicatorWindow();
+    if (
+      desktopControlIndicatorWindow &&
+      !desktopControlIndicatorWindow.isDestroyed()
+    ) {
+      desktopControlIndicatorWindow.setBounds(getCompanionOverlayBounds(), false);
+      desktopControlIndicatorWindow.showInactive();
+    }
+    return;
+  }
+
+  const startedAt = desktopControlStartedAt.get(taskId);
+  const remainingVisibleMs = startedAt
+    ? Math.max(0, CONTROL_INDICATOR_MIN_VISIBLE_MS - (Date.now() - startedAt))
+    : 0;
+  if (remainingVisibleMs > 0) {
+    await new Promise<void>((resolve) => setTimeout(resolve, remainingVisibleMs));
+  }
+  desktopControlStartedAt.delete(taskId);
+  activeDesktopControlTasks.delete(taskId);
+  if (activeDesktopControlTasks.size > 0) return;
+  if (
+    desktopControlIndicatorWindow &&
+    !desktopControlIndicatorWindow.isDestroyed()
+  ) {
+    desktopControlIndicatorWindow.hide();
+  }
+  await new Promise<void>((resolve) =>
+    setTimeout(resolve, CONTROL_INDICATOR_HIDE_SETTLE_MS),
   );
 }
 
@@ -966,6 +1033,7 @@ function enableAuthenticatedAuxiliaryWindows(): void {
   if (isShuttingDown) return;
   auxiliaryWindowsEnabled = true;
   createCompanionWindow();
+  createDesktopControlIndicatorWindow();
   createGuidanceWindow();
   createGuidanceTargetWindow();
   createVoiceIslandWindow();
@@ -988,9 +1056,17 @@ function disableAuthenticatedAuxiliaryWindows(): void {
   unregisterGlobalVoiceShortcut = null;
   globalGuidanceShortcuts?.deactivate();
   globalNumberedChoiceShortcuts?.deactivate();
+  activeDesktopControlTasks.clear();
+  desktopControlStartedAt.clear();
 
   if (companionWindow && !companionWindow.isDestroyed()) {
     companionWindow.destroy();
+  }
+  if (
+    desktopControlIndicatorWindow &&
+    !desktopControlIndicatorWindow.isDestroyed()
+  ) {
+    desktopControlIndicatorWindow.destroy();
   }
   if (guidanceWindow && !guidanceWindow.isDestroyed()) {
     guidanceWindow.destroy();
@@ -1038,6 +1114,14 @@ function prepareApplicationShutdown(): Promise<void> {
 
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
   if (companionWindow && !companionWindow.isDestroyed()) companionWindow.hide();
+  activeDesktopControlTasks.clear();
+  desktopControlStartedAt.clear();
+  if (
+    desktopControlIndicatorWindow &&
+    !desktopControlIndicatorWindow.isDestroyed()
+  ) {
+    desktopControlIndicatorWindow.hide();
+  }
   if (guidanceWindow && !guidanceWindow.isDestroyed()) guidanceWindow.hide();
   hideGuidanceTargetMarker();
   if (voiceIslandWindow && !voiceIslandWindow.isDestroyed()) {
@@ -1785,6 +1869,63 @@ function positionCompanion(): void {
       COMPANION_GAP,
     ),
   );
+}
+
+function createDesktopControlIndicatorWindow(): void {
+  if (!auxiliaryWindowsEnabled) return;
+  if (
+    desktopControlIndicatorWindow &&
+    !desktopControlIndicatorWindow.isDestroyed()
+  ) {
+    return;
+  }
+
+  const bounds = getCompanionOverlayBounds();
+  desktopControlIndicatorWindow = new BrowserWindow({
+    alwaysOnTop: true,
+    backgroundColor: '#00000000',
+    focusable: false,
+    frame: false,
+    hasShadow: false,
+    height: bounds.height,
+    resizable: false,
+    show: false,
+    skipTaskbar: true,
+    transparent: true,
+    width: bounds.width,
+    x: bounds.x,
+    y: bounds.y,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+    },
+  });
+
+  desktopControlIndicatorWindow.setAlwaysOnTop(true, 'screen-saver');
+  desktopControlIndicatorWindow.setIgnoreMouseEvents(true, { forward: true });
+  desktopControlIndicatorWindow.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+  });
+  desktopControlIndicatorWindow.webContents.setWindowOpenHandler(() => ({
+    action: 'deny',
+  }));
+  desktopControlIndicatorWindow.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+  desktopControlIndicatorWindow.once('ready-to-show', () => {
+    if (!auxiliaryWindowsEnabled || activeDesktopControlTasks.size === 0) return;
+    desktopControlIndicatorWindow?.setBounds(getCompanionOverlayBounds(), false);
+    desktopControlIndicatorWindow?.showInactive();
+  });
+  desktopControlIndicatorWindow.on('closed', () => {
+    desktopControlIndicatorWindow = null;
+  });
+
+  const indicatorUrl = new URL(MAIN_WINDOW_WEBPACK_ENTRY);
+  indicatorUrl.searchParams.set('mode', 'control-indicator');
+  void desktopControlIndicatorWindow.loadURL(indicatorUrl.toString());
 }
 
 const createCompanionWindow = (): void => {

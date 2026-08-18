@@ -18,6 +18,7 @@ import {
   NORMALIZED_COORDINATE_MAX,
   mapNormalizedRegionToScreenshot,
   mapNormalizedPointToScreenshot,
+  tableRowsToTsv,
   type DesktopCommand,
   type DesktopObservation,
   type DesktopRegion,
@@ -143,6 +144,13 @@ const normalizedCommand = z.discriminatedUnion('kind', [
     text: z.string().min(1).max(100_000),
   }),
   z.object({
+    kind: z.literal('paste_table'),
+    rows: z
+      .array(z.array(z.string().max(8_000)).min(1).max(50))
+      .min(1)
+      .max(200),
+  }),
+  z.object({
     kind: z.literal('keypress'),
     keys: z.array(z.string().trim().min(1).max(40)).min(1).max(8),
   }),
@@ -223,6 +231,8 @@ const controlInputSchema = z
         : input.command.kind === 'type_text'
           ? input.consequence === 'type_text' ||
             ['login', 'send', 'submit', 'upload'].includes(input.consequence)
+          : input.command.kind === 'paste_table'
+            ? input.consequence === 'type_text'
           : input.command.kind === 'keypress'
             ? input.consequence === 'press_key' ||
               ['login', 'send', 'submit', 'delete'].includes(input.consequence)
@@ -326,6 +336,8 @@ function desktopActionForCommand(
       return 'drag';
     case 'type_text':
       return 'type_text';
+    case 'paste_table':
+      return 'type_text';
     case 'keypress':
       return 'press_key';
     case 'scroll':
@@ -363,6 +375,13 @@ function commandParameters(
       };
     case 'type_text':
       return { ...evidence, text: command.text };
+    case 'paste_table':
+      return {
+        ...evidence,
+        columnCount: String(command.rows[0]?.length ?? 0),
+        rowCount: String(command.rows.length),
+        text: tableRowsToTsv(command.rows),
+      };
     case 'keypress':
       return { ...evidence, keys: command.keys };
     case 'scroll':
@@ -471,6 +490,24 @@ const typeTextCommandModelSchema = objectSchema(
   ['kind', 'text'],
 );
 
+const pasteTableCommandModelSchema = objectSchema(
+  {
+    kind: { type: 'string', const: 'paste_table' },
+    rows: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 200,
+      items: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 50,
+        items: { type: 'string', maxLength: 8_000 },
+      },
+    },
+  },
+  ['kind', 'rows'],
+);
+
 const keypressCommandModelSchema = objectSchema(
   {
     kind: { type: 'string', const: 'keypress' },
@@ -540,6 +577,7 @@ function controlParametersSchema(): StrictJsonObjectSchema {
         'upload',
       ]),
       controlCommandVariant(typeTextCommandModelSchema, ['send'], true),
+      controlCommandVariant(pasteTableCommandModelSchema, ['type_text']),
       controlCommandVariant(keypressCommandModelSchema, [
         'press_key',
         'login',
@@ -693,8 +731,15 @@ function defaultTools(): RuntimeToolDefinition[] {
       id: 'desktop.control',
       modelName: 'control_desktop',
       description:
-        'Execute one atomic action grounded in the latest desktop observation.',
-      operations: ['click', 'drag', 'type_text', 'keypress', 'scroll'],
+        'Execute one atomic action grounded in the latest desktop observation. Use paste_table for rectangular spreadsheet data so rows and columns fill separate cells.',
+      operations: [
+        'click',
+        'drag',
+        'type_text',
+        'paste_table',
+        'keypress',
+        'scroll',
+      ],
       parameters: controlParametersSchema(),
       parse: parseControlInput,
       normalize: (input, call, context) => {

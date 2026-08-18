@@ -705,6 +705,9 @@ body {
 html.companion-mode,
 html.companion-mode body,
 html.companion-mode #root,
+html.control-indicator-mode,
+html.control-indicator-mode body,
+html.control-indicator-mode #root,
 html.guidance-mode,
 html.guidance-mode body,
 html.guidance-mode #root,
@@ -720,6 +723,69 @@ html.voice-island-mode #root {
   min-height: 0;
   overflow: hidden;
   background: transparent;
+}
+
+.desktop-control-indicator {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.desktop-control-indicator__border {
+  position: absolute;
+  inset: 4px;
+  border: 4px solid #5b8def;
+  border-radius: 12px;
+  box-shadow:
+    inset 0 0 18px rgba(91, 141, 239, 0.22),
+    0 0 0 2px rgba(255, 255, 255, 0.88),
+    0 0 22px rgba(91, 141, 239, 0.7);
+  animation: desktop-control-pulse 1.5s ease-in-out infinite;
+}
+
+.desktop-control-indicator__label {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 999px;
+  background: rgba(22, 33, 54, 0.92);
+  box-shadow: 0 8px 24px rgba(12, 25, 48, 0.24);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  transform: translateX(-50%);
+}
+
+.desktop-control-indicator__label > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #78a6ff;
+  box-shadow: 0 0 0 4px rgba(120, 166, 255, 0.18);
+}
+
+@keyframes desktop-control-pulse {
+  0%,
+  100% {
+    opacity: 0.78;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-control-indicator__border {
+    animation: none;
+  }
 }
 
 .guidance-target-marker {

@@ -5,6 +5,7 @@ import './index.css';
 import { AuthGate } from './renderer/AuthGate';
 import { BrandMark } from './renderer/BrandMark';
 import { CursorCompanion } from './renderer/CursorCompanion';
+import { DesktopControlIndicator } from './renderer/DesktopControlIndicator';
 import { GuidanceCallout } from './renderer/GuidanceCallout';
 import { GuidanceTargetMarker } from './renderer/GuidanceTargetMarker';
 import { VoiceIsland } from './renderer/VoiceIsland';
@@ -35,11 +36,13 @@ function DesktopBridgeUnavailable() {
 const rootElement = document.getElementById('root');
 const rendererMode = new URLSearchParams(window.location.search).get('mode');
 const isCompanionWindow = rendererMode === 'companion';
+const isControlIndicatorWindow = rendererMode === 'control-indicator';
 const isGuidanceWindow = rendererMode === 'guidance';
 const isTargetMarkerWindow = rendererMode === 'target-marker';
 const isVoiceIslandWindow = rendererMode === 'voice-island';
 const isAuxiliaryWindow =
   isCompanionWindow ||
+  isControlIndicatorWindow ||
   isGuidanceWindow ||
   isTargetMarkerWindow ||
   isVoiceIslandWindow;
@@ -47,6 +50,9 @@ const isAuxiliaryWindow =
 if (!rootElement) throw new Error('The application root element is missing.');
 
 if (isCompanionWindow) document.documentElement.classList.add('companion-mode');
+if (isControlIndicatorWindow) {
+  document.documentElement.classList.add('control-indicator-mode');
+}
 if (isGuidanceWindow) document.documentElement.classList.add('guidance-mode');
 if (isTargetMarkerWindow) {
   document.documentElement.classList.add('target-marker-mode');
@@ -55,7 +61,7 @@ if (isVoiceIslandWindow) {
   document.documentElement.classList.add('voice-island-mode');
 }
 
-const hasDesktopBridge = isTargetMarkerWindow
+const hasDesktopBridge = isTargetMarkerWindow || isControlIndicatorWindow
   ? true
   : isAuxiliaryWindow
   ? typeof window.troCompanion !== 'undefined'
@@ -69,6 +75,8 @@ createRoot(rootElement).render(
       )
     ) : isGuidanceWindow ? (
       <GuidanceCallout />
+    ) : isControlIndicatorWindow ? (
+      <DesktopControlIndicator />
     ) : isTargetMarkerWindow ? (
       <GuidanceTargetMarker />
     ) : isVoiceIslandWindow ? (

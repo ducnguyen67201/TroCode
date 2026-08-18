@@ -55,6 +55,11 @@ import {
 } from './walkthrough-policy';
 
 interface ExecutionCoordinatorOptions {
+  approvalObservationMatches?: (
+    approved: DesktopObservation,
+    current: DesktopObservation,
+    command: DesktopCommand,
+  ) => boolean;
   agent?: AgentRuntime;
   agentRuntimeFactory?: Pick<AgentRuntimeFactory, 'forContract'>;
   cua: Pick<
@@ -74,6 +79,10 @@ interface ExecutionCoordinatorOptions {
   ) => CompanionGuidance['shortcuts'] | undefined;
   onGuidancePlaybackChange?: (taskId: string, paused: boolean) => void;
   onActivity?: (taskId: string, activity: AgentRuntimeActivity) => void;
+  onDesktopControlChange?: (
+    taskId: string,
+    active: boolean,
+  ) => Promise<void> | void;
   openExternal?: (url: string) => Promise<void>;
   prepareDesktop?: () => Promise<DesktopObservationCleanup | void>;
   prepareObservation?: (
@@ -405,6 +414,10 @@ function presentationFor(
 }
 
 export class TaskExecutionCoordinator {
+  private readonly approvalObservationMatches: NonNullable<
+    ExecutionCoordinatorOptions['approvalObservationMatches']
+  >;
+
   private readonly agentRuntimeFactory: Pick<AgentRuntimeFactory, 'forContract'>;
 
   private readonly contexts = new Map<string, ExecutionContext>();
@@ -422,6 +435,10 @@ export class TaskExecutionCoordinator {
   private readonly observationTimeoutMs: number;
 
   private readonly onActivity: NonNullable<ExecutionCoordinatorOptions['onActivity']>;
+
+  private readonly onDesktopControlChange: NonNullable<
+    ExecutionCoordinatorOptions['onDesktopControlChange']
+  >;
 
   private readonly onGuidanceWaitEnd: NonNullable<
     ExecutionCoordinatorOptions['onGuidanceWaitEnd']
@@ -457,12 +474,15 @@ export class TaskExecutionCoordinator {
   constructor({
     agent,
     agentRuntimeFactory,
+    approvalObservationMatches = (approved, current) =>
+      approved.fingerprint === current.fingerprint,
     cua,
     dismissPresentation = () => undefined,
     guidanceAutoAdvanceMs,
     observationTimeoutMs = DEFAULT_OBSERVATION_TIMEOUT_MS,
     onGuidancePlaybackChange = () => undefined,
     onActivity = () => undefined,
+    onDesktopControlChange = () => undefined,
     onGuidanceWaitEnd = () => undefined,
     onGuidanceWaitStart = () => undefined,
     openExternal = async () => {
@@ -481,12 +501,14 @@ export class TaskExecutionCoordinator {
     }
     this.agentRuntimeFactory =
       agentRuntimeFactory ?? new StaticAgentRuntimeFactory(agent as AgentRuntime);
+    this.approvalObservationMatches = approvalObservationMatches;
     this.cua = cua;
     this.dismissPresentation = dismissPresentation;
     this.guidanceAutoAdvanceMs = guidanceAutoAdvanceMs;
     this.observationTimeoutMs = observationTimeoutMs;
     this.onGuidancePlaybackChange = onGuidancePlaybackChange;
     this.onActivity = onActivity;
+    this.onDesktopControlChange = onDesktopControlChange;
     this.onGuidanceWaitEnd = onGuidanceWaitEnd;
     this.onGuidanceWaitStart = onGuidanceWaitStart;
     this.prepareDesktop = prepareDesktop;
@@ -1283,6 +1305,10 @@ export class TaskExecutionCoordinator {
 
     const input = invocation.input as Partial<DesktopControlToolInput>;
     if (invocation.kind === 'desktop' && input.observationFingerprint) {
+      const approvedObservation =
+        context.latestObservation?.fingerprint === input.observationFingerprint
+          ? context.latestObservation
+          : undefined;
       const current = await this.captureObservation(
         taskId,
         context,
@@ -1292,7 +1318,15 @@ export class TaskExecutionCoordinator {
         taskId,
         'Validated the current desktop before using approval.',
       );
-      if (current.fingerprint !== input.observationFingerprint) {
+      if (
+        !approvedObservation ||
+        !input.command ||
+        !this.approvalObservationMatches(
+          approvedObservation,
+          current,
+          input.command,
+        )
+      ) {
         this.runtime.discardApprovalGrant(
           taskId,
           'The screen changed after approval; the held action was not executed.',
@@ -1381,12 +1415,28 @@ export class TaskExecutionCoordinator {
       context.latestObservation = undefined;
     }
 
+    if (invocation.kind === 'desktop') {
+      try {
+        await this.onDesktopControlChange(taskId, true);
+      } catch {
+        // The status overlay is best-effort and must not change task execution.
+      }
+    }
+
     let result: ToolExecutionResult;
     try {
       result = await this.toolDispatcher.dispatch(invocation, { taskId, signal });
     } catch (error) {
       if (isAbort(error, signal)) throw error;
       result = { status: 'failed', summary: errorMessage(error) };
+    } finally {
+      if (invocation.kind === 'desktop') {
+        try {
+          await this.onDesktopControlChange(taskId, false);
+        } catch {
+          // Verification proceeds even if the status overlay cannot be hidden.
+        }
+      }
     }
 
     let observation: DesktopObservation | undefined;
