@@ -27,6 +27,7 @@ jobs:
     timeout-minutes: 45
     env:
       DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+      TROCODE_BUILD_MICROSOFT_STORE_MSIX: 'true'
     steps:
       - uses: actions/checkout@v4
 

@@ -38,6 +38,8 @@ const MSIX_ASSETS_DIRECTORY = path.resolve(__dirname, 'src/assets/msix');
 const MICROSOFT_STORE_PACKAGE_IDENTITY = 'FeatherlaneAI.TroCode';
 const MICROSOFT_STORE_PUBLISHER =
   'CN=55ECF4A8-A613-42A0-9B49-9E83D77D32BE';
+const BUILD_MICROSOFT_STORE_MSIX =
+  process.env.TROCODE_BUILD_MICROSOFT_STORE_MSIX?.trim() === 'true';
 const MACOS_SIGNING_IDENTITY = process.env.TROCODE_MACOS_SIGNING_IDENTITY?.trim();
 const MACOS_NOTARIZATION_API_KEY = process.env.TROCODE_APPLE_API_KEY?.trim();
 const MACOS_NOTARIZATION_API_KEY_ID =
@@ -192,27 +194,31 @@ const config: ForgeConfig = {
           }
         : {}),
     }),
-    new MakerMSIX({
-      manifestVariables: {
-        appDisplayName: 'TroCode',
-        packageBackgroundColor: 'transparent',
-        packageDescription:
-          'A general-purpose, goal-driven desktop agent powered by computer use.',
-        packageDisplayName: 'TroCode',
-        packageIdentity: MICROSOFT_STORE_PACKAGE_IDENTITY,
-        packageMinOSVersion: '10.0.17763.0',
-        publisher: MICROSOFT_STORE_PUBLISHER,
-        publisherDisplayName: 'Featherlane AI',
-      },
-      packageAssets: MSIX_ASSETS_DIRECTORY,
-      // electron-windows-msix otherwise treats MinVersion as the exact SDK
-      // tooling version. CI selects an installed SDK while the manifest keeps
-      // the older supported Windows version.
-      windowsKitVersion: WINDOWS_KIT_VERSION,
-      // Partner Center replaces this with a Microsoft signature after
-      // certification. A locally signed package would not match Store identity.
-      sign: false,
-    }),
+    ...(BUILD_MICROSOFT_STORE_MSIX
+      ? [
+          new MakerMSIX({
+            manifestVariables: {
+              appDisplayName: 'TroCode',
+              packageBackgroundColor: 'transparent',
+              packageDescription:
+                'A general-purpose, goal-driven desktop agent powered by computer use.',
+              packageDisplayName: 'TroCode',
+              packageIdentity: MICROSOFT_STORE_PACKAGE_IDENTITY,
+              packageMinOSVersion: '10.0.17763.0',
+              publisher: MICROSOFT_STORE_PUBLISHER,
+              publisherDisplayName: 'Featherlane AI',
+            },
+            packageAssets: MSIX_ASSETS_DIRECTORY,
+            // electron-windows-msix otherwise treats MinVersion as the exact SDK
+            // tooling version. CI selects an installed SDK while the manifest keeps
+            // the older supported Windows version.
+            windowsKitVersion: WINDOWS_KIT_VERSION,
+            // Partner Center replaces this with a Microsoft signature after
+            // certification. A locally signed package would not match Store identity.
+            sign: false,
+          }),
+        ]
+      : []),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),
