@@ -70,6 +70,18 @@ describe('SettingsPage application updates', () => {
     expect(markup).toContain('Updates unavailable');
     expect(markup).toContain('disabled');
   });
+
+  it('offers a concise retry after an update error', () => {
+    const markup = renderSettings({
+      currentVersion: '0.1.1',
+      message: 'TroCode could not reach the update service.',
+      phase: 'error',
+      targetVersion: null,
+    });
+
+    expect(markup).toContain('Try again');
+    expect(markup).not.toContain('System.Net.WebException');
+  });
 });
 
 describe('SettingsPage app language', () => {

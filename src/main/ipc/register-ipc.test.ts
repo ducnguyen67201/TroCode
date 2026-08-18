@@ -232,7 +232,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     phase: 'idle',
     targetVersion: null,
   } as const;
-  const checkForUpdates = vi.fn(() => ({
+  const checkForUpdates = vi.fn(async () => ({
     ...appUpdateStatus,
     message: 'Checking for updates…',
     phase: 'checking' as const,
@@ -351,9 +351,9 @@ describe('registerIpcHandlers auth boundary', () => {
     expect(
       electronMock.handlers.get(IPC_CHANNELS.getAppUpdateStatus)?.(event),
     ).toMatchObject({ currentVersion: '0.1.0', phase: 'idle' });
-    expect(
+    await expect(
       electronMock.handlers.get(IPC_CHANNELS.checkForAppUpdates)?.(event),
-    ).toMatchObject({ phase: 'checking' });
+    ).resolves.toMatchObject({ phase: 'checking' });
     await expect(
       electronMock.handlers.get(IPC_CHANNELS.restartAndInstallAppUpdate)?.(
         event,

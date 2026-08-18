@@ -192,6 +192,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Whisper voice input is ready. The microphone stays off until you hold the shortcut.':
     'Nhập liệu giọng nói Whisper đã sẵn sàng. Micrô sẽ tắt cho đến khi bạn giữ phím tắt.',
   'Restart to update': 'Khởi động lại để cập nhật',
+  'Restart to install TroCode {version}':
+    'Khởi động lại để cài đặt TroCode {version}',
   'Restarting…': 'Đang khởi động lại…',
   Saved: 'Đã lưu',
   'Saved task history': 'Lịch sử tác vụ đã lưu',
@@ -209,6 +211,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Session only': 'Chỉ phiên này',
   'Session summary': 'Tóm tắt phiên',
   Settings: 'Cài đặt',
+  latest: 'mới nhất',
   'Show me how to organize my Downloads folder':
     'Chỉ tôi cách sắp xếp thư mục Tải về',
   'Sign out': 'Đăng xuất',

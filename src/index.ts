@@ -2188,6 +2188,7 @@ if (hasSingleInstanceLock) {
     configureDock();
     registerCompanionAudioProtocol();
     appUpdateService.start();
+    void appUpdateService.checkForUpdates();
     analyticsService = new AnalyticsService({
       appVersion: app.getVersion(),
       architecture: process.arch,

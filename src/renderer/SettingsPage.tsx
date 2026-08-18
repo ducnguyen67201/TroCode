@@ -56,6 +56,10 @@ function appUpdateActionLabel(
       return 'Restarting…';
     case 'unsupported':
       return 'Updates unavailable';
+    case 'up_to_date':
+      return 'Check again';
+    case 'error':
+      return 'Try again';
     case undefined:
       return 'Loading…';
     default:

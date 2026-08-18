@@ -32,6 +32,7 @@ import type {
 import { acceptAgentActivity } from './agent-activity-projection';
 import { appLanguageLabel, translate } from './app-language';
 import { approvalDetails } from './approval-details';
+import { AppUpdateButton } from './AppUpdateButton';
 import { BrandMark } from './BrandMark';
 import { HistoryPage } from './HistoryPage';
 import { InsightsPage } from './InsightsPage';
@@ -1976,6 +1977,12 @@ export function App({
               </span>
               <span className="account-name">{currentUser.name}</span>
             </span>
+            <AppUpdateButton
+              appLanguage={appLanguageDraft}
+              isUpdating={isUpdatingApp}
+              onRestartAndInstall={() => void restartAndInstallAppUpdate()}
+              status={appUpdateStatus}
+            />
             <button
               className="sign-out-button"
               disabled={isSigningOut}

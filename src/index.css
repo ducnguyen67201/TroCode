@@ -2314,6 +2314,60 @@ textarea:focus-visible {
   font-weight: 800;
 }
 
+.app-update-button {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #2788f5;
+  box-shadow: 0 6px 18px rgba(39, 136, 245, 0.28);
+  color: #fff;
+}
+
+.app-update-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.app-update-button--ready {
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    transform 150ms ease;
+}
+
+.app-update-button--ready:hover {
+  background: #0e73e8;
+  transform: translateY(-1px);
+}
+
+.app-update-button--ready:focus-visible {
+  outline: 3px solid rgba(39, 136, 245, 0.28);
+  outline-offset: 3px;
+}
+
+.app-update-button--busy {
+  cursor: progress;
+  opacity: 0.72;
+  animation: app-update-download-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes app-update-download-pulse {
+  50% {
+    box-shadow: 0 6px 22px rgba(39, 136, 245, 0.48);
+    opacity: 1;
+  }
+}
+
 .sign-out-button {
   display: inline-flex;
   min-height: 34px;
