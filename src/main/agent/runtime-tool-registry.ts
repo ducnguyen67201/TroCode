@@ -16,9 +16,11 @@ import {
 import {
   DesktopCommandSchema,
   NORMALIZED_COORDINATE_MAX,
+  mapNormalizedRegionToScreenshot,
   mapNormalizedPointToScreenshot,
   type DesktopCommand,
   type DesktopObservation,
+  type DesktopRegion,
 } from './execution-contracts';
 
 export interface ToolResolutionContext {
@@ -58,6 +60,7 @@ export interface GuidanceToolInput {
   description: string;
   observationFingerprint: string;
   observationId: string;
+  region?: DesktopRegion;
   target?: string;
   x: number;
   y: number;
@@ -100,6 +103,25 @@ const normalizedPoint = z.object({
   x: z.number().int().min(0).max(NORMALIZED_COORDINATE_MAX),
   y: z.number().int().min(0).max(NORMALIZED_COORDINATE_MAX),
 });
+
+const normalizedRegion = z
+  .object({
+    x: z.number().int().min(0).max(NORMALIZED_COORDINATE_MAX),
+    y: z.number().int().min(0).max(NORMALIZED_COORDINATE_MAX),
+    width: z.number().int().min(1).max(NORMALIZED_COORDINATE_MAX),
+    height: z.number().int().min(1).max(NORMALIZED_COORDINATE_MAX),
+  })
+  .superRefine((region, context) => {
+    if (
+      region.x + region.width > NORMALIZED_COORDINATE_MAX ||
+      region.y + region.height > NORMALIZED_COORDINATE_MAX
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'The guidance region must stay inside normalized coordinates.',
+      });
+    }
+  });
 
 const normalizedCommand = z.discriminatedUnion('kind', [
   normalizedPoint.extend({
@@ -176,6 +198,13 @@ const controlInputSchema = z
         path: ['sendPayload'],
       });
     }
+    if (input.consequence !== 'send' && input.sendPayload) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Only a send action may include an exact send payload.',
+        path: ['sendPayload'],
+      });
+    }
     const allowed =
       input.command.kind === 'click'
         ? input.consequence === 'click_element' ||
@@ -211,6 +240,29 @@ const controlInputSchema = z
 
 function parseWith<T>(schema: z.ZodType<T>, argumentsJson: string): T {
   return schema.parse(JSON.parse(argumentsJson));
+}
+
+function parseControlInput(
+  argumentsJson: string,
+): z.infer<typeof controlInputSchema> {
+  const raw = JSON.parse(argumentsJson) as unknown;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return controlInputSchema.parse(raw);
+  }
+  const record = raw as Record<string, unknown>;
+  if (record.consequence !== undefined) {
+    return controlInputSchema.parse(record);
+  }
+  const command = record.command;
+  if (!command || typeof command !== 'object' || Array.isArray(command)) {
+    return controlInputSchema.parse(record);
+  }
+  const commandRecord = command as Record<string, unknown>;
+  return controlInputSchema.parse({
+    ...record,
+    consequence: commandRecord.consequence,
+    sendPayload: commandRecord.sendPayload,
+  });
 }
 
 function requireObservation(
@@ -348,6 +400,167 @@ const objectSchema = (
   required,
 });
 
+const controlRequiredProperties = [
+  'observationId',
+  'description',
+  'target',
+  'command',
+];
+
+const sendPayloadModelSchema = objectSchema(
+  {
+    account: { type: 'string', maxLength: 500 },
+    recipients: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 50,
+      items: { type: 'string', maxLength: 500 },
+    },
+    subject: { type: 'string', maxLength: 2_000 },
+    body: { type: 'string', minLength: 1, maxLength: 100_000 },
+    threadId: {
+      anyOf: [{ type: 'string', maxLength: 2_000 }, { type: 'null' }],
+    },
+    attachments: {
+      anyOf: [
+        {
+          type: 'array',
+          maxItems: 50,
+          items: { type: 'string', maxLength: 2_000 },
+        },
+        { type: 'null' },
+      ],
+    },
+  },
+  ['account', 'recipients', 'subject', 'body', 'threadId', 'attachments'],
+);
+
+const nullableTargetModelSchema = {
+  anyOf: [{ type: 'string', maxLength: 8_000 }, { type: 'null' }],
+};
+
+const clickCommandModelSchema = objectSchema(
+  {
+    kind: { type: 'string', const: 'click' },
+    x: { type: 'integer', minimum: 0, maximum: 1_000 },
+    y: { type: 'integer', minimum: 0, maximum: 1_000 },
+    button: { type: 'string', enum: ['left', 'right', 'middle'] },
+    count: { type: 'integer', minimum: 1, maximum: 2 },
+  },
+  ['kind', 'x', 'y', 'button', 'count'],
+);
+
+const dragCommandModelSchema = objectSchema(
+  {
+    kind: { type: 'string', const: 'drag' },
+    fromX: { type: 'integer', minimum: 0, maximum: 1_000 },
+    fromY: { type: 'integer', minimum: 0, maximum: 1_000 },
+    toX: { type: 'integer', minimum: 0, maximum: 1_000 },
+    toY: { type: 'integer', minimum: 0, maximum: 1_000 },
+    durationMs: { type: 'integer', minimum: 50, maximum: 10_000 },
+    button: { type: 'string', enum: ['left', 'right', 'middle'] },
+  },
+  ['kind', 'fromX', 'fromY', 'toX', 'toY', 'durationMs', 'button'],
+);
+
+const typeTextCommandModelSchema = objectSchema(
+  {
+    kind: { type: 'string', const: 'type_text' },
+    text: { type: 'string', minLength: 1, maxLength: 100_000 },
+  },
+  ['kind', 'text'],
+);
+
+const keypressCommandModelSchema = objectSchema(
+  {
+    kind: { type: 'string', const: 'keypress' },
+    keys: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 8,
+      items: { type: 'string', minLength: 1, maxLength: 40 },
+    },
+  },
+  ['kind', 'keys'],
+);
+
+const scrollCommandModelSchema = objectSchema(
+  {
+    kind: { type: 'string', const: 'scroll' },
+    x: { type: 'integer', minimum: 0, maximum: 1_000 },
+    y: { type: 'integer', minimum: 0, maximum: 1_000 },
+    direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
+    amount: { type: 'integer', minimum: 1, maximum: 20 },
+  },
+  ['kind', 'x', 'y', 'direction', 'amount'],
+);
+
+function controlCommandVariant(
+  command: StrictJsonObjectSchema,
+  consequences: readonly string[],
+  requiresSendPayload = false,
+): StrictJsonObjectSchema {
+  const consequence =
+    consequences.length === 1
+      ? { type: 'string', const: consequences[0] }
+      : { type: 'string', enum: [...consequences] };
+  return objectSchema(
+    {
+      ...command.properties,
+      consequence,
+      sendPayload: (requiresSendPayload
+        ? sendPayloadModelSchema
+        : { type: 'null' }) as unknown as Record<string, unknown>,
+    },
+    [...command.required, 'consequence', 'sendPayload'],
+  );
+}
+
+function controlParametersSchema(): StrictJsonObjectSchema {
+  const command = {
+    anyOf: [
+      controlCommandVariant(clickCommandModelSchema, [
+        'click_element',
+        'login',
+        'submit',
+        'upload',
+        'download',
+        'delete',
+        'purchase',
+        'install',
+        'run_command',
+        'write_file',
+      ]),
+      controlCommandVariant(clickCommandModelSchema, ['send'], true),
+      controlCommandVariant(dragCommandModelSchema, ['drag']),
+      controlCommandVariant(typeTextCommandModelSchema, [
+        'type_text',
+        'login',
+        'submit',
+        'upload',
+      ]),
+      controlCommandVariant(typeTextCommandModelSchema, ['send'], true),
+      controlCommandVariant(keypressCommandModelSchema, [
+        'press_key',
+        'login',
+        'submit',
+        'delete',
+      ]),
+      controlCommandVariant(keypressCommandModelSchema, ['send'], true),
+      controlCommandVariant(scrollCommandModelSchema, ['scroll']),
+    ],
+  };
+  return objectSchema(
+    {
+      observationId: { type: 'string' },
+      description: { type: 'string', maxLength: 2_000 },
+      target: nullableTargetModelSchema,
+      command,
+    },
+    controlRequiredProperties,
+  );
+}
+
 function assertStrictFunctionSchema(
   schema: unknown,
   path = 'parameters',
@@ -414,17 +627,36 @@ function defaultTools(): RuntimeToolDefinition[] {
     url: z.string().url(),
     reason: z.string().trim().min(1).max(500),
   });
-  const guidanceSchema = normalizedPoint.extend({
-    observationId: z.string().uuid(),
-    description: z.string().trim().min(1).max(240),
-    target: z
-      .string()
-      .trim()
-      .min(1)
-      .max(80)
-      .nullish()
-      .transform((value) => value ?? undefined),
-  });
+  const guidanceSchema = normalizedPoint
+    .extend({
+      observationId: z.string().uuid(),
+      description: z.string().trim().min(1).max(240),
+      region: normalizedRegion
+        .nullish()
+        .transform((value) => value ?? undefined),
+      target: z
+        .string()
+        .trim()
+        .min(1)
+        .max(80)
+        .nullish()
+        .transform((value) => value ?? undefined),
+    })
+    .superRefine((input, context) => {
+      if (
+        input.region &&
+        (input.x < input.region.x ||
+          input.x > input.region.x + input.region.width ||
+          input.y < input.region.y ||
+          input.y > input.region.y + input.region.height)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'The target region must contain the guidance point.',
+          path: ['region'],
+        });
+      }
+    });
   const interactionSchema = z.object({
     prompt: z.string().trim().min(1).max(2_000),
     choices: z.array(z.string().trim().min(1).max(500)).max(12).optional(),
@@ -463,150 +695,8 @@ function defaultTools(): RuntimeToolDefinition[] {
       description:
         'Execute one atomic action grounded in the latest desktop observation.',
       operations: ['click', 'drag', 'type_text', 'keypress', 'scroll'],
-      parameters: objectSchema(
-        {
-          observationId: { type: 'string' },
-          consequence: {
-            type: 'string',
-            enum: consequenceValues,
-            description:
-              'Describe the expected effect for audit and user context. The host independently decides whether approval is required.',
-          },
-          description: { type: 'string', maxLength: 2_000 },
-          target: {
-            anyOf: [{ type: 'string', maxLength: 8_000 }, { type: 'null' }],
-          },
-          sendPayload: {
-            anyOf: [
-              {
-                type: 'object',
-                additionalProperties: false,
-                properties: {
-                  account: { type: 'string', maxLength: 500 },
-                  recipients: {
-                    type: 'array',
-                    minItems: 1,
-                    maxItems: 50,
-                    items: { type: 'string', maxLength: 500 },
-                  },
-                  subject: { type: 'string', maxLength: 2_000 },
-                  body: { type: 'string', maxLength: 100_000 },
-                  threadId: {
-                    anyOf: [
-                      { type: 'string', maxLength: 2_000 },
-                      { type: 'null' },
-                    ],
-                  },
-                  attachments: {
-                    anyOf: [
-                      {
-                        type: 'array',
-                        maxItems: 50,
-                        items: { type: 'string', maxLength: 2_000 },
-                      },
-                      { type: 'null' },
-                    ],
-                  },
-                },
-                required: [
-                  'account',
-                  'recipients',
-                  'subject',
-                  'body',
-                  'threadId',
-                  'attachments',
-                ],
-              },
-              { type: 'null' },
-            ],
-          },
-          command: {
-            anyOf: [
-              objectSchema(
-                {
-                  kind: { type: 'string', const: 'click' },
-                  x: { type: 'integer', minimum: 0, maximum: 1_000 },
-                  y: { type: 'integer', minimum: 0, maximum: 1_000 },
-                  button: {
-                    type: 'string',
-                    enum: ['left', 'right', 'middle'],
-                  },
-                  count: { type: 'integer', minimum: 1, maximum: 2 },
-                },
-                ['kind', 'x', 'y', 'button', 'count'],
-              ),
-              objectSchema(
-                {
-                  kind: { type: 'string', const: 'drag' },
-                  fromX: { type: 'integer', minimum: 0, maximum: 1_000 },
-                  fromY: { type: 'integer', minimum: 0, maximum: 1_000 },
-                  toX: { type: 'integer', minimum: 0, maximum: 1_000 },
-                  toY: { type: 'integer', minimum: 0, maximum: 1_000 },
-                  durationMs: {
-                    type: 'integer',
-                    minimum: 50,
-                    maximum: 10_000,
-                  },
-                  button: {
-                    type: 'string',
-                    enum: ['left', 'right', 'middle'],
-                  },
-                },
-                [
-                  'kind',
-                  'fromX',
-                  'fromY',
-                  'toX',
-                  'toY',
-                  'durationMs',
-                  'button',
-                ],
-              ),
-              objectSchema(
-                {
-                  kind: { type: 'string', const: 'type_text' },
-                  text: { type: 'string', maxLength: 100_000 },
-                },
-                ['kind', 'text'],
-              ),
-              objectSchema(
-                {
-                  kind: { type: 'string', const: 'keypress' },
-                  keys: {
-                    type: 'array',
-                    minItems: 1,
-                    maxItems: 8,
-                    items: { type: 'string', maxLength: 40 },
-                  },
-                },
-                ['kind', 'keys'],
-              ),
-              objectSchema(
-                {
-                  kind: { type: 'string', const: 'scroll' },
-                  x: { type: 'integer', minimum: 0, maximum: 1_000 },
-                  y: { type: 'integer', minimum: 0, maximum: 1_000 },
-                  direction: {
-                    type: 'string',
-                    enum: ['up', 'down', 'left', 'right'],
-                  },
-                  amount: { type: 'integer', minimum: 1, maximum: 20 },
-                },
-                ['kind', 'x', 'y', 'direction', 'amount'],
-              ),
-            ],
-          },
-        },
-        [
-          'observationId',
-          'consequence',
-          'description',
-          'target',
-          'sendPayload',
-          'command',
-        ],
-      ),
-      parse: (value) => parseWith(controlInputSchema, value),
+      parameters: controlParametersSchema(),
+      parse: parseControlInput,
       normalize: (input, call, context) => {
         const observation = requireObservation(context, input.observationId);
         const command = mapCommand(input.command, observation);
@@ -685,7 +775,7 @@ function defaultTools(): RuntimeToolDefinition[] {
       id: 'task.guidance',
       modelName: 'show_guidance',
       description:
-        'Point at exactly one visible target and speak one concise instruction (240 characters maximum). Do not click or change the application. The host waits for the user to use playback controls before continuing.',
+        'Point at and highlight exactly one visible target, then speak one concise instruction (240 characters maximum). Supply a tight region when the target occupies an area, otherwise null. Do not click or change the application. The host waits for the user to use playback controls before continuing.',
       operations: ['show'],
       parameters: objectSchema(
         {
@@ -694,10 +784,24 @@ function defaultTools(): RuntimeToolDefinition[] {
           target: {
             anyOf: [{ type: 'string', maxLength: 80 }, { type: 'null' }],
           },
+          region: {
+            anyOf: [
+              objectSchema(
+                {
+                  x: { type: 'integer', minimum: 0, maximum: 1_000 },
+                  y: { type: 'integer', minimum: 0, maximum: 1_000 },
+                  width: { type: 'integer', minimum: 1, maximum: 1_000 },
+                  height: { type: 'integer', minimum: 1, maximum: 1_000 },
+                },
+                ['x', 'y', 'width', 'height'],
+              ),
+              { type: 'null' },
+            ],
+          },
           x: { type: 'integer', minimum: 0, maximum: 1_000 },
           y: { type: 'integer', minimum: 0, maximum: 1_000 },
         },
-        ['observationId', 'description', 'target', 'x', 'y'],
+        ['observationId', 'description', 'target', 'region', 'x', 'y'],
       ),
       parse: (value) => parseWith(guidanceSchema, value),
       normalize: (input, call, context) => {
@@ -707,6 +811,9 @@ function defaultTools(): RuntimeToolDefinition[] {
           throw new Error('The observation has no coordinate-space metadata.');
         }
         const point = mapNormalizedPointToScreenshot(input, coordinateSpace);
+        const region = input.region
+          ? mapNormalizedRegionToScreenshot(input.region, coordinateSpace)
+          : undefined;
         const action = ProposedActionSchema.parse({
           action: 'guide',
           toolId: 'task.guidance',
@@ -719,6 +826,14 @@ function defaultTools(): RuntimeToolDefinition[] {
             observationId: observation.observationId,
             x: String(point.x),
             y: String(point.y),
+            ...(region
+              ? {
+                  regionX: String(region.x),
+                  regionY: String(region.y),
+                  regionWidth: String(region.width),
+                  regionHeight: String(region.height),
+                }
+              : {}),
           },
         });
         return {
@@ -728,6 +843,7 @@ function defaultTools(): RuntimeToolDefinition[] {
             ...input,
             x: point.x,
             y: point.y,
+            ...(region ? { region } : {}),
             observationFingerprint: observation.fingerprint,
           },
           kind: 'guidance',

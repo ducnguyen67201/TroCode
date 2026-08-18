@@ -116,6 +116,76 @@ export function placeGuidanceCallout(
   };
 }
 
+export function placeGuidanceTargetMarker(
+  target: Point,
+  region: Rectangle | undefined,
+  displayBounds: Rectangle,
+  padding = 18,
+): Rectangle {
+  const displayRight = displayBounds.x + displayBounds.width;
+  const displayBottom = displayBounds.y + displayBounds.height;
+  if (!region) {
+    const diameter = Math.min(76, displayBounds.width, displayBounds.height);
+    return {
+      x: Math.round(
+        clamp(
+          target.x - diameter / 2,
+          displayBounds.x,
+          displayRight - diameter,
+        ),
+      ),
+      y: Math.round(
+        clamp(
+          target.y - diameter / 2,
+          displayBounds.y,
+          displayBottom - diameter,
+        ),
+      ),
+      width: Math.round(diameter),
+      height: Math.round(diameter),
+    };
+  }
+
+  const visibleLeft = clamp(region.x, displayBounds.x, displayRight);
+  const visibleTop = clamp(region.y, displayBounds.y, displayBottom);
+  const visibleRight = clamp(
+    region.x + region.width,
+    displayBounds.x,
+    displayRight,
+  );
+  const visibleBottom = clamp(
+    region.y + region.height,
+    displayBounds.y,
+    displayBottom,
+  );
+  const width = Math.min(
+    displayBounds.width,
+    Math.max(76, visibleRight - visibleLeft + padding * 2),
+  );
+  const height = Math.min(
+    displayBounds.height,
+    Math.max(76, visibleBottom - visibleTop + padding * 2),
+  );
+  return {
+    x: Math.round(
+      clamp(
+        visibleLeft - padding,
+        displayBounds.x,
+        displayRight - width,
+      ),
+    ),
+    y: Math.round(
+      clamp(
+        visibleTop - padding,
+        displayBounds.y,
+        displayBottom - height,
+      ),
+    ),
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+}
+
 export function placeVoiceIsland(
   displayBounds: Rectangle,
   islandSize: Size,

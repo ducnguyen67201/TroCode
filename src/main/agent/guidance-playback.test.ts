@@ -51,6 +51,29 @@ describe('guidance playback controller', () => {
     }
   });
 
+  it('never auto-advances a user-controlled walkthrough', async () => {
+    vi.useFakeTimers();
+    try {
+      const playback = new GuidancePlaybackController(10, {
+        autoAdvance: false,
+      });
+      const navigation = playback.wait(new AbortController().signal);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      let settled = false;
+      void navigation.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      playback.next();
+      await expect(navigation).resolves.toBe('next');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('uses K-style pause and resume without losing the current step', async () => {
     vi.useFakeTimers();
     try {
@@ -92,6 +115,37 @@ describe('guidance playback controller', () => {
     const navigation = playback.wait(controller.signal);
     controller.abort();
 
+    await expect(navigation).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('treats failed narration playback as complete for auto-advance', async () => {
+    vi.useFakeTimers();
+    try {
+      const playback = new GuidancePlaybackController(10);
+      const navigation = playback.wait(
+        new AbortController().signal,
+        Promise.reject(new Error('Audio failed')),
+      );
+
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(10);
+
+      await expect(navigation).resolves.toBe('next');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a second pending wait instead of losing the current step', async () => {
+    const playback = new GuidancePlaybackController(60_000);
+    const controller = new AbortController();
+    const navigation = playback.wait(controller.signal);
+
+    await expect(
+      playback.wait(new AbortController().signal),
+    ).rejects.toThrow('Guidance playback already has a pending wait.');
+
+    controller.abort();
     await expect(navigation).rejects.toMatchObject({ name: 'AbortError' });
   });
 });

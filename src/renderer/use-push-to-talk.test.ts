@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   beginPushToTalkAttemptIfValid,
@@ -7,6 +7,7 @@ import {
   shouldFinishVoiceOnLocalRelease,
   shouldMuteSystemAudioForVoice,
   usePushToTalk,
+  VOICE_TRANSCRIPT_CONFIRMATION_MS,
   voiceConnectionErrorMessage,
 } from './use-push-to-talk';
 
@@ -41,6 +42,11 @@ vi.mock('./voice-capture', () => ({
 
 async function flushMicrotasks(): Promise<void> {
   for (let index = 0; index < 10; index += 1) await Promise.resolve();
+}
+
+async function finishTranscriptConfirmation(): Promise<void> {
+  await vi.advanceTimersByTimeAsync(VOICE_TRANSCRIPT_CONFIRMATION_MS);
+  await flushMicrotasks();
 }
 
 function frame(amplitude: number): Float32Array {
@@ -115,6 +121,10 @@ function setup(upload = vi.fn()) {
   return { callbacks, fakeWindow, state, upload };
 }
 
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
 afterEach(() => {
   for (const cleanup of reactHarness.cleanups.splice(0).reverse()) cleanup();
   captureHarness.onFrame = null;
@@ -122,6 +132,7 @@ afterEach(() => {
   captureHarness.stop.mockClear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe('segmented push-to-talk lifecycle', () => {
@@ -153,6 +164,8 @@ describe('segmented push-to-talk lifecycle', () => {
 
     releaseShortcut(fakeWindow);
     await flushMicrotasks();
+    expect(callbacks.onTranscriptSubmit).not.toHaveBeenCalled();
+    await finishTranscriptConfirmation();
     expect(callbacks.onTranscriptSubmit).toHaveBeenCalledOnce();
     expect(callbacks.onTranscriptSubmit).toHaveBeenCalledWith('open YouTube');
   });
@@ -198,6 +211,11 @@ describe('segmented push-to-talk lifecycle', () => {
       utteranceId: first?.utteranceId,
     });
     await flushMicrotasks();
+    expect(callbacks.onTranscriptChange).toHaveBeenLastCalledWith(
+      'open YouTube and search',
+    );
+    expect(callbacks.onTranscriptSubmit).not.toHaveBeenCalled();
+    await finishTranscriptConfirmation();
     expect(callbacks.onTranscriptSubmit).toHaveBeenCalledWith(
       'open YouTube and search',
     );
@@ -303,6 +321,8 @@ describe('segmented push-to-talk lifecycle', () => {
 
     releaseShortcut(fakeWindow);
     await flushMicrotasks();
+    expect(callbacks.onTranscriptSubmit).not.toHaveBeenCalled();
+    await finishTranscriptConfirmation();
     expect(callbacks.onTranscriptSubmit).toHaveBeenCalledOnce();
   });
 });

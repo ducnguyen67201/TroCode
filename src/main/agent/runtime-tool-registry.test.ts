@@ -30,29 +30,335 @@ describe('RuntimeToolRegistry', () => {
     expect(properties?.description?.maxLength).toBe(240);
     expect(guidance?.description).toContain('exactly one visible target');
     expect(guidance?.description).toContain('playback controls');
+    expect(guidance?.description).toContain('highlight');
   });
 
-  it('publishes explicitly typed discriminators in strict command variants', () => {
+  it('publishes a strict nullable target region for spatial guidance', () => {
+    const guidance = new RuntimeToolRegistry()
+      .modelVisibleSpecs()
+      .find((tool) => tool.name === 'show_guidance');
+    const region = guidance?.parameters.properties.region as
+      | {
+          anyOf?: Array<{
+            additionalProperties?: boolean;
+            properties?: Record<string, Record<string, unknown>>;
+            required?: string[];
+            type?: string;
+          }>;
+        }
+      | undefined;
+
+    expect(guidance?.parameters.required).toContain('region');
+    expect(region?.anyOf?.[0]).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      required: ['x', 'y', 'width', 'height'],
+    });
+    expect(region?.anyOf?.[1]).toEqual({ type: 'null' });
+  });
+
+  it('publishes provider-compatible strict command variants that correlate consequences', () => {
     const controlTool = new RuntimeToolRegistry()
       .modelVisibleSpecs()
       .find((tool) => tool.name === 'control_desktop');
-    const properties = controlTool?.parameters.properties as
-      | Record<string, Record<string, unknown>>
-      | undefined;
-    const variants = properties?.command?.anyOf as
-      | Array<{ properties?: Record<string, unknown> }>
-      | undefined;
+    const variants = (
+      controlTool?.parameters.properties.command as {
+        anyOf?: Array<{
+          properties?: Record<
+            string,
+            {
+              const?: string;
+              enum?: string[];
+              properties?: Record<string, unknown>;
+            }
+          >;
+        }>;
+      }
+    ).anyOf;
+    const kindFor = (variant: NonNullable<typeof variants>[number]) =>
+      variant.properties?.kind as
+        | { const?: string; type?: string }
+        | undefined;
 
-    expect(variants).toHaveLength(5);
+    expect(variants).toHaveLength(8);
     expect(
-      variants?.map((variant) => variant.properties?.kind),
-    ).toEqual([
+      (controlTool?.parameters as unknown as { anyOf?: unknown[] }).anyOf,
+    ).toBeUndefined();
+    expect(variants?.map(kindFor)).toEqual([
+      { type: 'string', const: 'click' },
       { type: 'string', const: 'click' },
       { type: 'string', const: 'drag' },
       { type: 'string', const: 'type_text' },
+      { type: 'string', const: 'type_text' },
+      { type: 'string', const: 'keypress' },
       { type: 'string', const: 'keypress' },
       { type: 'string', const: 'scroll' },
     ]);
+
+    const consequencesFor = (kind: string) =>
+      variants
+        ?.filter((variant) => kindFor(variant)?.const === kind)
+        .flatMap((variant) => {
+          const consequence = variant.properties?.consequence;
+          return consequence?.const
+            ? [consequence.const]
+            : (consequence?.enum ?? []);
+        });
+    const clickConsequences = consequencesFor('click');
+    expect(clickConsequences).toEqual(
+      expect.arrayContaining([
+        'click_element',
+        'login',
+        'send',
+        'submit',
+        'upload',
+        'download',
+        'delete',
+        'purchase',
+        'install',
+        'run_command',
+        'write_file',
+      ]),
+    );
+    expect(clickConsequences).not.toContain('guide');
+    expect(consequencesFor('type_text')).toEqual(
+      expect.arrayContaining(['type_text', 'login', 'send', 'submit', 'upload']),
+    );
+    expect(consequencesFor('keypress')).toEqual(
+      expect.arrayContaining(['press_key', 'login', 'send', 'submit', 'delete']),
+    );
+    expect(consequencesFor('drag')).toEqual(['drag']);
+    expect(consequencesFor('scroll')).toEqual(['scroll']);
+    for (const variant of variants ?? []) {
+      if (variant.properties?.consequence?.const === 'send') continue;
+      expect(variant.properties?.sendPayload).toEqual({ type: 'null' });
+    }
+  });
+
+  it('requires exact send payload fields in every structural send variant', () => {
+    const controlTool = new RuntimeToolRegistry()
+      .modelVisibleSpecs()
+      .find((tool) => tool.name === 'control_desktop');
+    const variants = (
+      controlTool?.parameters.properties.command as {
+        anyOf?: Array<{
+          properties?: Record<string, Record<string, unknown>>;
+          required?: string[];
+        }>;
+      }
+    ).anyOf;
+    const sendVariants = variants?.filter(
+      (variant) => variant.properties?.consequence?.const === 'send',
+    );
+
+    expect(sendVariants).toHaveLength(3);
+    for (const variant of sendVariants ?? []) {
+      expect(variant.required).toContain('sendPayload');
+      expect(variant.properties?.sendPayload).toMatchObject({
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'account',
+          'recipients',
+          'subject',
+          'body',
+          'threadId',
+          'attachments',
+        ],
+      });
+    }
+  });
+
+  it('keeps show_guidance separate from desktop control variants', () => {
+    const guidance = new RuntimeToolRegistry()
+      .modelVisibleSpecs()
+      .find((tool) => tool.name === 'show_guidance');
+
+    expect(
+      (guidance?.parameters as unknown as { anyOf?: unknown[] }).anyOf,
+    ).toBeUndefined();
+    expect(guidance?.parameters.properties).toHaveProperty('observationId');
+  });
+
+  it('normalizes a bounded guidance region with the authoritative observation', () => {
+    const registry = new RuntimeToolRegistry();
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+    const invocation = registry.resolve(
+      {
+        callId: 'call-region-guide',
+        name: 'show_guidance',
+        arguments: JSON.stringify({
+          observationId,
+          description: 'Notice the time marker before choosing the tense.',
+          target: 'Question one',
+          x: 500,
+          y: 200,
+          region: { x: 250, y: 100, width: 500, height: 300 },
+        }),
+      },
+      {
+        taskId,
+        latestObservation: {
+          observationId,
+          taskId,
+          capturedAt: '2026-08-17T00:00:00.000Z',
+          text: 'A worksheet is visible.',
+          degraded: false,
+          fingerprint: 'a'.repeat(64),
+          coordinateSpace: {
+            screenHeight: 500,
+            screenWidth: 1000,
+            screenshotHeight: 1000,
+            screenshotWidth: 2000,
+          },
+        },
+      },
+    );
+
+    expect(invocation.input).toMatchObject({
+      x: 1000,
+      y: 200,
+      region: { x: 500, y: 100, width: 1000, height: 300 },
+    });
+  });
+
+  it('rejects guidance regions that do not contain the target point', () => {
+    const registry = new RuntimeToolRegistry();
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+
+    expect(() =>
+      registry.preview(
+        {
+          callId: 'call-invalid-region-guide',
+          name: 'show_guidance',
+          arguments: JSON.stringify({
+            observationId,
+            description: 'Look here.',
+            target: 'Question one',
+            x: 900,
+            y: 900,
+            region: { x: 100, y: 100, width: 200, height: 200 },
+          }),
+        },
+        {
+          taskId,
+          latestObservation: {
+            observationId,
+            taskId,
+            capturedAt: '2026-08-17T00:00:00.000Z',
+            text: 'A worksheet is visible.',
+            degraded: false,
+            fingerprint: 'a'.repeat(64),
+            coordinateSpace: {
+              screenHeight: 500,
+              screenWidth: 1000,
+              screenshotHeight: 1000,
+              screenshotWidth: 2000,
+            },
+          },
+        },
+      ),
+    ).toThrow('contain the guidance point');
+  });
+
+  it('retains the trusted parser defense for invalid command/consequence pairs', () => {
+    const registry = new RuntimeToolRegistry();
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+
+    expect(() =>
+      registry.preview(
+        {
+          callId: 'call-invalid-guide-click',
+          name: 'control_desktop',
+          arguments: JSON.stringify({
+            observationId,
+            consequence: 'guide',
+            description: 'Invalidly mix guidance with a click.',
+            target: null,
+            sendPayload: null,
+            command: {
+              kind: 'click',
+              x: 500,
+              y: 250,
+              button: 'left',
+              count: 1,
+            },
+          }),
+        },
+        {
+          taskId,
+          latestObservation: {
+            observationId,
+            taskId,
+            capturedAt: '2026-08-17T00:00:00.000Z',
+            text: 'A button is visible.',
+            degraded: false,
+            fingerprint: 'a'.repeat(64),
+            coordinateSpace: {
+              screenHeight: 500,
+              screenWidth: 1000,
+              screenshotHeight: 1000,
+              screenshotWidth: 2000,
+            },
+          },
+        },
+      ),
+    ).toThrow('desktop command and declared consequence do not agree');
+  });
+
+  it('normalizes the nested model command shape to the existing trusted input', () => {
+    const registry = new RuntimeToolRegistry();
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+    const invocation = registry.resolve(
+      {
+        callId: 'call-nested-click',
+        name: 'control_desktop',
+        arguments: JSON.stringify({
+          observationId,
+          description: 'Click the visible button.',
+          target: null,
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 250,
+            button: 'left',
+            count: 1,
+            consequence: 'click_element',
+            sendPayload: null,
+          },
+        }),
+      },
+      {
+        taskId,
+        latestObservation: {
+          observationId,
+          taskId,
+          capturedAt: '2026-08-17T00:00:00.000Z',
+          text: 'A button is visible.',
+          degraded: false,
+          fingerprint: 'a'.repeat(64),
+          coordinateSpace: {
+            screenHeight: 500,
+            screenWidth: 1000,
+            screenshotHeight: 1000,
+            screenshotWidth: 2000,
+          },
+        },
+      },
+    );
+
+    expect(invocation.input).toMatchObject({
+      consequence: 'click_element',
+      command: { kind: 'click' },
+    });
+    expect(invocation.action).toMatchObject({
+      action: 'click_element',
+      operation: 'click',
+    });
   });
 
   it('rejects invalid strict schemas locally before they reach the provider', () => {

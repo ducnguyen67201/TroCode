@@ -29,6 +29,7 @@ import {
 import { registerGlobalTaskCancelShortcut } from './main/agent/global-task-cancel-shortcut';
 import { OpenAIAgentsRuntime } from './main/agent/openai-agents-runtime';
 import { TaskRuntime } from './main/agent/task-runtime';
+import { requestsGuidedWalkthrough } from './main/agent/walkthrough-policy';
 import { FileAnalyticsIdentityStore } from './main/analytics/analytics-identity-store';
 import { AnalyticsService } from './main/analytics/analytics-service';
 import { TaskApplicationService } from './main/application/task-application-service';
@@ -47,11 +48,20 @@ import {
   placeCompanionForBrowserNavigation,
   placeCompanionNearCursor,
   placeGuidanceCallout,
+  placeGuidanceTargetMarker,
   placeVoiceIsland,
   shouldUseCompanionOverlay,
   type Point,
   type Rectangle,
 } from './main/companion/companion-position';
+import {
+  CompanionResponseController,
+  selectCompanionOverlayMode,
+} from './main/companion/companion-response-controller';
+import {
+  registerGlobalNumberedChoiceShortcuts,
+  type GlobalNumberedChoiceShortcuts,
+} from './main/companion/global-numbered-choice-shortcuts';
 import { CuaService } from './main/cua/cua-service';
 import { TaskHistoryService } from './main/history/task-history-service';
 import { PostgresTaskHistoryStore } from './main/history/task-history-store';
@@ -66,7 +76,11 @@ import {
   AppPreferencesService,
   FileAppPreferencesStore,
 } from './main/preferences/app-preferences-service';
-import { ElectronPresentationPresenter } from './main/presentation/electron-presentation-presenter';
+import {
+  ElectronPresentationPresenter,
+  startCompletionNarration,
+  type CompanionResponsePresentationOptions,
+} from './main/presentation/electron-presentation-presenter';
 import { PresentationCoordinator } from './main/presentation/presentation-coordinator';
 import { registerScreenRecordingHost } from './main/screen-recording-registration';
 import {
@@ -82,18 +96,21 @@ import {
   MACOS_VOICE_SHORTCUT_HELPER_NAME,
   watchMacOSGlobalVoiceShortcut,
 } from './main/voice/macos-voice-shortcut-watcher';
-import { splitSpeechText } from './main/voice/speech-chunks';
 import { createSystemAudioDuckingService } from './main/voice/system-audio-ducking-service';
 import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-store';
 import { VoiceService } from './main/voice/voice-service';
 import { WorkspaceSelectionService } from './main/workspace/workspace-selection-service';
 import {
+  AgentActivityUpdateSchema,
   CompanionGuidanceSchema,
+  CompanionResponseCardSchema,
   TaskUpdateSchema,
   TROCODE_AUDIO_SCHEME,
   type AuthUser,
   type CompanionGuidance,
   type CompanionInteraction,
+  type CompanionResponseActionRequest,
+  type CompanionResponseCard,
   type CompanionSpeech,
   type CompanionState,
   type CompanionVoiceActivity,
@@ -146,6 +163,7 @@ const hasSingleInstanceLock = initializeSingleInstance(app, () => {
 
 const taskRuntime = new TaskRuntime();
 const agentActivityService = new AgentActivityService();
+const companionResponseController = new CompanionResponseController();
 const databaseUrl = process.env.DATABASE_URL?.trim() ?? '';
 const taskHistoryService = new TaskHistoryService({
   onError: (error) => {
@@ -247,6 +265,7 @@ const executionCoordinator = new TaskExecutionCoordinator({
     );
     if (restoreCompanion) companionWindow?.hide();
     if (guidanceWindow && !guidanceWindow.isDestroyed()) guidanceWindow.hide();
+    hideGuidanceTargetMarker();
     await new Promise<void>((resolve) => setTimeout(resolve, 120));
 
     return () => {
@@ -280,7 +299,7 @@ const presentationCoordinator = new PresentationCoordinator(
     showCompanionInteraction,
     clearCompanionInteraction,
     shouldUseBackgroundCompanion,
-    presentBackgroundCompletion,
+    presentCompanionResponse,
   ),
 );
 const appUpdateService = new AppUpdateService({
@@ -297,6 +316,8 @@ const COMPANION_GAP = 8;
 const COMPANION_GLIDE_DURATION_MS = 360;
 const COMPANION_FOLLOW_INTERVAL_MS = 16;
 const GUIDANCE_CALLOUT_SIZE = { height: 176, width: 380 } as const;
+const GUIDANCE_TARGET_MARKER_SIZE = { height: 76, width: 76 } as const;
+const RESPONSE_CALLOUT_SIZE = { height: 360, width: 420 } as const;
 const CLARIFICATION_CALLOUT_SIZE = { height: 286, width: 396 } as const;
 const APPROVAL_CALLOUT_SIZE = { height: 448, width: 432 } as const;
 const VOICE_ISLAND_SIZE = { height: 76, width: 420 } as const;
@@ -317,6 +338,7 @@ interface CompanionGlide {
 let mainWindow: BrowserWindow | null = null;
 let companionWindow: BrowserWindow | null = null;
 let guidanceWindow: BrowserWindow | null = null;
+let guidanceTargetWindow: BrowserWindow | null = null;
 let voiceIslandWindow: BrowserWindow | null = null;
 let analyticsService: AnalyticsService | null = null;
 let companionState: CompanionState = 'idle';
@@ -326,6 +348,7 @@ let companionGlide: CompanionGlide | null = null;
 let companionPinnedPosition: Point | null = null;
 let activeCompanionGuidance: CompanionGuidance | null = null;
 let activeCompanionInteraction: CompanionInteraction | null = null;
+let activeCompanionResponse: CompanionResponseCard | null = null;
 let activeCompanionSpeech: CompanionSpeech | null = null;
 let companionGuidancePreviousState: CompanionState | null = null;
 let guidancePlaybackPaused = false;
@@ -336,6 +359,7 @@ let unregisterIpcHandlers: (() => void) | null = null;
 let unregisterGlobalTaskCancelShortcut: (() => void) | null = null;
 let unregisterGlobalVoiceShortcut: (() => void) | null = null;
 let globalGuidanceShortcuts: GlobalGuidanceShortcuts | null = null;
+let globalNumberedChoiceShortcuts: GlobalNumberedChoiceShortcuts | null = null;
 let removeMainWindowCloseBehavior: (() => void) | null = null;
 let backgroundTray: Tray | null = null;
 let isShuttingDown = false;
@@ -454,6 +478,31 @@ function resetCompanionPresentation(): void {
   positionCompanion();
 }
 
+function hideGuidanceTargetMarker(): void {
+  if (guidanceTargetWindow && !guidanceTargetWindow.isDestroyed()) {
+    guidanceTargetWindow.hide();
+  }
+}
+
+function showGuidanceTargetMarker(
+  target: Point,
+  region?: Rectangle,
+): boolean {
+  if (!auxiliaryWindowsEnabled) return false;
+  if (!guidanceTargetWindow || guidanceTargetWindow.isDestroyed()) {
+    createGuidanceTargetWindow();
+  }
+  if (!guidanceTargetWindow || guidanceTargetWindow.isDestroyed()) return false;
+
+  const display = screen.getDisplayNearestPoint(target);
+  guidanceTargetWindow.setBounds(
+    placeGuidanceTargetMarker(target, region, display.bounds),
+    false,
+  );
+  guidanceTargetWindow.showInactive();
+  return true;
+}
+
 function sendCompanionGuidance(): void {
   if (!guidanceWindow || guidanceWindow.isDestroyed()) return;
   guidanceWindow.webContents.send(
@@ -467,6 +516,14 @@ function sendCompanionInteraction(): void {
   guidanceWindow.webContents.send(
     IPC_CHANNELS.companionInteractionChanged,
     activeCompanionInteraction,
+  );
+}
+
+function sendCompanionResponse(): void {
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) return;
+  guidanceWindow.webContents.send(
+    IPC_CHANNELS.companionResponseChanged,
+    activeCompanionResponse,
   );
 }
 
@@ -499,6 +556,137 @@ function setGuidanceWindowInteractive(interactive: boolean): void {
   guidanceWindow.setIgnoreMouseEvents(!interactive, { forward: true });
 }
 
+function currentCompanionOverlayMode() {
+  return selectCompanionOverlayMode({
+    activity: companionState === 'idle' ? null : companionState,
+    guidance: activeCompanionGuidance,
+    interaction: activeCompanionInteraction,
+    response: activeCompanionResponse,
+  });
+}
+
+function showCompanionResponseCard(
+  response: CompanionResponseCard | null = companionResponseController.current,
+): boolean {
+  if (!auxiliaryWindowsEnabled || !response) return false;
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) createGuidanceWindow();
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) return false;
+
+  const target = getCurrentCompanionScreenPosition();
+  const display = screen.getDisplayNearestPoint(target);
+  const position = placeGuidanceCallout(
+    target,
+    display.workArea,
+    RESPONSE_CALLOUT_SIZE,
+    COMPANION_SIZE,
+  );
+  activeCompanionResponse = CompanionResponseCardSchema.parse({
+    ...response,
+    side: position.x < target.x ? 'left' : 'right',
+  });
+  sendCompanionResponse();
+
+  if (currentCompanionOverlayMode() !== 'response') return true;
+  hideGuidanceTargetMarker();
+  guidanceWindow.setBounds({ ...position, ...RESPONSE_CALLOUT_SIZE }, false);
+  setGuidanceWindowInteractive(response.phase === 'completed');
+  if (response.phase === 'completed') {
+    activateGlobalCompanionResponseShortcuts(activeCompanionResponse);
+  } else {
+    globalNumberedChoiceShortcuts?.deactivate();
+  }
+  guidanceWindow.showInactive();
+  return true;
+}
+
+function latestTaskAnswer(task: TaskSnapshot): string | null {
+  for (let index = task.messages.length - 1; index >= 0; index -= 1) {
+    const message = task.messages[index];
+    if (message?.role === 'assistant' && message.kind === 'answer') {
+      const answer = message.text.trim();
+      return answer ? answer.slice(0, 240) : null;
+    }
+  }
+  return null;
+}
+
+function showWalkthroughRecap(task: TaskSnapshot): boolean {
+  const message = latestTaskAnswer(task);
+  if (
+    !auxiliaryWindowsEnabled ||
+    !message ||
+    activeCompanionInteraction
+  ) {
+    return false;
+  }
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) createGuidanceWindow();
+  if (!guidanceWindow || guidanceWindow.isDestroyed()) return false;
+
+  hideGuidanceTargetMarker();
+  activeCompanionResponse = null;
+  sendCompanionResponse();
+  const target = getCurrentCompanionScreenPosition();
+  const display = screen.getDisplayNearestPoint(target);
+  const position = placeGuidanceCallout(
+    target,
+    display.workArea,
+    GUIDANCE_CALLOUT_SIZE,
+    COMPANION_SIZE,
+  );
+  activeCompanionGuidance = CompanionGuidanceSchema.parse({
+    kind: 'result',
+    message,
+    playback: 'playing',
+    side: position.x < target.x ? 'left' : 'right',
+  });
+  globalNumberedChoiceShortcuts?.deactivate();
+  guidanceWindow.setBounds({ ...position, ...GUIDANCE_CALLOUT_SIZE }, false);
+  setGuidanceWindowInteractive(false);
+  sendCompanionGuidance();
+  guidanceWindow.showInactive();
+  return true;
+}
+
+function clearCompanionResponse(): void {
+  const response = companionResponseController.current;
+  if (response) {
+    companionResponseController.dismiss(response.cardId, response.taskId);
+  }
+  activeCompanionResponse = null;
+  sendCompanionResponse();
+  if (
+    !activeCompanionInteraction &&
+    !activeCompanionGuidance &&
+    guidanceWindow &&
+    !guidanceWindow.isDestroyed()
+  ) {
+    globalNumberedChoiceShortcuts?.deactivate();
+    setGuidanceWindowInteractive(false);
+    guidanceWindow.hide();
+  }
+}
+
+function syncCompanionResponse(
+  response: CompanionResponseCard | null,
+): void {
+  if (response) {
+    showCompanionResponseCard(response);
+    return;
+  }
+  activeCompanionResponse = null;
+  sendCompanionResponse();
+  if (
+    !activeCompanionInteraction &&
+    !activeCompanionGuidance &&
+    guidanceWindow &&
+    !guidanceWindow.isDestroyed()
+  ) {
+    globalNumberedChoiceShortcuts?.deactivate();
+    setGuidanceWindowInteractive(false);
+    guidanceWindow.hide();
+  }
+}
+
 function clearCompanionInteraction(taskId?: string): void {
   if (
     !activeCompanionInteraction ||
@@ -510,8 +698,14 @@ function clearCompanionInteraction(taskId?: string): void {
   activeCompanionInteraction = null;
   sendCompanionInteraction();
   stopGuidanceSpeech();
-  setGuidanceWindowInteractive(false);
-  if (!activeCompanionGuidance && guidanceWindow && !guidanceWindow.isDestroyed()) {
+  if (activeCompanionGuidance) {
+    globalNumberedChoiceShortcuts?.deactivate();
+    setGuidanceWindowInteractive(false);
+  } else if (activeCompanionResponse) {
+    showCompanionResponseCard(activeCompanionResponse);
+  } else if (guidanceWindow && !guidanceWindow.isDestroyed()) {
+    globalNumberedChoiceShortcuts?.deactivate();
+    setGuidanceWindowInteractive(false);
     guidanceWindow.hide();
   }
 }
@@ -520,6 +714,7 @@ function showCompanionInteraction(interaction: PendingInteraction): void {
   if (!auxiliaryWindowsEnabled) return;
   if (activeCompanionInteraction?.id === interaction.id) return;
 
+  cancelBackgroundCompletionPresentation();
   dismissCompanionGuidance();
   if (!guidanceWindow || guidanceWindow.isDestroyed()) createGuidanceWindow();
   if (!guidanceWindow || guidanceWindow.isDestroyed()) {
@@ -551,19 +746,23 @@ function showCompanionInteraction(interaction: PendingInteraction): void {
   }
   guidanceWindow.setBounds({ ...position, ...size }, false);
   setGuidanceWindowInteractive(true);
+  activateGlobalCompanionInteractionShortcuts(activeCompanionInteraction);
   sendCompanionInteraction();
   guidanceWindow.showInactive();
 }
 
 function hideGuidanceCallout(): void {
-  if (!activeCompanionInteraction) stopGuidanceSpeech();
+  const hadGuidance = Boolean(activeCompanionGuidance);
+  if (hadGuidance) hideGuidanceTargetMarker();
+  if (!activeCompanionInteraction && hadGuidance) stopGuidanceSpeech();
   activeCompanionGuidance = null;
   sendCompanionGuidance();
-  if (
-    !activeCompanionInteraction &&
-    guidanceWindow &&
-    !guidanceWindow.isDestroyed()
-  ) {
+  if (activeCompanionInteraction) return;
+  if (activeCompanionResponse) {
+    showCompanionResponseCard(activeCompanionResponse);
+  } else if (guidanceWindow && !guidanceWindow.isDestroyed()) {
+    globalNumberedChoiceShortcuts?.deactivate();
+    setGuidanceWindowInteractive(false);
     guidanceWindow.hide();
   }
 }
@@ -621,35 +820,7 @@ function showGuidanceCallout(
       ? { target: presentation.target.slice(0, 80) }
       : {}),
   });
-  guidanceWindow.setBounds({ ...position, ...GUIDANCE_CALLOUT_SIZE }, false);
-  setGuidanceWindowInteractive(false);
-  sendCompanionGuidance();
-  guidanceWindow.showInactive();
-  return true;
-}
-
-function showBackgroundCompletionCallout(message: string): boolean {
-  if (!auxiliaryWindowsEnabled) return false;
-  if (!guidanceWindow || guidanceWindow.isDestroyed()) {
-    createGuidanceWindow();
-  }
-  if (!guidanceWindow || guidanceWindow.isDestroyed()) return false;
-
-  const target = getCurrentCompanionScreenPosition();
-  const display = screen.getDisplayNearestPoint(target);
-  const position = placeGuidanceCallout(
-    target,
-    display.workArea,
-    GUIDANCE_CALLOUT_SIZE,
-    COMPANION_SIZE,
-  );
-  activeCompanionGuidance = CompanionGuidanceSchema.parse({
-    kind: 'result',
-    message,
-    playback: 'playing',
-    side: position.x < target.x ? 'left' : 'right',
-    target: 'Outcome reached',
-  });
+  globalNumberedChoiceShortcuts?.deactivate();
   guidanceWindow.setBounds({ ...position, ...GUIDANCE_CALLOUT_SIZE }, false);
   setGuidanceWindowInteractive(false);
   sendCompanionGuidance();
@@ -697,6 +868,7 @@ async function presentCompanionAction(
   presentation?: DesktopPresentation,
 ): Promise<GuidancePresentationHandle | void> {
   const isGuidancePoint = command.kind === 'point';
+  if (isGuidancePoint) hideGuidanceTargetMarker();
   const previousCompanionState = companionState;
   const to = companionTargetForCommand(command, presentation);
   if (!to || !companionWindow || companionWindow.isDestroyed()) {
@@ -762,6 +934,14 @@ function showGuidancePresentation(
       presentation,
     );
     if (shown) {
+      const markerShown = showGuidanceTargetMarker(
+        presentation.screenPoint ?? { x: command.x, y: command.y },
+        presentation.screenRegion,
+      );
+      if (!markerShown) {
+        hideGuidanceCallout();
+        return undefined;
+      }
       return companionNarrationService.begin(
         presentation.message,
         signal,
@@ -787,6 +967,7 @@ function enableAuthenticatedAuxiliaryWindows(): void {
   auxiliaryWindowsEnabled = true;
   createCompanionWindow();
   createGuidanceWindow();
+  createGuidanceTargetWindow();
   createVoiceIslandWindow();
   ensureGlobalVoiceShortcut();
 }
@@ -800,17 +981,22 @@ function disableAuthenticatedAuxiliaryWindows(): void {
   guidancePlaybackPaused = false;
   clearCompanionInteraction();
   dismissCompanionGuidance();
+  clearCompanionResponse();
   stopGuidanceSpeech();
   stopCompanionFollowing();
   unregisterGlobalVoiceShortcut?.();
   unregisterGlobalVoiceShortcut = null;
   globalGuidanceShortcuts?.deactivate();
+  globalNumberedChoiceShortcuts?.deactivate();
 
   if (companionWindow && !companionWindow.isDestroyed()) {
     companionWindow.destroy();
   }
   if (guidanceWindow && !guidanceWindow.isDestroyed()) {
     guidanceWindow.destroy();
+  }
+  if (guidanceTargetWindow && !guidanceTargetWindow.isDestroyed()) {
+    guidanceTargetWindow.destroy();
   }
   if (voiceIslandWindow && !voiceIslandWindow.isDestroyed()) {
     voiceIslandWindow.destroy();
@@ -836,6 +1022,8 @@ function prepareApplicationShutdown(): Promise<void> {
   unregisterGlobalVoiceShortcut = null;
   globalGuidanceShortcuts?.dispose();
   globalGuidanceShortcuts = null;
+  globalNumberedChoiceShortcuts?.dispose();
+  globalNumberedChoiceShortcuts = null;
   companionNarrationService.shutdown();
   protocol.unhandle(TROCODE_AUDIO_SCHEME);
   backgroundTray?.destroy();
@@ -845,11 +1033,13 @@ function prepareApplicationShutdown(): Promise<void> {
   unregisterIpcHandlers = null;
   taskRuntime.off('task-update', trackTaskAnalytics);
   agentActivityService.off('activity', trackAgentActivityAnalytics);
+  agentActivityService.off('activity', coordinateCompanionResponseActivity);
   taskRuntime.off('task-update', coordinateTaskPresentation);
 
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
   if (companionWindow && !companionWindow.isDestroyed()) companionWindow.hide();
   if (guidanceWindow && !guidanceWindow.isDestroyed()) guidanceWindow.hide();
+  hideGuidanceTargetMarker();
   if (voiceIslandWindow && !voiceIslandWindow.isDestroyed()) {
     voiceIslandWindow.hide();
   }
@@ -903,10 +1093,41 @@ function trackAgentActivityAnalytics(value: unknown): void {
   void analyticsService?.trackAgentActivity(value);
 }
 
+function coordinateCompanionResponseActivity(value: unknown): void {
+  const activity = AgentActivityUpdateSchema.parse(value);
+  if (activity.kind === 'run_started') {
+    cancelBackgroundCompletionPresentation();
+    if (activeCompanionGuidance?.kind === 'result') {
+      dismissCompanionGuidance();
+    }
+    syncCompanionResponse(
+      companionResponseController.startRun(activity.taskId),
+    );
+    return;
+  }
+  if (activity.kind === 'text_delta' && activity.textDelta) {
+    syncCompanionResponse(
+      companionResponseController.appendTextDelta(
+        activity.taskId,
+        activity.textDelta,
+      ),
+    );
+    return;
+  }
+  if (activity.kind === 'run_failed') {
+    syncCompanionResponse(
+      companionResponseController.failRun(activity.taskId),
+    );
+  }
+}
+
 function coordinateTaskPresentation(value: unknown): void {
   const update = TaskUpdateSchema.parse(value);
   if (!knownPresentationTaskIds.has(update.snapshot.taskId)) {
     cancelBackgroundCompletionPresentation();
+    syncCompanionResponse(
+      companionResponseController.startRun(update.snapshot.taskId),
+    );
     knownPresentationTaskIds.add(update.snapshot.taskId);
     while (knownPresentationTaskIds.size > MAX_TRACKED_PRESENTATION_TASKS) {
       const oldestTaskId = knownPresentationTaskIds.values().next().value as
@@ -928,6 +1149,22 @@ function coordinateTaskPresentation(value: unknown): void {
     }
   }
 
+  if (update.snapshot.phase === 'completed') {
+    syncCompanionResponse(
+      requestsGuidedWalkthrough(update.snapshot.request)
+        ? companionResponseController.cancelRun(update.snapshot.taskId)
+        : companionResponseController.complete(update.snapshot),
+    );
+  } else if (update.snapshot.phase === 'failed') {
+    syncCompanionResponse(
+      companionResponseController.failRun(update.snapshot.taskId),
+    );
+  } else if (update.snapshot.phase === 'cancelled') {
+    syncCompanionResponse(
+      companionResponseController.cancelRun(update.snapshot.taskId),
+    );
+  }
+
   presentationCoordinator.handleTaskUpdate(update);
 }
 
@@ -943,70 +1180,144 @@ function shouldUseBackgroundCompanion(task: TaskSnapshot): boolean {
   );
 }
 
-function presentBackgroundCompletion(task: TaskSnapshot): void {
-  const response = [...task.messages]
-    .reverse()
-    .find(
-      (message) => message.role === 'assistant' && message.kind === 'answer',
-    )?.text;
-  const narration = response?.trim() || task.lastEvent?.summary.trim();
-  if (!narration) return;
-
-  const chunks = splitSpeechText(narration);
-  const visibleMessage = chunks[0];
+function presentCompanionResponse(
+  task: TaskSnapshot,
+  options: CompanionResponsePresentationOptions,
+): boolean {
   cancelBackgroundCompletionPresentation();
-  if (!visibleMessage || !showBackgroundCompletionCallout(visibleMessage)) {
-    return;
-  }
-  const controller = new AbortController();
-  backgroundCompletionNarration = controller;
-  void narrateBackgroundCompletion(chunks, task.taskId, controller);
-}
+  if (options.surface === 'walkthrough_recap') {
+    const narration = latestTaskAnswer(task);
+    if (!narration) return false;
+    const recapVisible = showWalkthroughRecap(task);
+    if (!options.narrate) return recapVisible;
 
-async function narrateBackgroundCompletion(
-  chunks: string[],
-  taskId: string,
-  controller: AbortController,
-): Promise<void> {
-  try {
-    for (const chunk of chunks) {
-      if (controller.signal.aborted) return;
-      updateBackgroundCompletionCallout(chunk);
-      const handle = companionNarrationService.begin(
-        chunk,
-        controller.signal,
-        taskId,
-      );
-      const outcome = await handle.completion;
-      if (outcome.phase !== 'ended') return;
-    }
-  } catch (error) {
-    if (!controller.signal.aborted) {
+    const started = startCompletionNarration({
+      mode: options.mode,
+      narration,
+      narrationService: companionNarrationService,
+      onError: (error) => {
+        console.warn('[voice:tts] walkthrough recap narration failed', {
+          reason: error instanceof Error ? error.message : String(error),
+          taskId: task.taskId,
+        });
+      },
+      ...(options.onFailure ? { onFailure: options.onFailure } : {}),
+      showCallout: () => showWalkthroughRecap(task),
+      taskId: task.taskId,
+    });
+    if (!started) return recapVisible;
+
+    backgroundCompletionNarration = started.controller;
+    void started.completion.finally(() => {
+      if (backgroundCompletionNarration === started.controller) {
+        backgroundCompletionNarration = null;
+      }
+    });
+    return recapVisible;
+  }
+
+  const response = companionResponseController.complete(task);
+  if (!response) return false;
+  const responseVisible = showCompanionResponseCard(response);
+  if (!options.narrate) return responseVisible;
+
+  const started = startCompletionNarration({
+    mode: options.mode,
+    narration: response.message,
+    narrationService: companionNarrationService,
+    onError: (error) => {
       console.warn('[voice:tts] completion narration failed', {
         reason: error instanceof Error ? error.message : String(error),
-        taskId,
+        taskId: task.taskId,
       });
-    }
-  } finally {
-    if (backgroundCompletionNarration === controller) {
+    },
+    ...(options.onFailure ? { onFailure: options.onFailure } : {}),
+    showCallout: () => showCompanionResponseCard(response),
+    taskId: task.taskId,
+  });
+  if (!started) return responseVisible;
+
+  backgroundCompletionNarration = started.controller;
+  void started.completion.finally(() => {
+    if (backgroundCompletionNarration === started.controller) {
       backgroundCompletionNarration = null;
     }
-  }
-}
-
-function updateBackgroundCompletionCallout(message: string): void {
-  if (activeCompanionGuidance?.kind !== 'result') return;
-  activeCompanionGuidance = CompanionGuidanceSchema.parse({
-    ...activeCompanionGuidance,
-    message,
   });
-  sendCompanionGuidance();
+  return responseVisible;
 }
 
 function cancelBackgroundCompletionPresentation(): void {
   backgroundCompletionNarration?.abort();
   backgroundCompletionNarration = null;
-  if (activeCompanionGuidance?.kind === 'result') hideGuidanceCallout();
+}
+
+function narrateCompanionResponse(response: CompanionResponseCard): boolean {
+  cancelBackgroundCompletionPresentation();
+  const started = startCompletionNarration({
+    mode: 'foreground',
+    narration: response.message,
+    narrationService: companionNarrationService,
+    onError: (error) => {
+      console.warn('[voice:tts] response narration failed', {
+        reason: error instanceof Error ? error.message : String(error),
+        taskId: response.taskId,
+      });
+    },
+    showCallout: () => showCompanionResponseCard(response),
+    taskId: response.taskId,
+  });
+  if (!started) return false;
+  backgroundCompletionNarration = started.controller;
+  void started.completion.finally(() => {
+    if (backgroundCompletionNarration === started.controller) {
+      backgroundCompletionNarration = null;
+    }
+  });
+  return true;
+}
+
+function handleCompanionResponseAction(
+  request: CompanionResponseActionRequest,
+): void {
+  const response = companionResponseController.current;
+  if (
+    !response ||
+    response.cardId !== request.cardId ||
+    response.taskId !== request.taskId
+  ) {
+    throw new Error('That companion response is no longer active.');
+  }
+  globalNumberedChoiceShortcuts?.deactivate(
+    companionResponseShortcutScope(response),
+  );
+
+  switch (request.action) {
+    case 'dismiss':
+      cancelBackgroundCompletionPresentation();
+      syncCompanionResponse(
+        companionResponseController.dismiss(request.cardId, request.taskId),
+      );
+      return;
+    case 'open_task':
+      if (mainWindow && !mainWindow.isDestroyed()) revealWindow(mainWindow);
+      return;
+    case 'ask_follow_up':
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        revealWindow(mainWindow);
+        mainWindow.webContents.send(
+          IPC_CHANNELS.taskComposerFocusRequested,
+          response.taskId,
+        );
+      }
+      return;
+    case 'read_aloud':
+      if (response.phase !== 'completed' || !narrateCompanionResponse(response)) {
+        throw new Error('That response is not ready to read aloud.');
+      }
+      return;
+    case 'stop_reading':
+      cancelBackgroundCompletionPresentation();
+  }
 }
 
 function configureMicrophonePermissions(trustedWindow: BrowserWindow): void {
@@ -1097,6 +1408,117 @@ function ensureGlobalGuidanceShortcuts(): GlobalGuidanceShortcuts {
     registry: globalShortcut,
   });
   return globalGuidanceShortcuts;
+}
+
+function companionInteractionShortcutScope(
+  interaction: CompanionInteraction,
+): string {
+  return `interaction:${interaction.taskId}:${interaction.id}`;
+}
+
+function companionResponseShortcutScope(response: CompanionResponseCard): string {
+  return `response:${response.taskId}:${response.cardId}`;
+}
+
+function handleGlobalNumberedCompanionSelection(
+  scopeId: string,
+  selection: number,
+): void {
+  const interaction = activeCompanionInteraction;
+  if (
+    interaction?.kind === 'clarification' &&
+    companionInteractionShortcutScope(interaction) === scopeId
+  ) {
+    const choice = interaction.choices?.[selection - 1];
+    if (!choice) return;
+    taskApplicationService.respond({
+      interactionId: interaction.id,
+      kind: 'answer',
+      taskId: interaction.taskId,
+      text: choice.label,
+    });
+    return;
+  }
+
+  const response = activeCompanionResponse;
+  if (
+    response?.phase !== 'completed' ||
+    companionResponseShortcutScope(response) !== scopeId
+  ) {
+    return;
+  }
+  const action = (
+    [
+      'dismiss',
+      'open_task',
+      'ask_follow_up',
+      activeCompanionSpeech ? 'stop_reading' : 'read_aloud',
+    ] as const
+  )[selection - 1];
+  if (!action) return;
+  handleCompanionResponseAction({
+    action,
+    cardId: response.cardId,
+    taskId: response.taskId,
+  });
+}
+
+function ensureGlobalNumberedChoiceShortcuts(): GlobalNumberedChoiceShortcuts {
+  globalNumberedChoiceShortcuts ??= registerGlobalNumberedChoiceShortcuts({
+    registry: globalShortcut,
+    select: handleGlobalNumberedCompanionSelection,
+  });
+  return globalNumberedChoiceShortcuts;
+}
+
+function activateGlobalCompanionResponseShortcuts(
+  response: CompanionResponseCard,
+): void {
+  if (
+    !auxiliaryWindowsEnabled ||
+    response.phase !== 'completed' ||
+    guidanceWindow?.isFocused()
+  ) {
+    globalNumberedChoiceShortcuts?.deactivate();
+    return;
+  }
+  ensureGlobalNumberedChoiceShortcuts().activate(
+    companionResponseShortcutScope(response),
+    4,
+  );
+}
+
+function activateGlobalCompanionInteractionShortcuts(
+  interaction: CompanionInteraction,
+): void {
+  if (
+    !auxiliaryWindowsEnabled ||
+    interaction.kind !== 'clarification' ||
+    !interaction.choices?.length ||
+    guidanceWindow?.isFocused()
+  ) {
+    globalNumberedChoiceShortcuts?.deactivate();
+    return;
+  }
+  ensureGlobalNumberedChoiceShortcuts().activate(
+    companionInteractionShortcutScope(interaction),
+    interaction.choices.length,
+  );
+}
+
+function syncGlobalNumberedChoiceShortcuts(): void {
+  if (activeCompanionInteraction) {
+    activateGlobalCompanionInteractionShortcuts(activeCompanionInteraction);
+    return;
+  }
+  if (
+    activeCompanionResponse &&
+    currentCompanionOverlayMode() === 'response'
+  ) {
+    activateGlobalCompanionResponseShortcuts(activeCompanionResponse);
+    return;
+  }
+  globalNumberedChoiceShortcuts?.deactivate();
 }
 
 function activateGlobalGuidanceShortcuts(
@@ -1199,6 +1621,7 @@ const createWindow = (): void => {
     cuaService,
     executionCoordinator,
     getCompanionInteractionWindow: () => guidanceWindow,
+    handleCompanionResponseAction,
     membershipService,
     onAuthSignedIn: async (user) => {
       await identifyAnalyticsUser(user);
@@ -1502,6 +1925,49 @@ const createVoiceIslandWindow = (): void => {
   void voiceIslandWindow.loadURL(voiceIslandUrl.toString());
 };
 
+const createGuidanceTargetWindow = (): void => {
+  if (!auxiliaryWindowsEnabled) return;
+  if (guidanceTargetWindow && !guidanceTargetWindow.isDestroyed()) return;
+
+  guidanceTargetWindow = new BrowserWindow({
+    alwaysOnTop: true,
+    backgroundColor: '#00000000',
+    focusable: false,
+    frame: false,
+    hasShadow: false,
+    height: GUIDANCE_TARGET_MARKER_SIZE.height,
+    resizable: false,
+    show: false,
+    skipTaskbar: true,
+    transparent: true,
+    width: GUIDANCE_TARGET_MARKER_SIZE.width,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+    },
+  });
+
+  guidanceTargetWindow.setIgnoreMouseEvents(true, { forward: true });
+  guidanceTargetWindow.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+  });
+  guidanceTargetWindow.webContents.setWindowOpenHandler(() => ({
+    action: 'deny',
+  }));
+  guidanceTargetWindow.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+  guidanceTargetWindow.on('closed', () => {
+    guidanceTargetWindow = null;
+  });
+
+  const markerUrl = new URL(MAIN_WINDOW_WEBPACK_ENTRY);
+  markerUrl.searchParams.set('mode', 'target-marker');
+  void guidanceTargetWindow.loadURL(markerUrl.toString());
+};
+
 const createGuidanceWindow = (): void => {
   if (!auxiliaryWindowsEnabled) return;
   if (guidanceWindow && !guidanceWindow.isDestroyed()) return;
@@ -1534,17 +2000,29 @@ const createGuidanceWindow = (): void => {
   guidanceWindow.webContents.on('did-finish-load', () => {
     sendCompanionGuidance();
     sendCompanionInteraction();
+    sendCompanionResponse();
     sendCompanionSpeech();
   });
   guidanceWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault();
   });
+  guidanceWindow.on('focus', () => {
+    globalNumberedChoiceShortcuts?.deactivate();
+  });
+  guidanceWindow.on('blur', syncGlobalNumberedChoiceShortcuts);
   guidanceWindow.on('closed', () => {
     const unresolvedInteraction = activeCompanionInteraction;
+    globalNumberedChoiceShortcuts?.deactivate();
     companionNarrationService.cancelCurrent();
+    hideGuidanceTargetMarker();
+    const response = companionResponseController.current;
+    if (response) {
+      companionResponseController.dismiss(response.cardId, response.taskId);
+    }
     guidanceWindow = null;
     activeCompanionGuidance = null;
     activeCompanionInteraction = null;
+    activeCompanionResponse = null;
     activeCompanionSpeech = null;
     if (
       auxiliaryWindowsEnabled &&
@@ -1584,6 +2062,7 @@ if (hasSingleInstanceLock) {
     });
     taskRuntime.on('task-update', trackTaskAnalytics);
     agentActivityService.on('activity', trackAgentActivityAnalytics);
+    agentActivityService.on('activity', coordinateCompanionResponseActivity);
     taskRuntime.on('task-update', coordinateTaskPresentation);
 
     await Promise.all([

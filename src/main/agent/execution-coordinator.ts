@@ -19,6 +19,7 @@ import {
 } from './agent-runtime-factory';
 import { decideCompletionReview } from './completion-policy';
 import {
+  mapScreenshotRegionToDesktop,
   mapScreenshotPointToDesktop,
   type DesktopCommand,
   type DesktopObservation,
@@ -38,6 +39,16 @@ import { taskMaxModelSamples, taskMaxToolCalls } from './task-contract';
 import { TaskInteractionBroker } from './task-interaction-broker';
 import type { TaskRuntime } from './task-runtime';
 import { ToolExecutionBroker } from './tool-execution-broker';
+import {
+  advanceWalkthrough,
+  createWalkthroughState,
+  evaluateWalkthroughTool,
+  parseWalkthroughCompletion,
+  WALKTHROUGH_COMPLETION_INSTRUCTION,
+  WALKTHROUGH_RECOVERY_INSTRUCTION,
+  walkthroughModelInstruction,
+  type WalkthroughState,
+} from './walkthrough-policy';
 
 interface ExecutionCoordinatorOptions {
   agent?: AgentRuntime;
@@ -52,6 +63,7 @@ interface ExecutionCoordinatorOptions {
   >;
   dismissPresentation?: () => void;
   guidanceAutoAdvanceMs?: number;
+  observationTimeoutMs?: number;
   onGuidanceWaitEnd?: (taskId: string) => void;
   onGuidanceWaitStart?: (
     taskId: string,
@@ -82,6 +94,7 @@ type DesktopObservationCleanup = () => Promise<void> | void;
 export interface DesktopPresentation {
   message?: string;
   screenPoint?: { x: number; y: number };
+  screenRegion?: { height: number; width: number; x: number; y: number };
   shortcuts?: CompanionGuidance['shortcuts'];
   taskId?: string;
   target?: string;
@@ -123,6 +136,7 @@ interface ExecutionContext {
   resolvedToolCalls: number;
   modelSamples: number;
   running?: Promise<void>;
+  walkthrough: WalkthroughState;
 }
 
 const TERMINAL_PHASES: ReadonlySet<TaskSnapshot['phase']> = new Set([
@@ -130,6 +144,7 @@ const TERMINAL_PHASES: ReadonlySet<TaskSnapshot['phase']> = new Set([
   'failed',
   'cancelled',
 ]);
+const DEFAULT_OBSERVATION_TIMEOUT_MS = 15_000;
 
 function approvalConsequence(action: ProposedAction): string {
   const declaredConsequence = action.parameters?.declaredConsequence;
@@ -182,6 +197,49 @@ function executionStoppedError(): Error {
   const error = new Error('Task execution stopped at a host boundary.');
   error.name = 'AbortError';
   return error;
+}
+
+async function runWithOperationTimeout<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  parentSignal: AbortSignal,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  if (parentSignal.aborted) throw executionStoppedError();
+  const controller = new AbortController();
+  let rejectForParentAbort: (error: Error) => void = () => undefined;
+  const parentAbort = new Promise<never>((_resolve, reject) => {
+    rejectForParentAbort = reject;
+  });
+  const handleParentAbort = (): void => {
+    controller.abort(parentSignal.reason);
+    rejectForParentAbort(executionStoppedError());
+  };
+  parentSignal.addEventListener('abort', handleParentAbort, { once: true });
+  const timeout = new Promise<never>((_resolve, reject) => {
+    const timer = setTimeout(() => {
+      const error = new Error(`${label} timed out after ${timeoutMs} ms.`);
+      error.name = 'OperationTimeoutError';
+      reject(error);
+      controller.abort(error);
+    }, timeoutMs);
+    controller.signal.addEventListener(
+      'abort',
+      () => clearTimeout(timer),
+      { once: true },
+    );
+  });
+
+  try {
+    return await Promise.race([
+      operation(controller.signal),
+      timeout,
+      parentAbort,
+    ]);
+  } finally {
+    parentSignal.removeEventListener('abort', handleParentAbort);
+    if (!controller.signal.aborted) controller.abort();
+  }
 }
 
 function toolIdentity(invocation: ResolvedToolInvocation): {
@@ -266,6 +324,20 @@ function resultOutput(
   };
 }
 
+function outputStatus(output: AgentToolOutput['output']): string | undefined {
+  const text =
+    typeof output === 'string'
+      ? output
+      : output.find((item) => item.type === 'input_text')?.text;
+  if (!text) return undefined;
+  try {
+    const parsed = JSON.parse(text) as { status?: unknown };
+    return typeof parsed.status === 'string' ? parsed.status : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function presentationFor(
   invocation: ResolvedToolInvocation,
   observation: DesktopObservation | undefined,
@@ -299,6 +371,14 @@ function presentationFor(
           command,
           observation?.coordinateSpace,
         ),
+        ...(input.region
+          ? {
+              screenRegion: mapScreenshotRegionToDesktop(
+                input.region,
+                observation?.coordinateSpace,
+              ),
+            }
+          : {}),
         ...(input.target ? { target: input.target } : {}),
       },
     };
@@ -320,6 +400,8 @@ export class TaskExecutionCoordinator {
   private readonly onGuidancePlaybackChange: NonNullable<
     ExecutionCoordinatorOptions['onGuidancePlaybackChange']
   >;
+
+  private readonly observationTimeoutMs: number;
 
   private readonly onActivity: NonNullable<ExecutionCoordinatorOptions['onActivity']>;
 
@@ -360,6 +442,7 @@ export class TaskExecutionCoordinator {
     cua,
     dismissPresentation = () => undefined,
     guidanceAutoAdvanceMs,
+    observationTimeoutMs = DEFAULT_OBSERVATION_TIMEOUT_MS,
     onGuidancePlaybackChange = () => undefined,
     onActivity = () => undefined,
     onGuidanceWaitEnd = () => undefined,
@@ -383,6 +466,7 @@ export class TaskExecutionCoordinator {
     this.cua = cua;
     this.dismissPresentation = dismissPresentation;
     this.guidanceAutoAdvanceMs = guidanceAutoAdvanceMs;
+    this.observationTimeoutMs = observationTimeoutMs;
     this.onGuidancePlaybackChange = onGuidancePlaybackChange;
     this.onActivity = onActivity;
     this.onGuidanceWaitEnd = onGuidanceWaitEnd;
@@ -528,6 +612,9 @@ export class TaskExecutionCoordinator {
   private contextFor(taskId: string): ExecutionContext {
     const existing = this.contexts.get(taskId);
     if (existing) return existing;
+    const walkthrough = createWalkthroughState(
+      this.runtime.getSnapshot(taskId).request,
+    );
     const context: ExecutionContext = {
       approvalPreviews: new Map(),
       completionReviewRequested: false,
@@ -537,10 +624,13 @@ export class TaskExecutionCoordinator {
       guidanceCursor: -1,
       guidanceHistory: [],
       imagesCaptured: 0,
-      playback: new GuidancePlaybackController(this.guidanceAutoAdvanceMs),
+      playback: new GuidancePlaybackController(this.guidanceAutoAdvanceMs, {
+        autoAdvance: !walkthrough.enabled,
+      }),
       resolvedToolCalls: 0,
       modelSamples: 0,
       pendingInteraction: false,
+      walkthrough,
     };
     this.contexts.set(taskId, context);
     return context;
@@ -625,9 +715,15 @@ export class TaskExecutionCoordinator {
       }
       this.runtime.recordModelSampling(taskId);
       context.modelSamples += 1;
-      return this.runtime
+      const steering = this.runtime
         .takeSteering(taskId)
         .map((steering) => steering.instruction);
+      const walkthroughInstruction = walkthroughModelInstruction(
+        context.walkthrough,
+      );
+      return walkthroughInstruction
+        ? [walkthroughInstruction, ...steering]
+        : steering;
     };
 
     const executeTool = async (
@@ -635,6 +731,20 @@ export class TaskExecutionCoordinator {
     ): Promise<AgentToolOutput['output']> => {
       const current = this.runtime.getSnapshot(taskId);
       if (!current.goal) throw new Error('Task has no agent contract.');
+      const walkthroughDecision = evaluateWalkthroughTool(
+        context.walkthrough,
+        call.name,
+      );
+      if (!walkthroughDecision.allowed) {
+        this.runtime.resumePlanning(
+          taskId,
+          'Rejected a tool call that skipped the walkthrough sequence.',
+        );
+        return JSON.stringify({
+          status: 'not_executed',
+          summary: walkthroughDecision.summary,
+        });
+      }
       let invocation: ResolvedToolInvocation;
       let decision: ReturnType<typeof evaluateAction>;
       try {
@@ -676,6 +786,12 @@ export class TaskExecutionCoordinator {
         invocation,
         decision,
       );
+      if (outputStatus(output) === 'confirmed') {
+        context.walkthrough = advanceWalkthrough(
+          context.walkthrough,
+          call.name,
+        );
+      }
       this.onActivity(taskId, {
         kind: 'tool_completed',
         summary: `${invocation.modelName} finished.`,
@@ -689,14 +805,19 @@ export class TaskExecutionCoordinator {
     ): boolean => {
       const current = this.runtime.getSnapshot(taskId);
       if (!current.goal) throw new Error('Task has no agent contract.');
-      const preview = this.toolExecutionBroker.preview({
-        call,
-        goal: current.goal,
-        latestObservation: context.latestObservation,
-        taskId,
-      });
-      context.approvalPreviews.set(call.callId, preview.invocation);
-      return preview.decision.status === 'needs_approval';
+      try {
+        const preview = this.toolExecutionBroker.preview({
+          call,
+          goal: current.goal,
+          latestObservation: context.latestObservation,
+          taskId,
+        });
+        context.approvalPreviews.set(call.callId, preview.invocation);
+        return preview.decision.status === 'needs_approval';
+      } catch {
+        context.approvalPreviews.delete(call.callId);
+        return false;
+      }
     };
 
     let finalOutput = await agent.runTask({
@@ -723,29 +844,70 @@ export class TaskExecutionCoordinator {
       taskId,
       tools: this.toolRegistry.modelVisibleSpecs(),
     });
-    const reviewDecision = decideCompletionReview({
-      request: snapshot.request,
-      resolvedToolCalls: context.resolvedToolCalls,
-    });
-    if (
-      agent.kind === 'openai_agents' &&
-      !context.completionReviewRequested &&
-      reviewDecision.required
-    ) {
-      context.completionReviewRequested = true;
+    if (context.walkthrough.enabled && context.walkthrough.completedSteps === 0) {
       this.runtime.resumePlanning(
         taskId,
-        'Reviewing the candidate completion against the full request.',
+        'Rejected an upfront answer because this task requires visible guidance.',
       );
       finalOutput = await agent.continueTask(
         taskId,
-        [
-          'Trusted host completion checkpoint: re-read the original request and tool-result history.',
-          'Verify every requested outcome is grounded by available evidence.',
-          'If anything remains, call the next tool. Otherwise return only the final user-facing answer.',
-        ].join('\n'),
+        WALKTHROUGH_RECOVERY_INSTRUCTION,
         signal,
       );
+      if (context.walkthrough.completedSteps === 0) {
+        this.runtime.block(
+          taskId,
+          'TroCode could not start the requested interactive walkthrough.',
+          ['Try again with the target exercise or application visible.'],
+        );
+        return;
+      }
+    }
+    if (context.walkthrough.enabled) {
+      this.runtime.resumePlanning(
+        taskId,
+        'Checking that the interactive walkthrough is actually complete.',
+      );
+      const checkpointOutput = await agent.continueTask(
+        taskId,
+        WALKTHROUGH_COMPLETION_INSTRUCTION,
+        signal,
+      );
+      const recap = parseWalkthroughCompletion(checkpointOutput);
+      if (!recap) {
+        this.runtime.block(
+          taskId,
+          'TroCode could not verify a concise walkthrough completion.',
+          ['Continue the walkthrough or try again with the target still visible.'],
+        );
+        return;
+      }
+      finalOutput = recap;
+    } else {
+      const reviewDecision = decideCompletionReview({
+        request: snapshot.request,
+        resolvedToolCalls: context.resolvedToolCalls,
+      });
+      if (
+        agent.kind === 'openai_agents' &&
+        !context.completionReviewRequested &&
+        reviewDecision.required
+      ) {
+        context.completionReviewRequested = true;
+        this.runtime.resumePlanning(
+          taskId,
+          'Reviewing the candidate completion against the full request.',
+        );
+        finalOutput = await agent.continueTask(
+          taskId,
+          [
+            'Trusted host completion checkpoint: re-read the original request and tool-result history.',
+            'Verify every requested outcome is grounded by available evidence.',
+            'If anything remains, call the next tool. Otherwise return only the final user-facing answer.',
+          ].join('\n'),
+          signal,
+        );
+      }
     }
     const current = this.runtime.getSnapshot(taskId);
     if (!TERMINAL_PHASES.has(current.phase) && current.phase !== 'blocked') {
@@ -1151,11 +1313,24 @@ export class TaskExecutionCoordinator {
           desktopPresentation,
         );
         if (invocation.kind === 'guidance') {
+          if (!handle) {
+            const summary =
+              'The guidance overlay was unavailable, so this walkthrough step was not shown.';
+            this.onGuidanceWaitEnd(taskId);
+            this.dismissPresentation();
+            this.runtime.block(taskId, summary, [
+              'Open TroCode to review the result, then try the walkthrough again.',
+            ]);
+            return resultOutput(invocation.callId, {
+              status: 'not_executed',
+              summary,
+            }).output;
+          }
           guidanceEntry = {
             command: presentation.command,
             presentation: desktopPresentation,
           };
-          context.activeGuidance = handle ?? undefined;
+          context.activeGuidance = handle;
         }
       }
     }
@@ -1298,7 +1473,12 @@ export class TaskExecutionCoordinator {
     const cleanup = await this.prepareDesktop();
     try {
       const observation = this.prepareObservation(
-        await this.cua.observe(taskId, context.controller.signal),
+        await runWithOperationTimeout(
+          (signal) => this.cua.observe(taskId, signal),
+          context.controller.signal,
+          this.observationTimeoutMs,
+          'Desktop observation',
+        ),
       );
       context.imagesCaptured += 1;
       context.latestObservation = observation;

@@ -27,12 +27,18 @@ type FakeAgentTurn =
   | {
       kind: 'tool_call';
       call: { arguments: string; callId: string; name: string };
+    }
+  | {
+      kind: 'approval_probe';
+      call: { arguments: string; callId: string; name: string };
     };
 
 class FakeAgent implements AgentRuntime {
   readonly kind = 'openai_agents' as const;
   readonly completionReviews: string[] = [];
+  readonly continuationInstructions: string[] = [];
   readonly outputs: AgentToolOutput[] = [];
+  readonly approvalPreviewResults: boolean[] = [];
   readonly userMessages: string[] = [];
   readonly start = vi.fn(
     async (_taskId: string, _request: string, _signal?: AbortSignal) => {
@@ -71,11 +77,11 @@ class FakeAgent implements AgentRuntime {
 
   async continueTask(
     taskId: string,
-    _instruction: string,
+    instruction: string,
     _signal?: AbortSignal,
   ): Promise<string> {
-    void _instruction;
     void _signal;
+    this.continuationInstructions.push(instruction);
     this.completionReviews.push(taskId);
     if (!this.active) throw new Error('Fake agent has no active run.');
     return this.runTurns(this.active);
@@ -85,6 +91,11 @@ class FakeAgent implements AgentRuntime {
     this.userMessages.push(...(await input.callbacks.beforeModel()));
     const turn = await this.sample(input.taskId, input.tools, input.signal);
     if (turn.kind === 'assistant_message') return turn.text;
+    if (turn.kind === 'approval_probe') {
+      const needsApproval =
+        (await input.callbacks.needsApproval?.(turn.call)) ?? false;
+      this.approvalPreviewResults.push(needsApproval);
+    }
     const output = await input.callbacks.executeTool(turn.call);
     this.outputs.push({ callId: turn.call.callId, output });
     return this.runTurns(input);
@@ -102,6 +113,17 @@ function tool(
 ): FakeAgentTurn {
   return {
     kind: 'tool_call',
+    call: { callId, name, arguments: JSON.stringify(input) },
+  };
+}
+
+function approvalProbe(
+  callId: string,
+  name: string,
+  input: Record<string, unknown>,
+): FakeAgentTurn {
+  return {
+    kind: 'approval_probe',
     call: { callId, name, arguments: JSON.stringify(input) },
   };
 }
@@ -134,6 +156,7 @@ function setup(
   observations: DesktopObservation[] = [],
   options: {
     guidanceAutoAdvanceMs?: number;
+    observationTimeoutMs?: number;
     presentAction?: (
       command: DesktopCommand,
       signal: AbortSignal,
@@ -145,7 +168,12 @@ function setup(
   const agent = new FakeAgent(turns);
   const cua = {
     startTaskSession: vi.fn(async () => undefined),
-    observe: vi.fn(async () => {
+    observe: vi.fn<
+      (
+        taskId: string,
+        signal?: AbortSignal,
+      ) => Promise<DesktopObservation>
+    >(async () => {
       const next = observations.shift();
       if (!next) throw new Error('No fake observation available.');
       return next;
@@ -184,6 +212,170 @@ function setup(
 }
 
 describe('TaskExecutionCoordinator', () => {
+  it('recovers when SDK approval preview receives an invalid desktop pair', async () => {
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId);
+    const { agent, coordinator, cua, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect the button.' }),
+        approvalProbe('call-invalid-guide-click', 'control_desktop', {
+          observationId,
+          consequence: 'guide',
+          description: 'Invalidly mix guidance with a click.',
+          target: null,
+          sendPayload: null,
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 250,
+            button: 'left',
+            count: 1,
+          },
+        }),
+        assistant('I did not execute the invalid action.'),
+      ],
+      [first],
+    );
+    const ready = runtime.submit({
+      text: 'Handle one malformed proposed action safely.',
+    });
+    first.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(agent.approvalPreviewResults).toEqual([false]);
+    expect(String(agent.outputs.at(-1)?.output)).toContain('not_executed');
+    expect(String(agent.outputs.at(-1)?.output)).toContain(
+      'desktop command and declared consequence do not agree',
+    );
+    expect(cua.executeCommand).not.toHaveBeenCalled();
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'completed',
+      pendingInteraction: null,
+    });
+  });
+
+  it('rejects an upfront answer dump and forces observe then one guided step', async () => {
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId);
+    const presentAction = vi.fn<
+      (
+        command: DesktopCommand,
+        signal: AbortSignal,
+        presentation?: DesktopPresentation,
+      ) => Promise<GuidancePresentationHandle>
+    >(async () => ({
+        cancel: vi.fn(),
+        completion: Promise.resolve(),
+      }));
+    const { agent, coordinator, cua, runtime } = setup(
+      [
+        assistant('Here are all fourteen answers at once.'),
+        tool('call-observe', 'observe_desktop', {
+          reason: 'Inspect the exercise.',
+        }),
+        tool('call-guide', 'show_guidance', {
+          observationId,
+          description: 'Start by identifying the time marker in question one.',
+          target: 'Question one',
+          x: 500,
+          y: 100,
+          region: { x: 300, y: 40, width: 400, height: 120 },
+        }),
+        assistant('WALKTHROUGH_COMPLETE: You completed the guided exercise.'),
+        assistant('WALKTHROUGH_COMPLETE: You completed the guided controls.'),
+      ],
+      [first],
+      { guidanceAutoAdvanceMs: 1, presentAction },
+    );
+    const ready = runtime.submit({
+      text: 'Teach me step by step how to do this exercise.',
+    });
+    first.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledOnce());
+    expect(presentAction.mock.calls[0]?.[2]).toMatchObject({
+      screenPoint: { x: 500, y: 50 },
+      screenRegion: { x: 300, y: 20, width: 400, height: 60 },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(agent.sample).toHaveBeenCalledTimes(3);
+    expect(cua.observe).toHaveBeenCalledOnce();
+    expect(runtime.getSnapshot(ready.taskId).phase).not.toBe('completed');
+
+    coordinator.nextGuidance(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
+
+    const snapshot = runtime.getSnapshot(ready.taskId);
+    expect(agent.continuationInstructions[0]).toContain(
+      'upfront text response was rejected',
+    );
+    expect(snapshot.phase).toBe('completed');
+    expect(snapshot.messages.some((message) =>
+      message.text.includes('all fourteen answers'),
+    )).toBe(false);
+  });
+
+  it('requires a new desktop observation before a second guided step', async () => {
+    const firstObservationId = randomUUID();
+    const secondObservationId = randomUUID();
+    const first = observation(randomUUID(), firstObservationId);
+    const second = observation(randomUUID(), secondObservationId);
+    const presentAction = vi.fn(async () => ({
+      cancel: vi.fn(),
+      completion: Promise.resolve(),
+    }));
+    const { agent, coordinator, runtime } = setup(
+      [
+        tool('call-observe-1', 'observe_desktop', { reason: 'Inspect step one.' }),
+        tool('call-guide-1', 'show_guidance', {
+          observationId: firstObservationId,
+          description: 'Use this first control.',
+          target: 'First control',
+          x: 400,
+          y: 100,
+        }),
+        tool('call-guide-stale', 'show_guidance', {
+          observationId: firstObservationId,
+          description: 'Try to show another target without observing.',
+          target: 'Stale target',
+          x: 500,
+          y: 200,
+        }),
+        tool('call-observe-2', 'observe_desktop', { reason: 'Inspect step two.' }),
+        tool('call-guide-2', 'show_guidance', {
+          observationId: secondObservationId,
+          description: 'Now use this second control.',
+          target: 'Second control',
+          x: 600,
+          y: 200,
+        }),
+        assistant('The walkthrough is complete.'),
+        assistant('WALKTHROUGH_COMPLETE: You completed the guided controls.'),
+      ],
+      [first, second],
+      { presentAction },
+    );
+    const ready = runtime.submit({ text: 'Walk me through these controls.' });
+    first.taskId = ready.taskId;
+    second.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledOnce());
+    coordinator.nextGuidance(ready.taskId);
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(2));
+
+    expect(String(agent.outputs[2]?.output)).toContain(
+      'fresh observe_desktop',
+    );
+    expect(presentAction).toHaveBeenCalledTimes(2);
+    coordinator.nextGuidance(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+  });
+
   it('does not sample the next guidance step until the current one advances', async () => {
     const observationId = randomUUID();
     const first = observation(randomUUID(), observationId);
@@ -203,7 +395,7 @@ describe('TaskExecutionCoordinator', () => {
           y: 100,
         }),
         assistant('Continue with the filter.'),
-        assistant('Continue with the filter.'),
+        assistant('WALKTHROUGH_COMPLETE: You completed the inbox filter step.'),
       ],
       [first],
       { guidanceAutoAdvanceMs: 60_000, presentAction },
@@ -224,7 +416,9 @@ describe('TaskExecutionCoordinator', () => {
 
   it('replays Back and forward guidance without sampling, dispatching, or recording again', async () => {
     const observationId = randomUUID();
+    const secondObservationId = randomUUID();
     const first = observation(randomUUID(), observationId);
+    const second = observation(randomUUID(), secondObservationId);
     const presentAction = vi.fn(async () => ({
       cancel: vi.fn(),
       completion: Promise.resolve(),
@@ -239,21 +433,25 @@ describe('TaskExecutionCoordinator', () => {
           x: 500,
           y: 100,
         }),
+        tool('call-observe-2', 'observe_desktop', {
+          reason: 'Inspect the inbox after the user completed step one.',
+        }),
         tool('call-guide-2', 'show_guidance', {
-          observationId,
+          observationId: secondObservationId,
           description: 'Choose unread messages.',
           target: 'Unread',
           x: 500,
           y: 180,
         }),
         assistant('The walkthrough is complete.'),
-        assistant('The walkthrough is complete.'),
+        assistant('WALKTHROUGH_COMPLETE: You completed the inbox walkthrough.'),
       ],
-      [first],
+      [first, second],
       { guidanceAutoAdvanceMs: 60_000, presentAction },
     );
     const ready = runtime.submit({ text: 'Guide me through filtering this inbox.' });
     first.taskId = ready.taskId;
+    second.taskId = ready.taskId;
     coordinator.start({ taskId: ready.taskId });
     await vi.waitFor(() => expect(presentAction).toHaveBeenCalledTimes(1));
     coordinator.nextGuidance(ready.taskId);
@@ -273,6 +471,127 @@ describe('TaskExecutionCoordinator', () => {
     coordinator.nextGuidance(ready.taskId);
     await coordinator.waitForIdle(ready.taskId);
     expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+  });
+
+  it('suppresses an answer dump after a guided step when completion is not attested', async () => {
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId);
+    const presentAction = vi.fn(async () => ({
+      cancel: vi.fn(),
+      completion: Promise.resolve(),
+    }));
+    const answerDump = 'Answers: 1. lives 2. is watering 3. is a teacher.';
+    const { coordinator, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect the exercise.' }),
+        tool('call-guide', 'show_guidance', {
+          observationId,
+          description: 'Identify the time marker in the first question.',
+          target: 'Question one',
+          x: 500,
+          y: 100,
+        }),
+        assistant(answerDump),
+        assistant(answerDump),
+      ],
+      [first],
+      { presentAction },
+    );
+    const ready = runtime.submit({ text: 'Guide me through the exercise.' });
+    first.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledOnce());
+    coordinator.nextGuidance(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
+
+    const snapshot = runtime.getSnapshot(ready.taskId);
+    expect(snapshot.phase).toBe('blocked');
+    expect(snapshot.messages.some((message) => message.text === answerDump)).toBe(
+      false,
+    );
+  });
+
+  it('strips a valid completion sentinel and appends only its concise recap', async () => {
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId);
+    const presentAction = vi.fn(async () => ({
+      cancel: vi.fn(),
+      completion: Promise.resolve(),
+    }));
+    const { coordinator, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect the exercise.' }),
+        tool('call-guide', 'show_guidance', {
+          observationId,
+          description: 'Identify the verb in the first question.',
+          target: 'Question one',
+          x: 500,
+          y: 100,
+        }),
+        assistant('Candidate completion that must remain hidden.'),
+        assistant('WALKTHROUGH_COMPLETE: You completed the guided exercise.'),
+      ],
+      [first],
+      { presentAction },
+    );
+    const ready = runtime.submit({ text: 'Show me how to do the exercise.' });
+    first.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await vi.waitFor(() => expect(presentAction).toHaveBeenCalledOnce());
+    coordinator.nextGuidance(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
+
+    const snapshot = runtime.getSnapshot(ready.taskId);
+    expect(snapshot.phase).toBe('completed');
+    expect(snapshot.messages.at(-1)?.text).toBe(
+      'You completed the guided exercise.',
+    );
+    expect(snapshot.messages.some((message) =>
+      message.text.includes('Candidate completion'),
+    )).toBe(false);
+  });
+
+  it('blocks without waiting for Next when the guidance overlay is unavailable', async () => {
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId);
+    const presentAction = vi.fn(async () => undefined);
+    const { coordinator, cua, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect the exercise.' }),
+        tool('call-guide', 'show_guidance', {
+          observationId,
+          description: 'Identify the verb in the first question.',
+          target: 'Question one',
+          x: 500,
+          y: 100,
+        }),
+      ],
+      [first],
+      { presentAction },
+    );
+    const ready = runtime.submit({ text: 'Guide me through the exercise.' });
+    first.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    let reachedIdle = false;
+    try {
+      reachedIdle = await Promise.race([
+        coordinator.waitForIdle(ready.taskId).then(() => true),
+        new Promise<false>((resolve) => setTimeout(() => resolve(false), 50)),
+      ]);
+      expect(reachedIdle).toBe(true);
+    } finally {
+      if (!reachedIdle) coordinator.cancel({ taskId: ready.taskId });
+    }
+
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'blocked',
+      lastEvent: { summary: expect.stringContaining('guidance overlay') },
+    });
+    expect(cua.executeCommand).not.toHaveBeenCalled();
+    expect(runtime.getSnapshot(ready.taskId).messages).toHaveLength(1);
   });
 
   it.each([
@@ -444,6 +763,71 @@ describe('TaskExecutionCoordinator', () => {
     expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
       phase: 'completed',
       progress: { completed: 2 },
+    });
+  });
+
+  it('blocks promptly when post-action desktop verification stalls', async () => {
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId, 'a'.repeat(64));
+    const { agent, coordinator, cua, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect Sheets.' }),
+        tool('call-keypress', 'control_desktop', {
+          observationId,
+          consequence: 'press_key',
+          description: 'Clear the selected spreadsheet cell.',
+          target: 'Selected cell',
+          command: {
+            kind: 'keypress',
+            keys: ['BACKSPACE'],
+          },
+        }),
+      ],
+      [first],
+      { observationTimeoutMs: 10 },
+    );
+    const ready = runtime.submit({ text: 'Clear the selected spreadsheet cell.' });
+    first.taskId = ready.taskId;
+    cua.observe
+      .mockResolvedValueOnce(first)
+      .mockImplementationOnce(
+        (_taskId: string, signal?: AbortSignal) =>
+          new Promise<DesktopObservation>((_resolve, reject) => {
+            signal?.addEventListener(
+              'abort',
+              () => {
+                const error = new Error('Desktop observation aborted.');
+                error.name = 'AbortError';
+                reject(error);
+              },
+              { once: true },
+            );
+          }),
+      );
+
+    coordinator.start({ taskId: ready.taskId });
+    let reachedIdle = false;
+    try {
+      reachedIdle = await Promise.race([
+        coordinator.waitForIdle(ready.taskId).then(() => true),
+        new Promise<false>((resolve) =>
+          setTimeout(() => resolve(false), 80),
+        ),
+      ]);
+      expect(reachedIdle).toBe(true);
+    } finally {
+      if (!reachedIdle) coordinator.cancel({ taskId: ready.taskId });
+    }
+
+    expect(agent.sample).toHaveBeenCalledTimes(2);
+    expect(String(agent.outputs.at(-1)?.output)).toContain(
+      'Desktop observation timed out',
+    );
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'blocked',
+      lastEvent: {
+        summary: expect.stringContaining('fresh desktop state required'),
+      },
     });
   });
 

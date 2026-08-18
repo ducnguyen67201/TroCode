@@ -843,6 +843,7 @@ export function App({
   const error = transientCursorError.message;
   const activeTaskIdRef = useRef<string | null>(null);
   const latestSnapshotRef = useRef<TaskSnapshot | null>(null);
+  const taskRequestRef = useRef<HTMLTextAreaElement | null>(null);
   const autoStartAttemptedTaskIdsRef = useRef(new Set<string>());
   const isSendingRef = useRef(false);
   const isStoppingTaskRef = useRef(false);
@@ -964,6 +965,18 @@ export function App({
         .then(setUsageBudget)
         .catch(() => undefined);
     });
+    const unsubscribeTaskComposerFocus =
+      window.tro.onTaskComposerFocusRequested((taskId) => {
+        if (latestSnapshotRef.current?.taskId !== taskId) return;
+        setActiveView('agent');
+        window.requestAnimationFrame(() => {
+          taskRequestRef.current?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+          });
+          taskRequestRef.current?.focus();
+        });
+      });
     const unsubscribeAppUpdates = window.tro.onAppUpdateStatusChanged(
       (status) => {
         setAppUpdateStatus(status);
@@ -1061,6 +1074,7 @@ export function App({
     return () => {
       unsubscribeAgentActivity();
       unsubscribeTaskUpdates();
+      unsubscribeTaskComposerFocus();
       unsubscribeAppUpdates();
     };
   }, [recordSnapshot, reportError]);
@@ -2100,6 +2114,7 @@ export function App({
               </div>
               <textarea
                 id="task-request"
+                ref={taskRequestRef}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder={
                   pendingClarification

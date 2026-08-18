@@ -7,6 +7,8 @@ import type {
   CompanionGuidance,
   CompanionInteraction,
   CompanionPosition,
+  CompanionResponseActionRequest,
+  CompanionResponseCard,
   CompanionSpeech,
   CompanionSpeechPlaybackReport,
   CompanionState,
@@ -44,6 +46,8 @@ export const IPC_CHANNELS = {
   companionPositionChanged: 'companion:position-changed',
   companionGuidanceChanged: 'companion:guidance-changed',
   companionInteractionChanged: 'companion:interaction-changed',
+  companionResponseAction: 'companion:response-action',
+  companionResponseChanged: 'companion:response-changed',
   companionSpeechChanged: 'companion:speech-changed',
   companionReportSpeechPlayback: 'companion:report-speech-playback',
   companionStateChanged: 'companion:state-changed',
@@ -77,6 +81,7 @@ export const IPC_CHANNELS = {
   submitTask: 'task:submit',
   selectWorkspace: 'workspace:select',
   taskUpdate: 'task:update',
+  taskComposerFocusRequested: 'task:composer-focus-requested',
   updateAppPreferences: 'preferences:update',
   voiceShortcut: 'voice:shortcut',
 } as const;
@@ -103,6 +108,9 @@ export interface DesktopApi {
   getVoiceStatus(): Promise<VoiceStatus>;
   getWorkspaceRuntimeAvailability(): Promise<WorkspaceRuntimeAvailability>;
   onTaskUpdate(listener: (update: TaskUpdate) => void): () => void;
+  onTaskComposerFocusRequested(
+    listener: (taskId: string) => void,
+  ): () => void;
   onAgentActivity(
     listener: (activity: AgentActivityUpdate) => void,
   ): () => void;
@@ -142,12 +150,18 @@ export interface CompanionApi {
     listener: (interaction: CompanionInteraction | null) => void,
   ): () => void;
   onPositionChange(listener: (position: CompanionPosition) => void): () => void;
+  onResponseChange(
+    listener: (response: CompanionResponseCard | null) => void,
+  ): () => void;
   onSpeechChange(listener: (speech: CompanionSpeech | null) => void): () => void;
   onStateChange(listener: (state: CompanionState) => void): () => void;
   onVoiceActivityChange(
     listener: (activity: CompanionVoiceActivity | null) => void,
   ): () => void;
   reportSpeechPlayback(report: CompanionSpeechPlaybackReport): Promise<void>;
+  performResponseAction(
+    request: CompanionResponseActionRequest,
+  ): Promise<void>;
   respondToInteraction(
     request: RespondToInteractionRequest,
   ): Promise<TaskSnapshot>;

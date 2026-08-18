@@ -98,6 +98,74 @@ describe('OpenAIAgentsRuntime', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('activates strict visible walkthrough instructions only for explicit tutoring intent', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => rejectedProviderResponse());
+    const runtime = new OpenAIAgentsRuntime({
+      accessTokenProvider: vi.fn(async () => 'hosted-access-token'),
+      apiBaseUrl: 'https://api.trocode.test/',
+      fetchImpl,
+    });
+    const taskId = randomUUID();
+
+    await expect(
+      runtime.runTask({
+        callbacks: {
+          beforeModel: () => [],
+          executeTool: async () => 'unused',
+        },
+        contract: createTaskContract('Guide me through this exercise.'),
+        maxTurns: 4,
+        request: 'Guide me through this exercise.',
+        taskId,
+        tools: [],
+      }),
+    ).rejects.toThrow('Rejected before inference');
+
+    const [, request] = fetchImpl.mock.calls[0] ?? [];
+    const body = JSON.parse(String(request?.body)) as { instructions: string };
+    expect(body.instructions).toContain(
+      'Trusted host walkthrough mode is active.',
+    );
+    expect(body.instructions).toContain(
+      'Start each visible step with a fresh observe_desktop call',
+    );
+    expect(body.instructions).toContain(
+      'Never provide an upfront answer dump',
+    );
+    await runtime.end(taskId);
+  });
+
+  it('keeps ordinary explanations on the direct-answer instruction path', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => rejectedProviderResponse());
+    const runtime = new OpenAIAgentsRuntime({
+      accessTokenProvider: vi.fn(async () => 'hosted-access-token'),
+      apiBaseUrl: 'https://api.trocode.test/',
+      fetchImpl,
+    });
+    const taskId = randomUUID();
+
+    await expect(
+      runtime.runTask({
+        callbacks: {
+          beforeModel: () => [],
+          executeTool: async () => 'unused',
+        },
+        contract: createTaskContract('Explain this exercise.'),
+        maxTurns: 4,
+        request: 'Explain this exercise.',
+        taskId,
+        tools: [],
+      }),
+    ).rejects.toThrow('Rejected before inference');
+
+    const [, request] = fetchImpl.mock.calls[0] ?? [];
+    const body = JSON.parse(String(request?.body)) as { instructions: string };
+    expect(body.instructions).not.toContain(
+      'Trusted host walkthrough mode is active.',
+    );
+    await runtime.end(taskId);
+  });
+
   it('sends Workspace turns through the hosted SDK path with local shell and patch tools', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'trocode-runtime-'));
     const fetchImpl = vi.fn<typeof fetch>(async () => rejectedProviderResponse());

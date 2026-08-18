@@ -10,6 +10,8 @@ import {
 import type {
   CompanionGuidance,
   CompanionInteraction,
+  CompanionResponseAction,
+  CompanionResponseCard as CompanionResponse,
   CompanionSpeech,
 } from '../shared/contracts';
 
@@ -17,6 +19,10 @@ import {
   getFocusedApprovalShortcut,
   isApprovalExpired,
 } from './companion-interaction';
+import {
+  CompanionResponseCard,
+  getCompanionCalloutKind,
+} from './CompanionResponseCard';
 import {
   createGuidanceAudioPlayback,
   type GuidanceAudioPlayback,
@@ -69,6 +75,7 @@ export function GuidanceCallout() {
   const [answer, setAnswer] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [guidance, setGuidance] = useState<CompanionGuidance | null>(null);
+  const [response, setResponse] = useState<CompanionResponse | null>(null);
   const [interaction, setInteraction] =
     useState<CompanionInteraction | null>(null);
   const [approvalExpired, setApprovalExpired] = useState(false);
@@ -100,6 +107,10 @@ export function GuidanceCallout() {
     [],
   );
   useEffect(
+    () => window.troCompanion.onResponseChange(setResponse),
+    [],
+  );
+  useEffect(
     () =>
       window.troCompanion.onSpeechChange((nextSpeech) => {
         setAudioStatus(null);
@@ -112,7 +123,9 @@ export function GuidanceCallout() {
     ? `interaction:${interaction.id}`
     : guidance
       ? `${guidance.kind}:${guidance.target ?? ''}\u0000${guidance.message}`
-      : null;
+      : response
+        ? `response:${response.cardId}`
+        : null;
 
   useEffect(() => {
     if (presentationIdentityRef.current === presentationIdentity) return;
@@ -242,6 +255,27 @@ export function GuidanceCallout() {
     [approvalExpired, interaction, isSending],
   );
 
+  const performResponseAction = useCallback(
+    async (action: CompanionResponseAction) => {
+      if (!response || isSending) return;
+
+      setError(null);
+      setIsSending(true);
+      try {
+        await window.troCompanion.performResponseAction({
+          action,
+          cardId: response.cardId,
+          taskId: response.taskId,
+        });
+      } catch (nextError) {
+        setError(friendlyError(nextError));
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [isSending, response],
+  );
+
   useEffect(() => {
     if (!interaction) return undefined;
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -282,11 +316,16 @@ export function GuidanceCallout() {
     void submitAnswer(answer);
   };
 
-  if (!interaction && !guidance) return null;
+  const calloutKind = getCompanionCalloutKind({
+    hasGuidance: guidance !== null,
+    hasInteraction: interaction !== null,
+    hasResponse: response !== null,
+  });
+  if (!calloutKind) return null;
 
   return (
     <>
-      {interaction ? (
+      {calloutKind === 'interaction' && interaction ? (
         <aside
           aria-labelledby="companion-interaction-title"
           aria-live={interaction.kind === 'approval' ? 'assertive' : 'polite'}
@@ -315,6 +354,7 @@ export function GuidanceCallout() {
                 <div className="guidance-callout__choices">
                   {interaction.choices.map((choice, index) => (
                     <button
+                      aria-keyshortcuts={String(index + 1)}
                       disabled={isSending}
                       key={choice.id}
                       onClick={() => void submitAnswer(choice.label)}
@@ -421,7 +461,7 @@ export function GuidanceCallout() {
           )}
           {error ? <p className="guidance-callout__error">{error}</p> : null}
         </aside>
-      ) : guidance ? (
+      ) : calloutKind === 'guidance' && guidance ? (
         <aside
           aria-live="polite"
           className={`guidance-callout guidance-callout--${guidance.kind} guidance-callout--${guidance.side}`}
@@ -468,6 +508,14 @@ export function GuidanceCallout() {
             </>
           ) : null}
         </aside>
+      ) : calloutKind === 'response' && response ? (
+        <CompanionResponseCard
+          audioStatus={audioStatus}
+          error={error}
+          isBusy={isSending}
+          onAction={(action) => void performResponseAction(action)}
+          response={response}
+        />
       ) : null}
     </>
   );

@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 import {
   DesktopCommandSchema,
   DesktopObservationSchema,
+  mapNormalizedRegionToScreenshot,
   mapNormalizedPointToScreenshot,
+  mapScreenshotRegionToDesktop,
   mapScreenshotPointToDesktop,
 } from './execution-contracts';
 
@@ -27,6 +29,32 @@ describe('desktop execution contracts', () => {
     expect(
       mapNormalizedPointToScreenshot({ x: 580, y: 150 }, coordinateSpace),
     ).toEqual({ x: 2_004, y: 335 });
+  });
+
+  it('maps a normalized target region through screenshot and desktop spaces', () => {
+    const screenshotRegion = mapNormalizedRegionToScreenshot(
+      { x: 250, y: 100, width: 500, height: 300 },
+      coordinateSpace,
+    );
+
+    expect(screenshotRegion).toEqual({
+      x: 864,
+      y: 223,
+      width: 1_728,
+      height: 670,
+    });
+    expect(
+      mapScreenshotRegionToDesktop(screenshotRegion, coordinateSpace),
+    ).toEqual({ x: 432, y: 112, width: 864, height: 335 });
+  });
+
+  it('preserves a bounded visible region at the normalized screen edge', () => {
+    expect(
+      mapNormalizedRegionToScreenshot(
+        { x: 999, y: 999, width: 1, height: 1 },
+        coordinateSpace,
+      ),
+    ).toEqual({ x: 3_453, y: 2_232, width: 3, height: 2 });
   });
 
   it('parses bounded observations without exposing them through task snapshots', () => {

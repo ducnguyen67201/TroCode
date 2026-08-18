@@ -3,6 +3,7 @@ import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import {
   ActivateMembershipRequestSchema,
   AgentActivityUpdateSchema,
+  CompanionResponseActionRequestSchema,
   CompanionSpeechPlaybackReportSchema,
   CompanionStateSchema,
   CompanionVoiceActivitySchema,
@@ -18,6 +19,7 @@ import {
   VoiceDiagnosticSchema,
   type AuthUser,
   type CompanionState,
+  type CompanionResponseActionRequest,
   type CompanionVoiceActivity,
   type CompanionSpeechPlaybackReport,
   type RecordVoiceTranscriptRequest,
@@ -54,6 +56,9 @@ interface IpcServices {
   cuaService: CuaService;
   executionCoordinator: TaskExecutionCoordinator;
   getCompanionInteractionWindow(): BrowserWindow | null;
+  handleCompanionResponseAction(
+    request: CompanionResponseActionRequest,
+  ): Promise<void> | void;
   membershipService: MembershipService;
   onAuthSignedIn?(user: AuthUser): Promise<void> | void;
   onAuthSignedOut?(): Promise<void> | void;
@@ -174,6 +179,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.configureVoice,
     IPC_CHANNELS.connectComputer,
     IPC_CHANNELS.companionReportSpeechPlayback,
+    IPC_CHANNELS.companionResponseAction,
     IPC_CHANNELS.companionRevealMainWindow,
     IPC_CHANNELS.transcribeVoiceSegment,
     IPC_CHANNELS.decideApproval,
@@ -353,6 +359,16 @@ export function registerIpcHandlers(
     await services.authService.assertSignedIn();
     services.revealMainWindow();
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.companionResponseAction,
+    async (event, input: unknown) => {
+      assertTrustedCompanionSender(event, services);
+      await services.authService.assertSignedIn();
+      const request = CompanionResponseActionRequestSchema.parse(input);
+      await services.handleCompanionResponseAction(request);
+    },
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.companionReportSpeechPlayback,

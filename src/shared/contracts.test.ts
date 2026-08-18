@@ -9,10 +9,13 @@ import {
   AgentTaskContractV4Schema,
   AgentTaskContractV5Schema,
   AppPreferencesSchema,
+  CompanionResponseActionRequestSchema,
+  CompanionResponseCardSchema,
   SubmitTaskRequestSchema,
   CompanionSpeechPlaybackReportSchema,
   CompanionSpeechSchema,
   MembershipStatusSchema,
+  TaskComposerFocusRequestSchema,
   TaskHistorySchema,
   TaskProgressSchema,
   TranscribeVoiceSegmentRequestSchema,
@@ -50,6 +53,100 @@ const legacyBase = {
 };
 
 describe('shared task contracts', () => {
+  it('validates bounded companion response cards across streaming and completion', () => {
+    const cardId = randomUUID();
+    const taskId = randomUUID();
+
+    expect(
+      CompanionResponseCardSchema.parse({
+        cardId,
+        message: '',
+        phase: 'streaming',
+        side: 'right',
+        taskId,
+      }),
+    ).toEqual({ cardId, message: '', phase: 'streaming', side: 'right', taskId });
+
+    expect(
+      CompanionResponseCardSchema.parse({
+        cardId,
+        message: 'The task is complete.',
+        phase: 'completed',
+        side: 'left',
+        taskId,
+      }),
+    ).toMatchObject({ cardId, phase: 'completed', taskId });
+
+    for (const invalid of [
+      { cardId: 'not-a-uuid', message: '', phase: 'streaming', side: 'right', taskId },
+      { cardId, message: '', phase: 'streaming', side: 'right', taskId: 'not-a-uuid' },
+      { cardId, message: ' '.repeat(4), phase: 'completed', side: 'right', taskId },
+      { cardId, message: 'x'.repeat(8_001), phase: 'completed', side: 'right', taskId },
+      { cardId, message: 'Done', phase: 'finished', side: 'right', taskId },
+      { cardId, message: 'Done', phase: 'completed', side: 'center', taskId },
+      {
+        cardId,
+        mediaUrl: 'https://provider.example/private-audio',
+        message: 'Done',
+        phase: 'completed',
+        providerPayload: { token: 'secret' },
+        side: 'right',
+        taskId,
+      },
+    ]) {
+      expect(CompanionResponseCardSchema.safeParse(invalid).success).toBe(false);
+    }
+  });
+
+  it('limits companion response actions to stable card and task identifiers', () => {
+    const cardId = randomUUID();
+    const taskId = randomUUID();
+    const actions = [
+      'dismiss',
+      'open_task',
+      'ask_follow_up',
+      'read_aloud',
+      'stop_reading',
+    ] as const;
+
+    for (const action of actions) {
+      expect(
+        CompanionResponseActionRequestSchema.parse({ action, cardId, taskId }),
+      ).toEqual({ action, cardId, taskId });
+    }
+    expect(
+      CompanionResponseActionRequestSchema.safeParse({
+        action: 'run_arbitrary_command',
+        cardId,
+        taskId,
+      }).success,
+    ).toBe(false);
+    expect(
+      CompanionResponseActionRequestSchema.safeParse({
+        action: 'dismiss',
+        cardId,
+        label: 'Trust this arbitrary renderer label',
+        target: 'https://untrusted.example',
+        taskId,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts only a strict task id for composer focus requests', () => {
+    const taskId = randomUUID();
+
+    expect(TaskComposerFocusRequestSchema.parse({ taskId })).toEqual({
+      taskId,
+    });
+    expect(
+      TaskComposerFocusRequestSchema.safeParse({
+        action: 'submit',
+        taskId,
+        text: 'This must not become a hidden follow-up.',
+      }).success,
+    ).toBe(false);
+  });
+
   it('bounds normalized agent activity without exposing raw provider payloads', () => {
     const activity = AgentActivityUpdateSchema.parse({
       activityId: randomUUID(),

@@ -59,6 +59,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   requestScreenRecordingAccess: ReturnType<typeof vi.fn>;
   recordVoiceTranscript: ReturnType<typeof vi.fn>;
   reportCompanionSpeechPlayback: ReturnType<typeof vi.fn>;
+  handleCompanionResponseAction: ReturnType<typeof vi.fn>;
   revealMainWindow: ReturnType<typeof vi.fn>;
   taskRuntime: {
     decideApproval: ReturnType<typeof vi.fn>;
@@ -241,6 +242,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   const setVoiceAudioDucking = vi.fn(async () => undefined);
   const revealMainWindow = vi.fn();
   const reportCompanionSpeechPlayback = vi.fn();
+  const handleCompanionResponseAction = vi.fn();
   const workspaceAvailability = vi.fn(async () => ({
     available: true,
     runtimeVersion: null,
@@ -263,6 +265,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     cuaService: { connect: cuaConnect, getStatus: cuaGetStatus },
     executionCoordinator,
     getCompanionInteractionWindow: () => interactionWindow,
+    handleCompanionResponseAction,
     membershipService,
     openSystemPermissionSettings,
     recordVoiceTranscript,
@@ -308,6 +311,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     executionCoordinator,
     getAppPreferences,
     getTaskHistory,
+    handleCompanionResponseAction,
     membershipService,
     openSystemPermissionSettings,
     recordVoiceTranscript,
@@ -520,6 +524,65 @@ describe('registerIpcHandlers auth boundary', () => {
     ).resolves.toBeUndefined();
     expect(revealMainWindow).toHaveBeenCalledOnce();
     unregister();
+  });
+
+  it('lets only the signed-in cursor card perform a parsed response-card action', async () => {
+    const { handleCompanionResponseAction, interactionEvent, unregister } =
+      setup(true);
+    const handler = electronMock.handlers.get(
+      IPC_CHANNELS.companionResponseAction,
+    );
+    const request = {
+      action: 'ask_follow_up',
+      cardId: '00000000-0000-4000-8000-000000000002',
+      taskId: '00000000-0000-4000-8000-000000000001',
+    } as const;
+
+    await expect(handler?.(interactionEvent, request)).resolves.toBeUndefined();
+    expect(handleCompanionResponseAction).toHaveBeenCalledWith(request);
+
+    await expect(
+      handler?.(interactionEvent, {
+        ...request,
+        action: 'delete_task',
+      }),
+    ).rejects.toThrow();
+    expect(handleCompanionResponseAction).toHaveBeenCalledOnce();
+    unregister();
+  });
+
+  it('rejects response-card actions from untrusted or signed-out renderers', async () => {
+    const trusted = setup(true);
+    const trustedHandler = electronMock.handlers.get(
+      IPC_CHANNELS.companionResponseAction,
+    );
+
+    await expect(
+      trustedHandler?.(
+        trusted.event,
+        {
+          action: 'dismiss',
+          cardId: '00000000-0000-4000-8000-000000000002',
+          taskId: '00000000-0000-4000-8000-000000000001',
+        },
+      ),
+    ).rejects.toThrow('untrusted renderer');
+    expect(trusted.handleCompanionResponseAction).not.toHaveBeenCalled();
+    trusted.unregister();
+
+    const signedOut = setup(false);
+    const signedOutHandler = electronMock.handlers.get(
+      IPC_CHANNELS.companionResponseAction,
+    );
+    await expect(
+      signedOutHandler?.(signedOut.interactionEvent, {
+        action: 'dismiss',
+        cardId: '00000000-0000-4000-8000-000000000002',
+        taskId: '00000000-0000-4000-8000-000000000001',
+      }),
+    ).rejects.toThrow('Sign in with Google first.');
+    expect(signedOut.handleCompanionResponseAction).not.toHaveBeenCalled();
+    signedOut.unregister();
   });
 
   it('accepts only parsed cursor-card speech playback reports', async () => {

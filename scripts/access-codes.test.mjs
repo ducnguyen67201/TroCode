@@ -17,17 +17,19 @@ test('parses a fixed code and account limit', () => {
       'codea',
       '--max-users',
       '10',
+      '--plan',
+      'pro',
       '--label',
       'Private beta',
     ]),
-    { code: 'CODEA', label: 'Private beta', maxUsers: 10 },
+    { code: 'CODEA', label: 'Private beta', maxUsers: 10, plan: 'pro' },
   );
 });
 
 test('generates a strong code when the administrator omits one', () => {
   assert.match(generateAccessCode(), /^TRO-[A-F0-9]{24}$/u);
   assert.match(
-    parseCreateOptions(['create', '--max-users', '3']).code,
+    parseCreateOptions(['create', '--max-users', '3', '--plan', 'basic']).code,
     /^TRO-[A-F0-9]{24}$/u,
   );
 });
@@ -51,6 +53,7 @@ test('creates the database row with a digest instead of plaintext', async () => 
     hmacKey: TEST_HMAC_KEY,
     label: 'Private beta',
     maxUsers: 10,
+    plan: 'max',
     Pool: FakePool,
   });
 
@@ -61,7 +64,7 @@ test('creates the database row with a digest instead of plaintext', async () => 
   assert(Buffer.isBuffer(insert.parameters[0]));
   assert.equal(insert.parameters[0].length, 32);
   assert.equal(insert.parameters[0].includes(Buffer.from('CODEA')), false);
-  assert.deepEqual(insert.parameters.slice(1), ['Private beta', 10]);
+  assert.deepEqual(insert.parameters.slice(1), ['Private beta', 10, 'max']);
 });
 
 test('rejects invalid limits and malformed codes', () => {
@@ -84,5 +87,18 @@ test('rejects invalid limits and malformed codes', () => {
         'unexpected',
       ]),
     /Unknown option/u,
+  );
+  assert.throws(
+    () =>
+      parseCreateOptions([
+        'create',
+        '--code',
+        'CODEA',
+        '--max-users',
+        '10',
+        '--plan',
+        'enterprise',
+      ]),
+    /--plan must be one of/u,
   );
 });

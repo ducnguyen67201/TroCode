@@ -104,6 +104,13 @@ export type DesktopCoordinateSpace = z.infer<
 >;
 export type DesktopObservation = z.infer<typeof DesktopObservationSchema>;
 
+export interface DesktopRegion {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}
+
 function mapScreenshotAxis(
   value: number,
   screenshotExtent: number,
@@ -149,4 +156,51 @@ export function mapNormalizedPointToScreenshot(
     x: mapAxis(point.x, coordinateSpace.screenshotWidth),
     y: mapAxis(point.y, coordinateSpace.screenshotHeight),
   };
+}
+
+function mapRegion(
+  region: DesktopRegion,
+  sourceWidth: number,
+  sourceHeight: number,
+  targetWidth: number,
+  targetHeight: number,
+): DesktopRegion {
+  const x = mapScreenshotAxis(region.x, sourceWidth, targetWidth);
+  const y = mapScreenshotAxis(region.y, sourceHeight, targetHeight);
+  const width = Math.min(
+    targetWidth - x,
+    Math.max(1, Math.round((region.width / sourceWidth) * targetWidth)),
+  );
+  const height = Math.min(
+    targetHeight - y,
+    Math.max(1, Math.round((region.height / sourceHeight) * targetHeight)),
+  );
+  return { x, y, width, height };
+}
+
+export function mapNormalizedRegionToScreenshot(
+  region: DesktopRegion,
+  coordinateSpace: DesktopCoordinateSpace,
+): DesktopRegion {
+  return mapRegion(
+    region,
+    NORMALIZED_COORDINATE_MAX,
+    NORMALIZED_COORDINATE_MAX,
+    coordinateSpace.screenshotWidth,
+    coordinateSpace.screenshotHeight,
+  );
+}
+
+export function mapScreenshotRegionToDesktop(
+  region: DesktopRegion,
+  coordinateSpace: DesktopCoordinateSpace | undefined,
+): DesktopRegion {
+  if (!coordinateSpace) return { ...region };
+  return mapRegion(
+    region,
+    coordinateSpace.screenshotWidth,
+    coordinateSpace.screenshotHeight,
+    coordinateSpace.screenWidth,
+    coordinateSpace.screenHeight,
+  );
 }

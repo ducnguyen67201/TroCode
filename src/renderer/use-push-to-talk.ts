@@ -25,6 +25,8 @@ export type VoiceInputStatus =
 export type VoiceConnectionStep = VoiceDiagnostic['step'];
 type VoiceActivationMode = 'global-hold' | 'local-hold';
 
+export const VOICE_TRANSCRIPT_CONFIRMATION_MS = 1_000;
+
 interface UsePushToTalkOptions {
   disabled?: boolean;
   enabled?: boolean;
@@ -48,6 +50,7 @@ interface ActiveVoiceTurn {
   attempt: number;
   cancelled: boolean;
   capture: VoiceCapturePipeline | null;
+  confirmationTimer: ReturnType<typeof setTimeout> | null;
   expectedSegmentCount: number | null;
   limitReached: boolean;
   queue: SegmentUploadQueue<FinalizedVoiceSegment, void>;
@@ -225,6 +228,8 @@ export function usePushToTalk({
   }, []);
 
   const resetTurnState = useCallback((turn: ActiveVoiceTurn): void => {
+    if (turn.confirmationTimer) clearTimeout(turn.confirmationTimer);
+    turn.confirmationTimer = null;
     if (activeTurnRef.current === turn) activeTurnRef.current = null;
     activationModeRef.current = null;
     chordHeldRef.current = false;
@@ -261,10 +266,9 @@ export function usePushToTalk({
         0,
         Date.now() - (turn.releasedAt ?? Date.now()),
       );
-      resetTurnState(turn);
-      void closeTurn(turn);
-
       if (turn.expectedSegmentCount === 0) {
+        resetTurnState(turn);
+        void closeTurn(turn);
         voiceTurnDiagnostic('completed', {
           attempt: turn.attempt,
           disposition: 'no_speech',
@@ -277,6 +281,8 @@ export function usePushToTalk({
         return;
       }
       if (transcript === null) {
+        resetTurnState(turn);
+        void closeTurn(turn);
         voiceTurnDiagnostic('completed', {
           attempt: turn.attempt,
           disposition: 'partial_failure',
@@ -290,6 +296,8 @@ export function usePushToTalk({
         return;
       }
       if (transcript.trim().length < 2) {
+        resetTurnState(turn);
+        void closeTurn(turn);
         voiceTurnDiagnostic('completed', {
           attempt: turn.attempt,
           disposition: 'no_speech',
@@ -302,15 +310,27 @@ export function usePushToTalk({
         return;
       }
 
-      voiceTurnDiagnostic('completed', {
+      voiceTurnDiagnostic('transcript-ready', {
         attempt: turn.attempt,
         characters: transcript.length,
-        disposition: 'submitted',
+        confirmationMs: VOICE_TRANSCRIPT_CONFIRMATION_MS,
         releaseToFinalMs,
         segmentCount: turn.expectedSegmentCount,
       });
       onTranscriptChangeRef.current(transcript);
-      onTranscriptSubmitRef.current(transcript);
+      turn.confirmationTimer = setTimeout(() => {
+        if (activeTurnRef.current !== turn || turn.cancelled) return;
+        resetTurnState(turn);
+        void closeTurn(turn);
+        voiceTurnDiagnostic('completed', {
+          attempt: turn.attempt,
+          characters: transcript.length,
+          disposition: 'submitted',
+          releaseToFinalMs,
+          segmentCount: turn.expectedSegmentCount ?? 0,
+        });
+        onTranscriptSubmitRef.current(transcript);
+      }, VOICE_TRANSCRIPT_CONFIRMATION_MS);
     },
     [closeTurn, platform, resetTurnState],
   );
@@ -462,6 +482,7 @@ export function usePushToTalk({
         attempt,
         cancelled: false,
         capture: null,
+        confirmationTimer: null,
         expectedSegmentCount: null,
         limitReached: false,
         queue,

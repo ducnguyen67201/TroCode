@@ -10,6 +10,10 @@ interface PendingWait {
 const DEFAULT_AUTO_ADVANCE_MS = 15_000;
 const MAX_BUFFERED_NAVIGATION = 8;
 
+export interface GuidancePlaybackOptions {
+  autoAdvance?: boolean;
+}
+
 function abortError(): Error {
   const error = new Error('Guidance playback was cancelled.');
   error.name = 'AbortError';
@@ -21,6 +25,8 @@ function abortError(): Error {
  * desktop observation, pointer movement, policy, and task lifecycle state.
  */
 export class GuidancePlaybackController {
+  private readonly autoAdvance: boolean;
+
   private readonly autoAdvanceMs: number;
 
   private readonly bufferedNavigation: GuidanceNavigation[] = [];
@@ -29,7 +35,11 @@ export class GuidancePlaybackController {
 
   private pendingWait: PendingWait | null = null;
 
-  constructor(autoAdvanceMs = DEFAULT_AUTO_ADVANCE_MS) {
+  constructor(
+    autoAdvanceMs = DEFAULT_AUTO_ADVANCE_MS,
+    options: GuidancePlaybackOptions = {},
+  ) {
+    this.autoAdvance = options.autoAdvance ?? true;
     this.autoAdvanceMs = Math.max(0, autoAdvanceMs);
   }
 
@@ -86,6 +96,7 @@ export class GuidancePlaybackController {
         timer = null;
       };
       const scheduleAutoAdvance = (): void => {
+        if (!this.autoAdvance) return;
         if (dwellComplete && narrationComplete && !this.paused) {
           settle('next');
           return;

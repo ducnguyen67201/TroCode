@@ -530,6 +530,12 @@ export const StartTaskRequestSchema = z.object({
   taskId: z.string().uuid(),
 });
 
+export const TaskComposerFocusRequestSchema = z
+  .object({
+    taskId: z.string().uuid(),
+  })
+  .strict();
+
 export const RespondToInteractionRequestSchema = z.object({
   taskId: z.string().uuid(),
   interactionId: z.string().uuid(),
@@ -793,6 +799,39 @@ export const CompanionGuidanceSchema = z.object({
   target: z.string().trim().min(1).max(80).optional(),
 });
 
+export const CompanionResponseCardSchema = z
+  .object({
+    cardId: z.string().uuid(),
+    taskId: z.string().uuid(),
+    phase: z.enum(['streaming', 'completed']),
+    message: z.string().max(8_000),
+    side: z.enum(['left', 'right']),
+  })
+  .strict()
+  .superRefine((card, context) => {
+    if (card.phase === 'completed' && card.message.trim().length === 0) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Completed response cards require a nonempty message.',
+        path: ['message'],
+      });
+    }
+  });
+
+export const CompanionResponseActionSchema = z.enum([
+  'dismiss',
+  'open_task',
+  'ask_follow_up',
+  'read_aloud',
+  'stop_reading',
+]);
+
+export const CompanionResponseActionRequestSchema = z.object({
+  action: CompanionResponseActionSchema,
+  cardId: z.string().uuid(),
+  taskId: z.string().uuid(),
+}).strict();
+
 const CompanionInteractionBaseSchema = z.object({
   id: z.string().uuid(),
   taskId: z.string().uuid(),
@@ -977,6 +1016,15 @@ export type CompanionVoiceActivity = z.infer<
   typeof CompanionVoiceActivitySchema
 >;
 export type CompanionGuidance = z.infer<typeof CompanionGuidanceSchema>;
+export type CompanionResponseCard = z.infer<
+  typeof CompanionResponseCardSchema
+>;
+export type CompanionResponseAction = z.infer<
+  typeof CompanionResponseActionSchema
+>;
+export type CompanionResponseActionRequest = z.infer<
+  typeof CompanionResponseActionRequestSchema
+>;
 export type CompanionInteraction = z.infer<typeof CompanionInteractionSchema>;
 export type CompanionSpeech = z.infer<typeof CompanionSpeechSchema>;
 export type CompanionSpeechPlaybackReason = z.infer<
@@ -1026,6 +1074,9 @@ export type SetVoiceAudioDuckingRequest = z.infer<
   typeof SetVoiceAudioDuckingRequestSchema
 >;
 export type StartTaskRequest = z.infer<typeof StartTaskRequestSchema>;
+export type TaskComposerFocusRequest = z.infer<
+  typeof TaskComposerFocusRequestSchema
+>;
 export type SteeringInstruction = z.infer<typeof SteeringInstructionSchema>;
 export type SystemPermission = z.infer<typeof SystemPermissionSchema>;
 export type SteerTaskRequest = z.infer<typeof SteerTaskRequestSchema>;

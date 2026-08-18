@@ -7,6 +7,7 @@ import {
   placeCompanionInOverlay,
   placeCompanionNearCursor,
   placeGuidanceCallout,
+  placeGuidanceTargetMarker,
   placeVoiceIsland,
   shouldUseCompanionOverlay,
 } from './companion-position';
@@ -71,6 +72,35 @@ describe('cursor companion placement', () => {
         COMPANION,
       ),
     ).toEqual({ x: 858, y: 674 });
+  });
+
+  it('pads and clamps a highlighted walkthrough region to its display', () => {
+    expect(
+      placeGuidanceTargetMarker(
+        { x: 420, y: 330 },
+        { x: 300, y: 250, width: 240, height: 160 },
+        DISPLAY,
+      ),
+    ).toEqual({ x: 282, y: 232, width: 276, height: 196 });
+
+    expect(
+      placeGuidanceTargetMarker(
+        { x: 1_195, y: 795 },
+        { x: 1_160, y: 770, width: 80, height: 60 },
+        DISPLAY,
+      ),
+    ).toEqual({ x: 1_124, y: 724, width: 76, height: 76 });
+  });
+
+  it('creates a visible point marker when no region is available', () => {
+    expect(
+      placeGuidanceTargetMarker({ x: -1_438, y: -98 }, undefined, {
+        height: 900,
+        width: 1440,
+        x: -1440,
+        y: -100,
+      }),
+    ).toEqual({ x: -1440, y: -100, width: 76, height: 76 });
   });
 
   it('centers the voice island below the active display work area', () => {

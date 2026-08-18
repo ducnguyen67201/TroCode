@@ -10,6 +10,8 @@ import {
   CancelTaskRequestSchema,
   CompanionGuidanceSchema,
   CompanionInteractionSchema,
+  CompanionResponseActionRequestSchema,
+  CompanionResponseCardSchema,
   CompanionSpeechSchema,
   CompanionSpeechPlaybackReportSchema,
   CompanionStateSchema,
@@ -27,6 +29,7 @@ import {
   SubmitTaskRequestSchema,
   SystemPermissionSchema,
   TaskHistorySchema,
+  TaskComposerFocusRequestSchema,
   TaskSnapshotSchema,
   TaskUpdateSchema,
   UsageBudgetSnapshotSchema,
@@ -299,6 +302,23 @@ const desktopApi: DesktopApi = {
       ipcRenderer.removeListener(IPC_CHANNELS.taskUpdate, eventHandler);
   },
 
+  onTaskComposerFocusRequested(listener) {
+    const eventHandler = (
+      _event: Electron.IpcRendererEvent,
+      value: unknown,
+    ): void => {
+      const request = TaskComposerFocusRequestSchema.parse({ taskId: value });
+      listener(request.taskId);
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.taskComposerFocusRequested, eventHandler);
+    return () =>
+      ipcRenderer.removeListener(
+        IPC_CHANNELS.taskComposerFocusRequested,
+        eventHandler,
+      );
+  },
+
   onAppUpdateStatusChanged(listener) {
     const eventHandler = (
       _event: Electron.IpcRendererEvent,
@@ -347,6 +367,11 @@ const companionApi: CompanionApi = {
     );
   },
 
+  async performResponseAction(input) {
+    const request = CompanionResponseActionRequestSchema.parse(input);
+    await ipcRenderer.invoke(IPC_CHANNELS.companionResponseAction, request);
+  },
+
   onGuidanceChange(listener) {
     const eventHandler = (
       _event: Electron.IpcRendererEvent,
@@ -391,6 +416,22 @@ const companionApi: CompanionApi = {
     return () =>
       ipcRenderer.removeListener(
         IPC_CHANNELS.companionPositionChanged,
+        eventHandler,
+      );
+  },
+
+  onResponseChange(listener) {
+    const eventHandler = (
+      _event: Electron.IpcRendererEvent,
+      value: unknown,
+    ): void => {
+      listener(CompanionResponseCardSchema.nullable().parse(value));
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.companionResponseChanged, eventHandler);
+    return () =>
+      ipcRenderer.removeListener(
+        IPC_CHANNELS.companionResponseChanged,
         eventHandler,
       );
   },
