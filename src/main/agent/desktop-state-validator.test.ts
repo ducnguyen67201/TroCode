@@ -112,6 +112,28 @@ function raster(
   return new RasterImage(WIDTH, HEIGHT, pixels, invalidBitmap);
 }
 
+function resizedRaster(
+  changes: Array<{
+    height: number;
+    value: number;
+    width: number;
+    x: number;
+    y: number;
+  }> = [],
+): RasterImage {
+  const width = WIDTH / 2;
+  const height = HEIGHT / 2;
+  const pixels = new Uint8Array(width * height).fill(80);
+  for (const change of changes) {
+    for (let y = change.y; y < change.y + change.height; y += 1) {
+      for (let x = change.x; x < change.x + change.width; x += 1) {
+        pixels[y * width + x] = change.value;
+      }
+    }
+  }
+  return new RasterImage(width, height, pixels);
+}
+
 function observation(
   imageKey: string | undefined,
   fingerprint: string,
@@ -211,6 +233,42 @@ describe('TargetAwareDesktopStateValidator', () => {
         current: observation('cursor', 'b'.repeat(64)),
       }),
     ).toMatchObject({ status: 'stable', reason: 'within_tolerance' });
+  });
+
+  it('validates target evidence after model image resizing preserves desktop metadata', () => {
+    const adapter = new RasterAdapter(
+      new Map([
+        ['reference-resized', resizedRaster()],
+        ['current-resized', resizedRaster()],
+        [
+          'target-resized',
+          resizedRaster([
+            { x: 70, y: 52, width: 60, height: 46, value: 220 },
+          ]),
+        ],
+      ]),
+    );
+    const validator = new TargetAwareDesktopStateValidator(adapter);
+    const reference = observation('reference-resized', 'a'.repeat(64));
+
+    expect(
+      validator.validate({
+        command: click,
+        reference,
+        current: observation('current-resized', 'b'.repeat(64)),
+      }),
+    ).toMatchObject({ status: 'stable', reason: 'within_tolerance' });
+    expect(
+      validator.validate({
+        command: click,
+        reference,
+        current: observation('target-resized', 'c'.repeat(64)),
+      }),
+    ).toMatchObject({
+      status: 'changed',
+      reason: 'material_visual_change',
+      regionKind: 'target',
+    });
   });
 
   it('checks drag path evidence and whole-screen typing evidence', () => {
