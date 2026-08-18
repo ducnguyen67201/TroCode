@@ -11,8 +11,8 @@ sequenceDiagram
     actor User
     participant UI as Sandboxed renderer
     participant App as TaskApplicationService
-    participant Agent as CostAwareAgent
-    participant Session as InferenceSession
+    participant Agent as OpenAI Agents SDK Runner
+    participant Session as bounded SDK Session + context filter
     participant API as Hosted Responses service
     participant Budget as BudgetService
     participant DB as PostgreSQL usage ledger
@@ -21,21 +21,21 @@ sequenceDiagram
 
     User->>UI: Typed text or finalized voice transcript
     UI->>App: submitTask(validated text)
-    App->>Agent: start task + sample
-    Agent->>Session: bounded manual history
+    App->>Agent: start one SDK run
+    Agent->>Session: SDK-owned conversation continuity
     Session-->>Agent: current text + at most one current image
-    Agent->>API: request UUID, task UUID, Luna profile, 2k output cap
+    Agent->>API: streamed request UUID, task UUID, Luna, 4k output cap
     API->>Budget: reserve worst-case micro-USD
     Budget->>DB: atomic task/day/month check
     alt budget denied
         Budget-->>UI: typed budget attention
     else reserved
-        API->>Model: one store:false Responses request
-        Model-->>API: assistant/tool output + token usage
+        API->>Model: one stream:true, store:false Responses request
+        Model-->>API: SSE assistant/tool events + completed usage
         API->>Budget: settle actual usage
         Budget->>DB: immutable sanitized event
-        API-->>Agent: response
-        Agent-->>App: assistant message or one tool call
+        API-->>Agent: incremental SSE
+        Agent-->>App: SDK tool callbacks or final answer
         App-->>Present: validated task update
         Present-->>UI: ready/thinking/working/attention/done/error
     end
@@ -62,12 +62,12 @@ coordinate space. Resizing evidence does not change desktop authority.
 
 | Cost driver | Previous TroCode path | Cost-aware path |
 |---|---|---|
-| Model | Luna, then broad Terra fallback | Luna default; Terra only named before dispatch |
-| Output | 8,000 tokens every sample | 2,000 normal/visual; 4,000 long/quality only |
+| Model | Luna, then broad Terra fallback | One configured model; Luna by default |
+| Output | 8,000 tokens every sample | 4,000-token hard cap |
 | Screenshots | Historical original images replayed | One resized current image, used once |
-| Context | Up to 256 items/25 MB | 128 request items, 12 MB memory, image demotion |
+| Context | Up to 256 items/25 MB | 128 request items and one current image |
 | Completion review | Every tool task | Visible or outcome-critical tasks only |
-| Ambiguous failure | Could issue a dearer second request | Reservation retained; no retry/fallback |
+| Ambiguous failure | Could issue a dearer second request | Reservation retained; SDK and HTTP retries are off |
 | Quota | Request counts only | Atomic $0.50 task, $2/day, $20/month defaults |
 
 OpenClicky-style presentation evolves from a compact state projection while the

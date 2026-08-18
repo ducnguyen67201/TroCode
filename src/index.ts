@@ -2,6 +2,7 @@ import {
   app,
   autoUpdater,
   BrowserWindow,
+  dialog,
   globalShortcut,
   Menu,
   nativeImage,
@@ -9,9 +10,12 @@ import {
   screen,
   shell,
   Tray,
+  type OpenDialogOptions,
 } from 'electron';
 import path from 'node:path';
 
+import { AgentActivityService } from './main/agent/agent-activity-service';
+import { AgentRuntimeFactory } from './main/agent/agent-runtime-factory';
 import type { DesktopCommand } from './main/agent/execution-contracts';
 import {
   TaskExecutionCoordinator,
@@ -23,6 +27,7 @@ import {
   type GlobalGuidanceShortcuts,
 } from './main/agent/global-guidance-shortcuts';
 import { registerGlobalTaskCancelShortcut } from './main/agent/global-task-cancel-shortcut';
+import { OpenAIAgentsRuntime } from './main/agent/openai-agents-runtime';
 import { TaskRuntime } from './main/agent/task-runtime';
 import { FileAnalyticsIdentityStore } from './main/analytics/analytics-identity-store';
 import { AnalyticsService } from './main/analytics/analytics-service';
@@ -32,6 +37,9 @@ import { GoogleAuthService } from './main/auth/google-auth-service';
 import { LocalOAuthBrowserFlow } from './main/auth/local-oauth-browser-flow';
 import { keepWindowAliveForBackgroundVoice } from './main/background-app-lifecycle';
 import { UsageBudgetService } from './main/budget/usage-budget-service';
+import { CodexAppServerRuntime } from './main/codex/codex-app-server-runtime';
+import { CodexRuntimeLocator } from './main/codex/codex-runtime-locator';
+import { WorkspaceSelectionService } from './main/codex/workspace-selection-service';
 import {
   isAuthenticatedCompanionSession,
   toCompanionInteraction,
@@ -50,7 +58,6 @@ import {
 import { CuaService } from './main/cua/cua-service';
 import { TaskHistoryService } from './main/history/task-history-service';
 import { PostgresTaskHistoryStore } from './main/history/task-history-store';
-import { CostAwareAgent } from './main/inference/cost-aware-agent';
 import { resizeObservationForModel } from './main/inference/image-evidence';
 import { registerIpcHandlers } from './main/ipc/register-ipc';
 import { EncryptedMembershipActivationStore } from './main/membership/membership-activation-store';
@@ -137,6 +144,7 @@ const hasSingleInstanceLock = initializeSingleInstance(app, () => {
 });
 
 const taskRuntime = new TaskRuntime();
+const agentActivityService = new AgentActivityService();
 const databaseUrl = process.env.DATABASE_URL?.trim() ?? '';
 const taskHistoryService = new TaskHistoryService({
   onError: (error) => {
@@ -177,6 +185,24 @@ const appPreferencesService = new AppPreferencesService(
     path.join(app.getPath('userData'), 'app-preferences.json'),
   ),
 );
+const appCodexHome = path.join(app.getPath('userData'), 'codex-home');
+const codexRuntimeLocator = new CodexRuntimeLocator({ appCodexHome });
+const workspaceSelectionService = new WorkspaceSelectionService(
+  {
+    pickDirectory: async () => {
+      const options: OpenDialogOptions = {
+        properties: ['openDirectory'],
+        title: 'Select a Workspace folder',
+      };
+      const window = mainWindow;
+      const result = window && !window.isDestroyed()
+        ? await dialog.showOpenDialog(window, options)
+        : await dialog.showOpenDialog(options);
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
+  },
+  codexRuntimeLocator,
+);
 const systemAudioDuckingService = createSystemAudioDuckingService();
 const voiceCredentialStore = new EncryptedVoiceCredentialStore();
 const voiceService = new VoiceService({
@@ -193,17 +219,27 @@ const companionNarrationService = new CompanionNarrationService({
   publish: publishCompanionSpeech,
   ttsService: elevenLabsTtsService,
 });
-const responsesAgent = new CostAwareAgent({
+const agentRuntime = new OpenAIAgentsRuntime({
   accessTokenProvider: () => authService.getAccessToken(),
   apiBaseUrl: trocodeApiBaseUrl,
   credentialStore: voiceCredentialStore,
 });
+const codexRuntime = new CodexAppServerRuntime({
+  appCodexHome,
+  locator: codexRuntimeLocator,
+});
+const agentRuntimeFactory = new AgentRuntimeFactory({
+  codexAppServer: codexRuntime,
+  openaiAgents: agentRuntime,
+});
 const executionCoordinator = new TaskExecutionCoordinator({
-  agent: responsesAgent,
+  agentRuntimeFactory,
   cua: cuaService,
   dismissPresentation: dismissCompanionGuidance,
   onGuidancePlaybackChange: (_taskId, paused) =>
     updateGuidancePlaybackState(paused),
+  onActivity: (taskId, activity) =>
+    agentActivityService.publish(taskId, activity),
   onGuidanceWaitEnd: deactivateGlobalGuidanceShortcuts,
   onGuidanceWaitStart: activateGlobalGuidanceShortcuts,
   runtime: taskRuntime,
@@ -240,6 +276,7 @@ const executionCoordinator = new TaskExecutionCoordinator({
 const taskApplicationService = new TaskApplicationService(
   taskRuntime,
   executionCoordinator,
+  { appPreferencesService, workspaceSelectionService },
 );
 const presentationCoordinator = new PresentationCoordinator(
   new ElectronPresentationPresenter(
@@ -778,6 +815,7 @@ function prepareApplicationShutdown(): Promise<void> {
   unregisterIpcHandlers?.();
   unregisterIpcHandlers = null;
   taskRuntime.off('task-update', trackTaskAnalytics);
+  agentActivityService.off('activity', trackAgentActivityAnalytics);
   taskRuntime.off('task-update', coordinateTaskPresentation);
 
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
@@ -830,6 +868,10 @@ function beginShutdown(exitCode = 0): void {
 
 function trackTaskAnalytics(value: unknown): void {
   void analyticsService?.trackTaskUpdate(value);
+}
+
+function trackAgentActivityAnalytics(value: unknown): void {
+  void analyticsService?.trackAgentActivity(value);
 }
 
 function coordinateTaskPresentation(value: unknown): void {
@@ -1018,6 +1060,7 @@ const createWindow = (): void => {
 
   unregisterIpcHandlers?.();
   unregisterIpcHandlers = registerIpcHandlers(nextMainWindow, {
+    agentActivityService,
     appPreferencesService,
     appUpdateService,
     authService,
@@ -1060,6 +1103,7 @@ const createWindow = (): void => {
     updateCompanionVoiceActivity,
     voiceService,
     usageBudgetService,
+    workspaceSelectionService,
   });
 
   if (!app.isPackaged) {
@@ -1407,6 +1451,7 @@ if (hasSingleInstanceLock) {
       projectToken: process.env.POSTHOG_PROJECT_TOKEN,
     });
     taskRuntime.on('task-update', trackTaskAnalytics);
+    agentActivityService.on('activity', trackAgentActivityAnalytics);
     taskRuntime.on('task-update', coordinateTaskPresentation);
 
     await Promise.all([

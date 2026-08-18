@@ -2,18 +2,22 @@
 
 ## Decision
 
-TroCode uses Electron Forge, React, TypeScript, one OpenAI Responses agent loop,
-and a trusted local tool router. The model receives only model-visible tool
-specifications. Electron main owns their internal IDs, parsers, policy metadata,
-adapters, cancellation, and budgets.
+TroCode uses Electron Forge, React, TypeScript, the OpenAI Agents SDK, a Codex
+app-server Workspace adapter, and trusted local brokers. A runtime receives only
+the capabilities selected by the host. Electron main owns internal tool IDs,
+parsers, policy metadata, adapters, cancellation, and budgets.
 
 ```mermaid
 flowchart LR
     UI["Sandboxed React renderer"] -->|"Narrow DesktopApi"| PRELOAD["Validated preload"]
     PRELOAD -->|"Authenticated IPC"| MAIN["Electron main"]
-    MAIN --> RUNTIME["Task runtime v3"]
-    RUNTIME --> AGENT["CostAwareAgent + bounded InferenceSession"]
-    AGENT -->|"Request UUID + opaque session"| API["Railway API"]
+    MAIN --> RUNTIME["Task runtime v5 supervisor"]
+    RUNTIME --> FACTORY{"Host-selected profile"}
+    FACTORY -->|"Everyday"| AGENT["OpenAI Agents SDK Runner + bounded Session"]
+    FACTORY -->|"Workspace + trusted root"| CODEX["Codex app-server thread/turn"]
+    CODEX -->|"Bounded JSONL events"| ACTIVITY["Normalized activity"]
+    CODEX -->|"workspaceWrite; network off"| WORKSPACE["Selected canonical root"]
+    AGENT -->|"SSE + request UUID + opaque session"| API["Railway API"]
     API --> BUDGET["BudgetService"]
     BUDGET --> USAGE["Reservation + usage ledger"]
     API --> OPENAI["OpenAI Responses + Realtime"]
@@ -23,7 +27,7 @@ flowchart LR
     AGENT -->|"Assistant candidate"| REVIEW["One completion checkpoint when contextual"]
     REVIEW -->|"Complete"| DONE["Task complete"]
     REVIEW -->|"More work"| AGENT
-    AGENT -->|"One function call"| ROUTER["Trusted tool router"]
+    AGENT -->|"Function calls"| ROUTER["Trusted tool broker"]
     ROUTER --> POLICY["Concrete-action policy"]
     POLICY --> ADAPTERS["Browser, CUA, guidance, interaction adapters"]
     ADAPTERS -->|"Tool output + evidence"| AGENT
@@ -31,19 +35,31 @@ flowchart LR
 
 ## Assistant-or-tool loop
 
-A new request synchronously creates a host-owned `TaskContract` v4 containing
-the original request, fixed exact-approval policy, tool-call limit, and time
-limit plus model-sample, image, and task-spend ceilings. It contains no domain,
-behavior, capability grant, application allowlist,
-or model-authored authority.
+A new request creates a host-owned `TaskContract` v5 containing the original
+request, explicit runtime kind, execution profile, autonomy preference, optional
+trusted workspace identity, fixed exact-approval policy, and resource ceilings.
+It contains no model-authored authority. Everyday maps only to OpenAI Agents.
+Workspace maps only to Codex after the main-process directory picker
+canonicalizes and records the selected root.
 
-One in-memory Responses session receives the user message and the tool specs
-currently installed by the registry. `tool_choice` is `auto`, parallel calls are
-disabled, and server storage is disabled. A function call is schema-parsed,
+One Agents SDK `Runner` owns the repeated model/tool loop and a bounded in-memory
+`Session` receives the user message plus tool specs currently installed by the
+registry. `tool_choice` is `auto`, parallel calls are disabled, storage is off,
+and both SDK and HTTP retries are disabled. Each function call is schema-parsed,
 normalized to a host-owned internal tool identity, policy-checked, executed once,
-and returned to the same session. Model reasoning items that accompany a call are
-retained only in this bounded main-process session so the following tool output
-has correct continuity.
+and returned through the SDK tool callback. The context filter keeps at most one
+current screenshot and removes older image bytes before the next sample.
+
+Workspace mode launches the exact supported Codex CLI as `app-server` over
+bounded stdio JSONL with an app-scoped `CODEX_HOME`. Availability requires an
+exact version match and a successful app-scoped `codex login status`; TroCode
+never reads or rewrites the user's normal Codex configuration. Threads use the selected
+canonical root, `workspaceWrite`, `approvalPolicy: 'on-request'` (the current
+0.146.0 protocol spelling), and network disabled. The adapter validates request
+IDs and thread/turn scope, maps safe summaries into the shared activity stream,
+drops reasoning and command payloads, forwards exact approvals and user input
+through the task interaction broker, and never restarts or replays a turn whose
+completion is unknown.
 
 A self-contained assistant message with no tool or visible-context dependency
 ends immediately. If a task refers to visible context or requires
@@ -76,12 +92,16 @@ Provider credentials, response bodies, and raw errors never cross that bridge.
 - The renderer has no Node integration, raw IPC, CUA handle, API key, OAuth
   token, model response, screenshot bytes, or generic call-tool method.
 - Preload and main parse every boundary with shared Zod contracts.
+- The renderer receives opaque workspace selection IDs and display names, never
+  a filesystem picker or arbitrary path authority.
 - Playback reports are accepted only from the current guidance window's main
   frame. Private audio URLs contain only a random ticket ID and expire quickly.
 - The registry, not GPT, supplies internal tool ID and operation.
 - Policy checks only a concrete normalized action: installed operation, public
-  HTTPS target, and fixed host approval list. Desktop mutation sensitivity is
-  derived from the trusted operation rather than the model's consequence label.
+  HTTPS target, and the fixed host consequence list. Routine click, drag, text,
+  keypress, and scroll actions continue automatically. Login, send, submit,
+  upload, download, delete, purchase, install, command, and file-write
+  consequences require exact user approval.
 - Exact approvals bind target, payload, command, coordinates, observation ID,
   and observation fingerprint. A changed screen invalidates a held desktop
   approval.
@@ -112,21 +132,25 @@ Responses, Realtime, and optional ElevenLabs requests use the opaque session
 over HTTPS. Provider credentials exist only in Railway's runtime environment.
 The API authenticates every provider request, applies IP/user rate limits,
 restricts models to the configured allowlist, bounds request and response sizes,
+streams Responses SSE without buffering, settles usage from the completed event,
 and never stores Responses input or output. Native desktop policy and exact
 action approvals remain in Electron main; the API does not grant computer-use
 authority.
 
 ## Persistence and analytics
 
-PostgreSQL stores validated snapshots and lifecycle events. Persisted v1/v2/v3
-contracts remain readable as legacy history; new tasks emit v4 contracts and
-tool-call progress. Screenshots, Responses items, pending raw tool arguments,
-and reasoning never enter task history.
+PostgreSQL stores validated snapshots and lifecycle events. Persisted v1-v4
+contracts remain readable as legacy history but cannot resume through the new
+runtime; new tasks emit v5 contracts and tool-call progress. Only minimal Codex
+thread/version/workspace continuity metadata may be persisted. Screenshots,
+partial deltas, command output, raw tool arguments, approval state, and reasoning
+never enter task history.
 
 Analytics receives allowlisted counts and identifiers such as contract version,
-phase, tool ID, operation, and transcript character count. It does not receive
-task text, voice transcript text, screenshots, URLs, recipients, file paths, or
-tool arguments.
+runtime kind, execution profile, autonomy mode, time to first text delta, phase,
+tool ID, operation, and transcript character count. It does not receive task
+text, voice transcript text, screenshots, URLs, recipients, file paths, command
+text, approval descriptions, or tool arguments.
 
 ## Native execution and packaging
 

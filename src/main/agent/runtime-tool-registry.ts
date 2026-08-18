@@ -11,6 +11,7 @@ import {
   type AgentToolCall,
   type ModelToolSpec,
   type ResolvedToolInvocation,
+  type StrictJsonObjectSchema,
 } from './agent-contracts';
 import {
   DesktopCommandSchema,
@@ -19,8 +20,6 @@ import {
   type DesktopCommand,
   type DesktopObservation,
 } from './execution-contracts';
-
-type JsonSchema = Record<string, unknown>;
 
 export interface ToolResolutionContext {
   latestObservation?: DesktopObservation;
@@ -38,7 +37,7 @@ export interface RuntimeToolDefinition<TInput = unknown> {
     context: ToolResolutionContext,
   ): ResolvedToolInvocation;
   operations: readonly string[];
-  parameters: JsonSchema;
+  parameters: StrictJsonObjectSchema;
   parse(argumentsJson: string): TInput;
 }
 
@@ -330,7 +329,7 @@ function commandParameters(
 const functionSpec = (
   name: string,
   description: string,
-  parameters: JsonSchema,
+  parameters: StrictJsonObjectSchema,
 ): ModelToolSpec => ({
   type: 'function',
   name,
@@ -340,9 +339,9 @@ const functionSpec = (
 });
 
 const objectSchema = (
-  properties: Record<string, unknown>,
+  properties: Record<string, Record<string, unknown>>,
   required: string[],
-): JsonSchema => ({
+): StrictJsonObjectSchema => ({
   type: 'object',
   additionalProperties: false,
   properties,
@@ -852,6 +851,18 @@ export class RuntimeToolRegistry {
     const invocation = definition.normalize(input, call, context);
     this.resolvedCallIds.add(callKey);
     return invocation;
+  }
+
+  preview(
+    call: AgentToolCall,
+    context: ToolResolutionContext,
+  ): ResolvedToolInvocation {
+    const definition = this.toolsByModelName.get(call.name);
+    if (!definition || definition.available?.() === false) {
+      throw new Error('Runtime model tool ' + call.name + ' is unavailable.');
+    }
+    const input = definition.parse(call.arguments);
+    return definition.normalize(input, call, context);
   }
 
   supports(action: ProposedAction): boolean {

@@ -1,4 +1,5 @@
 import type {
+  AutonomyMode,
   AppLanguage,
   AppUpdateStatus,
   PrimaryLanguage,
@@ -15,6 +16,7 @@ import {
 } from './language-options';
 
 interface SettingsPageProps {
+  autonomyMode: AutonomyMode;
   appLanguage: AppLanguage;
   appUpdateError: string | null;
   appUpdateStatus: AppUpdateStatus | null;
@@ -23,6 +25,7 @@ interface SettingsPageProps {
   isSaving: boolean;
   isUpdatingApp: boolean;
   muteSystemAudioWhileSpeaking: boolean;
+  onAutonomyModeChange(mode: AutonomyMode): void;
   onAppLanguageChange(language: AppLanguage): void;
   onCheckForUpdates(): void;
   onLanguageChange(language: PrimaryLanguage): void;
@@ -61,6 +64,7 @@ function appUpdateActionLabel(
 }
 
 export function SettingsPage({
+  autonomyMode,
   appLanguage,
   appUpdateError,
   appUpdateStatus,
@@ -69,6 +73,7 @@ export function SettingsPage({
   isSaving,
   isUpdatingApp,
   muteSystemAudioWhileSpeaking,
+  onAutonomyModeChange,
   onAppLanguageChange,
   onCheckForUpdates,
   onLanguageChange,
@@ -151,6 +156,42 @@ export function SettingsPage({
           {t(
             'Choose the language used for navigation, settings, and other TroCode controls.',
           )}
+        </p>
+
+        <div className="settings-section-divider" />
+
+        <div className="settings-card__heading">
+          <div>
+            <p className="eyebrow">{t('Task safety')}</p>
+            <h2>{t('Autonomy')}</h2>
+          </div>
+          <span className="settings-badge settings-badge--neutral">
+            {autonomyMode === 'balanced' ? t('Balanced') : t('Strict')}
+          </span>
+        </div>
+
+        <label className="language-field" htmlFor="settings-autonomy-mode">
+          <span>{t('Approval style')}</span>
+          <select
+            id="settings-autonomy-mode"
+            onChange={(event) =>
+              onAutonomyModeChange(event.target.value as AutonomyMode)
+            }
+            value={autonomyMode}
+          >
+            <option value="balanced">{t('Balanced')}</option>
+            <option value="strict">{t('Strict')}</option>
+          </select>
+        </label>
+
+        <p className="settings-help">
+          {autonomyMode === 'balanced'
+            ? t(
+                'Routine, reversible actions continue automatically. TroCode still pauses for destructive, financial, privacy-sensitive, or permission-changing actions.',
+              )
+            : t(
+                'Ask before routine desktop mutations as well as consequential actions.',
+              )}
         </p>
 
         <div className="settings-section-divider" />

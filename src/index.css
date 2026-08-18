@@ -2428,6 +2428,46 @@ h1 {
   color: #96968e;
 }
 
+.execution-profile-picker {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.execution-profile-picker > button {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  text-align: left;
+}
+
+.execution-profile-picker > button[aria-pressed="true"] {
+  border-color: #bc9217;
+  background: rgba(242, 201, 76, 0.15);
+  color: var(--text);
+}
+
+.execution-profile-picker > button strong {
+  font-size: 11px;
+}
+
+.execution-profile-picker > button span,
+.execution-profile-picker__unavailable {
+  margin: 0;
+  color: var(--subtle);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.execution-profile-picker__unavailable {
+  grid-column: 1 / -1;
+}
+
 .composer-footer {
   grid-column: 1 / -1;
   display: flex;
@@ -3615,6 +3655,47 @@ h1 {
   color: var(--subtle);
   font-size: 10px;
   text-transform: capitalize;
+}
+
+.live-task-rail__activity {
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-activity-list {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.agent-activity-list summary {
+  width: fit-content;
+  padding-top: 10px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.agent-activity-list ol,
+.agent-activity-list ul {
+  margin: 9px 0 0;
+  padding-left: 19px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.agent-activity-list ul {
+  margin-top: 4px;
+}
+
+.agent-activity-list li > span:first-child {
+  color: var(--subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  text-transform: uppercase;
 }
 
 .live-task-details {

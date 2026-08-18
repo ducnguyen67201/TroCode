@@ -1,6 +1,6 @@
 # TroCode
 
-TroCode is a cross-platform, general-purpose desktop agent foundation. One GPT Responses session receives the conversation and the concrete tools installed by the trusted host; it can answer normally or request one tool call at a time.
+TroCode is a cross-platform, general-purpose agent foundation. Everyday tasks run through the OpenAI Agents SDK; explicitly selected project folders run through a local Codex app-server Workspace adapter. Both stay behind the same trusted host policy and activity stream.
 
 Read the [privacy policy](PRIVACY.md), [code signing policy](CODE_SIGNING_POLICY.md),
 and [security model](docs/security.md).
@@ -12,14 +12,18 @@ The desktop application uses Electron, React, TypeScript, and [CUA Driver](https
 Implemented:
 
 - Secure Electron main/preload/renderer separation.
-- One persistent assistant-or-tool Responses loop for multilingual reasoning,
-  writing, coding, music ideas, and installed-tool work.
+- One persistent OpenAI Agents SDK loop for multilingual reasoning, writing,
+  desktop work, and installed tools, with incremental Responses SSE.
+- An explicit Workspace mode backed by Codex app-server, a canonical
+  user-selected root, `workspaceWrite`, network-off defaults, exact escalation
+  approvals, persistent thread identity, and in-flight steering.
 - A trusted model-visible tool registry with desktop observation/control,
   public HTTPS navigation, grounded guidance, and user-input adapters.
 - Typed task lifecycle with guarded transitions.
 - Task-scoped clarification replies that continue the same goal conversation.
 - Structured pending interactions and exact, single-use approval decisions.
-- Task steering queued for goal review at the next safe execution boundary.
+- Task steering queued for the next safe Agents SDK model boundary or delivered
+  to an active Codex turn.
 - Concrete tool/operation, target, and approval policy evaluation.
 - Native Google OAuth sign-in with Authorization Code + PKCE, locally verified
   identity claims, and an operating-system-encrypted, revocable hosted session.
@@ -31,14 +35,15 @@ Implemented:
   explicit user-clicked Connect computer action.
 - Task-scoped CUA sessions with bounded screenshots, typed clicks, text entry,
   keypresses, scrolling, dragging, and session cleanup.
-- Cost-aware GPT-5.6 Luna reasoning through the Responses API. Terra requires
-  an explicit pre-dispatch quality profile; ambiguous calls never fall back.
+- One configured GPT-5.6 model through the Responses API (Luna by default),
+  with no classifier or fallback request after a failure.
 - Hosted integer micro-USD accounting with atomic request reservations and
   configurable task, daily, and monthly limits ($0.50/$2/$20 defaults).
-- One resized current screenshot per visual sample, bounded context, and
-  profile-specific 2k/4k output ceilings.
-- A serialized sample → tool → result loop with tool/time limits, cancellation,
-  safe steering, post-action screenshots, and no repeat after unknown results.
+- One resized current screenshot per visual sample, bounded context, and a
+  4,000-token output ceiling.
+- SDK/app-server-owned model → tool → result continuation with host-owned
+  tool/time limits, cancellation, safe steering, post-action screenshots, and
+  no repeat after unknown results.
 - Direct public HTTPS navigation and exact, revalidated approval
   before consequential CUA actions such as Send.
 - Focused-window push-to-talk plus system-wide background voice shortcuts
@@ -54,8 +59,9 @@ Implemented:
 - Account-scoped PostgreSQL task history that saves the latest validated task
   snapshot and immutable lifecycle events, then restores History and Insights
   after restart.
-- Goal preview, automatic execution, always-available Stop/Escape cancellation,
-  conversation, clarification, approval, and lifecycle activity UI.
+- Streamed draft text, bounded live activity and optional plan history, explicit
+  Everyday/Workspace selection, Balanced/Strict autonomy, automatic execution,
+  and always-available Stop/Escape cancellation.
 - Unit tests and cross-platform CI definition.
 
 Not implemented yet:
@@ -71,8 +77,9 @@ typing, scrolling, and drag. TroCode does not yet claim to generate an MP3
 directly: that requires a separately configured `music.generate` adapter, which
 can be added to the registry without changing request classification.
 
-When a host-created task reaches `ready`, TroCode starts its task-scoped
-Responses session. CUA remains stopped unless GPT requests a desktop tool. The visible **Stop task** control and
+When a host-created task reaches `ready`, TroCode starts its selected task-scoped
+runtime. CUA remains stopped unless the Everyday agent requests a desktop tool.
+The visible **Stop task** control and
 the system-wide **Escape** shortcut cancel a nonterminal task, including while
 the main window is hidden for desktop work. The loop observes after every
 admitted action, and consequential actions still pause on an exact approval
@@ -82,6 +89,10 @@ card before anything is dispatched.
 
 - Node.js 24 or newer.
 - npm 11 or newer.
+- Codex CLI 0.146.0 for optional Workspace mode. Set the absolute
+  `TROCODE_CODEX_PATH` when it is not discoverable on `PATH`. Workspace remains
+  hidden until `codex login status` succeeds against TroCode's app-scoped
+  `CODEX_HOME`; the setup message displays that directory and login command.
 - Docker Desktop with Docker Compose v2 for local PostgreSQL.
 - macOS 13+ or a supported 64-bit Windows environment for CUA.
 - macOS development requires Accessibility and Screen Recording permissions.
@@ -136,9 +147,8 @@ npm start
 ```
 
 Companion speech is optional. To use ElevenLabs credits, also configure
-`ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`. Agent sampling defaults to
-`gpt-5.6-luna`. `gpt-5.6-terra` is not an automatic fallback; it requires a
-named, eval-backed quality override selected before dispatch. See the
+`ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`. Everyday agent sampling defaults
+to `gpt-5.6-luna` and never falls back to a second model. See the
 [inference cost lifecycle](docs/inference-cost-lifecycle.md) for the text,
 screen, reservation, settlement, and presentation flow.
 
@@ -194,7 +204,7 @@ The API requires these production variables:
 - `GOOGLE_OAUTH_CLIENT_ID`
 - `OPENAI_API_KEY`
 - `TROCODE_SESSION_TOKEN_HMAC_KEY`
-- `TROCODE_PLANNER_MODEL` and `TROCODE_PLANNER_FALLBACK_MODEL`
+- `TROCODE_AGENT_MODEL`
 - `TROCODE_COST_GUARD_MODE`, starting at `observe` and moving to `enforce`
 - optional server-owned budget overrides documented in `.env.example`
 - optional `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, and
@@ -443,8 +453,8 @@ React renderer
   -> typed preload API
     -> trusted Electron IPC
       -> Google OAuth service / encrypted local session
-      -> goal runtime / policy engine
-      -> GPT Responses visual manager (Luna first, Terra fallback)
+      -> TaskContract v5 / runtime factory / policy brokers
+      -> OpenAI Agents SDK (Everyday) / Codex app-server (Workspace)
       -> PostHog analytics service (allowlisted metadata only)
       -> OpenAI voice service (short-lived Realtime sessions)
       -> CUA service
@@ -465,8 +475,9 @@ Read:
 ```text
 src/
 ├── main/
-│   ├── agent/       task runtime, Responses agent, tool router, policy, coordinator
+│   ├── agent/       runtime boundary, SDK adapter, brokers, policy, coordinator
 │   ├── analytics/   privacy-safe PostHog events and durable identity
+│   ├── codex/       app-server transport, protocol adapter, workspace selection
 │   ├── cua/         permission-aware CUA lifecycle
 │   └── ipc/         trusted renderer boundary
 ├── renderer/        React desktop interface

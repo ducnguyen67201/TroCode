@@ -20,6 +20,7 @@ function createSnapshot(
     request: 'Complete a useful task',
     updatedAt: now,
     ...overrides,
+    runtimeResume: overrides.runtimeResume ?? null,
   };
 }
 

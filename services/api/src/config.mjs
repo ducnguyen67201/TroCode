@@ -43,12 +43,7 @@ export function loadConfig(environment = process.env) {
 
   const primaryModel =
     environment.TROCODE_AGENT_MODEL?.trim() ||
-    environment.TROCODE_PLANNER_MODEL?.trim() ||
     'gpt-5.6-luna';
-  const fallbackModel =
-    environment.TROCODE_AGENT_FALLBACK_MODEL?.trim() ||
-    environment.TROCODE_PLANNER_FALLBACK_MODEL?.trim() ||
-    'gpt-5.6-terra';
 
   return {
     costGuard: {
@@ -106,7 +101,7 @@ export function loadConfig(environment = process.env) {
     elevenLabsVoiceId: environment.ELEVENLABS_VOICE_ID?.trim() || null,
     googleClientId: required('GOOGLE_OAUTH_CLIENT_ID', environment),
     openAiApiKey: required('OPENAI_API_KEY', environment),
-    openAiModels: new Set([primaryModel, fallbackModel]),
+    openAiModels: new Set([primaryModel]),
     port: positiveInteger('PORT', environment.PORT, 8080),
     sessionDurationDays: positiveInteger(
       'TROCODE_SESSION_DURATION_DAYS',

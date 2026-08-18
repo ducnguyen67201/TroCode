@@ -1,5 +1,6 @@
 import type {
   ActivateMembershipRequest,
+  AgentActivityUpdate,
   AppPreferences,
   AppUpdateStatus,
   AuthStatus,
@@ -30,10 +31,13 @@ import type {
   VoiceDiagnostic,
   VoiceShortcutEvent,
   VoiceStatus,
+  WorkspaceRuntimeAvailability,
+  WorkspaceSelection,
 } from './contracts';
 
 export const IPC_CHANNELS = {
   activateMembership: 'membership:activate',
+  agentActivity: 'agent:activity',
   appUpdateStatusChanged: 'update:status-changed',
   cancelTask: 'task:cancel',
   checkForAppUpdates: 'update:check',
@@ -57,6 +61,7 @@ export const IPC_CHANNELS = {
   getUsageBudget: 'usage:budget',
   getTaskHistory: 'task:history',
   getVoiceStatus: 'voice:status',
+  getWorkspaceRuntimeAvailability: 'workspace:runtime-availability',
   openSystemPermissionSettings: 'system:open-permission-settings',
   recordVoiceTranscript: 'voice:record-transcript',
   reportVoiceDiagnostic: 'voice:diagnostic',
@@ -70,6 +75,7 @@ export const IPC_CHANNELS = {
   signOutGoogle: 'auth:sign-out-google',
   steerTask: 'task:steer',
   submitTask: 'task:submit',
+  selectWorkspace: 'workspace:select',
   taskUpdate: 'task:update',
   updateAppPreferences: 'preferences:update',
   voiceShortcut: 'voice:shortcut',
@@ -93,7 +99,11 @@ export interface DesktopApi {
   getTaskHistory(): Promise<TaskHistory>;
   getAuthStatus(): Promise<AuthStatus>;
   getVoiceStatus(): Promise<VoiceStatus>;
+  getWorkspaceRuntimeAvailability(): Promise<WorkspaceRuntimeAvailability>;
   onTaskUpdate(listener: (update: TaskUpdate) => void): () => void;
+  onAgentActivity(
+    listener: (activity: AgentActivityUpdate) => void,
+  ): () => void;
   onAppUpdateStatusChanged(
     listener: (status: AppUpdateStatus) => void,
   ): () => void;
@@ -113,6 +123,7 @@ export interface DesktopApi {
   startTask(taskId: string): Promise<TaskSnapshot>;
   signInWithGoogle(): Promise<AuthStatus>;
   signOutGoogle(): Promise<AuthStatus>;
+  selectWorkspace(): Promise<WorkspaceSelection | null>;
   steerTask(request: SteerTaskRequest): Promise<TaskSnapshot>;
   submitTask(request: SubmitTaskRequest): Promise<TaskSnapshot>;
   updateAppPreferences(

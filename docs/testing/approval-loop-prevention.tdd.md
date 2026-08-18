@@ -10,7 +10,7 @@ No plan file was supplied. The journeys were derived from the reported desktop a
 
 ## Task report
 
-1. Preserved the host-owned exact approval boundary for desktop click, drag, typing, and keypress operations while adding loop prevention around that boundary.
+1. Preserved the host-owned exact approval boundary for declared consequential actions while allowing routine desktop operations to continue without interruption.
    - RED: `npm exec -- vitest run src/main/agent/policy.test.ts src/main/agent/execution-coordinator.test.ts`
    - Evidence: 6 intended failures showed that an over-broad draft would have let model-declared benign operations bypass host approval and let two coordinator flows proceed without approval.
    - GREEN: the same focused suite passed after restoring host approval independently of model-declared consequence.
@@ -19,7 +19,7 @@ No plan file was supplied. The journeys were derived from the reported desktop a
    - Evidence: 2 additional screenshot-derived phrasings were incorrectly allowed.
    - GREEN: all three phrasings are denied by the host policy before dispatch or approval creation.
 3. Added defense-in-depth model guidance that TroCode must never operate its own approval controls.
-   - RED: `npm exec -- vitest run src/main/agent/responses-agent.test.ts`
+   - RED: `npm exec -- vitest run src/main/agent/openai-agents-runtime.test.ts`
    - Evidence: 1 intended failure because the instruction was absent.
    - GREEN: the focused agent test passed after adding the instruction.
 4. Verified repository and package gates.
@@ -30,12 +30,12 @@ No plan file was supplied. The journeys were derived from the reported desktop a
 
 | # | What is guaranteed | Test target | Type | Result |
 |---|---|---|---|---|
-| 1 | Desktop click, drag, typing, and keypress operations require host approval even when the model calls them benign | `src/main/agent/policy.test.ts` | Unit | PASS |
+| 1 | Routine desktop operations continue, while declared sensitive consequences require exact approval | `src/main/agent/policy.test.ts` | Unit | PASS |
 | 2 | A sensitive declared desktop consequence can only escalate to exact approval; it cannot bypass the host boundary | `src/main/agent/policy.test.ts` | Unit | PASS |
 | 3 | Screenshot-derived attempts to approve inside TroCode are denied | `src/main/agent/policy.test.ts` | Unit | PASS |
 | 4 | A self-approval attempt creates no pending approval, dispatches no desktop command, and blocks the task | `src/main/agent/execution-coordinator.test.ts` | Integration | PASS |
 | 5 | A changed screen after approval dispatches nothing and stops without another model sample | `src/main/agent/execution-coordinator.test.ts` | Integration | PASS |
-| 6 | The model receives an explicit instruction that TroCode approval UI is user-only | `src/main/agent/responses-agent.test.ts` | Unit | PASS |
+| 6 | The model receives an explicit instruction that TroCode approval UI is user-only | `src/main/agent/openai-agents-runtime.test.ts` | Unit | PASS |
 
 ## Coverage and known gaps
 

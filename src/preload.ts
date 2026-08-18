@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 import {
   ActivateMembershipRequestSchema,
+  AgentActivityUpdateSchema,
   AppPreferencesSchema,
   AppUpdateStatusSchema,
   AuthStatusSchema,
@@ -35,6 +36,8 @@ import {
   VoiceDiagnosticSchema,
   VoiceShortcutEventSchema,
   VoiceStatusSchema,
+  WorkspaceRuntimeAvailabilitySchema,
+  WorkspaceSelectionSchema,
 } from './shared/contracts';
 import {
   IPC_CHANNELS,
@@ -43,6 +46,19 @@ import {
 } from './shared/desktop-api';
 
 const desktopApi: DesktopApi = {
+  onAgentActivity(listener) {
+    const eventHandler = (
+      _event: Electron.IpcRendererEvent,
+      value: unknown,
+    ): void => {
+      listener(AgentActivityUpdateSchema.parse(value));
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.agentActivity, eventHandler);
+    return () =>
+      ipcRenderer.removeListener(IPC_CHANNELS.agentActivity, eventHandler);
+  },
+
   async getAppUpdateStatus() {
     const response: unknown = await ipcRenderer.invoke(
       IPC_CHANNELS.getAppUpdateStatus,
@@ -103,6 +119,20 @@ const desktopApi: DesktopApi = {
       IPC_CHANNELS.getAppPreferences,
     );
     return AppPreferencesSchema.parse(response);
+  },
+
+  async getWorkspaceRuntimeAvailability() {
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.getWorkspaceRuntimeAvailability,
+    );
+    return WorkspaceRuntimeAvailabilitySchema.parse(response);
+  },
+
+  async selectWorkspace() {
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.selectWorkspace,
+    );
+    return response === null ? null : WorkspaceSelectionSchema.parse(response);
   },
 
   async getTaskHistory() {

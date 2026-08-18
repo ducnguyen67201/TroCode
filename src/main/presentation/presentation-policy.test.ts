@@ -20,6 +20,7 @@ function task(phase: TaskSnapshot['phase']): TaskSnapshot {
     phase,
     progress: null,
     queuedSteering: [],
+    runtimeResume: null,
     request: 'Complete a useful task.',
     taskId,
     updatedAt: timestamp,

@@ -1,15 +1,44 @@
-import type { TaskSnapshot } from '../../shared/contracts';
+import {
+  SubmitTaskRequestSchema,
+  type TaskSnapshot,
+} from '../../shared/contracts';
 import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
 import type { TaskRuntime } from '../agent/task-runtime';
+import type { WorkspaceSelectionService } from '../codex/workspace-selection-service';
+import type { AppPreferencesService } from '../preferences/app-preferences-service';
+
+interface TaskApplicationServiceOptions {
+  appPreferencesService?: Pick<AppPreferencesService, 'get'>;
+  workspaceSelectionService?: Pick<WorkspaceSelectionService, 'resolve'>;
+}
 
 export class TaskApplicationService {
   constructor(
     private readonly runtime: TaskRuntime,
     private readonly execution: TaskExecutionCoordinator,
+    private readonly options: TaskApplicationServiceOptions = {},
   ) {}
 
-  submitAndStart(input: unknown): TaskSnapshot {
-    const submitted = this.runtime.submit(input);
+  async submitAndStart(input: unknown): Promise<TaskSnapshot> {
+    const request = SubmitTaskRequestSchema.parse(input);
+    const preferences = await this.options.appPreferencesService?.get();
+    const workspace = request.workspaceSelectionId
+      ? await this.options.workspaceSelectionService?.resolve(
+          request.workspaceSelectionId,
+        )
+      : null;
+    if (request.executionProfile === 'workspace' && !workspace) {
+      throw new Error('Select a trusted workspace before starting Workspace mode.');
+    }
+    const submitted = this.runtime.submit(request, {
+      autonomyMode: preferences?.autonomyMode ?? 'balanced',
+      executionProfile: request.executionProfile,
+      runtimeKind:
+        request.executionProfile === 'workspace'
+          ? 'codex_app_server'
+          : 'openai_agents',
+      workspace,
+    });
     return this.execution.start({ taskId: submitted.taskId });
   }
 
@@ -33,9 +62,7 @@ export class TaskApplicationService {
     return snapshot;
   }
 
-  steer(input: unknown): TaskSnapshot {
-    const snapshot = this.runtime.steer(input);
-    this.execution.resume(snapshot.taskId);
-    return snapshot;
+  steer(input: unknown): Promise<TaskSnapshot> {
+    return this.execution.steer(input);
   }
 }

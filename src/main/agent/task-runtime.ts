@@ -30,6 +30,7 @@ import {
   type RuntimeToolRegistry,
 } from './runtime-tool-registry';
 import { createTaskContract } from './task-contract';
+import type { CreateTaskContractOptions } from './task-contract';
 
 const APPROVAL_TTL_MS = 5 * 60 * 1_000;
 const MAX_TASK_MESSAGES = 200;
@@ -118,10 +119,13 @@ export class TaskRuntime extends EventEmitter {
     this.toolRegistry = options.toolRegistry ?? defaultRuntimeToolRegistry;
   }
 
-  submit(input: unknown): TaskSnapshot {
+  submit(
+    input: unknown,
+    contractOptions: CreateTaskContractOptions = {},
+  ): TaskSnapshot {
     const request = SubmitTaskRequestSchema.parse(input);
     const timestamp = this.timestamp();
-    const contract = createTaskContract(request.text);
+    const contract = createTaskContract(request.text, contractOptions);
     const idle: TaskSnapshot = {
       taskId: randomUUID(),
       request: request.text,
@@ -136,6 +140,7 @@ export class TaskRuntime extends EventEmitter {
         limit: contract.limits.maxToolCalls,
       },
       queuedSteering: [],
+      runtimeResume: null,
       createdAt: timestamp,
       updatedAt: timestamp,
       lastEvent: null,
@@ -525,6 +530,20 @@ export class TaskRuntime extends EventEmitter {
       },
     );
     return queued;
+  }
+
+  setRuntimeResumeMetadata(
+    taskId: string,
+    metadata: TaskSnapshot['runtimeResume'],
+  ): TaskSnapshot {
+    const snapshot = this.getTask(taskId);
+    return this.record(
+      { ...snapshot, runtimeResume: metadata },
+      {
+        summary: 'Workspace runtime continuity metadata updated.',
+        nextActions: ['Continue the active workspace turn.'],
+      },
+    );
   }
 
   consumeApprovalGrant(input: unknown): TaskSnapshot {
