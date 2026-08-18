@@ -9,6 +9,7 @@ import {
   mapNormalizedPointToScreenshot,
   mapScreenshotRegionToDesktop,
   mapScreenshotPointToDesktop,
+  tableRowsToTsv,
 } from './execution-contracts';
 
 const coordinateSpace = {
@@ -84,6 +85,36 @@ describe('desktop execution contracts', () => {
         kind: 'click',
         x: 100_001,
         y: 4,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts rectangular spreadsheet data and sanitizes cell delimiters', () => {
+    expect(
+      DesktopCommandSchema.parse({
+        kind: 'paste_table',
+        rows: [
+          ['Ngày', 'Danh mục', 'Ghi chú'],
+          ['18/08/2026', 'Ăn uống', 'Cà phê\nsáng'],
+        ],
+      }),
+    ).toMatchObject({ kind: 'paste_table' });
+    expect(
+      tableRowsToTsv([
+        ['Ngày', 'Danh mục'],
+        ['18/08/2026', 'Cà phê\tsáng'],
+      ]),
+    ).toBe('Ngày\tDanh mục\n18/08/2026\tCà phê sáng');
+  });
+
+  it('rejects ragged spreadsheet rows before desktop execution', () => {
+    expect(
+      DesktopCommandSchema.safeParse({
+        kind: 'paste_table',
+        rows: [
+          ['Ngày', 'Danh mục'],
+          ['18/08/2026'],
+        ],
       }).success,
     ).toBe(false);
   });

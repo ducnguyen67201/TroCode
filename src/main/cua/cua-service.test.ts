@@ -7,6 +7,7 @@ import type { CuaStatus } from '../../shared/contracts';
 import {
   CuaService,
   getCuaModuleSpecifier,
+  pasteShortcutForPlatform,
   shouldAutoConnect,
 } from './cua-service';
 
@@ -95,6 +96,7 @@ function fakeCuaModule() {
     DesktopScope: { Desktop: 0 },
     ScrollDirection: { Up: 0, Down: 1, Left: 2, Right: 3 },
     ClickInput: recordFactory(),
+    ClipboardWriteInput: recordFactory(),
     DragInput: recordFactory(),
     EndSessionInput: recordFactory(),
     GetDesktopStateInput: recordFactory(),
@@ -108,6 +110,12 @@ function fakeCuaModule() {
 }
 
 describe('CUA task sessions', () => {
+  it('uses the native platform paste shortcut', () => {
+    expect(pasteShortcutForPlatform('darwin')).toEqual(['cmd', 'v']);
+    expect(pasteShortcutForPlatform('win32')).toEqual(['ctrl', 'v']);
+    expect(pasteShortcutForPlatform('linux')).toEqual(['ctrl', 'v']);
+  });
+
   it('starts a session, captures a bounded observation, and ends it', async () => {
     const taskId = randomUUID();
     const driver = {
@@ -269,6 +277,62 @@ describe('CUA task sessions', () => {
       },
       undefined,
     );
+  });
+
+  it('pastes rectangular table data into the selected spreadsheet cell', async () => {
+    const taskId = randomUUID();
+    const actionOrder: string[] = [];
+    const confirmed = (text: string) => ({
+      text,
+      images: [],
+      isError: false,
+      action: { effect: 0 },
+      degraded: false,
+      rawJson: '{}',
+    });
+    const driver = {
+      isAvailable: vi.fn(() => true),
+      startSession: vi.fn(async () => ({ active: true })),
+      clipboardWrite: vi.fn(async () => {
+        actionOrder.push('clipboard');
+        return confirmed('Table copied.');
+      }),
+      hotkey: vi.fn(async () => {
+        actionOrder.push('paste');
+        return confirmed('Table pasted.');
+      }),
+    };
+    const service = new CuaService();
+    Reflect.set(service, 'cuaModule', fakeCuaModule());
+    Reflect.set(service, 'driver', driver);
+
+    await service.startTaskSession(taskId);
+    await expect(
+      service.executeCommand(taskId, {
+        kind: 'paste_table',
+        rows: [
+          ['Ngày', 'Danh mục', 'Số tiền (VND)'],
+          ['18/08/2026', 'Ăn uống', '50000'],
+        ],
+      }),
+    ).resolves.toEqual({ status: 'confirmed', summary: 'Table pasted.' });
+
+    expect(driver.clipboardWrite).toHaveBeenCalledWith(
+      {
+        session: taskId,
+        text: 'Ngày\tDanh mục\tSố tiền (VND)\n18/08/2026\tĂn uống\t50000',
+      },
+      undefined,
+    );
+    expect(driver.hotkey).toHaveBeenCalledWith(
+      {
+        session: taskId,
+        scope: 0,
+        keys: pasteShortcutForPlatform(process.platform),
+      },
+      undefined,
+    );
+    expect(actionOrder).toEqual(['clipboard', 'paste']);
   });
 
   it('can point for visual guidance without clicking', async () => {

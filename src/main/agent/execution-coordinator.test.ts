@@ -158,8 +158,17 @@ function setup(
   turns: FakeAgentTurn[],
   observations: DesktopObservation[] = [],
   options: {
+    approvalObservationMatches?: (
+      approved: DesktopObservation,
+      current: DesktopObservation,
+      command: DesktopCommand,
+    ) => boolean;
     guidanceAutoAdvanceMs?: number;
     observationTimeoutMs?: number;
+    onDesktopControlChange?: (
+      taskId: string,
+      active: boolean,
+    ) => Promise<void> | void;
     presentAction?: (
       command: DesktopCommand,
       signal: AbortSignal,
@@ -1135,6 +1144,108 @@ describe('TaskExecutionCoordinator', () => {
         summary: expect.stringContaining('screen changed'),
       },
     });
+  });
+
+  it('executes approved work when perceptual matching confirms only incidental screen changes', async () => {
+    const observationId = randomUUID();
+    const approved = observation(
+      randomUUID(),
+      observationId,
+      'a'.repeat(64),
+    );
+    const current = observation(randomUUID(), randomUUID(), 'b'.repeat(64));
+    const after = observation(randomUUID(), randomUUID(), 'c'.repeat(64));
+    const matches = vi.fn(() => true);
+    const { agent, coordinator, cua, runtime } = setup(
+      [
+        tool('call-delete-stable', 'control_desktop', {
+          observationId,
+          consequence: 'delete',
+          description: 'Delete the selected email.',
+          target: 'Delete button',
+          command: {
+            kind: 'click',
+            x: 900,
+            y: 100,
+            button: 'left',
+            count: 1,
+          },
+        }),
+        assistant('The selected email was deleted.'),
+        assistant('The selected email was deleted.'),
+      ],
+      [approved, current, after],
+      { approvalObservationMatches: matches },
+    );
+    const ready = runtime.submit({ text: 'Delete that email.' });
+    approved.taskId = ready.taskId;
+    current.taskId = ready.taskId;
+    after.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+    const waiting = runtime.getSnapshot(ready.taskId);
+    if (!waiting.pendingInteraction || waiting.pendingInteraction.kind !== 'approval') {
+      throw new Error('Expected approval.');
+    }
+    runtime.decideApproval({
+      taskId: ready.taskId,
+      interactionId: waiting.pendingInteraction.id,
+      kind: 'approval',
+      decision: 'approve',
+      actionDigest: waiting.pendingInteraction.actionDigest,
+    });
+    coordinator.resume(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(matches).toHaveBeenCalledWith(
+      approved,
+      current,
+      expect.objectContaining({ kind: 'click', x: 1800, y: 200 }),
+    );
+    expect(cua.executeCommand).toHaveBeenCalledOnce();
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+    expect(agent.outputs).toContainEqual(
+      expect.objectContaining({ callId: 'call-delete-stable' }),
+    );
+  });
+
+  it('shows desktop control only around dispatch and hides it after a failure', async () => {
+    const observationId = randomUUID();
+    const before = observation(randomUUID(), observationId, 'a'.repeat(64));
+    const after = observation(randomUUID(), randomUUID(), 'b'.repeat(64));
+    const controlChanges = vi.fn(async () => undefined);
+    const { coordinator, cua, runtime } = setup(
+      [
+        tool('call-observe-before-type', 'observe_desktop', {
+          reason: 'Inspect the worksheet.',
+        }),
+        tool('call-type-fails', 'control_desktop', {
+          observationId,
+          consequence: 'type_text',
+          description: 'Type into the selected worksheet cell.',
+          target: 'Selected worksheet cell',
+          command: { kind: 'type_text', text: 'Ngày' },
+        }),
+        assistant('The text could not be entered.'),
+        assistant('The text could not be entered.'),
+      ],
+      [before, after],
+      { onDesktopControlChange: controlChanges },
+    );
+    const ready = runtime.submit({ text: 'Type Ngày into the selected cell.' });
+    before.taskId = ready.taskId;
+    after.taskId = ready.taskId;
+    cua.executeCommand.mockRejectedValueOnce(new Error('Driver failed.'));
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(controlChanges.mock.calls).toEqual([
+      [ready.taskId, true],
+      [ready.taskId, false],
+    ]);
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
   });
 
   it('blocks a model attempt to operate TroCode approval UI before requesting approval', async () => {

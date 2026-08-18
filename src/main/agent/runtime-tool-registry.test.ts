@@ -80,7 +80,7 @@ describe('RuntimeToolRegistry', () => {
         | { const?: string; type?: string }
         | undefined;
 
-    expect(variants).toHaveLength(8);
+    expect(variants).toHaveLength(9);
     expect(
       (controlTool?.parameters as unknown as { anyOf?: unknown[] }).anyOf,
     ).toBeUndefined();
@@ -90,6 +90,7 @@ describe('RuntimeToolRegistry', () => {
       { type: 'string', const: 'drag' },
       { type: 'string', const: 'type_text' },
       { type: 'string', const: 'type_text' },
+      { type: 'string', const: 'paste_table' },
       { type: 'string', const: 'keypress' },
       { type: 'string', const: 'keypress' },
       { type: 'string', const: 'scroll' },
@@ -124,6 +125,7 @@ describe('RuntimeToolRegistry', () => {
     expect(consequencesFor('type_text')).toEqual(
       expect.arrayContaining(['type_text', 'login', 'send', 'submit', 'upload']),
     );
+    expect(consequencesFor('paste_table')).toEqual(['type_text']);
     expect(consequencesFor('keypress')).toEqual(
       expect.arrayContaining(['press_key', 'login', 'send', 'submit', 'delete']),
     );
@@ -358,6 +360,66 @@ describe('RuntimeToolRegistry', () => {
     expect(invocation.action).toMatchObject({
       action: 'click_element',
       operation: 'click',
+    });
+  });
+
+  it('normalizes a spreadsheet table to a bounded type-text action', () => {
+    const registry = new RuntimeToolRegistry();
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+    const invocation = registry.resolve(
+      {
+        callId: 'call-paste-table',
+        name: 'control_desktop',
+        arguments: JSON.stringify({
+          observationId,
+          description: 'Fill the selected worksheet with an expense tracker.',
+          target: 'Selected worksheet cell',
+          command: {
+            kind: 'paste_table',
+            rows: [
+              ['Ngày', 'Danh mục', 'Số tiền (VND)'],
+              ['18/08/2026', 'Ăn uống', '50000'],
+            ],
+            consequence: 'type_text',
+            sendPayload: null,
+          },
+        }),
+      },
+      {
+        taskId,
+        latestObservation: {
+          observationId,
+          taskId,
+          capturedAt: '2026-08-18T00:00:00.000Z',
+          text: 'A worksheet cell is selected.',
+          degraded: false,
+          fingerprint: 'a'.repeat(64),
+          coordinateSpace: {
+            screenHeight: 500,
+            screenWidth: 1000,
+            screenshotHeight: 1000,
+            screenshotWidth: 2000,
+          },
+        },
+      },
+    );
+
+    expect(invocation).toMatchObject({
+      kind: 'desktop',
+      operation: 'paste_table',
+      action: {
+        action: 'type_text',
+        operation: 'paste_table',
+        parameters: {
+          columnCount: '3',
+          rowCount: '2',
+          text: 'Ngày\tDanh mục\tSố tiền (VND)\n18/08/2026\tĂn uống\t50000',
+        },
+      },
+      input: {
+        command: { kind: 'paste_table' },
+      },
     });
   });
 
