@@ -51,6 +51,8 @@ describe('agent completion review policy', () => {
     'What is a spreadsheet?',
     'Explain how Google Sheets formulas work.',
     'Open Gmail and read the latest email.',
+    'Create a list of vegetables.',
+    'Write an email draft for my manager.',
     'Write an eight-bar chord progression.',
   ])('does not pre-capture for text or navigation-first work: %s', (request) => {
     expect(shouldCaptureInitialDesktopObservation(request)).toBe(false);
