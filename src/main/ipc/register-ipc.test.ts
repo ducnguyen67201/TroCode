@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { CuaStatus } from '../../shared/contracts';
+import {
+  VOICE_TRANSCRIPTION_MODEL,
+  type CuaStatus,
+} from '../../shared/contracts';
 import { IPC_CHANNELS } from '../../shared/desktop-api';
 
 import { registerIpcHandlers } from './register-ipc';
@@ -210,7 +213,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   }) => ({
     audioDurationMs: 300,
     billedSeconds: 0.3,
-    model: 'gpt-transcribe',
+    model: VOICE_TRANSCRIPTION_MODEL,
     sequence: input.sequence,
     text: 'Open YouTube',
     utteranceId: input.utteranceId,
@@ -766,7 +769,7 @@ describe('registerIpcHandlers auth boundary', () => {
     };
 
     await expect(handler?.(event, request)).resolves.toMatchObject({
-      model: 'gpt-transcribe',
+      model: VOICE_TRANSCRIPTION_MODEL,
       sequence: 0,
     });
     expect(transcribeVoiceSegment).toHaveBeenCalledWith(request);

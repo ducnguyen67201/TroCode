@@ -1,9 +1,12 @@
+import {
+  TRANSCRIPTION_CATALOG_VERSION,
+  TRANSCRIPTION_MODEL,
+} from './transcription-config.mjs';
+
 const MAX_PROVIDER_RESPONSE_BYTES = 1_000_000;
 const MAX_WAV_BYTES = 500_000;
 const OPENAI_TRANSCRIPTIONS_URL =
   'https://api.openai.com/v1/audio/transcriptions';
-const TRANSCRIPTION_CATALOG_VERSION =
-  'gpt-transcribe-duration-2026-08-18';
 
 export class TranscriptionServiceError extends Error {
   constructor(status, message, code = 'transcription_error') {
@@ -179,7 +182,7 @@ export class OpenAiTranscriptionService {
     await this.budgetService.reserve({
       catalogVersion: TRANSCRIPTION_CATALOG_VERSION,
       lane: 'transcription',
-      model: 'gpt-transcribe',
+      model: TRANSCRIPTION_MODEL,
       planId: input.planId,
       requestId: input.requestId,
       reservedMicroUsd,
@@ -189,7 +192,7 @@ export class OpenAiTranscriptionService {
 
     const form = new FormData();
     form.set('file', new Blob([audio], { type: 'audio/wav' }), 'segment.wav');
-    form.set('model', 'gpt-transcribe');
+    form.set('model', TRANSCRIPTION_MODEL);
     form.append('languages[]', input.body.language);
 
     await this.budgetService.markDispatched(input.userId, input.requestId);
@@ -270,7 +273,7 @@ export class OpenAiTranscriptionService {
         cacheWriteTokens: 0,
         cachedInputTokens: 0,
         inputTokens: 0,
-        model: 'gpt-transcribe',
+        model: TRANSCRIPTION_MODEL,
         outputTokens: 0,
         reasoningTokens: 0,
         source: 'actual',
@@ -287,7 +290,7 @@ export class OpenAiTranscriptionService {
         event: 'voice.segment.completed',
         lane: 'transcription',
         microUsd: actualMicroUsd,
-        model: 'gpt-transcribe',
+        model: TRANSCRIPTION_MODEL,
         requestId: input.requestId,
         taskId: input.body.utteranceId,
         usageSource,
@@ -297,7 +300,7 @@ export class OpenAiTranscriptionService {
     return {
       audioDurationMs: Math.round(wav.durationMs),
       billedSeconds,
-      model: 'gpt-transcribe',
+      model: TRANSCRIPTION_MODEL,
       text: transcription.text,
       usageSource,
     };

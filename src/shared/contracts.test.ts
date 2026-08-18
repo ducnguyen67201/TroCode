@@ -15,6 +15,7 @@ import {
   CompanionSpeechPlaybackReportSchema,
   CompanionSpeechSchema,
   MembershipStatusSchema,
+  LEGACY_VOICE_TRANSCRIPTION_MODEL,
   TaskComposerFocusRequestSchema,
   TaskHistorySchema,
   TaskProgressSchema,
@@ -22,6 +23,7 @@ import {
   UsageBudgetSnapshotSchema,
   VoiceSegmentTranscriptionSchema,
   VoiceStatusSchema,
+  VOICE_TRANSCRIPTION_MODEL,
 } from './contracts';
 
 function snapshot(goal: Record<string, unknown>, progress: unknown) {
@@ -408,35 +410,37 @@ describe('voice segment contracts', () => {
   };
 
   it('accepts bounded PCM WAV transport metadata', () => {
+    expect(VOICE_TRANSCRIPTION_MODEL).toBe('gpt-transcribe');
+    expect(LEGACY_VOICE_TRANSCRIPTION_MODEL).toBe('whisper-1');
     expect(TranscribeVoiceSegmentRequestSchema.parse(request)).toEqual(request);
     expect(
       VoiceSegmentTranscriptionSchema.parse({
         audioDurationMs: 300,
         billedSeconds: 0.3,
-        model: 'gpt-transcribe',
+        model: VOICE_TRANSCRIPTION_MODEL,
         sequence: request.sequence,
         text: '',
         utteranceId: request.utteranceId,
       }),
-    ).toMatchObject({ model: 'gpt-transcribe', text: '' });
+    ).toMatchObject({ model: VOICE_TRANSCRIPTION_MODEL, text: '' });
     expect(
       VoiceSegmentTranscriptionSchema.parse({
         audioDurationMs: 300,
         billedSeconds: 0.3,
-        model: 'whisper-1',
+        model: LEGACY_VOICE_TRANSCRIPTION_MODEL,
         sequence: request.sequence,
         text: 'legacy response alias',
         utteranceId: request.utteranceId,
       }),
-    ).toMatchObject({ model: 'whisper-1' });
+    ).toMatchObject({ model: LEGACY_VOICE_TRANSCRIPTION_MODEL });
     expect(
       VoiceStatusSchema.parse({
-        model: 'gpt-transcribe',
+        model: VOICE_TRANSCRIPTION_MODEL,
         provider: 'openai',
         state: 'ready',
         summary: 'Voice input is ready.',
       }),
-    ).toMatchObject({ model: 'gpt-transcribe' });
+    ).toMatchObject({ model: VOICE_TRANSCRIPTION_MODEL });
   });
 
   it('rejects malformed identifiers, sequence, duration, and base64', () => {

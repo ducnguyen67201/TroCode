@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { VOICE_TRANSCRIPTION_MODEL } from '../shared/contracts';
+
 import {
   beginPushToTalkAttemptIfValid,
   handleVoiceShortcutEvent,
@@ -146,7 +148,7 @@ describe('segmented push-to-talk lifecycle', () => {
     const upload = vi.fn(async (request) => ({
       audioDurationMs: request.durationMs,
       billedSeconds: request.durationMs / 1_000,
-      model: 'gpt-transcribe',
+      model: VOICE_TRANSCRIPTION_MODEL,
       sequence: request.sequence,
       text: 'open YouTube',
       utteranceId: request.utteranceId,
@@ -195,7 +197,7 @@ describe('segmented push-to-talk lifecycle', () => {
     resolvers.get(1)?.({
       audioDurationMs: 300,
       billedSeconds: 0.3,
-      model: 'gpt-transcribe',
+      model: VOICE_TRANSCRIPTION_MODEL,
       sequence: 1,
       text: 'and search',
       utteranceId: second?.utteranceId,
@@ -205,7 +207,7 @@ describe('segmented push-to-talk lifecycle', () => {
     resolvers.get(0)?.({
       audioDurationMs: 300,
       billedSeconds: 0.3,
-      model: 'gpt-transcribe',
+      model: VOICE_TRANSCRIPTION_MODEL,
       sequence: 0,
       text: 'open YouTube',
       utteranceId: first?.utteranceId,
@@ -228,7 +230,7 @@ describe('segmented push-to-talk lifecycle', () => {
       return {
         audioDurationMs: 300,
         billedSeconds: 0.3,
-        model: 'gpt-transcribe',
+        model: VOICE_TRANSCRIPTION_MODEL,
         sequence: request.sequence,
         text: 'open YouTube',
         utteranceId: request.utteranceId,
@@ -289,7 +291,7 @@ describe('segmented push-to-talk lifecycle', () => {
     resolveUpload({
       audioDurationMs: 300,
       billedSeconds: 0.3,
-      model: 'gpt-transcribe',
+      model: VOICE_TRANSCRIPTION_MODEL,
       sequence: 0,
       text: 'late text',
       utteranceId: crypto.randomUUID(),
@@ -302,7 +304,7 @@ describe('segmented push-to-talk lifecycle', () => {
     const upload = vi.fn(async (request) => ({
       audioDurationMs: request.durationMs,
       billedSeconds: request.durationMs / 1_000,
-      model: 'gpt-transcribe',
+      model: VOICE_TRANSCRIPTION_MODEL,
       sequence: request.sequence,
       text: 'continue command',
       utteranceId: request.utteranceId,

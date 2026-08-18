@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import {
   ConfigureVoiceRequestSchema,
+  VOICE_TRANSCRIPTION_MODEL,
   TranscribeVoiceSegmentRequestSchema,
   VoiceSegmentTranscriptionSchema,
   VoiceStatusSchema,
@@ -11,10 +12,10 @@ import {
 } from '../../shared/contracts';
 import type { AppPreferencesService } from '../preferences/app-preferences-service';
 
-const OPENAI_MODEL_URL = 'https://api.openai.com/v1/models/gpt-transcribe';
+const OPENAI_MODEL_URL =
+  `https://api.openai.com/v1/models/${VOICE_TRANSCRIPTION_MODEL}`;
 const OPENAI_TRANSCRIPTIONS_URL =
   'https://api.openai.com/v1/audio/transcriptions';
-const VOICE_MODEL = 'gpt-transcribe' as const;
 const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
 
@@ -27,7 +28,9 @@ const OpenAIErrorResponseSchema = z.object({
     .optional(),
 });
 
-const OpenAIModelResponseSchema = z.object({ id: z.literal(VOICE_MODEL) });
+const OpenAIModelResponseSchema = z.object({
+  id: z.literal(VOICE_TRANSCRIPTION_MODEL),
+});
 
 const OpenAITranscriptionResponseSchema = z.object({
   languages: z
@@ -96,7 +99,7 @@ function diagnosticErrorProperties(error: unknown): VoiceDiagnosticProperties {
 
 function readyStatus(): VoiceStatus {
   return VoiceStatusSchema.parse({
-    model: VOICE_MODEL,
+    model: VOICE_TRANSCRIPTION_MODEL,
     provider: 'openai',
     state: 'ready',
     summary: 'OpenAI GPT Transcribe is configured.',
@@ -162,7 +165,7 @@ export class VoiceService {
       }
       this.diagnosticLogger('status.not-configured');
       return VoiceStatusSchema.parse({
-        model: VOICE_MODEL,
+        model: VOICE_TRANSCRIPTION_MODEL,
         provider: 'openai',
         state: 'not_configured',
         summary: this.apiBaseUrl
@@ -172,7 +175,7 @@ export class VoiceService {
     } catch (error) {
       this.diagnosticLogger('status.failed', diagnosticErrorProperties(error));
       return VoiceStatusSchema.parse({
-        model: VOICE_MODEL,
+        model: VOICE_TRANSCRIPTION_MODEL,
         provider: 'openai',
         state: 'error',
         summary: 'TroCode could not read the encrypted voice credential.',
@@ -207,7 +210,7 @@ export class VoiceService {
     this.diagnosticLogger('segment.request-start', {
       byteCount: Math.floor((request.audioBase64.length * 3) / 4),
       durationMs: request.durationMs,
-      model: VOICE_MODEL,
+      model: VOICE_TRANSCRIPTION_MODEL,
       requestId: request.requestId,
       sequence: request.sequence,
     });
@@ -265,7 +268,7 @@ export class VoiceService {
             return {
               audioDurationMs: request.durationMs,
               billedSeconds: request.durationMs / 1_000,
-              model: VOICE_MODEL,
+              model: VOICE_TRANSCRIPTION_MODEL,
               text: provider.text,
             };
           })();
@@ -282,7 +285,7 @@ export class VoiceService {
       audioDurationMs: parsed.audioDurationMs,
       billedSeconds: parsed.billedSeconds,
       durationMs: Date.now() - startedAt,
-      model: VOICE_MODEL,
+      model: VOICE_TRANSCRIPTION_MODEL,
       requestId: request.requestId,
       sequence: request.sequence,
     });
@@ -369,7 +372,7 @@ export class VoiceService {
     const audio = Uint8Array.from(Buffer.from(request.audioBase64, 'base64'));
     const form = new FormData();
     form.set('file', new Blob([audio], { type: 'audio/wav' }), 'segment.wav');
-    form.set('model', VOICE_MODEL);
+    form.set('model', VOICE_TRANSCRIPTION_MODEL);
     form.append('languages[]', language);
     return this.fetchImpl(OPENAI_TRANSCRIPTIONS_URL, {
       body: form,

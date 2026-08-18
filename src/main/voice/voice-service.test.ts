@@ -2,6 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import {
+  LEGACY_VOICE_TRANSCRIPTION_MODEL,
+  VOICE_TRANSCRIPTION_MODEL,
+} from '../../shared/contracts';
+
 import { VoiceService, type VoiceCredentialStore } from './voice-service';
 
 const TEST_API_KEY = `sk-test-${'a'.repeat(32)}`;
@@ -68,7 +73,7 @@ describe('VoiceService', () => {
         JSON.stringify({
           audioDurationMs: 300,
           billedSeconds: 0.3,
-          model: 'whisper-1',
+          model: LEGACY_VOICE_TRANSCRIPTION_MODEL,
           text: 'open YouTube',
           usageSource: 'actual',
         }),
@@ -86,11 +91,11 @@ describe('VoiceService', () => {
     });
 
     await expect(service.getStatus()).resolves.toMatchObject({
-      model: 'gpt-transcribe',
+      model: VOICE_TRANSCRIPTION_MODEL,
       state: 'ready',
     });
     await expect(service.transcribeSegment(request)).resolves.toMatchObject({
-      model: 'whisper-1',
+      model: LEGACY_VOICE_TRANSCRIPTION_MODEL,
       sequence: request.sequence,
       text: 'open YouTube',
       utteranceId: request.utteranceId,
@@ -148,7 +153,7 @@ describe('VoiceService', () => {
     await expect(service.transcribeSegment(request)).resolves.toEqual({
       audioDurationMs: 300,
       billedSeconds: 0.3,
-      model: 'gpt-transcribe',
+      model: VOICE_TRANSCRIPTION_MODEL,
       sequence: 2,
       text: 'open YouTube',
       utteranceId: request.utteranceId,
@@ -158,7 +163,7 @@ describe('VoiceService', () => {
     expect(options?.headers).toEqual({ Authorization: `Bearer ${TEST_API_KEY}` });
     expect(options?.body).toBeInstanceOf(FormData);
     const form = options?.body as FormData;
-    expect(form.get('model')).toBe('gpt-transcribe');
+    expect(form.get('model')).toBe(VOICE_TRANSCRIPTION_MODEL);
     expect(form.getAll('languages[]')).toEqual(['en']);
     expect(form.get('language')).toBeNull();
     expect(form.get('response_format')).toBeNull();
@@ -169,7 +174,9 @@ describe('VoiceService', () => {
   it('validates GPT Transcribe model access before storing a local key', async () => {
     const { store, write } = memoryStore();
     const fetchImpl = vi.fn<typeof fetch>(async () =>
-      new Response(JSON.stringify({ id: 'gpt-transcribe' }), { status: 200 }),
+      new Response(JSON.stringify({ id: VOICE_TRANSCRIPTION_MODEL }), {
+        status: 200,
+      }),
     );
     const service = new VoiceService({
       credentialStore: store,
@@ -177,10 +184,10 @@ describe('VoiceService', () => {
       fetchImpl,
     });
     await expect(service.configure({ apiKey: TEST_API_KEY })).resolves.toMatchObject(
-      { model: 'gpt-transcribe', state: 'ready' },
+      { model: VOICE_TRANSCRIPTION_MODEL, state: 'ready' },
     );
     expect(fetchImpl).toHaveBeenCalledWith(
-      'https://api.openai.com/v1/models/gpt-transcribe',
+      `https://api.openai.com/v1/models/${VOICE_TRANSCRIPTION_MODEL}`,
       expect.objectContaining({
         headers: { Authorization: `Bearer ${TEST_API_KEY}` },
         method: 'GET',

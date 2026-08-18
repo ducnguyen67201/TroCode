@@ -693,10 +693,13 @@ export const AppUpdateStatusSchema = z
     }
   });
 
+export const VOICE_TRANSCRIPTION_MODEL = 'gpt-transcribe' as const;
+export const LEGACY_VOICE_TRANSCRIPTION_MODEL = 'whisper-1' as const;
+
 export const VoiceStatusSchema = z.object({
   state: z.enum(['not_configured', 'ready', 'unavailable', 'error']),
   provider: z.literal('openai'),
-  model: z.literal('gpt-transcribe'),
+  model: z.literal(VOICE_TRANSCRIPTION_MODEL),
   summary: z.string().min(1),
 });
 
@@ -944,7 +947,10 @@ export const TranscribeVoiceSegmentRequestSchema = z.object({
 export const VoiceSegmentTranscriptionSchema = z.object({
   audioDurationMs: z.number().int().positive().max(15_000),
   billedSeconds: z.number().finite().nonnegative().max(16),
-  model: z.enum(['whisper-1', 'gpt-transcribe']),
+  model: z.enum([
+    LEGACY_VOICE_TRANSCRIPTION_MODEL,
+    VOICE_TRANSCRIPTION_MODEL,
+  ]),
   sequence: z.number().int().min(0).max(31),
   text: z.string().trim().max(8_000),
   utteranceId: z.string().uuid(),

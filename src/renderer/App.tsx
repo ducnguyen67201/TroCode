@@ -28,6 +28,7 @@ import type {
   WorkspaceRuntimeAvailability,
   WorkspaceSelection,
 } from '../shared/contracts';
+import { VOICE_TRANSCRIPTION_MODEL } from '../shared/contracts';
 
 import { acceptAgentActivity } from './agent-activity-projection';
 import { appLanguageLabel, translate } from './app-language';
@@ -90,7 +91,7 @@ const EMPTY_COMPUTER_STATUS: CuaStatus = {
 const EMPTY_VOICE_STATUS: VoiceStatus = {
   state: 'not_configured',
   provider: 'openai',
-  model: 'gpt-transcribe',
+  model: VOICE_TRANSCRIPTION_MODEL,
   summary: 'Checking OpenAI GPT Transcribe…',
 };
 

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 
 import { planFor } from './plan-catalog.mjs';
+import { LEGACY_TRANSCRIPTION_MODEL } from './transcription-config.mjs';
 
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 const MAX_AUTH_BODY_BYTES = 32_000;
@@ -635,7 +636,7 @@ export function createApiHandler({
           200,
           request.headers['x-trocode-transcription-contract'] === '2'
             ? result
-            : { ...result, model: 'whisper-1' },
+            : { ...result, model: LEGACY_TRANSCRIPTION_MODEL },
         );
         return;
       }
