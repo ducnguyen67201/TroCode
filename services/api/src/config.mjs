@@ -86,7 +86,7 @@ export function loadConfig(environment = process.env) {
       transcriptionMicroUsdPerMinute: positiveInteger(
         'TROCODE_TRANSCRIPTION_MICRO_USD_PER_MINUTE',
         environment.TROCODE_TRANSCRIPTION_MICRO_USD_PER_MINUTE,
-        6_000,
+        4_500,
       ),
       taskMicroUsd: positiveInteger(
         'TROCODE_TASK_BUDGET_MICRO_USD',

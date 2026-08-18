@@ -18,7 +18,7 @@ flowchart LR
     AGENT -->|"SSE + request UUID + opaque session"| API["Railway API"]
     API --> BUDGET["BudgetService"]
     BUDGET --> USAGE["Reservation + usage ledger"]
-    API --> OPENAI["OpenAI Responses + Whisper transcription"]
+    API --> OPENAI["OpenAI Responses + GPT Transcribe"]
     API --> ELEVEN["Optional ElevenLabs TTS"]
     MAIN -->|"One-time trocode-audio ticket"| PRELOAD
     API --> SESSIONS["PostgreSQL sessions"]
@@ -127,7 +127,7 @@ a random `tro_live_…` device credential. TroCode stores that credential with
 Electron `safeStorage`; the API stores only its HMAC-SHA256 digest in
 PostgreSQL. It is an opaque, revocable session—not a Tro JWT.
 
-Responses, Whisper transcription, and optional ElevenLabs requests use the
+Responses, GPT Transcribe, and optional ElevenLabs requests use the
 opaque session over HTTPS. Provider credentials exist only in Railway's runtime
 environment.
 The API authenticates every provider request, applies IP/user rate limits,
@@ -148,8 +148,9 @@ schema validation and membership authorization, then uses either the hosted
 device session or the local-development OpenAI key.
 
 The hosted API parses the WAV header and duration independently before reserving
-spend. It uploads the segment to `whisper-1`, settles provider-reported billed
-seconds, and stores request latency separately from audio duration. Raw PCM,
+spend. It uploads the segment to `gpt-transcribe` with the selected language as
+an explicit hint, settles from the validated WAV duration, and stores request
+latency separately from audio duration. Raw PCM,
 base64 audio, and transcript text remain in request memory only and are not
 written to logs, analytics, or the usage ledger. Provisional ordered text may be
 shown before key-up, but only release plus complete success can enter the

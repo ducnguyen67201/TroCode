@@ -48,13 +48,13 @@ Implemented:
 - Direct public HTTPS navigation and exact, revalidated approval
   before consequential CUA actions such as Send.
 - Focused-window push-to-talk plus system-wide background voice shortcuts with
-  local VAD, bounded PCM WAV segments, and upload-based `whisper-1`
+  local VAD, bounded PCM WAV segments, and upload-based `gpt-transcribe`
   transcription. Voice enabled while idle creates no provider audio session.
 - Every grounded `show_guidance` step has one narration attempt. Optional
   ElevenLabs `eleven_flash_v2_5` audio streams progressively through a private,
   one-time Electron media URL; unavailable or slow startup falls back once to
   local system speech and never blocks the desktop task.
-- Railway-hosted Responses, Whisper transcription, and optional ElevenLabs
+- Railway-hosted Responses, GPT Transcribe, and optional ElevenLabs
   access; provider keys are never compiled into or stored by the customer
   application.
 - PostHog product analytics for count-only app, model, and tool activity; task
@@ -363,7 +363,7 @@ narration is reserved for grounded walkthrough steps.
 When `TROCODE_API_BASE_URL` is compiled into a production build, TroCode enables
 agent and voice access from the signed-in device session. The renderer and
 Electron main never ask for or receive long-lived provider keys. OpenAI
-Responses, segmented Whisper transcription, and ElevenLabs synthesis are
+Responses, segmented GPT Transcribe transcription, and ElevenLabs synthesis are
 authenticated and proxied by Railway.
 
 ### First Gmail execution test
@@ -488,7 +488,7 @@ React renderer
         -> trusted local Workspace shell/patch tools when explicitly selected
       -> PostHog analytics service (allowlisted metadata only)
       -> local PCM/VAD voice capture
-        -> bounded Whisper transcription segments through authenticated IPC/API
+        -> bounded GPT Transcribe segments through authenticated IPC/API
       -> CUA service
         -> native CUA runtime
 ```

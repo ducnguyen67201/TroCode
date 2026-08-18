@@ -90,8 +90,8 @@ const EMPTY_COMPUTER_STATUS: CuaStatus = {
 const EMPTY_VOICE_STATUS: VoiceStatus = {
   state: 'not_configured',
   provider: 'openai',
-  model: 'whisper-1',
-  summary: 'Checking OpenAI Whisper transcription…',
+  model: 'gpt-transcribe',
+  summary: 'Checking OpenAI GPT Transcribe…',
 };
 
 const TERMINAL_PHASES = new Set(['completed', 'failed', 'cancelled']);

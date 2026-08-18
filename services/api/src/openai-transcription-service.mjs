@@ -2,7 +2,8 @@ const MAX_PROVIDER_RESPONSE_BYTES = 1_000_000;
 const MAX_WAV_BYTES = 500_000;
 const OPENAI_TRANSCRIPTIONS_URL =
   'https://api.openai.com/v1/audio/transcriptions';
-const TRANSCRIPTION_CATALOG_VERSION = 'whisper-1-duration-2026-08-18';
+const TRANSCRIPTION_CATALOG_VERSION =
+  'gpt-transcribe-duration-2026-08-18';
 
 export class TranscriptionServiceError extends Error {
   constructor(status, message, code = 'transcription_error') {
@@ -112,24 +113,23 @@ export function parseTranscriptionResponse(value) {
   if (typeof value.text !== 'string' || value.text.trim().length > 8_000) {
     throw new Error('Provider transcription text is invalid.');
   }
-  const duration = boundedNumber('provider duration', value.duration, 0.001, 15);
-  let billedSeconds = null;
-  if (value.usage !== undefined) {
-    if (
-      !value.usage ||
-      typeof value.usage !== 'object' ||
-      value.usage.type !== 'duration'
-    ) {
-      throw new Error('Provider transcription usage type is invalid.');
+  if (value.languages !== undefined) {
+    if (!Array.isArray(value.languages)) {
+      throw new Error('Provider transcription languages are invalid.');
     }
-    billedSeconds = boundedNumber(
-      'provider billed seconds',
-      value.usage.seconds,
-      0,
-      16,
-    );
+    for (const language of value.languages) {
+      if (
+        !language ||
+        typeof language !== 'object' ||
+        typeof language.code !== 'string' ||
+        language.code.trim().length === 0 ||
+        language.code.trim().length > 32
+      ) {
+        throw new Error('Provider transcription language is invalid.');
+      }
+    }
   }
-  return { billedSeconds, duration, text: value.text.trim() };
+  return { text: value.text.trim() };
 }
 
 async function readBoundedProviderBody(response) {
@@ -179,7 +179,7 @@ export class OpenAiTranscriptionService {
     await this.budgetService.reserve({
       catalogVersion: TRANSCRIPTION_CATALOG_VERSION,
       lane: 'transcription',
-      model: 'whisper-1',
+      model: 'gpt-transcribe',
       planId: input.planId,
       requestId: input.requestId,
       reservedMicroUsd,
@@ -189,10 +189,8 @@ export class OpenAiTranscriptionService {
 
     const form = new FormData();
     form.set('file', new Blob([audio], { type: 'audio/wav' }), 'segment.wav');
-    form.set('model', 'whisper-1');
-    form.set('language', input.body.language);
-    form.set('response_format', 'verbose_json');
-    form.set('temperature', '0');
+    form.set('model', 'gpt-transcribe');
+    form.append('languages[]', input.body.language);
 
     await this.budgetService.markDispatched(input.userId, input.requestId);
     let response;
@@ -259,46 +257,37 @@ export class OpenAiTranscriptionService {
     }
 
     const durationMs = Date.now() - startedAt;
-    let actualMicroUsd = null;
-    let usageSource = 'missing';
-    if (transcription.billedSeconds === null) {
-      await this.budgetService.markUncertain(input.userId, input.requestId);
-    } else {
-      usageSource = 'actual';
-      actualMicroUsd = this.budgetService.transcriptionActualMicroUsd(
-        transcription.billedSeconds,
-      );
-      await this.budgetService.settle({
-        actualMicroUsd,
-        durationMs,
-        requestId: input.requestId,
-        usage: {
-          audioDurationMs: Math.round(transcription.duration * 1_000),
-          cacheWriteTokens: 0,
-          cachedInputTokens: 0,
-          inputTokens: 0,
-          model: 'whisper-1',
-          outputTokens: 0,
-          reasoningTokens: 0,
-          source: 'actual',
-        },
-        userId: input.userId,
-      });
-    }
+    const billedSeconds = wav.durationMs / 1_000;
+    const actualMicroUsd =
+      this.budgetService.transcriptionActualMicroUsd(billedSeconds);
+    const usageSource = 'actual';
+    await this.budgetService.settle({
+      actualMicroUsd,
+      durationMs,
+      requestId: input.requestId,
+      usage: {
+        audioDurationMs: Math.round(wav.durationMs),
+        cacheWriteTokens: 0,
+        cachedInputTokens: 0,
+        inputTokens: 0,
+        model: 'gpt-transcribe',
+        outputTokens: 0,
+        reasoningTokens: 0,
+        source: 'actual',
+      },
+      userId: input.userId,
+    });
 
     console.info(
       JSON.stringify({
-        audioDurationMs: Math.round(transcription.duration * 1_000),
-        billedSeconds: transcription.billedSeconds,
+        audioDurationMs: Math.round(wav.durationMs),
+        billedSeconds,
         byteCount: audio.byteLength,
         durationMs,
-        event:
-          usageSource === 'actual'
-            ? 'voice.segment.completed'
-            : 'voice.segment.uncertain',
+        event: 'voice.segment.completed',
         lane: 'transcription',
         microUsd: actualMicroUsd,
-        model: 'whisper-1',
+        model: 'gpt-transcribe',
         requestId: input.requestId,
         taskId: input.body.utteranceId,
         usageSource,
@@ -306,12 +295,9 @@ export class OpenAiTranscriptionService {
     );
 
     return {
-      audioDurationMs: Math.round(transcription.duration * 1_000),
-      billedSeconds:
-        transcription.billedSeconds === null
-          ? transcription.duration
-          : transcription.billedSeconds,
-      model: 'whisper-1',
+      audioDurationMs: Math.round(wav.durationMs),
+      billedSeconds,
+      model: 'gpt-transcribe',
       text: transcription.text,
       usageSource,
     };

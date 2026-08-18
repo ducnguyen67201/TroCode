@@ -20,15 +20,15 @@
       "facts": { "automaticTerraFallbackBefore": true, "automaticFallbackAfter": false }
     },
     {
-      "id": "projected-voice-60s-realtime-to-whisper",
+      "id": "projected-voice-60s-realtime-to-gpt-transcribe",
       "beforeMicroUsd": 17000,
-      "afterMicroUsd": 6000,
+      "afterMicroUsd": 4500,
       "facts": { "assumption": "same 60 seconds billed audio", "observedInvoice": false }
     },
     {
       "id": "projected-voice-60s-with-pauses-trimmed",
       "beforeMicroUsd": 17000,
-      "afterMicroUsd": 4620,
+      "afterMicroUsd": 3465,
       "facts": { "assumption": "45 seconds speech plus 1.2 seconds forced overlap", "observedInvoice": false }
     }
   ]

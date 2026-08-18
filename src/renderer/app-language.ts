@@ -183,14 +183,14 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   observing: 'đang quan sát',
   'Open task record': 'Mở bản ghi tác vụ',
   'Open permission settings': 'Mở cài đặt quyền',
-  'OpenAI Whisper': 'OpenAI Whisper',
+  'OpenAI GPT Transcribe': 'OpenAI GPT Transcribe',
   'One-time setup': 'Thiết lập một lần',
   'Personal preferences': 'Tùy chọn cá nhân',
   Preferences: 'Tùy chọn',
   'Primary language': 'Ngôn ngữ chính',
   'Private on-device summary': 'Tóm tắt riêng tư trên thiết bị',
-  'Whisper voice input is ready. The microphone stays off until you hold the shortcut.':
-    'Nhập liệu giọng nói Whisper đã sẵn sàng. Micrô sẽ tắt cho đến khi bạn giữ phím tắt.',
+  'GPT Transcribe voice input is ready. The microphone stays off until you hold the shortcut.':
+    'Nhập liệu giọng nói GPT Transcribe đã sẵn sàng. Micrô sẽ tắt cho đến khi bạn giữ phím tắt.',
   'Restart to update': 'Khởi động lại để cập nhật',
   'Restart to install TroCode {version}':
     'Khởi động lại để cài đặt TroCode {version}',

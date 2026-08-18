@@ -470,7 +470,7 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.reportVoiceDiagnostic, (event, input: unknown) => {
     assertTrustedSender(event, mainWindow);
     const diagnostic = VoiceDiagnosticSchema.parse(input);
-    console.error('[voice] Whisper transcription failed.', diagnostic);
+    console.error('[voice] GPT Transcribe transcription failed.', diagnostic);
   });
 
   ipcMain.handle(IPC_CHANNELS.setCompanionState, (event, input: unknown) => {

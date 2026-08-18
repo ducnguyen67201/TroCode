@@ -210,7 +210,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   }) => ({
     audioDurationMs: 300,
     billedSeconds: 0.3,
-    model: 'whisper-1',
+    model: 'gpt-transcribe',
     sequence: input.sequence,
     text: 'Open YouTube',
     utteranceId: input.utteranceId,
@@ -766,7 +766,7 @@ describe('registerIpcHandlers auth boundary', () => {
     };
 
     await expect(handler?.(event, request)).resolves.toMatchObject({
-      model: 'whisper-1',
+      model: 'gpt-transcribe',
       sequence: 0,
     });
     expect(transcribeVoiceSegment).toHaveBeenCalledWith(request);
@@ -962,7 +962,7 @@ describe('registerIpcHandlers auth boundary', () => {
     ).toBeUndefined();
 
     expect(consoleError).toHaveBeenCalledWith(
-      '[voice] Whisper transcription failed.',
+      '[voice] GPT Transcribe transcription failed.',
       {
         error: {
           message: 'Failed to fetch',

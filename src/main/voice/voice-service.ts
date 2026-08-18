@@ -11,10 +11,10 @@ import {
 } from '../../shared/contracts';
 import type { AppPreferencesService } from '../preferences/app-preferences-service';
 
-const OPENAI_MODEL_URL = 'https://api.openai.com/v1/models/whisper-1';
+const OPENAI_MODEL_URL = 'https://api.openai.com/v1/models/gpt-transcribe';
 const OPENAI_TRANSCRIPTIONS_URL =
   'https://api.openai.com/v1/audio/transcriptions';
-const VOICE_MODEL = 'whisper-1' as const;
+const VOICE_MODEL = 'gpt-transcribe' as const;
 const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
 
@@ -30,12 +30,10 @@ const OpenAIErrorResponseSchema = z.object({
 const OpenAIModelResponseSchema = z.object({ id: z.literal(VOICE_MODEL) });
 
 const OpenAITranscriptionResponseSchema = z.object({
-  duration: z.number().finite().positive().max(16),
+  languages: z
+    .array(z.object({ code: z.string().trim().min(1).max(32) }))
+    .optional(),
   text: z.string().trim().max(8_000),
-  usage: z.object({
-    seconds: z.number().finite().nonnegative().max(16),
-    type: z.literal('duration'),
-  }),
 });
 
 const HostedTranscriptionResponseSchema = VoiceSegmentTranscriptionSchema.omit({
@@ -101,7 +99,7 @@ function readyStatus(): VoiceStatus {
     model: VOICE_MODEL,
     provider: 'openai',
     state: 'ready',
-    summary: 'OpenAI Whisper transcription is configured.',
+    summary: 'OpenAI GPT Transcribe is configured.',
   });
 }
 
@@ -188,7 +186,7 @@ export class VoiceService {
       throw new Error('TroCode voice is managed by the hosted service.');
     }
     const { apiKey } = ConfigureVoiceRequestSchema.parse(input);
-    await this.validateWhisperAccess(apiKey);
+    await this.validateTranscriptionAccess(apiKey);
     await this.credentialStore.write(apiKey);
     this.diagnosticLogger('configure.ready');
     return readyStatus();
@@ -224,7 +222,7 @@ export class VoiceService {
         'segment.request-failed',
         diagnosticErrorProperties(error),
       );
-      this.logger.error('[voice] Whisper segment request failed.', {
+      this.logger.error('[voice] GPT Transcribe segment request failed.', {
         durationMs: request.durationMs,
         error: diagnosticErrorProperties(error),
         requestId: request.requestId,
@@ -265,8 +263,8 @@ export class VoiceService {
             const provider =
               OpenAITranscriptionResponseSchema.parse(responseBody);
             return {
-              audioDurationMs: Math.round(provider.duration * 1_000),
-              billedSeconds: provider.usage.seconds,
+              audioDurationMs: request.durationMs,
+              billedSeconds: request.durationMs / 1_000,
               model: VOICE_MODEL,
               text: provider.text,
             };
@@ -316,7 +314,7 @@ export class VoiceService {
     return storedApiKey;
   }
 
-  private async validateWhisperAccess(apiKey: string): Promise<void> {
+  private async validateTranscriptionAccess(apiKey: string): Promise<void> {
     let response: Response;
     try {
       response = await this.fetchImpl(OPENAI_MODEL_URL, {
@@ -328,7 +326,7 @@ export class VoiceService {
       throw new Error(
         error instanceof Error && error.name === 'TimeoutError'
           ? 'OpenAI voice validation timed out.'
-          : 'TroCode could not validate OpenAI Whisper access.',
+          : 'TroCode could not validate OpenAI GPT Transcribe access.',
       );
     }
     const responseBody = await readBoundedJson(response);
@@ -371,9 +369,7 @@ export class VoiceService {
     const form = new FormData();
     form.set('file', new Blob([audio], { type: 'audio/wav' }), 'segment.wav');
     form.set('model', VOICE_MODEL);
-    form.set('language', language);
-    form.set('response_format', 'verbose_json');
-    form.set('temperature', '0');
+    form.append('languages[]', language);
     return this.fetchImpl(OPENAI_TRANSCRIPTIONS_URL, {
       body: form,
       headers: { Authorization: `Bearer ${apiKey}` },

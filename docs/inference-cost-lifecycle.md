@@ -97,18 +97,19 @@ timeout, connection loss after dispatch, 5xx, oversized response, malformed
 success, or missing usage is `uncertain`: the conservative reservation remains
 committed and the desktop does not resend it automatically.
 
-Whisper transcription reserves from the server-parsed PCM WAV duration at
-`TROCODE_TRANSCRIPTION_MICRO_USD_PER_MINUTE` (6,000 micro-USD by default), then
-settles from the provider's duration usage. Request latency remains
+GPT Transcribe reserves from the server-parsed PCM WAV duration at
+`TROCODE_TRANSCRIPTION_MICRO_USD_PER_MINUTE` (4,500 micro-USD by default), then
+settles from that validated input duration because the transcription response
+does not include duration usage. Request latency remains
 `duration_ms`; billed audio is recorded separately as `audio_duration_ms`.
-Missing or malformed post-dispatch usage leaves the reservation uncertain and
-is never retried automatically. ElevenLabs speech settles from actual character
-count. UI copy separates settled spend from reserved or estimated spend.
+Malformed post-dispatch responses leave the reservation uncertain and are never
+retried automatically. ElevenLabs speech settles from actual character count.
+UI copy separates settled spend from reserved or estimated spend.
 
-At published model rates, the same minute costs $0.006 with `whisper-1` versus
-$0.017 with `gpt-realtime-whisper`, a 64.7% model-rate reduction. Segmentation
-is primarily a latency technique: forced 12-second cuts add 300 ms overlap,
-while natural pauses can reduce cost only when local VAD trims silent audio.
+At published model rates, one minute costs $0.0045 with `gpt-transcribe` versus
+$0.006 with `whisper-1`, a 25% model-rate reduction. Segmentation is primarily a
+latency technique: forced 12-second cuts add 300 ms overlap, while natural
+pauses can reduce cost only when local VAD trims silent audio.
 
 ## Rollout and privacy
 

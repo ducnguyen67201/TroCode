@@ -163,7 +163,7 @@ export function logVoiceConnectionFailure(
   logger: Pick<Console, 'error'> = console,
 ): void {
   logger.error(
-    '[voice] Whisper transcription failed.',
+    '[voice] GPT Transcribe transcription failed.',
     createVoiceConnectionDiagnostic(step, error),
   );
 }

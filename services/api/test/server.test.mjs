@@ -895,7 +895,7 @@ test('segmented transcription requires membership and validates its bounded cont
   });
 });
 
-test('segmented transcription returns sanitized Whisper duration usage', async () => {
+test('segmented transcription sends Vietnamese hints and returns validated duration usage', async () => {
   let upstreamRequest;
   await withApi(
     async ({ baseUrl }) => {
@@ -915,13 +915,14 @@ test('segmented transcription returns sanitized Whisper duration usage', async (
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), {
         audioDurationMs: 300,
-        billedSeconds: 0.31,
-        model: 'whisper-1',
+        billedSeconds: 0.3,
+        model: 'gpt-transcribe',
         text: 'mở YouTube',
         usageSource: 'actual',
       });
-      assert.equal(upstreamRequest.body.get('language'), 'vi');
-      assert.equal(upstreamRequest.body.get('model'), 'whisper-1');
+      assert.deepEqual(upstreamRequest.body.getAll('languages[]'), ['vi']);
+      assert.equal(upstreamRequest.body.get('language'), null);
+      assert.equal(upstreamRequest.body.get('model'), 'gpt-transcribe');
       assert.equal(upstreamRequest.body.get('file').type, 'audio/wav');
     },
     {
@@ -929,9 +930,8 @@ test('segmented transcription returns sanitized Whisper duration usage', async (
         upstreamRequest = options;
         return new Response(
           JSON.stringify({
-            duration: 0.3,
+            languages: [{ code: 'vi' }],
             text: 'mở YouTube',
-            usage: { seconds: 0.31, type: 'duration' },
           }),
           { headers: { 'Content-Type': 'application/json' }, status: 200 },
         );

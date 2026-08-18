@@ -146,7 +146,7 @@ describe('segmented push-to-talk lifecycle', () => {
     const upload = vi.fn(async (request) => ({
       audioDurationMs: request.durationMs,
       billedSeconds: request.durationMs / 1_000,
-      model: 'whisper-1',
+      model: 'gpt-transcribe',
       sequence: request.sequence,
       text: 'open YouTube',
       utteranceId: request.utteranceId,
@@ -195,7 +195,7 @@ describe('segmented push-to-talk lifecycle', () => {
     resolvers.get(1)?.({
       audioDurationMs: 300,
       billedSeconds: 0.3,
-      model: 'whisper-1',
+      model: 'gpt-transcribe',
       sequence: 1,
       text: 'and search',
       utteranceId: second?.utteranceId,
@@ -205,7 +205,7 @@ describe('segmented push-to-talk lifecycle', () => {
     resolvers.get(0)?.({
       audioDurationMs: 300,
       billedSeconds: 0.3,
-      model: 'whisper-1',
+      model: 'gpt-transcribe',
       sequence: 0,
       text: 'open YouTube',
       utteranceId: first?.utteranceId,
@@ -228,7 +228,7 @@ describe('segmented push-to-talk lifecycle', () => {
       return {
         audioDurationMs: 300,
         billedSeconds: 0.3,
-        model: 'whisper-1',
+        model: 'gpt-transcribe',
         sequence: request.sequence,
         text: 'open YouTube',
         utteranceId: request.utteranceId,
@@ -289,7 +289,7 @@ describe('segmented push-to-talk lifecycle', () => {
     resolveUpload({
       audioDurationMs: 300,
       billedSeconds: 0.3,
-      model: 'whisper-1',
+      model: 'gpt-transcribe',
       sequence: 0,
       text: 'late text',
       utteranceId: crypto.randomUUID(),
@@ -302,7 +302,7 @@ describe('segmented push-to-talk lifecycle', () => {
     const upload = vi.fn(async (request) => ({
       audioDurationMs: request.durationMs,
       billedSeconds: request.durationMs / 1_000,
-      model: 'whisper-1',
+      model: 'gpt-transcribe',
       sequence: request.sequence,
       text: 'continue command',
       utteranceId: request.utteranceId,
@@ -377,7 +377,7 @@ describe('push-to-talk helpers', () => {
     const logger = { error: vi.fn() };
     logVoiceConnectionFailure('segment_upload', new Error('failed'), logger);
     expect(logger.error).toHaveBeenCalledWith(
-      '[voice] Whisper transcription failed.',
+      '[voice] GPT Transcribe transcription failed.',
       expect.objectContaining({ step: 'segment_upload' }),
     );
   });

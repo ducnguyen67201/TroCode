@@ -205,7 +205,7 @@ export function SettingsPage({
             <p className="eyebrow">{t('Voice input')}</p>
             <h2>{t('Primary language')}</h2>
           </div>
-          <span className="settings-badge">OpenAI Whisper</span>
+          <span className="settings-badge">{t('OpenAI GPT Transcribe')}</span>
         </div>
 
         <label className="language-field" htmlFor="settings-primary-language">
