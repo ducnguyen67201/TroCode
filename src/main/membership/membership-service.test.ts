@@ -71,7 +71,7 @@ function issueCode(
 }
 
 describe('MembershipService', () => {
-  it('requires an activation code in every packaged build', () => {
+  it('requires an activation code for packaged or hosted builds', () => {
     expect(
       membershipRequiredForBuild({
         apiBaseUrl: 'https://api.trocode.example',
@@ -86,6 +86,9 @@ describe('MembershipService', () => {
         apiBaseUrl: 'https://api.trocode.example',
         isPackaged: false,
       }),
+    ).toBe(true);
+    expect(
+      membershipRequiredForBuild({ apiBaseUrl: '  ', isPackaged: false }),
     ).toBe(false);
   });
 

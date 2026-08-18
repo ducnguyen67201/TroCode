@@ -18,7 +18,7 @@ flowchart LR
     AGENT -->|"SSE + request UUID + opaque session"| API["Railway API"]
     API --> BUDGET["BudgetService"]
     BUDGET --> USAGE["Reservation + usage ledger"]
-    API --> OPENAI["OpenAI Responses + Realtime"]
+    API --> OPENAI["OpenAI Responses + Whisper transcription"]
     API --> ELEVEN["Optional ElevenLabs TTS"]
     MAIN -->|"One-time trocode-audio ticket"| PRELOAD
     API --> SESSIONS["PostgreSQL sessions"]
@@ -127,14 +127,33 @@ a random `tro_live_…` device credential. TroCode stores that credential with
 Electron `safeStorage`; the API stores only its HMAC-SHA256 digest in
 PostgreSQL. It is an opaque, revocable session—not a Tro JWT.
 
-Responses, Realtime, and optional ElevenLabs requests use the opaque session
-over HTTPS. Provider credentials exist only in Railway's runtime environment.
+Responses, Whisper transcription, and optional ElevenLabs requests use the
+opaque session over HTTPS. Provider credentials exist only in Railway's runtime
+environment.
 The API authenticates every provider request, applies IP/user rate limits,
 restricts models to the configured allowlist, bounds request and response sizes,
 streams Responses SSE without buffering, settles usage from the completed event,
 and never stores Responses input or output. Native desktop policy and exact
 action approvals remain in Electron main; the API does not grant computer-use
 authority.
+
+## Voice transcription path
+
+Push-to-talk is capture and transcription only. The sandboxed renderer opens
+the microphone after key-down, an own-origin AudioWorklet emits 20 ms mono PCM
+frames, and a pure state machine detects speech and bounded utterance segments.
+Each completed segment is independently encoded as 16 kHz PCM16 WAV and crosses
+the narrow `transcribeVoiceSegment` preload contract. Electron main repeats
+schema validation and membership authorization, then uses either the hosted
+device session or the local-development OpenAI key.
+
+The hosted API parses the WAV header and duration independently before reserving
+spend. It uploads the segment to `whisper-1`, settles provider-reported billed
+seconds, and stores request latency separately from audio duration. Raw PCM,
+base64 audio, and transcript text remain in request memory only and are not
+written to logs, analytics, or the usage ledger. Provisional ordered text may be
+shown before key-up, but only release plus complete success can enter the
+existing typed task path.
 
 ## Persistence and analytics
 

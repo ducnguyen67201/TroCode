@@ -59,6 +59,7 @@ function service(repository, mode = 'enforce') {
     realtimeCallMicroUsd: 5,
     reservationTtlMs: 60_000,
     speechMicroUsdPerThousandCharacters: 60_000,
+    transcriptionMicroUsdPerMinute: 6_000,
     taskMicroUsd: 100,
     warningPercent: 80,
   });
@@ -102,4 +103,15 @@ test('observe mode records would-deny reservations and snapshots remain sanitize
   assert.equal(snapshot.monthly.remainingMicroUsd, 0);
   assert.equal('prompt' in snapshot, false);
   assert.equal(budget.speechEstimateMicroUsd(240), 14_400);
+});
+
+test('transcription pricing uses integer micro-USD ceiling math', () => {
+  const budget = service(new MemoryUsageRepository());
+  assert.equal(budget.transcriptionEstimateMicroUsd(300), 30);
+  assert.equal(budget.transcriptionEstimateMicroUsd(12_000), 1_200);
+  assert.equal(budget.transcriptionEstimateMicroUsd(15_000), 1_500);
+  assert.equal(budget.transcriptionActualMicroUsd(0.301), 31);
+  assert.equal(budget.transcriptionActualMicroUsd(12), 1_200);
+  assert.throws(() => budget.transcriptionEstimateMicroUsd(15_001), /limit/u);
+  assert.throws(() => budget.transcriptionActualMicroUsd(Number.NaN), /bounded/u);
 });

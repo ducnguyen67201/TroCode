@@ -76,7 +76,7 @@ export function membershipRequiredForBuild(input: {
   apiBaseUrl: string;
   isPackaged: boolean;
 }): boolean {
-  return input.isPackaged;
+  return input.isPackaged || input.apiBaseUrl.trim().length > 0;
 }
 
 export function membershipReferenceCode(user: AuthUser): string {

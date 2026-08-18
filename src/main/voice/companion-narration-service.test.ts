@@ -21,7 +21,11 @@ describe('companion narration service', () => {
     });
     const handle = service.begin('Follow this step');
 
-    expect(handle.descriptor).toEqual({ id: handle.id, source: 'system' });
+    expect(handle.descriptor).toEqual({
+      id: handle.id,
+      source: 'system',
+      text: 'Follow this step',
+    });
     expect(publish).toHaveBeenCalledWith(handle.descriptor);
     service.report({ id: handle.id, phase: 'ended', source: 'system' });
     await expect(handle.completion).resolves.toEqual({

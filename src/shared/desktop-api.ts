@@ -12,7 +12,7 @@ import type {
   CompanionState,
   CompanionVoiceActivity,
   ConfigureVoiceRequest,
-  CreateVoiceCallRequest,
+  TranscribeVoiceSegmentRequest,
   CuaStatus,
   DecideApprovalRequest,
   MembershipStatus,
@@ -27,7 +27,7 @@ import type {
   TaskUpdate,
   UsageBudgetSnapshot,
   UpdateAppPreferencesRequest,
-  VoiceCallAnswer,
+  VoiceSegmentTranscription,
   VoiceDiagnostic,
   VoiceShortcutEvent,
   VoiceStatus,
@@ -51,7 +51,7 @@ export const IPC_CHANNELS = {
   companionRevealMainWindow: 'companion:reveal-main-window',
   configureVoice: 'voice:configure',
   connectComputer: 'cua:connect',
-  createVoiceCall: 'voice:create-call',
+  transcribeVoiceSegment: 'voice:transcribe-segment',
   decideApproval: 'task:decide-approval',
   getAppPreferences: 'preferences:get',
   getAppUpdateStatus: 'update:status',
@@ -89,7 +89,9 @@ export interface DesktopApi {
   checkForAppUpdates(): Promise<AppUpdateStatus>;
   configureVoice(request: ConfigureVoiceRequest): Promise<VoiceStatus>;
   connectComputer(): Promise<CuaStatus>;
-  createVoiceCall(request: CreateVoiceCallRequest): Promise<VoiceCallAnswer>;
+  transcribeVoiceSegment(
+    request: TranscribeVoiceSegmentRequest,
+  ): Promise<VoiceSegmentTranscription>;
   decideApproval(request: DecideApprovalRequest): Promise<TaskSnapshot>;
   getAppPreferences(): Promise<AppPreferences>;
   getAppUpdateStatus(): Promise<AppUpdateStatus>;

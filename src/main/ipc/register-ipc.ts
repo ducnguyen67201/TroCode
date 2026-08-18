@@ -13,6 +13,7 @@ import {
   SetVoiceAudioDuckingRequestSchema,
   SystemPermissionSchema,
   TaskUpdateSchema,
+  TranscribeVoiceSegmentRequestSchema,
   UpdateAppPreferencesRequestSchema,
   VoiceDiagnosticSchema,
   type AuthUser,
@@ -174,7 +175,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.connectComputer,
     IPC_CHANNELS.companionReportSpeechPlayback,
     IPC_CHANNELS.companionRevealMainWindow,
-    IPC_CHANNELS.createVoiceCall,
+    IPC_CHANNELS.transcribeVoiceSegment,
     IPC_CHANNELS.decideApproval,
     IPC_CHANNELS.getAppPreferences,
     IPC_CHANNELS.getAppUpdateStatus,
@@ -429,10 +430,14 @@ export function registerIpcHandlers(
     },
   );
 
-  ipcMain.handle(IPC_CHANNELS.createVoiceCall, async (event, input: unknown) => {
-    await assertMembershipAuthorizedSender(event, mainWindow, services);
-    return services.voiceService.createCall(input);
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.transcribeVoiceSegment,
+    async (event, input: unknown) => {
+      await assertMembershipAuthorizedSender(event, mainWindow, services);
+      const request = TranscribeVoiceSegmentRequestSchema.parse(input);
+      return services.voiceService.transcribeSegment(request);
+    },
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.setVoiceAudioDucking,
@@ -449,7 +454,7 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.reportVoiceDiagnostic, (event, input: unknown) => {
     assertTrustedSender(event, mainWindow);
     const diagnostic = VoiceDiagnosticSchema.parse(input);
-    console.error('[voice] OpenAI Realtime connection failed.', diagnostic);
+    console.error('[voice] Whisper transcription failed.', diagnostic);
   });
 
   ipcMain.handle(IPC_CHANNELS.setCompanionState, (event, input: unknown) => {

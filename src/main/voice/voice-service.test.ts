@@ -1,20 +1,38 @@
+import { randomUUID } from 'node:crypto';
+
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  VoiceService,
-  type VoiceCredentialStore,
-} from './voice-service';
+import { VoiceService, type VoiceCredentialStore } from './voice-service';
 
 const TEST_API_KEY = `sk-test-${'a'.repeat(32)}`;
 
-function successfulSecretResponse(): Response {
-  return new Response(
-    JSON.stringify({
-      expires_at: 2_000_000_000,
-      value: 'ek_test_secret',
-    }),
-    { status: 200 },
-  );
+function wavBase64(durationMs = 300): string {
+  const dataBytes = Math.round((durationMs / 1_000) * 16_000 * 2);
+  const bytes = Buffer.alloc(44 + dataBytes);
+  bytes.write('RIFF', 0, 'ascii');
+  bytes.writeUInt32LE(bytes.length - 8, 4);
+  bytes.write('WAVE', 8, 'ascii');
+  bytes.write('fmt ', 12, 'ascii');
+  bytes.writeUInt32LE(16, 16);
+  bytes.writeUInt16LE(1, 20);
+  bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(16_000, 24);
+  bytes.writeUInt32LE(32_000, 28);
+  bytes.writeUInt16LE(2, 32);
+  bytes.writeUInt16LE(16, 34);
+  bytes.write('data', 36, 'ascii');
+  bytes.writeUInt32LE(dataBytes, 40);
+  return bytes.toString('base64');
+}
+
+function segmentRequest() {
+  return {
+    audioBase64: wavBase64(),
+    durationMs: 300,
+    requestId: randomUUID(),
+    sequence: 2,
+    utteranceId: randomUUID(),
+  };
 }
 
 function memoryStore(initial: string | null = null): {
@@ -30,94 +48,149 @@ function memoryStore(initial: string | null = null): {
   return { store: { read, write }, read, write };
 }
 
+function providerResponse(text = 'open YouTube'): Response {
+  return new Response(
+    JSON.stringify({
+      duration: 0.3,
+      text,
+      usage: { seconds: 0.31, type: 'duration' },
+    }),
+    { headers: { 'Content-Type': 'application/json' }, status: 200 },
+  );
+}
+
 describe('VoiceService', () => {
-  it('uses the hosted session for realtime calls without a provider key', async () => {
+  it('uses the hosted session and never reads the local provider key', async () => {
     const { store, read } = memoryStore(TEST_API_KEY);
     const accessToken = `tro_live_${'a'.repeat(43)}`;
+    const request = segmentRequest();
     const fetchImpl = vi.fn<typeof fetch>(async () =>
-      new Response('v=0\r\nanswer', { status: 200 }),
+      new Response(
+        JSON.stringify({
+          audioDurationMs: 300,
+          billedSeconds: 0.31,
+          model: 'whisper-1',
+          text: 'open YouTube',
+          usageSource: 'actual',
+        }),
+        { status: 200 },
+      ),
     );
     const service = new VoiceService({
       accessTokenProvider: vi.fn(async () => accessToken),
       apiBaseUrl: 'http://127.0.0.1:8080',
       credentialStore: store,
       fetchImpl,
+      preferencesService: {
+        getPrimaryLanguage: vi.fn(async () => 'vi' as const),
+      },
     });
 
-    await expect(service.getStatus()).resolves.toMatchObject({ state: 'ready' });
-    await expect(
-      service.createCall({ offerSdp: 'v=0\r\noffer' }),
-    ).resolves.toEqual({ answerSdp: 'v=0\r\nanswer' });
+    await expect(service.getStatus()).resolves.toMatchObject({
+      model: 'whisper-1',
+      state: 'ready',
+    });
+    await expect(service.transcribeSegment(request)).resolves.toMatchObject({
+      sequence: request.sequence,
+      text: 'open YouTube',
+      utteranceId: request.utteranceId,
+    });
     expect(read).not.toHaveBeenCalled();
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://127.0.0.1:8080/v1/openai/realtime/calls',
+      'http://127.0.0.1:8080/v1/openai/audio/transcriptions',
       expect.objectContaining({
-        body: JSON.stringify({ language: 'en', offerSdp: 'v=0\r\noffer' }),
+        body: JSON.stringify({
+          audioBase64: request.audioBase64,
+          clientDurationMs: 300,
+          language: 'vi',
+          utteranceId: request.utteranceId,
+        }),
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
+          'X-Trocode-Request-Id': request.requestId,
         },
       }),
     );
-    await expect(
-      service.configure({ apiKey: TEST_API_KEY }),
-    ).rejects.toThrow('managed by the hosted service');
   });
 
-  it('enables voice automatically from an injected environment key', async () => {
-    const { store, read } = memoryStore();
-    const service = new VoiceService({
-      credentialStore: store,
-      environmentApiKey: TEST_API_KEY,
-      fetchImpl: vi.fn(),
-    });
-
-    await expect(service.getStatus()).resolves.toMatchObject({
-      state: 'ready',
-      model: 'gpt-realtime-whisper',
-      summary: 'OpenAI realtime transcription is configured.',
-    });
-    expect(read).not.toHaveBeenCalled();
+  it('surfaces hosted string and object access errors', async () => {
+    for (const error of [
+      'Enter a valid access code to use TroCode.',
+      { message: 'Your session expired.' },
+    ]) {
+      const service = new VoiceService({
+        accessTokenProvider: vi.fn(async () => `tro_live_${'a'.repeat(43)}`),
+        apiBaseUrl: 'http://127.0.0.1:8080',
+        credentialStore: memoryStore().store,
+        fetchImpl: vi.fn<typeof fetch>(async () =>
+          new Response(JSON.stringify({ error }), { status: 403 }),
+        ),
+      });
+      await expect(service.transcribeSegment(segmentRequest())).rejects.toThrow(
+        typeof error === 'string' ? error : error.message,
+      );
+    }
   });
 
-  it('reports that voice needs configuration without a credential', async () => {
-    const { store } = memoryStore();
+  it('sends local audio only as bounded Whisper multipart form data', async () => {
+    const request = segmentRequest();
+    const fetchImpl = vi.fn<typeof fetch>(async () => providerResponse());
     const service = new VoiceService({
-      credentialStore: store,
+      credentialStore: memoryStore(TEST_API_KEY).store,
       environmentApiKey: '',
-      fetchImpl: vi.fn(),
+      fetchImpl,
+      preferencesService: {
+        getPrimaryLanguage: vi.fn(async () => 'en' as const),
+      },
     });
-
-    await expect(service.getStatus()).resolves.toMatchObject({
-      state: 'not_configured',
-      model: 'gpt-realtime-whisper',
+    await expect(service.transcribeSegment(request)).resolves.toEqual({
+      audioDurationMs: 300,
+      billedSeconds: 0.31,
+      model: 'whisper-1',
+      sequence: 2,
+      text: 'open YouTube',
+      utteranceId: request.utteranceId,
     });
+    const [url, options] = fetchImpl.mock.calls[0] ?? [];
+    expect(url).toBe('https://api.openai.com/v1/audio/transcriptions');
+    expect(options?.headers).toEqual({ Authorization: `Bearer ${TEST_API_KEY}` });
+    expect(options?.body).toBeInstanceOf(FormData);
+    const form = options?.body as FormData;
+    expect(form.get('model')).toBe('whisper-1');
+    expect(form.get('language')).toBe('en');
+    expect(form.get('response_format')).toBe('verbose_json');
+    expect(form.get('temperature')).toBe('0');
+    expect((form.get('file') as File).type).toBe('audio/wav');
   });
 
-  it('validates a key before storing it', async () => {
+  it('validates Whisper model access before storing a local key', async () => {
     const { store, write } = memoryStore();
     const fetchImpl = vi.fn<typeof fetch>(async () =>
-      successfulSecretResponse(),
+      new Response(JSON.stringify({ id: 'whisper-1' }), { status: 200 }),
     );
     const service = new VoiceService({
       credentialStore: store,
       environmentApiKey: '',
       fetchImpl,
     });
-
-    await expect(service.configure({ apiKey: TEST_API_KEY })).resolves.toMatchObject({
-      state: 'ready',
-    });
+    await expect(service.configure({ apiKey: TEST_API_KEY })).resolves.toMatchObject(
+      { model: 'whisper-1', state: 'ready' },
+    );
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.openai.com/v1/models/whisper-1',
+      expect.objectContaining({
+        headers: { Authorization: `Bearer ${TEST_API_KEY}` },
+        method: 'GET',
+      }),
+    );
     expect(write).toHaveBeenCalledWith(TEST_API_KEY);
-    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it('does not store a rejected key', async () => {
+  it('does not persist a rejected local key', async () => {
     const { store, write } = memoryStore();
-    const diagnosticLogger = vi.fn();
     const service = new VoiceService({
       credentialStore: store,
-      diagnosticLogger,
       environmentApiKey: '',
       fetchImpl: vi.fn<typeof fetch>(async () =>
         new Response(
@@ -126,171 +199,46 @@ describe('VoiceService', () => {
         ),
       ),
     });
-
     await expect(service.configure({ apiKey: TEST_API_KEY })).rejects.toThrow(
       'Invalid API key.',
     );
     expect(write).not.toHaveBeenCalled();
-    expect(diagnosticLogger).toHaveBeenCalledWith(
-      'client-secret.response',
-      { ok: false, status: 401 },
-    );
-    expect(diagnosticLogger).toHaveBeenCalledWith(
-      'client-secret.rejected',
-      { status: 401 },
-    );
   });
 
-  it('validates realtime transcription access before saving the key', async () => {
-    const { store } = memoryStore(TEST_API_KEY);
-    const diagnosticLogger = vi.fn();
+  it('requires a credential and never retries malformed responses', async () => {
+    const missing = new VoiceService({
+      credentialStore: memoryStore().store,
+      environmentApiKey: '',
+      fetchImpl: vi.fn(),
+    });
+    await expect(missing.transcribeSegment(segmentRequest())).rejects.toThrow(
+      'OPENAI_API_KEY is missing',
+    );
+
     const fetchImpl = vi.fn<typeof fetch>(async () =>
-      successfulSecretResponse(),
+      new Response(JSON.stringify({ text: 'missing usage' }), { status: 200 }),
     );
-    const service = new VoiceService({
-      credentialStore: store,
-      diagnosticLogger,
+    const malformed = new VoiceService({
+      credentialStore: memoryStore(TEST_API_KEY).store,
       environmentApiKey: '',
       fetchImpl,
     });
-
-    await expect(service.configure({ apiKey: TEST_API_KEY })).resolves.toEqual({
-      state: 'ready',
-      provider: 'openai',
-      model: 'gpt-realtime-whisper',
-      summary: 'OpenAI realtime transcription is configured.',
-    });
-
-    const request = fetchImpl.mock.calls[0]?.[1];
-    expect(request?.headers).toMatchObject({
-      Authorization: `Bearer ${TEST_API_KEY}`,
-    });
-    expect(request?.body).toContain('gpt-realtime-whisper');
-    expect(request?.body).toContain('"language":"en"');
-    expect(diagnosticLogger.mock.calls.map(([event]) => event)).toEqual([
-      'configure.start',
-      'client-secret.request-start',
-      'client-secret.response',
-      'client-secret.ready',
-      'configure.ready',
-    ]);
-    expect(diagnosticLogger).toHaveBeenCalledWith(
-      'client-secret.response',
-      { ok: true, status: 200 },
-    );
+    await expect(malformed.transcribeSegment(segmentRequest())).rejects.toThrow();
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it('creates the realtime call answer in the main process', async () => {
-    const { store } = memoryStore(TEST_API_KEY);
-    const diagnosticLogger = vi.fn();
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response('v=0\r\nanswer', { status: 200 }));
+  it('normalizes an ambiguous timeout and never retries it', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
+      throw new DOMException('timed out', 'TimeoutError');
+    });
     const service = new VoiceService({
-      credentialStore: store,
-      diagnosticLogger,
+      credentialStore: memoryStore(TEST_API_KEY).store,
       environmentApiKey: '',
       fetchImpl,
-      preferencesService: {
-        getPrimaryLanguage: vi.fn(async () => 'vi' as const),
-      },
     });
-
-    await expect(
-      service.createCall({ offerSdp: 'v=0\r\noffer' }),
-    ).resolves.toEqual({
-      answerSdp: 'v=0\r\nanswer',
-    });
-
-    expect(fetchImpl).toHaveBeenNthCalledWith(
-      1,
-      'https://api.openai.com/v1/realtime/calls',
-      expect.objectContaining({
-        headers: {
-          Authorization: `Bearer ${TEST_API_KEY}`,
-        },
-        method: 'POST',
-      }),
+    await expect(service.transcribeSegment(segmentRequest())).rejects.toThrow(
+      'timed out',
     );
-    const request = fetchImpl.mock.calls[0]?.[1];
-    expect(request?.body).toBeInstanceOf(FormData);
-    const formData = request?.body as FormData;
-    expect(formData.get('sdp')).toBe('v=0\r\noffer');
-    expect(JSON.parse(String(formData.get('session')))).toEqual({
-      type: 'transcription',
-      audio: {
-        input: {
-          noise_reduction: { type: 'far_field' },
-          transcription: {
-            language: 'vi',
-            model: 'gpt-realtime-whisper',
-          },
-          turn_detection: null,
-        },
-      },
-    });
-    expect(diagnosticLogger.mock.calls.map(([event]) => event)).toEqual([
-      'call.create-start',
-      'credential.available',
-      'call.request-start',
-      'call.response',
-      'call.ready',
-    ]);
-    expect(diagnosticLogger).toHaveBeenCalledWith('call.request-start', {
-      language: 'vi',
-      model: 'gpt-realtime-whisper',
-      timeoutMs: 15_000,
-    });
-  });
-
-  it('preserves the underlying realtime call transport failure cause', async () => {
-    const { store } = memoryStore(TEST_API_KEY);
-    const cause = new Error('connection reset');
-    Object.assign(cause, { code: 'ECONNRESET' });
-    const diagnosticLogger = vi.fn();
-    const logger = { error: vi.fn() };
-    const service = new VoiceService({
-      credentialStore: store,
-      diagnosticLogger,
-      environmentApiKey: '',
-      fetchImpl: vi
-        .fn<typeof fetch>()
-        .mockRejectedValueOnce(new TypeError('fetch failed', { cause })),
-      logger,
-    });
-
-    await expect(
-      service.createCall({ offerSdp: 'v=0\r\noffer' }),
-    ).rejects.toMatchObject({
-      cause: expect.objectContaining({
-        cause: expect.objectContaining({
-          code: 'ECONNRESET',
-          message: 'connection reset',
-        }),
-        message: 'fetch failed',
-        name: 'TypeError',
-      }),
-    });
-    expect(diagnosticLogger).toHaveBeenCalledWith(
-      'call.request-failed',
-      {
-        errorMessage: 'fetch failed',
-        errorName: 'TypeError',
-      },
-    );
-    expect(logger.error).toHaveBeenCalledWith(
-      '[voice] OpenAI Realtime call request failed.',
-      {
-        error: {
-          cause: {
-            code: 'ECONNRESET',
-            message: 'connection reset',
-            name: 'Error',
-          },
-          message: 'fetch failed',
-          name: 'TypeError',
-        },
-      },
-    );
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 });

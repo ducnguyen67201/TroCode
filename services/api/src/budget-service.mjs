@@ -36,6 +36,10 @@ export class BudgetService {
         'speechMicroUsdPerThousandCharacters',
         options.speechMicroUsdPerThousandCharacters,
       ),
+      transcriptionMicroUsdPerMinute: nonnegativeInteger(
+        'transcriptionMicroUsdPerMinute',
+        options.transcriptionMicroUsdPerMinute,
+      ),
       taskMicroUsd: nonnegativeInteger('taskMicroUsd', options.taskMicroUsd),
       warningPercent: nonnegativeInteger(
         'warningPercent',
@@ -53,6 +57,25 @@ export class BudgetService {
     return Math.ceil(
       (characterCount * this.options.speechMicroUsdPerThousandCharacters) /
         1_000,
+    );
+  }
+
+  transcriptionEstimateMicroUsd(durationMs) {
+    nonnegativeInteger('durationMs', durationMs);
+    if (durationMs > 15_000) {
+      throw new Error('durationMs exceeds the transcription segment limit.');
+    }
+    return Math.ceil(
+      (durationMs * this.options.transcriptionMicroUsdPerMinute) / 60_000,
+    );
+  }
+
+  transcriptionActualMicroUsd(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0 || seconds > 16) {
+      throw new Error('seconds must be a bounded nonnegative number.');
+    }
+    return Math.ceil(
+      (seconds * this.options.transcriptionMicroUsdPerMinute) / 60,
     );
   }
 

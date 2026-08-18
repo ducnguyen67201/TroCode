@@ -36,6 +36,7 @@ test('loadConfig restricts requests to configured models', () => {
   assert.equal(config.costGuard.monthlyMicroUsd, 20_000_000);
   assert.equal(config.costGuard.dailyMicroUsd, 2_000_000);
   assert.equal(config.costGuard.taskMicroUsd, 500_000);
+  assert.equal(config.costGuard.transcriptionMicroUsdPerMinute, 6_000);
   assert.equal(config.costGuard.mode, 'observe');
 });
 
@@ -54,4 +55,22 @@ test('loadConfig validates cost guard controls', () => {
     TROCODE_MONTHLY_BUDGET_MICRO_USD: '20000000',
   });
   assert.equal(config.costGuard.mode, 'enforce');
+});
+
+test('loadConfig validates transcription duration pricing', () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        ...VALID_ENVIRONMENT,
+        TROCODE_TRANSCRIPTION_MICRO_USD_PER_MINUTE: '0',
+      }),
+    /positive integer/u,
+  );
+  assert.equal(
+    loadConfig({
+      ...VALID_ENVIRONMENT,
+      TROCODE_TRANSCRIPTION_MICRO_USD_PER_MINUTE: '7000',
+    }).costGuard.transcriptionMicroUsdPerMinute,
+    7_000,
+  );
 });

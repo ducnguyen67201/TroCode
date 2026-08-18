@@ -5,6 +5,7 @@ import test from 'node:test';
 import { createApiHandler } from '../src/server.mjs';
 import { ModelCatalog } from '../src/model-catalog.mjs';
 import { OpenAiResponsesService } from '../src/openai-responses-service.mjs';
+import { OpenAiTranscriptionService } from '../src/openai-transcription-service.mjs';
 
 const TEST_USER = {
   email: 'person@example.com',
@@ -139,6 +140,8 @@ async function withApi(
       warningThresholdMicroUsd: 16_000_000,
     }),
     speechEstimateMicroUsd: (characters) => characters * 60,
+    transcriptionActualMicroUsd: (seconds) => Math.ceil(seconds * 100),
+    transcriptionEstimateMicroUsd: (durationMs) => Math.ceil(durationMs / 10),
   };
   const responsesService = new OpenAiResponsesService({
     budgetService,
@@ -171,6 +174,11 @@ async function withApi(
     fetchImpl: upstreamFetch,
     healthCheck: async () => true,
     sessionRepository: sessions,
+    transcriptionService: new OpenAiTranscriptionService({
+      budgetService,
+      fetchImpl: upstreamFetch,
+      openAiApiKey: 'sk-test-not-real',
+    }),
     responsesService,
     verifyGoogleIdToken: async (token) => {
       if (token === 'valid-google-token') return TEST_USER;
@@ -228,6 +236,35 @@ function responsesBody(model = 'test-model') {
     store: false,
     tool_choice: 'auto',
     tools: [],
+  };
+}
+
+function transcriptionWav(durationMs = 300) {
+  const dataBytes = Math.round((durationMs / 1_000) * 16_000 * 2);
+  const buffer = Buffer.alloc(44 + dataBytes);
+  buffer.write('RIFF', 0, 'ascii');
+  buffer.writeUInt32LE(buffer.byteLength - 8, 4);
+  buffer.write('WAVE', 8, 'ascii');
+  buffer.write('fmt ', 12, 'ascii');
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(16_000, 24);
+  buffer.writeUInt32LE(32_000, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36, 'ascii');
+  buffer.writeUInt32LE(dataBytes, 40);
+  return buffer;
+}
+
+function transcriptionBody(overrides = {}) {
+  return {
+    audioBase64: transcriptionWav().toString('base64'),
+    clientDurationMs: 300,
+    language: 'en',
+    utteranceId: TEST_TASK_ID,
+    ...overrides,
   };
 }
 
@@ -375,6 +412,25 @@ test('model proxy requires authentication and enforces model allowlist', async (
       });
       assert.equal(invalidModel.status, 400);
 
+      const disallowedToolChoice = await fetch(
+        `${baseUrl}/v1/openai/responses`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Trocode-Request-Id':
+              '44444444-4444-4444-8444-444444444444',
+            'X-Trocode-Task-Id': TEST_TASK_ID,
+          },
+          body: JSON.stringify({
+            ...responsesBody(),
+            tool_choice: 'required',
+          }),
+        },
+      );
+      assert.equal(disallowedToolChoice.status, 400);
+
       const valid = await fetch(`${baseUrl}/v1/openai/responses`, {
         method: 'POST',
         headers: {
@@ -387,6 +443,35 @@ test('model proxy requires authentication and enforces model allowlist', async (
       });
       assert.equal(valid.status, 200);
       assert.equal((await valid.json()).id, 'response-1');
+
+      const sdkFollowupBody = responsesBody();
+      delete sdkFollowupBody.tool_choice;
+      sdkFollowupBody.input = [
+        {
+          call_id: 'call-observe',
+          output: [
+            { type: 'input_text', text: 'Inbox screenshot.' },
+            {
+              type: 'input_image',
+              image_url: 'data:image/png;base64,aA==',
+            },
+          ],
+          type: 'function_call_output',
+        },
+      ];
+      const sdkFollowup = await fetch(`${baseUrl}/v1/openai/responses`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+          'X-Trocode-Request-Id':
+            '33333333-3333-4333-8333-333333333333',
+          'X-Trocode-Task-Id': TEST_TASK_ID,
+        },
+        body: JSON.stringify(sdkFollowupBody),
+      });
+      assert.equal(sdkFollowup.status, 200);
+      assert.equal(JSON.parse(upstreamRequest.body).tool_choice, 'auto');
       assert.match(upstreamRequest.headers['OpenAI-Safety-Identifier'], /^[a-f0-9]{64}$/);
       assert.equal(upstreamRequest.headers.Authorization, 'Bearer sk-test-not-real');
     },
@@ -592,6 +677,137 @@ test('hosted speech delivers its first chunk before provider completion', async 
           }),
           { headers: { 'Content-Type': 'audio/mpeg' }, status: 200 },
         ),
+    },
+  );
+});
+
+test('segmented transcription requires membership and validates its bounded contract', async () => {
+  await withApi(async ({ baseUrl }) => {
+    const signedOut = await fetch(
+      `${baseUrl}/v1/openai/audio/transcriptions`,
+      {
+        body: JSON.stringify(transcriptionBody()),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      },
+    );
+    assert.equal(signedOut.status, 401);
+
+    const session = await signIn(baseUrl);
+    const inactive = await fetch(
+      `${baseUrl}/v1/openai/audio/transcriptions`,
+      {
+        body: JSON.stringify(transcriptionBody()),
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+          'X-Trocode-Request-Id': TEST_REQUEST_ID,
+        },
+        method: 'POST',
+      },
+    );
+    assert.equal(inactive.status, 403);
+    await redeemAccessCode(baseUrl, session.accessToken);
+
+    for (const [body, requestId] of [
+      [transcriptionBody({ language: 'xx' }), TEST_REQUEST_ID],
+      [transcriptionBody({ audioBase64: 'not base64' }), TEST_REQUEST_ID],
+      [transcriptionBody({ extra: true }), TEST_REQUEST_ID],
+      [transcriptionBody(), 'not-a-uuid'],
+    ]) {
+      const invalid = await fetch(
+        `${baseUrl}/v1/openai/audio/transcriptions`,
+        {
+          body: JSON.stringify(body),
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Trocode-Request-Id': requestId,
+          },
+          method: 'POST',
+        },
+      );
+      assert.equal(invalid.status, 400);
+    }
+
+    const oversized = await fetch(
+      `${baseUrl}/v1/openai/audio/transcriptions`,
+      {
+        body: JSON.stringify({
+          ...transcriptionBody(),
+          audioBase64: 'A'.repeat(1_000_001),
+        }),
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+          'X-Trocode-Request-Id': TEST_REQUEST_ID,
+        },
+        method: 'POST',
+      },
+    );
+    assert.equal(oversized.status, 413);
+
+    const invalidWav = await fetch(
+      `${baseUrl}/v1/openai/audio/transcriptions`,
+      {
+        body: JSON.stringify(
+          transcriptionBody({
+            audioBase64: Buffer.alloc(60).toString('base64'),
+          }),
+        ),
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+          'X-Trocode-Request-Id': '33333333-3333-4333-8333-333333333333',
+        },
+        method: 'POST',
+      },
+    );
+    assert.equal(invalidWav.status, 400);
+  });
+});
+
+test('segmented transcription returns sanitized Whisper duration usage', async () => {
+  let upstreamRequest;
+  await withApi(
+    async ({ baseUrl }) => {
+      const session = await signInAndActivate(baseUrl);
+      const response = await fetch(
+        `${baseUrl}/v1/openai/audio/transcriptions`,
+        {
+          body: JSON.stringify(transcriptionBody({ language: 'vi' })),
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Trocode-Request-Id': TEST_REQUEST_ID,
+          },
+          method: 'POST',
+        },
+      );
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        audioDurationMs: 300,
+        billedSeconds: 0.31,
+        model: 'whisper-1',
+        text: 'mở YouTube',
+        usageSource: 'actual',
+      });
+      assert.equal(upstreamRequest.body.get('language'), 'vi');
+      assert.equal(upstreamRequest.body.get('model'), 'whisper-1');
+      assert.equal(upstreamRequest.body.get('file').type, 'audio/wav');
+    },
+    {
+      fetchImpl: async (_url, options) => {
+        upstreamRequest = options;
+        return new Response(
+          JSON.stringify({
+            duration: 0.3,
+            text: 'mở YouTube',
+            usage: { seconds: 0.31, type: 'duration' },
+          }),
+          { headers: { 'Content-Type': 'application/json' }, status: 200 },
+        );
+      },
     },
   );
 });

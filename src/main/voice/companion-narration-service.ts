@@ -134,8 +134,9 @@ export class CompanionNarrationService {
             mediaUrl: `${TROCODE_AUDIO_SCHEME}://speech/${id}`,
             mimeType: 'audio/mpeg',
             source: 'elevenlabs',
+            text,
           }
-        : { id, source: 'system' },
+        : { id, source: 'system', text },
     );
     let resolveCompletion: (outcome: NarrationOutcome) => void = () => undefined;
     const completion = new Promise<NarrationOutcome>((resolve) => {
@@ -355,6 +356,7 @@ function speechIdFromUrl(rawUrl: string): string | null {
       mediaUrl: rawUrl,
       mimeType: 'audio/mpeg',
       source: 'elevenlabs',
+      text: 'private speech ticket',
     });
     return descriptor.id;
   } catch {

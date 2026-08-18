@@ -87,10 +87,18 @@ timeout, connection loss after dispatch, 5xx, oversized response, malformed
 success, or missing usage is `uncertain`: the conservative reservation remains
 committed and the desktop does not resend it automatically.
 
-Realtime transcription creation is labeled estimated because the current
-WebRTC path does not return authoritative duration usage to the API. ElevenLabs
-speech settles from actual character count. UI copy separates settled spend
-from reserved or estimated spend.
+Whisper transcription reserves from the server-parsed PCM WAV duration at
+`TROCODE_TRANSCRIPTION_MICRO_USD_PER_MINUTE` (6,000 micro-USD by default), then
+settles from the provider's duration usage. Request latency remains
+`duration_ms`; billed audio is recorded separately as `audio_duration_ms`.
+Missing or malformed post-dispatch usage leaves the reservation uncertain and
+is never retried automatically. ElevenLabs speech settles from actual character
+count. UI copy separates settled spend from reserved or estimated spend.
+
+At published model rates, the same minute costs $0.006 with `whisper-1` versus
+$0.017 with `gpt-realtime-whisper`, a 64.7% model-rate reduction. Segmentation
+is primarily a latency technique: forced 12-second cuts add 300 ms overlap,
+while natural pauses can reduce cost only when local VAD trims silent audio.
 
 ## Rollout and privacy
 

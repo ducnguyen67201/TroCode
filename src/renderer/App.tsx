@@ -89,8 +89,8 @@ const EMPTY_COMPUTER_STATUS: CuaStatus = {
 const EMPTY_VOICE_STATUS: VoiceStatus = {
   state: 'not_configured',
   provider: 'openai',
-  model: 'gpt-realtime-whisper',
-  summary: 'Checking the OpenAI voice connection…',
+  model: 'whisper-1',
+  summary: 'Checking OpenAI Whisper transcription…',
 };
 
 const TERMINAL_PHASES = new Set(['completed', 'failed', 'cancelled']);
@@ -204,8 +204,6 @@ function voiceStatusMessage(
   appLanguage: AppLanguage,
 ): string {
   switch (status) {
-    case 'connecting':
-      return translate(appLanguage, 'Connecting to OpenAI voice…');
     case 'listening':
       return translate(
         appLanguage,
@@ -1562,7 +1560,6 @@ export function App({
   useEffect(() => {
     const voiceActive =
       voiceStatus === 'requesting_permission' ||
-      voiceStatus === 'connecting' ||
       voiceStatus === 'listening' ||
       voiceStatus === 'processing';
     void window.tro.setCompanionVoiceActivity(

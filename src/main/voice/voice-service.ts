@@ -2,45 +2,62 @@ import { z } from 'zod';
 
 import {
   ConfigureVoiceRequestSchema,
-  CreateVoiceCallRequestSchema,
-  VoiceCallAnswerSchema,
+  TranscribeVoiceSegmentRequestSchema,
+  VoiceSegmentTranscriptionSchema,
   VoiceStatusSchema,
-  type VoiceCallAnswer,
   type PrimaryLanguage,
+  type VoiceSegmentTranscription,
   type VoiceStatus,
 } from '../../shared/contracts';
 import type { AppPreferencesService } from '../preferences/app-preferences-service';
 
-const OPENAI_REALTIME_CLIENT_SECRETS_URL =
-  'https://api.openai.com/v1/realtime/client_secrets';
-const OPENAI_REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
-const VOICE_MODEL = 'gpt-realtime-whisper' as const;
-const CLIENT_SECRET_TTL_SECONDS = 60;
-const REQUEST_TIMEOUT_MS = 15_000;
-
-const OpenAIClientSecretResponseSchema = z.object({
-  expires_at: z.number().int().positive(),
-  value: z.string().min(1).max(2_048),
-});
+const OPENAI_MODEL_URL = 'https://api.openai.com/v1/models/whisper-1';
+const OPENAI_TRANSCRIPTIONS_URL =
+  'https://api.openai.com/v1/audio/transcriptions';
+const VOICE_MODEL = 'whisper-1' as const;
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_RESPONSE_BYTES = 1_000_000;
 
 const OpenAIErrorResponseSchema = z.object({
   error: z
-    .object({
-      message: z.string().min(1).max(2_000),
-    })
+    .union([
+      z.string().min(1).max(2_000),
+      z.object({ message: z.string().min(1).max(2_000) }),
+    ])
     .optional(),
 });
+
+const OpenAIModelResponseSchema = z.object({ id: z.literal(VOICE_MODEL) });
+
+const OpenAITranscriptionResponseSchema = z.object({
+  duration: z.number().finite().positive().max(16),
+  text: z.string().trim().max(8_000),
+  usage: z.object({
+    seconds: z.number().finite().nonnegative().max(16),
+    type: z.literal('duration'),
+  }),
+});
+
+const HostedTranscriptionResponseSchema = VoiceSegmentTranscriptionSchema.omit({
+  sequence: true,
+  utteranceId: true,
+}).extend({
+  usageSource: z.enum(['actual', 'missing']).optional(),
+});
+
+function apiErrorMessage(responseBody: unknown): string | undefined {
+  const apiError = OpenAIErrorResponseSchema.safeParse(responseBody);
+  if (!apiError.success) return undefined;
+  if (typeof apiError.data.error === 'string') return apiError.data.error;
+  return apiError.data.error?.message;
+}
 
 export interface VoiceCredentialStore {
   read(): Promise<string | null>;
   write(apiKey: string): Promise<void>;
 }
 
-type VoiceDiagnosticProperties = Record<
-  string,
-  string | number | boolean
->;
-
+type VoiceDiagnosticProperties = Record<string, string | number | boolean>;
 type VoiceDiagnosticLogger = (
   event: string,
   properties?: VoiceDiagnosticProperties,
@@ -57,7 +74,7 @@ interface VoiceServiceOptions {
   preferencesService?: Pick<AppPreferencesService, 'getPrimaryLanguage'>;
 }
 
-const SECRET_PATTERN = /\b(?:ek|sk)[-_][a-z0-9._-]+/gi;
+const SECRET_PATTERN = /\b(?:ek|sk|tro_live)[-_][a-z0-9._-]+/gi;
 
 function defaultVoiceDiagnosticLogger(
   event: string,
@@ -65,15 +82,11 @@ function defaultVoiceDiagnosticLogger(
 ): void {
   if (process.env.NODE_ENV === 'test') return;
   const details =
-    Object.keys(properties).length > 0
-      ? ` ${JSON.stringify(properties)}`
-      : '';
+    Object.keys(properties).length > 0 ? ` ${JSON.stringify(properties)}` : '';
   console.info(`[voice:main] ${event}${details}`);
 }
 
-function diagnosticErrorProperties(
-  error: unknown,
-): VoiceDiagnosticProperties {
+function diagnosticErrorProperties(error: unknown): VoiceDiagnosticProperties {
   const name = error instanceof Error ? error.name : 'UnknownError';
   const rawMessage =
     error instanceof Error ? error.message : 'Unknown voice service error.';
@@ -85,90 +98,37 @@ function diagnosticErrorProperties(
 
 function readyStatus(): VoiceStatus {
   return VoiceStatusSchema.parse({
-    state: 'ready',
-    provider: 'openai',
     model: VOICE_MODEL,
-    summary: 'OpenAI realtime transcription is configured.',
+    provider: 'openai',
+    state: 'ready',
+    summary: 'OpenAI Whisper transcription is configured.',
   });
 }
 
-function transcriptionSessionConfig(
-  language: PrimaryLanguage,
-): Record<string, unknown> {
-  return {
-    type: 'transcription',
-    audio: {
-      input: {
-        noise_reduction: { type: 'far_field' },
-        transcription: {
-          language,
-          model: VOICE_MODEL,
-        },
-        turn_detection: null,
-      },
-    },
-  };
-}
-
-function errorCode(value: unknown): string | undefined {
-  if (typeof value !== 'object' || value === null || !('code' in value)) {
-    return undefined;
+async function readBoundedJson(response: Response): Promise<unknown> {
+  const declaredLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
+    throw new Error('Voice response exceeded the size limit.');
   }
-
-  const code = (value as { code?: unknown }).code;
-  return typeof code === 'string' ? code : undefined;
-}
-
-function serializeVoiceError(error: unknown): {
-  cause?: { code?: string; message: string; name?: string };
-  message: string;
-  name?: string;
-} {
-  if (!(error instanceof Error)) {
-    return { message: String(error) };
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > MAX_RESPONSE_BYTES) {
+    throw new Error('Voice response exceeded the size limit.');
   }
-
-  const serialized: {
-    cause?: { code?: string; message: string; name?: string };
-    message: string;
-    name?: string;
-  } = {
-    message: error.message,
-    name: error.name,
-  };
-
-  const cause = error.cause;
-  if (cause instanceof Error) {
-    serialized.cause = {
-      code: errorCode(cause),
-      message: cause.message,
-      name: cause.name,
-    };
-  } else if (cause !== undefined) {
-    serialized.cause = {
-      code: errorCode(cause),
-      message: String(cause),
-    };
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return null;
   }
-
-  return serialized;
 }
 
 export class VoiceService {
   private readonly accessTokenProvider?: () => Promise<string | null>;
-
   private readonly apiBaseUrl: string;
-
   private readonly credentialStore: VoiceCredentialStore;
-
   private readonly diagnosticLogger: VoiceDiagnosticLogger;
-
   private readonly environmentApiKey?: string;
-
   private readonly fetchImpl: typeof fetch;
-
   private readonly logger: Pick<Console, 'error'>;
-
   private readonly preferencesService: Pick<
     AppPreferencesService,
     'getPrimaryLanguage'
@@ -182,9 +142,7 @@ export class VoiceService {
     environmentApiKey = process.env.OPENAI_API_KEY,
     fetchImpl = fetch,
     logger = console,
-    preferencesService = {
-      getPrimaryLanguage: async () => 'en',
-    },
+    preferencesService = { getPrimaryLanguage: async () => 'en' },
   }: VoiceServiceOptions) {
     this.accessTokenProvider = accessTokenProvider;
     this.apiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
@@ -199,30 +157,26 @@ export class VoiceService {
   async getStatus(): Promise<VoiceStatus> {
     this.diagnosticLogger('status.check-start');
     try {
-      const apiKey = await this.readApiKey();
-      if (apiKey) {
+      const credential = await this.readCredential();
+      if (credential) {
         this.diagnosticLogger('status.ready');
         return readyStatus();
       }
-
       this.diagnosticLogger('status.not-configured');
       return VoiceStatusSchema.parse({
-        state: 'not_configured',
-        provider: 'openai',
         model: VOICE_MODEL,
+        provider: 'openai',
+        state: 'not_configured',
         summary: this.apiBaseUrl
           ? 'Sign in with Google to use voice input.'
           : 'OPENAI_API_KEY is missing from Doppler. Add it and restart TroCode.',
       });
     } catch (error) {
-      this.diagnosticLogger(
-        'status.failed',
-        diagnosticErrorProperties(error),
-      );
+      this.diagnosticLogger('status.failed', diagnosticErrorProperties(error));
       return VoiceStatusSchema.parse({
-        state: 'error',
-        provider: 'openai',
         model: VOICE_MODEL,
+        provider: 'openai',
+        state: 'error',
         summary: 'TroCode could not read the encrypted voice credential.',
       });
     }
@@ -234,34 +188,114 @@ export class VoiceService {
       throw new Error('TroCode voice is managed by the hosted service.');
     }
     const { apiKey } = ConfigureVoiceRequestSchema.parse(input);
-
-    // Validate model access before persisting the credential. The returned
-    // short-lived secret is intentionally discarded.
-    const language = await this.preferencesService.getPrimaryLanguage();
-    await this.validateRealtimeAccess(apiKey, language);
+    await this.validateWhisperAccess(apiKey);
     await this.credentialStore.write(apiKey);
     this.diagnosticLogger('configure.ready');
     return readyStatus();
   }
 
-  async createCall(input: unknown): Promise<VoiceCallAnswer> {
-    this.diagnosticLogger('call.create-start');
-    const apiKey = await this.readApiKey();
-    if (!apiKey) {
-      this.diagnosticLogger('call.missing-credential');
+  async transcribeSegment(input: unknown): Promise<VoiceSegmentTranscription> {
+    const request = TranscribeVoiceSegmentRequestSchema.parse(input);
+    const credential = await this.readCredential();
+    if (!credential) {
       throw new Error(
         this.apiBaseUrl
           ? 'Sign in with Google to use voice input.'
           : 'OPENAI_API_KEY is missing from Doppler. Add it and restart TroCode.',
       );
     }
-
-    const { offerSdp } = CreateVoiceCallRequestSchema.parse(input);
     const language = await this.preferencesService.getPrimaryLanguage();
-    return this.requestRealtimeCall(apiKey, offerSdp, language);
+    const startedAt = Date.now();
+    this.diagnosticLogger('segment.request-start', {
+      byteCount: Math.floor((request.audioBase64.length * 3) / 4),
+      durationMs: request.durationMs,
+      model: VOICE_MODEL,
+      requestId: request.requestId,
+      sequence: request.sequence,
+    });
+
+    let response: Response;
+    try {
+      response = this.apiBaseUrl
+        ? await this.requestHostedSegment(credential, request, language)
+        : await this.requestLocalSegment(credential, request, language);
+    } catch (error) {
+      this.diagnosticLogger(
+        'segment.request-failed',
+        diagnosticErrorProperties(error),
+      );
+      this.logger.error('[voice] Whisper segment request failed.', {
+        durationMs: request.durationMs,
+        error: diagnosticErrorProperties(error),
+        requestId: request.requestId,
+        sequence: request.sequence,
+      });
+      throw new Error(
+        error instanceof Error &&
+          (error.name === 'TimeoutError' || error.name === 'AbortError')
+          ? 'OpenAI voice transcription timed out.'
+          : 'TroCode could not reach voice transcription.',
+        { cause: error },
+      );
+    }
+
+    let responseBody: unknown;
+    try {
+      responseBody = await readBoundedJson(response);
+    } catch (error) {
+      this.diagnosticLogger(
+        'segment.response-invalid',
+        diagnosticErrorProperties(error),
+      );
+      throw new Error('Voice transcription returned an invalid response.', {
+        cause: error,
+      });
+    }
+    if (!response.ok) {
+      const detail = apiErrorMessage(responseBody);
+      this.diagnosticLogger('segment.rejected', { status: response.status });
+      throw new Error(detail || 'OpenAI rejected the voice segment.');
+    }
+
+    let parsed: z.infer<typeof HostedTranscriptionResponseSchema>;
+    try {
+      parsed = this.apiBaseUrl
+        ? HostedTranscriptionResponseSchema.parse(responseBody)
+        : (() => {
+            const provider =
+              OpenAITranscriptionResponseSchema.parse(responseBody);
+            return {
+              audioDurationMs: Math.round(provider.duration * 1_000),
+              billedSeconds: provider.usage.seconds,
+              model: VOICE_MODEL,
+              text: provider.text,
+            };
+          })();
+    } catch (error) {
+      this.diagnosticLogger(
+        'segment.response-invalid',
+        diagnosticErrorProperties(error),
+      );
+      throw new Error('Voice transcription returned an invalid response.', {
+        cause: error,
+      });
+    }
+    this.diagnosticLogger('segment.completed', {
+      audioDurationMs: parsed.audioDurationMs,
+      billedSeconds: parsed.billedSeconds,
+      durationMs: Date.now() - startedAt,
+      model: VOICE_MODEL,
+      requestId: request.requestId,
+      sequence: request.sequence,
+    });
+    return VoiceSegmentTranscriptionSchema.parse({
+      ...parsed,
+      sequence: request.sequence,
+      utteranceId: request.utteranceId,
+    });
   }
 
-  private async readApiKey(): Promise<string | null> {
+  private async readCredential(): Promise<string | null> {
     if (this.apiBaseUrl) {
       const accessToken = await this.accessTokenProvider?.();
       this.diagnosticLogger(
@@ -271,9 +305,7 @@ export class VoiceService {
       return accessToken ?? null;
     }
     if (this.environmentApiKey) {
-      this.diagnosticLogger('credential.available', {
-        source: 'environment',
-      });
+      this.diagnosticLogger('credential.available', { source: 'environment' });
       return this.environmentApiKey;
     }
     const storedApiKey = await this.credentialStore.read();
@@ -284,162 +316,69 @@ export class VoiceService {
     return storedApiKey;
   }
 
-  private async validateRealtimeAccess(
-    apiKey: string,
-    language: PrimaryLanguage,
-  ): Promise<void> {
-    this.diagnosticLogger('client-secret.request-start', {
-      model: VOICE_MODEL,
-      language,
-      timeoutMs: REQUEST_TIMEOUT_MS,
-    });
+  private async validateWhisperAccess(apiKey: string): Promise<void> {
     let response: Response;
     try {
-      response = await this.fetchImpl(OPENAI_REALTIME_CLIENT_SECRETS_URL, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          expires_after: {
-            anchor: 'created_at',
-            seconds: CLIENT_SECRET_TTL_SECONDS,
-          },
-          session: transcriptionSessionConfig(language),
-        }),
+      response = await this.fetchImpl(OPENAI_MODEL_URL, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        method: 'GET',
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch (error) {
-      this.diagnosticLogger(
-        'client-secret.request-failed',
-        diagnosticErrorProperties(error),
-      );
       throw new Error(
         error instanceof Error && error.name === 'TimeoutError'
-          ? 'OpenAI voice connection timed out.'
-          : 'TroCode could not reach OpenAI voice.',
+          ? 'OpenAI voice validation timed out.'
+          : 'TroCode could not validate OpenAI Whisper access.',
       );
     }
-
-    this.diagnosticLogger('client-secret.response', {
-      ok: response.ok,
-      status: response.status,
-    });
-
-    const responseText = await response.text();
-    let responseBody: unknown;
-    try {
-      responseBody = JSON.parse(responseText);
-    } catch {
-      responseBody = null;
-    }
-
+    const responseBody = await readBoundedJson(response);
     if (!response.ok) {
-      const apiError = OpenAIErrorResponseSchema.safeParse(responseBody);
-      const detail = apiError.success
-        ? apiError.data.error?.message
-        : undefined;
-      this.diagnosticLogger('client-secret.rejected', {
-        status: response.status,
-      });
-      throw new Error(detail || 'OpenAI rejected the voice connection.');
+      throw new Error(
+        apiErrorMessage(responseBody) || 'OpenAI rejected the voice credential.',
+      );
     }
+    OpenAIModelResponseSchema.parse(responseBody);
+  }
 
-    OpenAIClientSecretResponseSchema.parse(responseBody);
-    this.diagnosticLogger('client-secret.ready', {
-      model: VOICE_MODEL,
+  private requestHostedSegment(
+    accessToken: string,
+    request: z.infer<typeof TranscribeVoiceSegmentRequestSchema>,
+    language: PrimaryLanguage,
+  ): Promise<Response> {
+    return this.fetchImpl(`${this.apiBaseUrl}/v1/openai/audio/transcriptions`, {
+      body: JSON.stringify({
+        audioBase64: request.audioBase64,
+        clientDurationMs: request.durationMs,
+        language,
+        utteranceId: request.utteranceId,
+      }),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Trocode-Request-Id': request.requestId,
+      },
+      method: 'POST',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   }
 
-  private async requestRealtimeCall(
+  private requestLocalSegment(
     apiKey: string,
-    offerSdp: string,
+    request: z.infer<typeof TranscribeVoiceSegmentRequestSchema>,
     language: PrimaryLanguage,
-  ): Promise<VoiceCallAnswer> {
-    this.diagnosticLogger('call.request-start', {
-      model: VOICE_MODEL,
-      language,
-      timeoutMs: REQUEST_TIMEOUT_MS,
-    });
-    const formData = new FormData();
-    if (!this.apiBaseUrl) {
-      formData.set('sdp', offerSdp);
-      formData.set(
-        'session',
-        JSON.stringify(transcriptionSessionConfig(language)),
-      );
-    }
-
-    let response: Response;
-    try {
-      response = await this.fetchImpl(
-        this.apiBaseUrl
-          ? `${this.apiBaseUrl}/v1/openai/realtime/calls`
-          : OPENAI_REALTIME_CALLS_URL,
-        {
-        method: 'POST',
-        headers: this.apiBaseUrl
-          ? {
-              Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            }
-          : {
-              Authorization: `Bearer ${apiKey}`,
-            },
-        body: this.apiBaseUrl
-          ? JSON.stringify({ language, offerSdp })
-          : formData,
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        },
-      );
-    } catch (error) {
-      this.diagnosticLogger(
-        'call.request-failed',
-        diagnosticErrorProperties(error),
-      );
-      this.logger.error('[voice] OpenAI Realtime call request failed.', {
-        error: serializeVoiceError(error),
-      });
-      throw new Error(
-        error instanceof Error && error.name === 'TimeoutError'
-          ? 'OpenAI voice connection timed out.'
-          : 'TroCode could not reach OpenAI voice.',
-        { cause: error },
-      );
-    }
-
-    this.diagnosticLogger('call.response', {
-      ok: response.ok,
-      status: response.status,
-    });
-
-    const responseText = await response.text();
-    if (!response.ok) {
-      let responseBody: unknown;
-      try {
-        responseBody = JSON.parse(responseText);
-      } catch {
-        responseBody = null;
-      }
-
-      const apiError = OpenAIErrorResponseSchema.safeParse(responseBody);
-      const detail = apiError.success
-        ? apiError.data.error?.message
-        : undefined;
-      this.diagnosticLogger('call.rejected', {
-        status: response.status,
-      });
-      throw new Error(
-        detail || 'OpenAI rejected the realtime voice connection.',
-      );
-    }
-
-    this.diagnosticLogger('call.ready', {
-      model: VOICE_MODEL,
-    });
-    return VoiceCallAnswerSchema.parse({
-      answerSdp: responseText,
+  ): Promise<Response> {
+    const audio = Uint8Array.from(Buffer.from(request.audioBase64, 'base64'));
+    const form = new FormData();
+    form.set('file', new Blob([audio], { type: 'audio/wav' }), 'segment.wav');
+    form.set('model', VOICE_MODEL);
+    form.set('language', language);
+    form.set('response_format', 'verbose_json');
+    form.set('temperature', '0');
+    return this.fetchImpl(OPENAI_TRANSCRIPTIONS_URL, {
+      body: form,
+      headers: { Authorization: `Bearer ${apiKey}` },
+      method: 'POST',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   }
 }

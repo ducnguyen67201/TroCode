@@ -843,7 +843,6 @@ html.voice-island-mode #root {
 }
 
 .voice-island--processing .voice-island__meter i,
-.voice-island--connecting .voice-island__meter i,
 .voice-island--requesting_permission .voice-island__meter i {
   height: 5px;
   animation-name: voice-island-processing;
@@ -983,6 +982,10 @@ html.voice-island-mode #root {
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+.guidance-callout--result p {
+  -webkit-line-clamp: 6;
 }
 
 .guidance-callout--interactive {
@@ -2374,7 +2377,6 @@ h1 {
 }
 
 .voice-status--processing .voice-indicator,
-.voice-status--connecting .voice-indicator,
 .voice-status--requesting_permission .voice-indicator {
   background: #c89217;
 }

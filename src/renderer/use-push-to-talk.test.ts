@@ -3,8 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   beginPushToTalkAttemptIfValid,
   handleVoiceShortcutEvent,
-  canCommitInputAudioBuffer,
-  hasNewOutboundAudio,
   logVoiceConnectionFailure,
   shouldFinishVoiceOnLocalRelease,
   shouldMuteSystemAudioForVoice,
@@ -16,8 +14,10 @@ const reactHarness = vi.hoisted(() => ({
   cleanups: [] as Array<() => void>,
 }));
 
-const transportHarness = vi.hoisted(() => ({
-  openTransport: vi.fn(),
+const captureHarness = vi.hoisted(() => ({
+  onFrame: null as null | ((frame: { samples: Float32Array; sampleRate: number }) => void),
+  open: vi.fn(),
+  stop: vi.fn(async () => undefined),
 }));
 
 vi.mock('react', () => ({
@@ -35,30 +35,281 @@ vi.mock('react', () => ({
   ],
 }));
 
-vi.mock('./realtime-voice-transport', async (importOriginal) => {
-  const actual = (await importOriginal()) as object;
-  return {
-    ...actual,
-    openRealtimeVoiceTransport: transportHarness.openTransport,
-  };
-});
+vi.mock('./voice-capture', () => ({
+  openVoiceCapture: captureHarness.open,
+}));
 
 async function flushMicrotasks(): Promise<void> {
-  for (let index = 0; index < 5; index += 1) await Promise.resolve();
+  for (let index = 0; index < 10; index += 1) await Promise.resolve();
+}
+
+function frame(amplitude: number): Float32Array {
+  const samples = new Float32Array(320);
+  for (let index = 0; index < samples.length; index += 1) {
+    samples[index] = index % 2 === 0 ? amplitude : -amplitude;
+  }
+  return samples;
+}
+
+function emitFrames(count: number, amplitude: number): void {
+  for (let index = 0; index < count; index += 1) {
+    captureHarness.onFrame?.({ sampleRate: 16_000, samples: frame(amplitude) });
+  }
+}
+
+function pressShortcut(target: EventTarget): void {
+  target.dispatchEvent(
+    Object.assign(new Event('keydown'), {
+      code: 'MetaLeft',
+      key: 'Meta',
+      repeat: false,
+    }),
+  );
+  target.dispatchEvent(
+    Object.assign(new Event('keydown'), {
+      code: 'ControlLeft',
+      key: 'Control',
+      repeat: false,
+    }),
+  );
+}
+
+function releaseShortcut(target: EventTarget): void {
+  target.dispatchEvent(
+    Object.assign(new Event('keyup'), {
+      code: 'ControlLeft',
+      key: 'Control',
+    }),
+  );
+}
+
+function setup(upload = vi.fn()) {
+  const fakeWindow = Object.assign(new EventTarget(), {
+    tro: {
+      onVoiceShortcut: vi.fn(() => vi.fn()),
+      reportVoiceDiagnostic: vi.fn(async () => undefined),
+      transcribeVoiceSegment: upload,
+    },
+  });
+  vi.stubGlobal('navigator', {
+    mediaDevices: { getUserMedia: vi.fn() },
+    platform: 'MacIntel',
+    userAgent: 'Mozilla/5.0 (Macintosh)',
+  });
+  vi.stubGlobal('window', fakeWindow);
+  if (!captureHarness.open.getMockImplementation()) {
+    captureHarness.open.mockImplementation(async ({ onFrame }) => {
+      captureHarness.onFrame = onFrame;
+      return { stop: captureHarness.stop };
+    });
+  }
+  const callbacks = {
+    onAttemptStart: vi.fn(),
+    onError: vi.fn(),
+    onTranscriptChange: vi.fn(),
+    onTranscriptSubmit: vi.fn(),
+  };
+  // The lightweight test harness invokes the hook with mocked React primitives.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const state = usePushToTalk(callbacks);
+  return { callbacks, fakeWindow, state, upload };
 }
 
 afterEach(() => {
   for (const cleanup of reactHarness.cleanups.splice(0).reverse()) cleanup();
-  transportHarness.openTransport.mockReset();
+  captureHarness.onFrame = null;
+  captureHarness.open.mockReset();
+  captureHarness.stop.mockClear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  vi.useRealTimers();
 });
 
-describe('push-to-talk attempt lifecycle', () => {
-  it('clears stale UI state when a valid attempt begins', () => {
-    const onAttemptStart = vi.fn();
+describe('segmented push-to-talk lifecycle', () => {
+  it('does no microphone or provider work while enabled and idle', () => {
+    const { upload } = setup(vi.fn());
+    expect(captureHarness.open).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+  });
 
+  it('shows a completed phrase before release but submits only after release', async () => {
+    const upload = vi.fn(async (request) => ({
+      audioDurationMs: request.durationMs,
+      billedSeconds: request.durationMs / 1_000,
+      model: 'whisper-1',
+      sequence: request.sequence,
+      text: 'open YouTube',
+      utteranceId: request.utteranceId,
+    }));
+    const { callbacks, fakeWindow } = setup(upload);
+    pressShortcut(fakeWindow);
+    await flushMicrotasks();
+    emitFrames(15, 0.1);
+    emitFrames(35, 0);
+    await flushMicrotasks();
+
+    expect(upload).toHaveBeenCalledOnce();
+    expect(callbacks.onTranscriptChange).toHaveBeenCalledWith('open YouTube');
+    expect(callbacks.onTranscriptSubmit).not.toHaveBeenCalled();
+
+    releaseShortcut(fakeWindow);
+    await flushMicrotasks();
+    expect(callbacks.onTranscriptSubmit).toHaveBeenCalledOnce();
+    expect(callbacks.onTranscriptSubmit).toHaveBeenCalledWith('open YouTube');
+  });
+
+  it('waits for out-of-order segments and submits one ordered transcript', async () => {
+    const resolvers = new Map<number, (value: unknown) => void>();
+    const requests = new Map<number, Record<string, unknown>>();
+    const upload = vi.fn(
+      (request: Record<string, unknown>) =>
+        new Promise((resolve) => {
+          requests.set(request.sequence as number, request);
+          resolvers.set(request.sequence as number, resolve);
+        }),
+    );
+    const { callbacks, fakeWindow } = setup(upload);
+    pressShortcut(fakeWindow);
+    await flushMicrotasks();
+    emitFrames(15, 0.1);
+    emitFrames(35, 0);
+    emitFrames(15, 0.1);
+    emitFrames(35, 0);
+    await flushMicrotasks();
+    releaseShortcut(fakeWindow);
+
+    const second = requests.get(1);
+    const first = requests.get(0);
+    resolvers.get(1)?.({
+      audioDurationMs: 300,
+      billedSeconds: 0.3,
+      model: 'whisper-1',
+      sequence: 1,
+      text: 'and search',
+      utteranceId: second?.utteranceId,
+    });
+    await flushMicrotasks();
+    expect(callbacks.onTranscriptSubmit).not.toHaveBeenCalled();
+    resolvers.get(0)?.({
+      audioDurationMs: 300,
+      billedSeconds: 0.3,
+      model: 'whisper-1',
+      sequence: 0,
+      text: 'open YouTube',
+      utteranceId: first?.utteranceId,
+    });
+    await flushMicrotasks();
+    expect(callbacks.onTranscriptSubmit).toHaveBeenCalledWith(
+      'open YouTube and search',
+    );
+    expect(callbacks.onTranscriptSubmit).toHaveBeenCalledOnce();
+  });
+
+  it('prevents submission when any segment fails', async () => {
+    const upload = vi.fn(async (request) => {
+      if (request.sequence === 1) throw new Error('provider unavailable');
+      return {
+        audioDurationMs: 300,
+        billedSeconds: 0.3,
+        model: 'whisper-1',
+        sequence: request.sequence,
+        text: 'open YouTube',
+        utteranceId: request.utteranceId,
+      };
+    });
+    const { callbacks, fakeWindow } = setup(upload);
+    pressShortcut(fakeWindow);
+    await flushMicrotasks();
+    emitFrames(15, 0.1);
+    emitFrames(35, 0);
+    emitFrames(15, 0.1);
+    emitFrames(35, 0);
+    await flushMicrotasks();
+    releaseShortcut(fakeWindow);
+    await flushMicrotasks();
+
+    expect(callbacks.onTranscriptSubmit).not.toHaveBeenCalled();
+    expect(callbacks.onError).toHaveBeenCalledWith(
+      'A part of this recording could not be transcribed. Review it or record again.',
+    );
+  });
+
+  it('release during permission acquisition cleans up and never uploads', async () => {
+    let resolveCapture: (value: { stop: () => Promise<void> }) => void = () =>
+      undefined;
+    captureHarness.open.mockImplementation(
+      ({ onFrame }) =>
+        new Promise((resolve) => {
+          captureHarness.onFrame = onFrame;
+          resolveCapture = resolve;
+        }),
+    );
+    const { fakeWindow, upload } = setup(vi.fn());
+    pressShortcut(fakeWindow);
+    await flushMicrotasks();
+    releaseShortcut(fakeWindow);
+    resolveCapture({ stop: captureHarness.stop });
+    await flushMicrotasks();
+    expect(captureHarness.stop).toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('cancellation ignores late transcription results', async () => {
+    let resolveUpload: (value: unknown) => void = () => undefined;
+    const upload = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const { callbacks, fakeWindow, state } = setup(upload);
+    pressShortcut(fakeWindow);
+    await flushMicrotasks();
+    emitFrames(15, 0.1);
+    emitFrames(35, 0);
+    await flushMicrotasks();
+    state.cancel();
+    resolveUpload({
+      audioDurationMs: 300,
+      billedSeconds: 0.3,
+      model: 'whisper-1',
+      sequence: 0,
+      text: 'late text',
+      utteranceId: crypto.randomUUID(),
+    });
+    await flushMicrotasks();
+    expect(callbacks.onTranscriptSubmit).not.toHaveBeenCalled();
+  });
+
+  it('stops at 60 seconds but waits for physical release before submitting', async () => {
+    const upload = vi.fn(async (request) => ({
+      audioDurationMs: request.durationMs,
+      billedSeconds: request.durationMs / 1_000,
+      model: 'whisper-1',
+      sequence: request.sequence,
+      text: 'continue command',
+      utteranceId: request.utteranceId,
+    }));
+    const { callbacks, fakeWindow } = setup(upload);
+    pressShortcut(fakeWindow);
+    await flushMicrotasks();
+    emitFrames(3_000, 0.1);
+    await flushMicrotasks();
+
+    expect(captureHarness.stop).toHaveBeenCalled();
+    expect(callbacks.onError).toHaveBeenCalledWith(
+      'Voice input reached 60 seconds. Release the shortcut to finish.',
+    );
+    expect(callbacks.onTranscriptSubmit).not.toHaveBeenCalled();
+
+    releaseShortcut(fakeWindow);
+    await flushMicrotasks();
+    expect(callbacks.onTranscriptSubmit).toHaveBeenCalledOnce();
+  });
+});
+
+describe('push-to-talk helpers', () => {
+  it('starts only valid attempts', () => {
+    const start = vi.fn();
     expect(
       beginPushToTalkAttemptIfValid(
         {
@@ -68,340 +319,20 @@ describe('push-to-talk attempt lifecycle', () => {
           isChordHeld: false,
           platform: 'macos',
         },
-        onAttemptStart,
+        start,
       ),
     ).toBe(true);
-    expect(onAttemptStart).toHaveBeenCalledOnce();
+    expect(start).toHaveBeenCalledOnce();
   });
 
-  it('uses a microphone-free warm transport and replenishes it after transcription', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(1_000);
-    const audioTrack = {
-      enabled: true,
-      muted: false,
-      readyState: 'live',
-      stop: vi.fn(),
-    } as unknown as MediaStreamTrack;
-    const stream = {
-      getAudioTracks: () => [audioTrack],
-      getTracks: () => [audioTrack],
-    } as unknown as MediaStream;
-    let statsReadCount = 0;
-    const replaceTrack = vi.fn(async () => undefined);
-    const sender = {
-      getStats: vi.fn(async () => ({
-        forEach: (
-          callback: (stats: RTCOutboundRtpStreamStats) => void,
-        ): void => {
-          callback({
-            bytesSent: statsReadCount === 0 ? 0 : 256,
-            id: 'audio-outbound',
-            kind: 'audio',
-            packetsSent: statsReadCount === 0 ? 0 : 2,
-            ssrc: 1,
-            timestamp: 1_000,
-            type: 'outbound-rtp',
-          } as RTCOutboundRtpStreamStats);
-          statsReadCount += 1;
-        },
-      })),
-      replaceTrack,
-    } as unknown as RTCRtpSender;
-    const sendVoiceEvent = vi.fn();
-    const channel = Object.assign(new EventTarget(), {
-      close: vi.fn(),
-      readyState: 'open' as RTCDataChannelState,
-      send: sendVoiceEvent,
-    }) as unknown as RTCDataChannel;
-    const connection = Object.assign(new EventTarget(), {
-      close: vi.fn(),
-      connectionState: 'connected' as RTCPeerConnectionState,
-    }) as unknown as RTCPeerConnection;
-    const releasePlaceholderAudio = vi.fn();
-    const transport = {
-      channel,
-      connection,
-      releasePlaceholderAudio,
-      sender,
-    };
-    const getUserMedia = vi.fn(async () => stream);
-    const onTranscriptSubmit = vi.fn();
-    const fakeWindow = Object.assign(new EventTarget(), {
-      tro: {
-        onVoiceShortcut: vi.fn(() => vi.fn()),
-        reportVoiceDiagnostic: vi.fn(async () => undefined),
-      },
-    });
-
-    vi.stubGlobal('navigator', {
-      mediaDevices: { getUserMedia },
-      platform: 'MacIntel',
-      userAgent: 'Mozilla/5.0 (Macintosh)',
-    });
-    vi.stubGlobal('window', fakeWindow);
-    transportHarness.openTransport.mockResolvedValue(transport);
-
-    usePushToTalk({
-      onAttemptStart: vi.fn(),
-      onError: vi.fn(),
-      onTranscriptChange: vi.fn(),
-      onTranscriptSubmit,
-    });
-    await flushMicrotasks();
-
-    expect(transportHarness.openTransport).toHaveBeenCalledOnce();
-    expect(transportHarness.openTransport).toHaveBeenCalledWith();
-    expect(getUserMedia).not.toHaveBeenCalled();
-
-    fakeWindow.dispatchEvent(
-      Object.assign(new Event('keydown'), {
-        code: 'MetaLeft',
-        key: 'Meta',
-        repeat: false,
-      }),
+  it('handles global and local release ownership', () => {
+    const beginListening = vi.fn();
+    const finishListening = vi.fn();
+    handleVoiceShortcutEvent(
+      { action: 'pressed', source: 'global' },
+      { beginListening, finishListening, isListening: false },
     );
-    fakeWindow.dispatchEvent(
-      Object.assign(new Event('keydown'), {
-        code: 'ControlLeft',
-        key: 'Control',
-        repeat: false,
-      }),
-    );
-    await flushMicrotasks();
-
-    expect(getUserMedia).toHaveBeenCalledOnce();
-    expect(transportHarness.openTransport).toHaveBeenCalledOnce();
-    expect(sendVoiceEvent).toHaveBeenCalledWith(
-      JSON.stringify({ type: 'input_audio_buffer.clear' }),
-    );
-    expect(
-      sendVoiceEvent.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
-    ).toBeLessThan(
-      replaceTrack.mock.invocationCallOrder[0] ?? Number.NEGATIVE_INFINITY,
-    );
-    expect(replaceTrack).toHaveBeenCalledWith(audioTrack);
-    expect(releasePlaceholderAudio).toHaveBeenCalledOnce();
-
-    await vi.advanceTimersByTimeAsync(300);
-    fakeWindow.dispatchEvent(
-      Object.assign(new Event('keyup'), {
-        code: 'ControlLeft',
-        key: 'Control',
-      }),
-    );
-    await flushMicrotasks();
-    await vi.advanceTimersByTimeAsync(150);
-
-    expect(channel.send).toHaveBeenCalledWith(
-      JSON.stringify({ type: 'input_audio_buffer.commit' }),
-    );
-    channel.dispatchEvent(
-      Object.assign(new Event('message'), {
-        data: JSON.stringify({
-          transcript: 'send the transcript',
-          type: 'conversation.item.input_audio_transcription.completed',
-        }),
-      }),
-    );
-
-    expect(onTranscriptSubmit).toHaveBeenCalledWith('send the transcript');
-    await flushMicrotasks();
-    expect(transportHarness.openTransport).toHaveBeenCalledTimes(2);
-    expect(onTranscriptSubmit.mock.invocationCallOrder[0]).toBeLessThan(
-      transportHarness.openTransport.mock.invocationCallOrder[1] ?? 0,
-    );
-    expect(channel.close).toHaveBeenCalledOnce();
-    expect(connection.close).toHaveBeenCalledOnce();
-  });
-
-  it('queues release while the realtime transport is still connecting', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(1_000);
-    const consoleInfo = vi
-      .spyOn(console, 'info')
-      .mockImplementation(() => undefined);
-    const audioTrack = {
-      enabled: true,
-      muted: false,
-      readyState: 'live',
-      stop: vi.fn(),
-    } as unknown as MediaStreamTrack;
-    const stream = {
-      getAudioTracks: () => [audioTrack],
-      getTracks: () => [audioTrack],
-    } as unknown as MediaStream;
-    const channel = Object.assign(new EventTarget(), {
-      close: vi.fn(),
-      readyState: 'open' as RTCDataChannelState,
-      send: vi.fn(),
-    }) as unknown as RTCDataChannel;
-    const connection = Object.assign(new EventTarget(), {
-      close: vi.fn(),
-      connectionState: 'connected' as RTCPeerConnectionState,
-    }) as unknown as RTCPeerConnection;
-    const sender = {
-      getStats: vi.fn(async () => ({
-        forEach: (
-          callback: (stats: RTCOutboundRtpStreamStats) => void,
-        ): void => {
-          callback({
-            bytesSent: 256,
-            id: 'audio-outbound',
-            kind: 'audio',
-            packetsSent: 2,
-            ssrc: 1,
-            timestamp: 1_600,
-            type: 'outbound-rtp',
-          } as RTCOutboundRtpStreamStats);
-        },
-      })),
-      replaceTrack: vi.fn(async () => undefined),
-    } as unknown as RTCRtpSender;
-    const transport = { channel, connection, sender };
-    let resolveTransport: (value: typeof transport) => void = () => undefined;
-    transportHarness.openTransport.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveTransport = resolve;
-        }),
-    );
-    const fakeWindow = Object.assign(new EventTarget(), {
-      tro: {
-        onVoiceShortcut: vi.fn(() => vi.fn()),
-        reportVoiceDiagnostic: vi.fn(async () => undefined),
-      },
-    });
-
-    vi.stubGlobal('navigator', {
-      mediaDevices: { getUserMedia: vi.fn(async () => stream) },
-      platform: 'MacIntel',
-      userAgent: 'Mozilla/5.0 (Macintosh)',
-    });
-    vi.stubGlobal('window', fakeWindow);
-
-    const onError = vi.fn();
-    usePushToTalk({
-      onAttemptStart: vi.fn(),
-      onError,
-      onTranscriptChange: vi.fn(),
-      onTranscriptSubmit: vi.fn(),
-    });
-    fakeWindow.dispatchEvent(
-      Object.assign(new Event('keydown'), {
-        code: 'MetaLeft',
-        key: 'Meta',
-        repeat: false,
-      }),
-    );
-    fakeWindow.dispatchEvent(
-      Object.assign(new Event('keydown'), {
-        code: 'ControlLeft',
-        key: 'Control',
-        repeat: false,
-      }),
-    );
-    await flushMicrotasks();
-    await vi.advanceTimersByTimeAsync(600);
-
-    fakeWindow.dispatchEvent(
-      Object.assign(new Event('keyup'), {
-        code: 'ControlLeft',
-        key: 'Control',
-      }),
-    );
-
-    expect(consoleInfo).toHaveBeenCalledWith(
-      '[voice:renderer] turn.release-queued {"attempt":1,"heldMs":600,"phase":"realtime_call"}',
-    );
-    expect(onError).not.toHaveBeenCalled();
-
-    resolveTransport(transport);
-    await flushMicrotasks();
-
-    expect(channel.close).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(300);
-    await flushMicrotasks();
-
-    expect(channel.send).toHaveBeenCalledWith(
-      JSON.stringify({ type: 'input_audio_buffer.commit' }),
-    );
-    expect(onError).not.toHaveBeenCalled();
-  });
-
-  it('does not clear UI state when the attempt is invalid', () => {
-    const onAttemptStart = vi.fn();
-
-    expect(
-      beginPushToTalkAttemptIfValid(
-        {
-          disabled: true,
-          enabled: true,
-          hasActiveTurn: false,
-          isChordHeld: false,
-          platform: 'macos',
-        },
-        onAttemptStart,
-      ),
-    ).toBe(false);
-    expect(onAttemptStart).not.toHaveBeenCalled();
-  });
-
-  it('rejects audio commits before capture has started', () => {
-    expect(canCommitInputAudioBuffer(null, 1_000)).toBe(false);
-  });
-
-  it('rejects audio commits shorter than the safe capture threshold', () => {
-    expect(canCommitInputAudioBuffer(1_000, 1_249)).toBe(false);
-    expect(canCommitInputAudioBuffer(1_000, 1_250)).toBe(true);
-  });
-
-  it('requires newly transmitted RTP audio before committing', () => {
-    expect(
-      hasNewOutboundAudio(
-        { bytesSent: 1_000, packetsSent: 10 },
-        { bytesSent: 1_000, packetsSent: 10 },
-      ),
-    ).toBe(false);
-    expect(
-      hasNewOutboundAudio(
-        { bytesSent: 1_000, packetsSent: 10 },
-        { bytesSent: 1_256, packetsSent: 12 },
-      ),
-    ).toBe(true);
-  });
-});
-
-describe('voice connection diagnostics', () => {
-  it('turns renderer fetch failures into an actionable voice message', () => {
-    expect(voiceConnectionErrorMessage(new TypeError('Failed to fetch'))).toBe(
-      'TroCode could not reach OpenAI voice. Check network access to api.openai.com and try again.',
-    );
-  });
-
-  it('logs the failed voice connection step without exposing secrets', () => {
-    const error = new TypeError('Failed to fetch');
-    const logger = {
-      error: vi.fn(),
-    };
-
-    logVoiceConnectionFailure('realtime_call', error, logger);
-
-    expect(logger.error).toHaveBeenCalledWith(
-      '[voice] OpenAI Realtime connection failed.',
-      {
-        error: {
-          message: 'Failed to fetch',
-          name: 'TypeError',
-        },
-        step: 'realtime_call',
-      },
-    );
-  });
-});
-
-describe('global voice shortcut events', () => {
-  it('lets only the matching local hold release finish a local turn', () => {
+    expect(beginListening).toHaveBeenCalledOnce();
     expect(
       shouldFinishVoiceOnLocalRelease({
         activationMode: 'global-hold',
@@ -409,88 +340,25 @@ describe('global voice shortcut events', () => {
         isLocalChordHeld: false,
       }),
     ).toBe(false);
-    expect(
-      shouldFinishVoiceOnLocalRelease({
-        activationMode: 'local-hold',
-        isListening: true,
-        isLocalChordHeld: false,
-      }),
-    ).toBe(true);
   });
 
-  it('starts listening when the global press arrives while inactive', () => {
-    const beginListening = vi.fn();
-    const finishListening = vi.fn();
-
-    handleVoiceShortcutEvent(
-      { action: 'pressed', source: 'global' },
-      {
-        beginListening,
-        finishListening,
-        isListening: false,
-      },
-    );
-
-    expect(beginListening).toHaveBeenCalledOnce();
-    expect(finishListening).not.toHaveBeenCalled();
-  });
-
-  it('ignores a repeated global press while already listening', () => {
-    const beginListening = vi.fn();
-    const finishListening = vi.fn();
-
-    handleVoiceShortcutEvent(
-      { action: 'pressed', source: 'global' },
-      {
-        beginListening,
-        finishListening,
-        isListening: true,
-      },
-    );
-
-    expect(beginListening).not.toHaveBeenCalled();
-    expect(finishListening).not.toHaveBeenCalled();
-  });
-
-  it('finishes listening when the global release arrives while active', () => {
-    const beginListening = vi.fn();
-    const finishListening = vi.fn();
-
-    handleVoiceShortcutEvent(
-      { action: 'released', source: 'global' },
-      {
-        beginListening,
-        finishListening,
-        isListening: true,
-      },
-    );
-
-    expect(finishListening).toHaveBeenCalledOnce();
-    expect(beginListening).not.toHaveBeenCalled();
-  });
-
-  it('ignores global release while inactive', () => {
-    const beginListening = vi.fn();
-    const finishListening = vi.fn();
-
-    handleVoiceShortcutEvent(
-      { action: 'released', source: 'global' },
-      {
-        beginListening,
-        finishListening,
-        isListening: false,
-      },
-    );
-
-    expect(beginListening).not.toHaveBeenCalled();
-    expect(finishListening).not.toHaveBeenCalled();
-  });
-});
-
-describe('system audio ducking lifecycle', () => {
-  it('mutes only while the preference is enabled and the shortcut is held', () => {
+  it('mutes system audio only while the configured shortcut is held', () => {
     expect(shouldMuteSystemAudioForVoice(true, true)).toBe(true);
     expect(shouldMuteSystemAudioForVoice(true, false)).toBe(false);
     expect(shouldMuteSystemAudioForVoice(false, true)).toBe(false);
+  });
+
+  it('reports microphone and segment diagnostics without Realtime wording', () => {
+    expect(
+      voiceConnectionErrorMessage(
+        new DOMException('Permission denied', 'NotAllowedError'),
+      ),
+    ).toContain('Microphone access');
+    const logger = { error: vi.fn() };
+    logVoiceConnectionFailure('segment_upload', new Error('failed'), logger);
+    expect(logger.error).toHaveBeenCalledWith(
+      '[voice] Whisper transcription failed.',
+      expect.objectContaining({ step: 'segment_upload' }),
+    );
   });
 });

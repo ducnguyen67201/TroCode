@@ -97,8 +97,11 @@ Do not ship a shared model-provider API key inside the renderer, Electron main,
 or application bundle. Production OpenAI and optional ElevenLabs keys are
 injected into the Railway API only. Electron sends its opaque device session to
 fixed, HTTPS provider-proxy endpoints; provider credentials never reach the
-desktop. Responses streaming is SDK-driven behind the host broker, Realtime SDP is bounded, and
-only a validated private media descriptor crosses the narrow preload boundary.
+desktop. Responses streaming is SDK-driven behind the host broker. Voice audio
+crosses the narrow preload boundary only as a schema-bounded base64 PCM WAV
+segment with UUIDs, sequence, and claimed duration. The hosted API parses mono,
+16 kHz, PCM16 WAV structure and authoritative duration before reserving spend;
+raw audio and transcript text are never persisted or added to structured logs.
 MP3 bytes stream through a `trocode-audio://speech/<UUID>` protocol handler
 owned by Electron main. Tickets are short-lived, one-use, bounded, and served
 with `Cache-Control: no-store`; they contain no session or provider credential.

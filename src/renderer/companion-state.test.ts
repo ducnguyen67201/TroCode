@@ -28,6 +28,7 @@ describe('cursor companion state', () => {
         target: 'Question 2',
       }),
     ).toEqual({
+      kind: 'guidance',
       message: 'Use present continuous because “now” marks an action in progress.',
       playback: 'paused',
       side: 'right',
@@ -39,6 +40,13 @@ describe('cursor companion state', () => {
         side: 'right',
       }).success,
     ).toBe(false);
+    expect(
+      CompanionGuidanceSchema.parse({
+        kind: 'result',
+        message: 'Your task is complete.',
+        side: 'left',
+      }),
+    ).toMatchObject({ kind: 'result', message: 'Your task is complete.' });
   });
 
   it('bounds live voice activity sent to the transcript island', () => {
@@ -74,6 +82,7 @@ describe('cursor companion state', () => {
           'trocode-audio://speech/00000000-0000-4000-8000-000000000001',
         mimeType: 'audio/mpeg',
         source: 'elevenlabs',
+        text: 'Read the task result.',
       }),
     ).toMatchObject({ mimeType: 'audio/mpeg', source: 'elevenlabs' });
     expect(
@@ -82,6 +91,7 @@ describe('cursor companion state', () => {
         mediaUrl: 'https://example.com/speech.mp3',
         mimeType: 'audio/wav',
         source: 'elevenlabs',
+        text: 'Read the task result.',
       }).success,
     ).toBe(false);
   });
@@ -89,7 +99,6 @@ describe('cursor companion state', () => {
   it('looks attentive throughout shortcut activation and listening', () => {
     for (const voiceStatus of [
       'requesting_permission',
-      'connecting',
       'listening',
     ] as const) {
       expect(

@@ -154,9 +154,9 @@ export class PostgresUsageRepository {
             input_tokens, cached_input_tokens, cache_write_tokens,
             output_tokens, reasoning_tokens, character_count,
             amount_micro_usd, usage_source,
-            disposition, duration_ms, provider_response_id)
+            disposition, duration_ms, audio_duration_ms, provider_response_id)
          SELECT request_id, user_id, task_id, lane, model, catalog_version,
-                $3, $4, $5, $6, $7, $8, $9, $10, 'completed', $11, $12
+                $3, $4, $5, $6, $7, $8, $9, $10, 'completed', $11, $12, $13
          FROM model_budget_reservations
          WHERE user_id = $1 AND request_id = $2
          ON CONFLICT (user_id, request_id) DO NOTHING`,
@@ -172,6 +172,7 @@ export class PostgresUsageRepository {
           input.actualMicroUsd,
           input.usage.source,
           input.durationMs,
+          input.usage.audioDurationMs ?? 0,
           input.usage.responseId ?? null,
         ],
       );

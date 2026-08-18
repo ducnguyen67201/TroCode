@@ -15,7 +15,10 @@ import {
   MembershipStatusSchema,
   TaskHistorySchema,
   TaskProgressSchema,
+  TranscribeVoiceSegmentRequestSchema,
   UsageBudgetSnapshotSchema,
+  VoiceSegmentTranscriptionSchema,
+  VoiceStatusSchema,
 } from './contracts';
 
 function snapshot(goal: Record<string, unknown>, progress: unknown) {
@@ -82,6 +85,7 @@ describe('shared task contracts', () => {
         mediaUrl: `trocode-audio://speech/${id}`,
         mimeType: 'audio/mpeg',
         source: 'elevenlabs',
+        text: 'Read the task result.',
       }),
     ).toMatchObject({ id, source: 'elevenlabs' });
 
@@ -98,6 +102,7 @@ describe('shared task contracts', () => {
           mediaUrl,
           mimeType: 'audio/mpeg',
           source: 'elevenlabs',
+          text: 'Read the task result.',
         }),
       ).toThrow();
     }
@@ -293,5 +298,54 @@ describe('shared task contracts', () => {
     expect(history.snapshots.every((item) => item.runtimeResume === null)).toBe(
       true,
     );
+  });
+});
+
+describe('voice segment contracts', () => {
+  const request = {
+    audioBase64: Buffer.from(new Uint8Array(60)).toString('base64'),
+    durationMs: 300,
+    requestId: randomUUID(),
+    sequence: 31,
+    utteranceId: randomUUID(),
+  };
+
+  it('accepts bounded PCM WAV transport metadata', () => {
+    expect(TranscribeVoiceSegmentRequestSchema.parse(request)).toEqual(request);
+    expect(
+      VoiceSegmentTranscriptionSchema.parse({
+        audioDurationMs: 300,
+        billedSeconds: 0.3,
+        model: 'whisper-1',
+        sequence: request.sequence,
+        text: '',
+        utteranceId: request.utteranceId,
+      }),
+    ).toMatchObject({ model: 'whisper-1', text: '' });
+    expect(
+      VoiceStatusSchema.parse({
+        model: 'whisper-1',
+        provider: 'openai',
+        state: 'ready',
+        summary: 'Voice input is ready.',
+      }),
+    ).toMatchObject({ model: 'whisper-1' });
+  });
+
+  it('rejects malformed identifiers, sequence, duration, and base64', () => {
+    for (const invalid of [
+      { ...request, requestId: 'not-a-uuid' },
+      { ...request, utteranceId: 'not-a-uuid' },
+      { ...request, sequence: 32 },
+      { ...request, durationMs: 299 },
+      { ...request, durationMs: 15_001 },
+      { ...request, audioBase64: 'not base64' },
+      { ...request, audioBase64: 'A'.repeat(61) },
+      { ...request, audioBase64: 'A'.repeat(750_004) },
+    ]) {
+      expect(TranscribeVoiceSegmentRequestSchema.safeParse(invalid).success).toBe(
+        false,
+      );
+    }
   });
 });

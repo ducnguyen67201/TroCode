@@ -35,7 +35,6 @@ export function getCompanionState({
   if (isSending) return 'sending';
 
   if (
-    voiceStatus === 'connecting' ||
     voiceStatus === 'listening' ||
     voiceStatus === 'requesting_permission'
   ) {

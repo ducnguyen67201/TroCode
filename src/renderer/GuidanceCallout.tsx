@@ -111,9 +111,8 @@ export function GuidanceCallout() {
   const presentationIdentity = interaction
     ? `interaction:${interaction.id}`
     : guidance
-      ? `guidance:${guidance.target ?? ''}\u0000${guidance.message}`
+      ? `${guidance.kind}:${guidance.target ?? ''}\u0000${guidance.message}`
       : null;
-  const guidanceMessage = guidance?.message;
 
   useEffect(() => {
     if (presentationIdentityRef.current === presentationIdentity) return;
@@ -155,11 +154,11 @@ export function GuidanceCallout() {
 
   useEffect(() => {
     audioPlaybackRef.current = null;
-    if (!guidanceMessage || !speech) return undefined;
+    if (!speech) return undefined;
 
     const playback = acquireGuidancePlayback(speech.id, () =>
       createGuidanceAudioPlayback({
-        message: guidanceMessage,
+        message: speech.text,
         onStatus: setAudioStatus,
         paused: false,
         report: (report) => {
@@ -177,7 +176,7 @@ export function GuidanceCallout() {
       }
       releaseGuidancePlayback(speech.id, playback);
     };
-  }, [guidanceMessage, speech]);
+  }, [speech]);
 
   useEffect(() => {
     audioPlaybackRef.current?.setPaused(guidance?.playback === 'paused');
@@ -425,7 +424,7 @@ export function GuidanceCallout() {
       ) : guidance ? (
         <aside
           aria-live="polite"
-          className={`guidance-callout guidance-callout--${guidance.side}`}
+          className={`guidance-callout guidance-callout--${guidance.kind} guidance-callout--${guidance.side}`}
           role="status"
         >
           <div className="guidance-callout__header" aria-hidden="true">
@@ -440,28 +439,34 @@ export function GuidanceCallout() {
                     ? 'Fallback voice'
                     : audioStatus === 'speaking'
                       ? 'Speaking'
-                      : 'Guiding'}
+                      : guidance.kind === 'result'
+                        ? 'Completed'
+                        : 'Guiding'}
             </span>
           </div>
           <p>{guidance.message}</p>
-          <span className="guidance-callout__target">
-            {guidance.target ?? 'Look here'}
-          </span>
-          <div className="guidance-callout__controls">
-            {guidance.shortcuts?.back.available ? (
-              <span><kbd>{guidance.shortcuts.back.label}</kbd> Back</span>
-            ) : null}
-            {guidance.shortcuts?.pause.available ? (
-              <span>
-                <kbd>{guidance.shortcuts.pause.label}</kbd>{' '}
-                {guidance.playback === 'paused' ? 'Resume' : 'Pause'}
+          {guidance.kind === 'guidance' ? (
+            <>
+              <span className="guidance-callout__target">
+                {guidance.target ?? 'Look here'}
               </span>
-            ) : null}
-            {guidance.shortcuts?.next.available ? (
-              <span><kbd>{guidance.shortcuts.next.label}</kbd> Next</span>
-            ) : null}
-            <span className="guidance-callout__ask">⌘⌃ Ask</span>
-          </div>
+              <div className="guidance-callout__controls">
+                {guidance.shortcuts?.back.available ? (
+                  <span><kbd>{guidance.shortcuts.back.label}</kbd> Back</span>
+                ) : null}
+                {guidance.shortcuts?.pause.available ? (
+                  <span>
+                    <kbd>{guidance.shortcuts.pause.label}</kbd>{' '}
+                    {guidance.playback === 'paused' ? 'Resume' : 'Pause'}
+                  </span>
+                ) : null}
+                {guidance.shortcuts?.next.available ? (
+                  <span><kbd>{guidance.shortcuts.next.label}</kbd> Next</span>
+                ) : null}
+                <span className="guidance-callout__ask">⌘⌃ Ask</span>
+              </div>
+            </>
+          ) : null}
         </aside>
       ) : null}
     </>

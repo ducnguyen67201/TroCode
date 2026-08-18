@@ -690,7 +690,7 @@ export const AppUpdateStatusSchema = z
 export const VoiceStatusSchema = z.object({
   state: z.enum(['not_configured', 'ready', 'unavailable', 'error']),
   provider: z.literal('openai'),
-  model: z.literal('gpt-realtime-whisper'),
+  model: z.literal('whisper-1'),
   summary: z.string().min(1),
 });
 
@@ -737,12 +737,7 @@ export const UsageBudgetSnapshotSchema = z.object({
 
 export const CompanionVoiceActivitySchema = z.object({
   appLanguage: AppLanguageSchema.default('en'),
-  phase: z.enum([
-    'requesting_permission',
-    'connecting',
-    'listening',
-    'processing',
-  ]),
+  phase: z.enum(['requesting_permission', 'listening', 'processing']),
   transcript: z.string().max(8_000),
 });
 
@@ -790,6 +785,7 @@ export const CompanionGuidanceShortcutsSchema = z.object({
 });
 
 export const CompanionGuidanceSchema = z.object({
+  kind: z.enum(['guidance', 'result']).default('guidance'),
   message: z.string().trim().min(1).max(240),
   playback: z.enum(['playing', 'paused']).default('playing'),
   shortcuts: CompanionGuidanceShortcutsSchema.optional(),
@@ -851,10 +847,12 @@ export const CompanionSpeechSchema = z.discriminatedUnion('source', [
     mediaUrl: CompanionSpeechMediaUrlSchema,
     mimeType: z.literal('audio/mpeg'),
     source: z.literal('elevenlabs'),
+    text: z.string().trim().min(1).max(240),
   }),
   z.object({
     id: z.string().uuid(),
     source: z.literal('system'),
+    text: z.string().trim().min(1).max(240),
   }),
 ]);
 
@@ -889,12 +887,28 @@ export const RecordVoiceTranscriptRequestSchema = z.object({
   text: z.string().trim().min(1).max(8_000),
 });
 
-export const CreateVoiceCallRequestSchema = z.object({
-  offerSdp: z.string().min(1).max(200_000),
+const PcmWavBase64Schema = z
+  .string()
+  .min(60)
+  .max(750_000)
+  .regex(/^[A-Za-z0-9+/]+={0,2}$/u)
+  .refine((value) => value.length % 4 === 0, 'Invalid base64 length.');
+
+export const TranscribeVoiceSegmentRequestSchema = z.object({
+  audioBase64: PcmWavBase64Schema,
+  durationMs: z.number().int().min(300).max(15_000),
+  requestId: z.string().uuid(),
+  sequence: z.number().int().min(0).max(31),
+  utteranceId: z.string().uuid(),
 });
 
-export const VoiceCallAnswerSchema = z.object({
-  answerSdp: z.string().min(1).max(200_000),
+export const VoiceSegmentTranscriptionSchema = z.object({
+  audioDurationMs: z.number().int().positive().max(15_000),
+  billedSeconds: z.number().finite().nonnegative().max(16),
+  model: z.literal('whisper-1'),
+  sequence: z.number().int().min(0).max(31),
+  text: z.string().trim().max(8_000),
+  utteranceId: z.string().uuid(),
 });
 
 export const VoiceDiagnosticSchema = z.object({
@@ -903,12 +917,12 @@ export const VoiceDiagnosticSchema = z.object({
     name: z.string().min(1).max(200).optional(),
   }),
   step: z.enum([
-    'client_session',
-    'data_channel',
+    'audio_context',
+    'audio_encode',
+    'audio_worklet',
     'microphone',
-    'peer_connection',
-    'realtime_call',
-    'remote_description',
+    'segment_upload',
+    'transcription_response',
   ]),
 });
 
@@ -974,8 +988,8 @@ export type CompanionSpeechPlaybackReport = z.infer<
 export type ConfigureVoiceRequest = z.infer<
   typeof ConfigureVoiceRequestSchema
 >;
-export type CreateVoiceCallRequest = z.infer<
-  typeof CreateVoiceCallRequestSchema
+export type TranscribeVoiceSegmentRequest = z.infer<
+  typeof TranscribeVoiceSegmentRequestSchema
 >;
 export type CuaStatus = z.infer<typeof CuaStatusSchema>;
 export type ConsumeApprovalGrantRequest = z.infer<
@@ -1033,7 +1047,9 @@ export type WorkspaceRuntimeAvailability = z.infer<
   typeof WorkspaceRuntimeAvailabilitySchema
 >;
 export type WorkspaceSelection = z.infer<typeof WorkspaceSelectionSchema>;
-export type VoiceCallAnswer = z.infer<typeof VoiceCallAnswerSchema>;
+export type VoiceSegmentTranscription = z.infer<
+  typeof VoiceSegmentTranscriptionSchema
+>;
 export type VoiceDiagnostic = z.infer<typeof VoiceDiagnosticSchema>;
 export type VoiceShortcutEvent = z.infer<typeof VoiceShortcutEventSchema>;
 export type VoiceStatus = z.infer<typeof VoiceStatusSchema>;

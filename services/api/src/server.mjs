@@ -5,11 +5,34 @@ const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 const MAX_AUTH_BODY_BYTES = 32_000;
 const MAX_RESPONSES_BODY_BYTES = 25_000_000;
 const MAX_REALTIME_BODY_BYTES = 4_000_000;
+const MAX_TRANSCRIPTION_BODY_BYTES = 1_000_000;
 const MAX_UPSTREAM_RESPONSE_BYTES = 5_000_000;
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const OPENAI_REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1/text-to-speech';
 const VOICE_TASK_ID = '00000000-0000-4000-8000-000000000000';
+const TRANSCRIPTION_LANGUAGES = new Set([
+  'ar',
+  'de',
+  'en',
+  'es',
+  'fr',
+  'hi',
+  'id',
+  'it',
+  'ja',
+  'ko',
+  'ms',
+  'nl',
+  'pl',
+  'pt',
+  'ru',
+  'th',
+  'tr',
+  'uk',
+  'vi',
+  'zh',
+]);
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -45,18 +68,8 @@ function createRateLimiter({ limit, windowMs }) {
   };
 }
 
-const limitAuth = createRateLimiter({ limit: 15, windowMs: 15 * 60_000 });
-const limitAccessCodeIp = createRateLimiter({
-  limit: 100,
-  windowMs: 15 * 60_000,
-});
-const limitAccessCodeUser = createRateLimiter({
-  limit: 10,
-  windowMs: 15 * 60_000,
-});
-const limitModel = createRateLimiter({ limit: 30, windowMs: 60_000 });
-const limitModelDaily = createRateLimiter({ limit: 500, windowMs: 24 * 60 * 60_000 });
-const limitVoice = createRateLimiter({ limit: 30, windowMs: 60_000 });
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 function applySecurityHeaders(response) {
   response.setHeader('Cache-Control', 'no-store');
@@ -296,9 +309,30 @@ export function createApiHandler({
   fetchImpl = fetch,
   healthCheck,
   sessionRepository,
+  transcriptionService,
   responsesService,
   verifyGoogleIdToken,
 }) {
+  const limitAuth = createRateLimiter({ limit: 15, windowMs: 15 * 60_000 });
+  const limitAccessCodeIp = createRateLimiter({
+    limit: 100,
+    windowMs: 15 * 60_000,
+  });
+  const limitAccessCodeUser = createRateLimiter({
+    limit: 10,
+    windowMs: 15 * 60_000,
+  });
+  const limitModel = createRateLimiter({ limit: 30, windowMs: 60_000 });
+  const limitModelDaily = createRateLimiter({
+    limit: 500,
+    windowMs: 24 * 60 * 60_000,
+  });
+  const limitVoice = createRateLimiter({ limit: 30, windowMs: 60_000 });
+  const limitTranscription = createRateLimiter({
+    limit: 60,
+    windowMs: 60_000,
+  });
+
   return async function handleRequest(request, response) {
     const requestId = randomUUID();
     const startedAt = Date.now();
@@ -431,23 +465,30 @@ export function createApiHandler({
         enforceRateLimit(limitModel(session.user.id));
         enforceRateLimit(limitModelDaily(`daily:${session.user.id}`));
         const body = await readJson(request, MAX_RESPONSES_BODY_BYTES);
+        const normalizedBody =
+          body &&
+          typeof body === 'object' &&
+          !Array.isArray(body) &&
+          body.tool_choice === undefined
+            ? { ...body, tool_choice: 'auto' }
+            : body;
         const requestId = request.headers['x-trocode-request-id'];
         const taskId = request.headers['x-trocode-task-id'];
         if (
-          !body ||
-          typeof body !== 'object' ||
-          typeof body.model !== 'string' ||
-          !config.openAiModels.has(body.model) ||
-          !Array.isArray(body.input) ||
-          body.input.length > 256 ||
-          !Array.isArray(body.tools) ||
-          body.tools.length > 24 ||
-          body.tool_choice !== 'auto' ||
-          body.parallel_tool_calls !== false ||
-          body.store !== false ||
-          !Number.isInteger(body.max_output_tokens) ||
-          body.max_output_tokens < 1 ||
-          body.max_output_tokens > 4_000 ||
+          !normalizedBody ||
+          typeof normalizedBody !== 'object' ||
+          typeof normalizedBody.model !== 'string' ||
+          !config.openAiModels.has(normalizedBody.model) ||
+          !Array.isArray(normalizedBody.input) ||
+          normalizedBody.input.length > 256 ||
+          !Array.isArray(normalizedBody.tools) ||
+          normalizedBody.tools.length > 24 ||
+          normalizedBody.tool_choice !== 'auto' ||
+          normalizedBody.parallel_tool_calls !== false ||
+          normalizedBody.store !== false ||
+          !Number.isInteger(normalizedBody.max_output_tokens) ||
+          normalizedBody.max_output_tokens < 1 ||
+          normalizedBody.max_output_tokens > 4_000 ||
           typeof requestId !== 'string' ||
           !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestId) ||
           typeof taskId !== 'string' ||
@@ -455,9 +496,10 @@ export function createApiHandler({
         ) {
           throw new HttpError(400, 'Responses request is invalid.');
         }
-        const execute = body.stream === true ? 'executeStream' : 'execute';
+        const execute =
+          normalizedBody.stream === true ? 'executeStream' : 'execute';
         const upstream = await responsesService[execute]({
-          body,
+          body: normalizedBody,
           requestId,
           safetyIdentifier: modelSafetyIdentifier(session.user.id),
           taskId,
@@ -497,6 +539,53 @@ export function createApiHandler({
           200,
           await budgetService.snapshot(session.user.id, taskId),
         );
+        return;
+      }
+
+      if (
+        request.method === 'POST' &&
+        path === '/v1/openai/audio/transcriptions'
+      ) {
+        const session = await requireSession(request, sessionRepository);
+        await requireAccess(session, accessCodeRepository);
+        enforceRateLimit(
+          limitTranscription(`transcription:${session.user.id}`),
+        );
+        const body = await readJson(request, MAX_TRANSCRIPTION_BODY_BYTES);
+        const requestId = request.headers['x-trocode-request-id'];
+        const keys =
+          body && typeof body === 'object' && !Array.isArray(body)
+            ? Object.keys(body).sort()
+            : [];
+        if (
+          !body ||
+          typeof body !== 'object' ||
+          Array.isArray(body) ||
+          keys.join(',') !==
+            'audioBase64,clientDurationMs,language,utteranceId' ||
+          typeof body.audioBase64 !== 'string' ||
+          body.audioBase64.length < 60 ||
+          body.audioBase64.length > 750_000 ||
+          body.audioBase64.length % 4 !== 0 ||
+          !/^[A-Za-z0-9+/]+={0,2}$/u.test(body.audioBase64) ||
+          !Number.isInteger(body.clientDurationMs) ||
+          body.clientDurationMs < 300 ||
+          body.clientDurationMs > 15_000 ||
+          !TRANSCRIPTION_LANGUAGES.has(body.language) ||
+          typeof body.utteranceId !== 'string' ||
+          !UUID_PATTERN.test(body.utteranceId) ||
+          typeof requestId !== 'string' ||
+          !UUID_PATTERN.test(requestId)
+        ) {
+          throw new HttpError(400, 'Transcription request is invalid.');
+        }
+        const result = await transcriptionService.execute({
+          body,
+          requestId,
+          safetyIdentifier: modelSafetyIdentifier(session.user.id),
+          userId: session.user.id,
+        });
+        sendJson(response, 200, result);
         return;
       }
 

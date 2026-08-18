@@ -30,7 +30,7 @@
         checkForAppUpdates: () => Promise.reject(new Error('Preview only')),
         configureVoice: () => Promise.reject(new Error('Preview only')),
         connectComputer: () => Promise.resolve(computerStatus),
-        createVoiceCall: () => Promise.reject(new Error('Preview only')),
+        transcribeVoiceSegment: () => Promise.reject(new Error('Preview only')),
         decideApproval: () => Promise.reject(new Error('Preview only')),
         getAppPreferences: () => Promise.resolve({
           appLanguage: 'en',
@@ -77,7 +77,7 @@
         getVoiceStatus: () => Promise.resolve({
           state: 'ready',
           provider: 'openai',
-          model: 'gpt-realtime-whisper',
+          model: 'whisper-1',
           summary: 'Voice ready.',
         }),
         onAppUpdateStatusChanged: noOpSubscription,

@@ -183,14 +183,14 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   observing: 'đang quan sát',
   'Open task record': 'Mở bản ghi tác vụ',
   'Open permission settings': 'Mở cài đặt quyền',
-  'OpenAI Realtime': 'OpenAI Realtime',
+  'OpenAI Whisper': 'OpenAI Whisper',
   'One-time setup': 'Thiết lập một lần',
   'Personal preferences': 'Tùy chọn cá nhân',
   Preferences: 'Tùy chọn',
   'Primary language': 'Ngôn ngữ chính',
   'Private on-device summary': 'Tóm tắt riêng tư trên thiết bị',
-  'Realtime voice is ready. The microphone stays off until you hold the shortcut.':
-    'Giọng nói thời gian thực đã sẵn sàng. Micrô sẽ tắt cho đến khi bạn giữ phím tắt.',
+  'Whisper voice input is ready. The microphone stays off until you hold the shortcut.':
+    'Nhập liệu giọng nói Whisper đã sẵn sàng. Micrô sẽ tắt cho đến khi bạn giữ phím tắt.',
   'Restart to update': 'Khởi động lại để cập nhật',
   'Restarting…': 'Đang khởi động lại…',
   Saved: 'Đã lưu',
@@ -322,8 +322,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
     'Nhập hoặc giữ phím tắt giọng nói để trả lời…',
   'Waiting for the OpenAI agent provider before starting.':
     'Đang chờ nhà cung cấp trợ lý OpenAI trước khi bắt đầu.',
-  'Waiting for OpenAI Realtime and the CUA Driver before starting.':
-    'Đang chờ OpenAI Realtime và trình điều khiển CUA trước khi bắt đầu.',
+  'Waiting for OpenAI and the CUA Driver before starting.':
+    'Đang chờ OpenAI và trình điều khiển CUA trước khi bắt đầu.',
   'Open YouTube for me': 'Mở YouTube giúp tôi',
   'Open YouTube for me, research a topic, fix code, or guide me through an app…':
     'Mở YouTube giúp tôi, nghiên cứu một chủ đề, sửa mã hoặc hướng dẫn tôi dùng một ứng dụng…',

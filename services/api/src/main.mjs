@@ -9,6 +9,7 @@ import { verifyGoogleIdToken } from './google-token-verifier.mjs';
 import { runMigrations } from './migrate.mjs';
 import { ModelCatalog } from './model-catalog.mjs';
 import { OpenAiResponsesService } from './openai-responses-service.mjs';
+import { OpenAiTranscriptionService } from './openai-transcription-service.mjs';
 import { createApiHandler } from './server.mjs';
 import { PostgresSessionRepository } from './session-repository.mjs';
 import { PostgresUsageRepository } from './usage-repository.mjs';
@@ -41,6 +42,10 @@ const responsesService = new OpenAiResponsesService({
   catalog: modelCatalog,
   openAiApiKey: config.openAiApiKey,
 });
+const transcriptionService = new OpenAiTranscriptionService({
+  budgetService,
+  openAiApiKey: config.openAiApiKey,
+});
 const handler = createApiHandler({
   accessCodeRepository,
   budgetService,
@@ -54,6 +59,7 @@ const handler = createApiHandler({
     }
   },
   sessionRepository,
+  transcriptionService,
   responsesService,
   verifyGoogleIdToken,
 });

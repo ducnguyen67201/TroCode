@@ -24,18 +24,41 @@ export class ElectronPresentationPresenter implements PresentationPresenter {
     private readonly resetGuidance: () => void,
     private readonly showInteraction: (interaction: PendingInteraction) => void,
     private readonly clearInteraction: (taskId?: string) => void,
+    private readonly shouldUseBackgroundCompanion: (
+      task: TaskSnapshot,
+    ) => boolean,
+    private readonly presentBackgroundCompletion: (
+      task: TaskSnapshot,
+    ) => void,
   ) {}
 
   apply(state: PresentationState, task: TaskSnapshot | null): void {
     if (task?.pendingInteraction) this.showInteraction(task.pendingInteraction);
     else this.clearInteraction(task?.taskId);
     this.setCompanionState(COMPANION_STATES[state]);
-    if (
-      state === 'needs_attention' ||
-      state === 'done' ||
-      state === 'error' ||
-      task?.phase === 'cancelled'
-    ) {
+    const useBackgroundCompanion = Boolean(
+      task && this.shouldUseBackgroundCompanion(task),
+    );
+
+    if (state === 'needs_attention') {
+      this.resetGuidance();
+      if (!task?.pendingInteraction || !useBackgroundCompanion) {
+        this.revealMainWindow();
+      }
+      return;
+    }
+
+    if (state === 'done') {
+      this.resetGuidance();
+      if (task && useBackgroundCompanion) {
+        this.presentBackgroundCompletion(task);
+      } else {
+        this.revealMainWindow();
+      }
+      return;
+    }
+
+    if (state === 'error' || task?.phase === 'cancelled') {
       this.resetGuidance();
       this.revealMainWindow();
     }

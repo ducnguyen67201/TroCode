@@ -11,8 +11,6 @@ function voiceActivityLabel(
   switch (phase) {
     case 'requesting_permission':
       return translate(appLanguage, 'Starting microphone');
-    case 'connecting':
-      return translate(appLanguage, 'Connecting');
     case 'listening':
       return translate(appLanguage, 'Listening');
     case 'processing':
@@ -27,8 +25,6 @@ function voiceActivityPlaceholder(
   switch (phase) {
     case 'requesting_permission':
       return translate(appLanguage, 'Waiting for microphone access…');
-    case 'connecting':
-      return translate(appLanguage, 'Getting voice ready…');
     case 'listening':
       return translate(appLanguage, 'Speak now…');
     case 'processing':

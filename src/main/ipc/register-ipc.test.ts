@@ -45,7 +45,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   cuaGetStatus: ReturnType<typeof vi.fn>;
   callOrder: string[];
   checkForUpdates: ReturnType<typeof vi.fn>;
-  createVoiceCall: ReturnType<typeof vi.fn>;
+  transcribeVoiceSegment: ReturnType<typeof vi.fn>;
   getAppPreferences: ReturnType<typeof vi.fn>;
   getTaskHistory: ReturnType<typeof vi.fn>;
   membershipService: {
@@ -203,8 +203,16 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   const requestScreenRecordingAccess = vi.fn(async () => {
     callOrder.push('register-screen');
   });
-  const createVoiceCall = vi.fn(async () => ({
-    answerSdp: 'v=0\r\nanswer',
+  const transcribeVoiceSegment = vi.fn(async (input: {
+    sequence: number;
+    utteranceId: string;
+  }) => ({
+    audioDurationMs: 300,
+    billedSeconds: 0.3,
+    model: 'whisper-1',
+    sequence: input.sequence,
+    text: 'Open YouTube',
+    utteranceId: input.utteranceId,
   }));
   const recordVoiceTranscript = vi.fn(async () => undefined);
   const getAppPreferences = vi.fn(async () => ({ primaryLanguage: null }));
@@ -267,7 +275,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     taskHistoryService: { load: getTaskHistory },
     updateCompanionState: vi.fn(),
     updateCompanionVoiceActivity,
-    voiceService: { createCall: createVoiceCall },
+    voiceService: { transcribeSegment: transcribeVoiceSegment },
     usageBudgetService: {
       get: vi.fn(async () => ({
         actualMicroUsd: 0,
@@ -292,7 +300,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     authService,
     callOrder,
     checkForUpdates,
-    createVoiceCall,
+    transcribeVoiceSegment,
     cuaConnect,
     cuaGetStatus,
     event,
@@ -681,16 +689,24 @@ describe('registerIpcHandlers auth boundary', () => {
     unregister();
   });
 
-  it('routes realtime voice calls through the main process after authentication', async () => {
-    const { createVoiceCall, event, unregister } = setup(true);
-    const handler = electronMock.handlers.get(IPC_CHANNELS.createVoiceCall);
+  it('routes bounded voice segments through the main process after authentication', async () => {
+    const { event, transcribeVoiceSegment, unregister } = setup(true);
+    const handler = electronMock.handlers.get(
+      IPC_CHANNELS.transcribeVoiceSegment,
+    );
+    const request = {
+      audioBase64: Buffer.from(new Uint8Array(60)).toString('base64'),
+      durationMs: 300,
+      requestId: '22222222-2222-4222-8222-222222222222',
+      sequence: 0,
+      utteranceId: '11111111-1111-4111-8111-111111111111',
+    };
 
-    await expect(
-      handler?.(event, { offerSdp: 'v=0\r\noffer' }),
-    ).resolves.toEqual({ answerSdp: 'v=0\r\nanswer' });
-    expect(createVoiceCall).toHaveBeenCalledWith({
-      offerSdp: 'v=0\r\noffer',
+    await expect(handler?.(event, request)).resolves.toMatchObject({
+      model: 'whisper-1',
+      sequence: 0,
     });
+    expect(transcribeVoiceSegment).toHaveBeenCalledWith(request);
     unregister();
   });
 
@@ -719,14 +735,22 @@ describe('registerIpcHandlers auth boundary', () => {
     signedOut.unregister();
   });
 
-  it('rejects realtime voice calls without an active membership', async () => {
-    const { createVoiceCall, event, unregister } = setup(true, false);
-    const handler = electronMock.handlers.get(IPC_CHANNELS.createVoiceCall);
+  it('rejects voice segment uploads without an active membership', async () => {
+    const { event, transcribeVoiceSegment, unregister } = setup(true, false);
+    const handler = electronMock.handlers.get(
+      IPC_CHANNELS.transcribeVoiceSegment,
+    );
 
     await expect(
-      handler?.(event, { offerSdp: 'v=0\r\noffer' }),
+      handler?.(event, {
+        audioBase64: Buffer.from(new Uint8Array(60)).toString('base64'),
+        durationMs: 300,
+        requestId: '22222222-2222-4222-8222-222222222222',
+        sequence: 0,
+        utteranceId: '11111111-1111-4111-8111-111111111111',
+      }),
     ).rejects.toThrow('active membership');
-    expect(createVoiceCall).not.toHaveBeenCalled();
+    expect(transcribeVoiceSegment).not.toHaveBeenCalled();
     unregister();
   });
 
@@ -870,18 +894,18 @@ describe('registerIpcHandlers auth boundary', () => {
           message: 'Failed to fetch',
           name: 'TypeError',
         },
-        step: 'realtime_call',
+        step: 'segment_upload',
       }),
     ).toBeUndefined();
 
     expect(consoleError).toHaveBeenCalledWith(
-      '[voice] OpenAI Realtime connection failed.',
+      '[voice] Whisper transcription failed.',
       {
         error: {
           message: 'Failed to fetch',
           name: 'TypeError',
         },
-        step: 'realtime_call',
+        step: 'segment_upload',
       },
     );
 

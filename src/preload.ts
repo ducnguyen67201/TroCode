@@ -15,7 +15,7 @@ import {
   CompanionStateSchema,
   CompanionVoiceActivitySchema,
   ConfigureVoiceRequestSchema,
-  CreateVoiceCallRequestSchema,
+  TranscribeVoiceSegmentRequestSchema,
   CuaStatusSchema,
   DecideApprovalRequestSchema,
   MembershipStatusSchema,
@@ -32,7 +32,7 @@ import {
   UsageBudgetSnapshotSchema,
   GetUsageBudgetRequestSchema,
   UpdateAppPreferencesRequestSchema,
-  VoiceCallAnswerSchema,
+  VoiceSegmentTranscriptionSchema,
   VoiceDiagnosticSchema,
   VoiceShortcutEventSchema,
   VoiceStatusSchema,
@@ -257,13 +257,13 @@ const desktopApi: DesktopApi = {
     await ipcRenderer.invoke(IPC_CHANNELS.recordVoiceTranscript, request);
   },
 
-  async createVoiceCall(input) {
-    const request = CreateVoiceCallRequestSchema.parse(input);
+  async transcribeVoiceSegment(input) {
+    const request = TranscribeVoiceSegmentRequestSchema.parse(input);
     const response: unknown = await ipcRenderer.invoke(
-      IPC_CHANNELS.createVoiceCall,
+      IPC_CHANNELS.transcribeVoiceSegment,
       request,
     );
-    return VoiceCallAnswerSchema.parse(response);
+    return VoiceSegmentTranscriptionSchema.parse(response);
   },
 
   async reportVoiceDiagnostic(input) {

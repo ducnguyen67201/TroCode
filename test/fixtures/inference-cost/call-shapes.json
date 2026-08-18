@@ -18,6 +18,18 @@
       "beforeMicroUsd": 220000,
       "afterMicroUsd": 20000,
       "facts": { "automaticTerraFallbackBefore": true, "automaticFallbackAfter": false }
+    },
+    {
+      "id": "projected-voice-60s-realtime-to-whisper",
+      "beforeMicroUsd": 17000,
+      "afterMicroUsd": 6000,
+      "facts": { "assumption": "same 60 seconds billed audio", "observedInvoice": false }
+    },
+    {
+      "id": "projected-voice-60s-with-pauses-trimmed",
+      "beforeMicroUsd": 17000,
+      "afterMicroUsd": 4620,
+      "facts": { "assumption": "45 seconds speech plus 1.2 seconds forced overlap", "observedInvoice": false }
     }
   ]
 }
