@@ -33,6 +33,11 @@ interface ImageRectangle {
   y: number;
 }
 
+interface ImageSize {
+  height: number;
+  width: number;
+}
+
 export interface DesktopImage {
   crop(rectangle: ImageRectangle): DesktopImage;
   getSize(): { height: number; width: number };
@@ -196,6 +201,49 @@ function sameCoordinateSpace(
   );
 }
 
+function sameImageSize(reference: ImageSize, current: ImageSize): boolean {
+  return (
+    reference.height === current.height && reference.width === current.width
+  );
+}
+
+function preservesCoordinateSpaceAspectRatio(
+  imageSize: ImageSize,
+  coordinateSpace: DesktopCoordinateSpace,
+): boolean {
+  if (imageSize.width <= 0 || imageSize.height <= 0) return false;
+  const crossProductDelta = Math.abs(
+    imageSize.width * coordinateSpace.screenshotHeight -
+      imageSize.height * coordinateSpace.screenshotWidth,
+  );
+  return (
+    crossProductDelta <=
+    Math.max(coordinateSpace.screenshotWidth, coordinateSpace.screenshotHeight)
+  );
+}
+
+function scaleRectangleToImage(
+  rectangle: ImageRectangle,
+  coordinateSpace: DesktopCoordinateSpace,
+  imageSize: ImageSize,
+): ImageRectangle {
+  const scaleX = imageSize.width / coordinateSpace.screenshotWidth;
+  const scaleY = imageSize.height / coordinateSpace.screenshotHeight;
+  const x = clamp(Math.floor(rectangle.x * scaleX), 0, imageSize.width - 1);
+  const y = clamp(Math.floor(rectangle.y * scaleY), 0, imageSize.height - 1);
+  const right = clamp(
+    Math.ceil((rectangle.x + rectangle.width) * scaleX),
+    x + 1,
+    imageSize.width,
+  );
+  const bottom = clamp(
+    Math.ceil((rectangle.y + rectangle.height) * scaleY),
+    y + 1,
+    imageSize.height,
+  );
+  return { x, y, width: right - x, height: bottom - y };
+}
+
 function imageSignature(
   bitmap: Buffer,
   width: number,
@@ -232,8 +280,14 @@ function imageSignature(
 function selectedBitmap(
   image: DesktopImage,
   region: SelectedRegion,
+  coordinateSpace: DesktopCoordinateSpace,
+  imageSize: ImageSize,
 ): Buffer {
-  const selected = region.rectangle ? image.crop(region.rectangle) : image;
+  const selected = region.rectangle
+    ? image.crop(
+        scaleRectangleToImage(region.rectangle, coordinateSpace, imageSize),
+      )
+    : image;
   return selected.resize(region.signatureSize).toBitmap();
 }
 
@@ -307,10 +361,12 @@ export class TargetAwareDesktopStateValidator implements DesktopStateValidator {
       const referenceSize = referenceImage.getSize();
       const currentSize = currentImage.getSize();
       if (
-        referenceSize.width !== coordinateSpace.screenshotWidth ||
-        referenceSize.height !== coordinateSpace.screenshotHeight ||
-        currentSize.width !== currentCoordinateSpace.screenshotWidth ||
-        currentSize.height !== currentCoordinateSpace.screenshotHeight
+        !sameImageSize(referenceSize, currentSize) ||
+        !preservesCoordinateSpaceAspectRatio(referenceSize, coordinateSpace) ||
+        !preservesCoordinateSpaceAspectRatio(
+          currentSize,
+          currentCoordinateSpace,
+        )
       ) {
         return {
           status: 'changed',
@@ -322,12 +378,17 @@ export class TargetAwareDesktopStateValidator implements DesktopStateValidator {
       }
 
       const referenceSignature = imageSignature(
-        selectedBitmap(referenceImage, region),
+        selectedBitmap(referenceImage, region, coordinateSpace, referenceSize),
         region.signatureSize.width,
         region.signatureSize.height,
       );
       const currentSignature = imageSignature(
-        selectedBitmap(currentImage, region),
+        selectedBitmap(
+          currentImage,
+          region,
+          currentCoordinateSpace,
+          currentSize,
+        ),
         region.signatureSize.width,
         region.signatureSize.height,
       );
