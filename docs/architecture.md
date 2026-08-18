@@ -156,6 +156,12 @@ written to logs, analytics, or the usage ledger. Provisional ordered text may be
 shown before key-up, but only release plus complete success can enter the
 existing typed task path.
 
+Desktop clients advertise transcription response contract v2. During rollout,
+the API returns the legacy `whisper-1` model alias to clients that do not send
+that contract header; provider dispatch and usage records still identify
+`gpt-transcribe`. This permits a backend-first migration without breaking
+installed clients and can be removed after the legacy client window closes.
+
 ## Persistence and analytics
 
 PostgreSQL stores validated snapshots and lifecycle events. Persisted v1-v4

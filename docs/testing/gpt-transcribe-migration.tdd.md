@@ -11,6 +11,8 @@ Date: 2026-08-18
 4. TroCode validates the provider response and returns the ordered transcript.
 5. The usage ledger settles from the server-validated WAV duration at the
    configured GPT Transcribe rate.
+6. During rollout, older clients receive their legacy model alias while new
+   clients opt into the v2 response contract.
 
 ## RED checkpoint
 
@@ -26,6 +28,11 @@ usage, and the old rate.
 - `node --test services/api/test/openai-transcription-service.test.mjs services/api/test/config.test.mjs`
   failed 4 tests and passed 7.
 
+The rollout compatibility checkpoint is commit `9bd26ba` (`test: cover
+transcription rollout compatibility`). Its focused run failed three assertions:
+the new desktop contract rejected the legacy alias, the hosted client did not
+advertise v2, and the API returned the new literal to an unversioned client.
+
 ## GREEN verification
 
 - `npm run check` passed lint, typecheck, 571 Vitest tests, 6 script tests,
@@ -36,7 +43,9 @@ usage, and the old rate.
 
 The API integration test specifically verifies that a Vietnamese request sends
 `languages[]=vi`, does not send the legacy singular field, and returns
-`model: gpt-transcribe` with the validated 300 ms audio duration.
+`model: gpt-transcribe` with the validated 300 ms audio duration. It also
+verifies that an unversioned installed client receives the compatibility alias
+without changing the actual provider dispatch or usage record.
 
 ## Remaining quality validation
 

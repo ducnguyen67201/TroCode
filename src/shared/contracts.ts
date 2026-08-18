@@ -944,7 +944,7 @@ export const TranscribeVoiceSegmentRequestSchema = z.object({
 export const VoiceSegmentTranscriptionSchema = z.object({
   audioDurationMs: z.number().int().positive().max(15_000),
   billedSeconds: z.number().finite().nonnegative().max(16),
-  model: z.literal('gpt-transcribe'),
+  model: z.enum(['whisper-1', 'gpt-transcribe']),
   sequence: z.number().int().min(0).max(31),
   text: z.string().trim().max(8_000),
   utteranceId: z.string().uuid(),

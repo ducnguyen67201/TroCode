@@ -630,7 +630,13 @@ export function createApiHandler({
           userId: session.user.id,
           planId: access.plan,
         });
-        sendJson(response, 200, result);
+        sendJson(
+          response,
+          200,
+          request.headers['x-trocode-transcription-contract'] === '2'
+            ? result
+            : { ...result, model: 'whisper-1' },
+        );
         return;
       }
 

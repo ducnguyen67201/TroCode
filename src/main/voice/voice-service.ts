@@ -354,6 +354,7 @@ export class VoiceService {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
         'X-Trocode-Request-Id': request.requestId,
+        'X-Trocode-Transcription-Contract': '2',
       },
       method: 'POST',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
