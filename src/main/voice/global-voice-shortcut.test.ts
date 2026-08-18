@@ -188,6 +188,49 @@ describe('registerGlobalVoiceShortcut', () => {
     expect(stopWatching).toHaveBeenCalledOnce();
   });
 
+  it('forwards a macOS release when the target becomes focused during the hold', () => {
+    const registry = {
+      register: vi.fn(),
+      unregister: vi.fn(),
+    };
+    const send = vi.fn();
+    const shortcutListeners: Array<
+      (event: VoiceShortcutEvent) => void
+    > = [];
+    const watchForMacOSShortcut = vi.fn(
+      (listener: (event: VoiceShortcutEvent) => void) => {
+        shortcutListeners.push(listener);
+        return vi.fn();
+      },
+    );
+    let isFocused = false;
+
+    registerGlobalVoiceShortcut({
+      getTarget: () => ({
+        isDestroyed: () => false,
+        isFocused: () => isFocused,
+        webContents: { send },
+      }),
+      logger: { warn: vi.fn() },
+      platform: 'darwin',
+      registry,
+      watchForMacOSShortcut,
+    });
+
+    shortcutListeners[0]?.({ action: 'pressed', source: 'global' });
+    isFocused = true;
+    shortcutListeners[0]?.({ action: 'released', source: 'global' });
+
+    expect(send).toHaveBeenNthCalledWith(1, IPC_CHANNELS.voiceShortcut, {
+      action: 'pressed',
+      source: 'global',
+    });
+    expect(send).toHaveBeenNthCalledWith(2, IPC_CHANNELS.voiceShortcut, {
+      action: 'released',
+      source: 'global',
+    });
+  });
+
   it('does not register a global voice shortcut on unsupported platforms', () => {
     const registry = {
       register: vi.fn(),
