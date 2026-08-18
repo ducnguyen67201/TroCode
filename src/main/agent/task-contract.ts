@@ -38,8 +38,7 @@ export function createTaskContract(
   options: CreateTaskContractOptions = {},
 ): AgentTaskContract {
   const executionProfile = options.executionProfile ?? 'everyday';
-  const runtimeKind = options.runtimeKind ??
-    (executionProfile === 'workspace' ? 'codex_app_server' : 'openai_agents');
+  const runtimeKind = options.runtimeKind ?? 'openai_agents';
   return AgentTaskContractV5Schema.parse({
     schemaVersion: 5,
     id: randomUUID(),

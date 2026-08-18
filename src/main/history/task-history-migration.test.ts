@@ -121,7 +121,7 @@ describe('migratePersistedTaskSnapshot', () => {
     });
   });
 
-  it('does not rewrite a valid current Workspace snapshot', () => {
+  it('moves a persisted Codex Workspace snapshot onto the backend SDK runtime', () => {
     const workspace = {
       canonicalPath: '/tmp/workspace',
       displayName: 'workspace',
@@ -153,8 +153,13 @@ describe('migratePersistedTaskSnapshot', () => {
 
     const result = migratePersistedTaskSnapshot(current);
 
-    expect(result.changed).toBe(false);
-    expect(result.snapshot).toEqual(current);
+    expect(result.changed).toBe(true);
+    expect(result.snapshot.goal).toMatchObject({
+      executionProfile: 'workspace',
+      runtimeKind: 'openai_agents',
+      workspace,
+    });
+    expect(result.snapshot.runtimeResume).toBeNull();
   });
 
   it('rejects unknown contracts instead of inventing executable intent', () => {

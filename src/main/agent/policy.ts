@@ -101,13 +101,7 @@ export function evaluateAction(
 ): PolicyDecision {
   GoalSpecSchema.parse(goal);
   const action = ProposedActionSchema.parse(proposedAction);
-  const workspaceRuntimeApproval =
-    goal.schemaVersion === 5 &&
-    goal.runtimeKind === 'codex_app_server' &&
-    !action.toolId &&
-    ['run_command', 'write_file', 'system_permission'].includes(action.action);
-
-  if (!workspaceRuntimeApproval && !toolRegistry.supports(action)) {
+  if (!toolRegistry.supports(action)) {
     return {
       status: 'denied',
       summary: 'The requested runtime tool operation is unavailable.',

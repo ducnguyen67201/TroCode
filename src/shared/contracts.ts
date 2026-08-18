@@ -162,10 +162,7 @@ export const AgentTaskContractV4Schema = z.object({
   }),
 });
 
-export const AgentRuntimeKindSchema = z.enum([
-  'openai_agents',
-  'codex_app_server',
-]);
+export const AgentRuntimeKindSchema = z.literal('openai_agents');
 
 export const ExecutionProfileSchema = z.enum(['everyday', 'workspace']);
 
@@ -193,13 +190,12 @@ export const AgentTaskContractV5Schema = z
     limits: AgentTaskContractV4Schema.shape.limits,
   })
   .superRefine((contract, context) => {
-    const workspaceRuntime = contract.runtimeKind === 'codex_app_server';
     const workspaceProfile = contract.executionProfile === 'workspace';
-    if (workspaceRuntime !== workspaceProfile || workspaceRuntime !== Boolean(contract.workspace)) {
+    if (workspaceProfile !== Boolean(contract.workspace)) {
       context.addIssue({
         code: 'custom',
         message:
-          'Workspace profile, Codex runtime, and trusted workspace identity must be selected together.',
+          'Workspace profile and trusted workspace identity must be selected together.',
         path: ['workspace'],
       });
     }

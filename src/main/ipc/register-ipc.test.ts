@@ -235,8 +235,8 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   const reportCompanionSpeechPlayback = vi.fn();
   const workspaceAvailability = vi.fn(async () => ({
     available: true,
-    runtimeVersion: '0.146.0',
-    summary: 'Codex is ready.',
+    runtimeVersion: null,
+    summary: 'Workspace mode is available through the TroCode service.',
   }));
   const workspaceSelect = vi.fn(async () => null);
   const services = {
@@ -575,7 +575,7 @@ describe('registerIpcHandlers auth boundary', () => {
       electronMock.handlers
         .get(IPC_CHANNELS.getWorkspaceRuntimeAvailability)
         ?.(active.event),
-    ).resolves.toMatchObject({ available: true, runtimeVersion: '0.146.0' });
+    ).resolves.toMatchObject({ available: true, runtimeVersion: null });
     await expect(
       electronMock.handlers.get(IPC_CHANNELS.selectWorkspace)?.(active.event),
     ).resolves.toBeNull();

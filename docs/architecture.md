@@ -2,8 +2,8 @@
 
 ## Decision
 
-TroCode uses Electron Forge, React, TypeScript, the OpenAI Agents SDK, a Codex
-app-server Workspace adapter, and trusted local brokers. A runtime receives only
+TroCode uses Electron Forge, React, TypeScript, the OpenAI Agents SDK, and
+trusted local brokers. A runtime receives only
 the capabilities selected by the host. Electron main owns internal tool IDs,
 parsers, policy metadata, adapters, cancellation, and budgets.
 
@@ -13,10 +13,8 @@ flowchart LR
     PRELOAD -->|"Authenticated IPC"| MAIN["Electron main"]
     MAIN --> RUNTIME["Task runtime v5 supervisor"]
     RUNTIME --> FACTORY{"Host-selected profile"}
-    FACTORY -->|"Everyday"| AGENT["OpenAI Agents SDK Runner + bounded Session"]
-    FACTORY -->|"Workspace + trusted root"| CODEX["Codex app-server thread/turn"]
-    CODEX -->|"Bounded JSONL events"| ACTIVITY["Normalized activity"]
-    CODEX -->|"workspaceWrite; network off"| WORKSPACE["Selected canonical root"]
+    FACTORY -->|"Everyday or Workspace"| AGENT["OpenAI Agents SDK Runner + bounded Session"]
+    AGENT -->|"Workspace only; exact approval"| WORKSPACE["Local shell + apply_patch in selected root"]
     AGENT -->|"SSE + request UUID + opaque session"| API["Railway API"]
     API --> BUDGET["BudgetService"]
     BUDGET --> USAGE["Reservation + usage ledger"]
@@ -38,9 +36,11 @@ flowchart LR
 A new request creates a host-owned `TaskContract` v5 containing the original
 request, explicit runtime kind, execution profile, autonomy preference, optional
 trusted workspace identity, fixed exact-approval policy, and resource ceilings.
-It contains no model-authored authority. Everyday maps only to OpenAI Agents.
-Workspace maps only to Codex after the main-process directory picker
-canonicalizes and records the selected root.
+It contains no model-authored authority. Both profiles map to OpenAI Agents.
+Workspace additionally receives local tools only after the main-process
+directory picker canonicalizes and records the selected root. Patch operations
+are root-confined; the explicitly approved local shell starts at that root but
+is not an OS-level sandbox.
 
 One Agents SDK `Runner` owns the repeated model/tool loop and a bounded in-memory
 `Session` receives the user message plus tool specs currently installed by the
@@ -50,16 +50,15 @@ normalized to a host-owned internal tool identity, policy-checked, executed once
 and returned through the SDK tool callback. The context filter keeps at most one
 current screenshot and removes older image bytes before the next sample.
 
-Workspace mode launches the exact supported Codex CLI as `app-server` over
-bounded stdio JSONL with an app-scoped `CODEX_HOME`. Availability requires an
-exact version match and a successful app-scoped `codex login status`; TroCode
-never reads or rewrites the user's normal Codex configuration. Threads use the selected
-canonical root, `workspaceWrite`, `approvalPolicy: 'on-request'` (the current
-0.146.0 protocol spelling), and network disabled. The adapter validates request
-IDs and thread/turn scope, maps safe summaries into the shared activity stream,
-drops reasoning and command payloads, forwards exact approvals and user input
-through the task interaction broker, and never restarts or replays a turn whose
-completion is unknown.
+Workspace mode uses the same authenticated TroCode Responses proxy as Everyday
+mode. The desktop adds SDK `shell` and `apply_patch` tools bound to the selected
+canonical root. Patch paths are resolved against that root and symlink escapes
+are rejected. Every command, create, update, move, and delete request pauses on
+an exact TroCode approval whose digest includes the full bounded command or
+patch. Commands start in the selected root with an allowlisted environment that
+omits provider and TroCode secrets. A shared per-task counter bounds shell and
+patch dispatches to the contract's tool-call ceiling. No operation is retried
+after an unknown result.
 
 A self-contained assistant message with no tool or visible-context dependency
 ends immediately. If a task refers to visible context or requires
@@ -142,9 +141,9 @@ authority.
 PostgreSQL stores validated snapshots and lifecycle events. Persisted v1-v4
 contracts remain readable as legacy history but cannot resume through the new
 runtime; new tasks emit v5 contracts and tool-call progress. Transitional v5
-snapshots are repaired on read, validated as complete current contracts, and
-written back in bounded owner-scoped compare-and-swap batches. Only minimal
-Codex thread/version/workspace continuity metadata may be persisted.
+and former Codex Workspace snapshots are repaired onto the backend SDK runtime,
+drop obsolete runtime-resume metadata, and are written back in bounded
+owner-scoped compare-and-swap batches.
 Screenshots, partial deltas, command output, raw tool arguments, approval state,
 and reasoning never enter task history.
 

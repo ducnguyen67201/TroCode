@@ -2,15 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import OpenAI from 'openai';
 
-import type { VoiceCredentialStore } from '../voice/voice-service';
-
-const OPENAI_BASE_URL = 'https://api.openai.com/v1';
-
 export interface OpenAIClientFactoryOptions {
-  accessTokenProvider?: () => Promise<string | null>;
-  apiBaseUrl?: string;
-  credentialStore: Pick<VoiceCredentialStore, 'read'>;
-  environmentApiKey?: string;
+  accessTokenProvider: () => Promise<string | null>;
+  apiBaseUrl: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   uuid?: () => string;
@@ -38,24 +32,17 @@ export class OpenAIClientFactory {
   }
 
   async create(taskId: string): Promise<OpenAI> {
-    const credential = this.apiBaseUrl
-      ? await this.options.accessTokenProvider?.()
-      : this.options.environmentApiKey?.trim() ||
-        process.env.OPENAI_API_KEY?.trim() ||
-        (await this.options.credentialStore.read());
+    if (!this.apiBaseUrl) {
+      throw new Error('The TroCode model service is not configured.');
+    }
+    const credential = await this.options.accessTokenProvider();
     if (!credential) {
-      throw new Error(
-        this.apiBaseUrl
-          ? 'Sign in with Google before starting the task.'
-          : 'Connect an OpenAI API key before starting the task.',
-      );
+      throw new Error('Sign in with Google before starting the task.');
     }
 
     return new OpenAI({
       apiKey: credential,
-      baseURL: this.apiBaseUrl
-        ? `${this.apiBaseUrl}/v1/openai`
-        : OPENAI_BASE_URL,
+      baseURL: `${this.apiBaseUrl}/v1/openai`,
       fetch: async (url, init) => {
         const headers = new Headers(init?.headers);
         headers.set('X-Trocode-Request-Id', (this.options.uuid ?? randomUUID)());

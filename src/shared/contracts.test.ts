@@ -206,11 +206,11 @@ describe('shared task contracts', () => {
           maxToolCalls: 30,
         },
         originalRequest: 'Fix the tests.',
-        runtimeKind: 'codex_app_server',
+        runtimeKind: 'openai_agents',
         schemaVersion: 5,
         workspace,
       }),
-    ).toMatchObject({ runtimeKind: 'codex_app_server', workspace });
+    ).toMatchObject({ runtimeKind: 'openai_agents', workspace });
     expect(
       SubmitTaskRequestSchema.parse({
         executionProfile: 'workspace',

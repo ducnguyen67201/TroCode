@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -16,11 +19,9 @@ describe('OpenAIAgentsRuntime', () => {
   it('uses the hosted Responses stream with one SDK-owned request and no retries', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => rejectedProviderResponse());
     const accessTokenProvider = vi.fn(async () => 'hosted-access-token');
-    const readLocalCredential = vi.fn(async () => null);
     const runtime = new OpenAIAgentsRuntime({
       accessTokenProvider,
       apiBaseUrl: 'https://api.trocode.test/',
-      credentialStore: { read: readLocalCredential },
       fetchImpl,
     });
     const taskId = randomUUID();
@@ -53,7 +54,6 @@ describe('OpenAIAgentsRuntime', () => {
     ).rejects.toThrow('Rejected before inference');
 
     expect(accessTokenProvider).toHaveBeenCalledOnce();
-    expect(readLocalCredential).not.toHaveBeenCalled();
     expect(fetchImpl).toHaveBeenCalledOnce();
     const [url, request] = fetchImpl.mock.calls[0] ?? [];
     expect(String(url)).toBe('https://api.trocode.test/v1/openai/responses');
@@ -74,11 +74,11 @@ describe('OpenAIAgentsRuntime', () => {
     await runtime.end(taskId);
   });
 
-  it('fails before dispatch when neither hosted auth nor an API key is available', async () => {
+  it('fails before dispatch when the hosted TroCode service is not configured', async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const runtime = new OpenAIAgentsRuntime({
-      credentialStore: { read: vi.fn(async () => null) },
-      environmentApiKey: '',
+      accessTokenProvider: vi.fn(async () => 'unused-token'),
+      apiBaseUrl: '',
       fetchImpl,
     });
 
@@ -94,7 +94,58 @@ describe('OpenAIAgentsRuntime', () => {
         taskId: randomUUID(),
         tools: [],
       }),
-    ).rejects.toThrow('Connect an OpenAI API key');
+    ).rejects.toThrow('TroCode model service is not configured');
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('sends Workspace turns through the hosted SDK path with local shell and patch tools', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'trocode-runtime-'));
+    const fetchImpl = vi.fn<typeof fetch>(async () => rejectedProviderResponse());
+    const runtime = new OpenAIAgentsRuntime({
+      accessTokenProvider: vi.fn(async () => 'hosted-access-token'),
+      apiBaseUrl: 'https://api.trocode.test/',
+      fetchImpl,
+    });
+    const taskId = randomUUID();
+    try {
+      await expect(
+        runtime.runTask({
+          callbacks: {
+            beforeModel: () => [],
+            executeTool: async () => 'unused',
+            requestApproval: async () => false,
+          },
+          contract: createTaskContract('Fix the tests.', {
+            executionProfile: 'workspace',
+            workspace: {
+              selectionId: randomUUID(),
+              canonicalPath: root,
+              displayName: path.basename(root),
+              selectedAt: '2026-08-18T00:00:00.000Z',
+            },
+          }),
+          maxTurns: 4,
+          request: 'Fix the tests.',
+          taskId,
+          tools: [],
+        }),
+      ).rejects.toThrow('Rejected before inference');
+
+      const [, request] = fetchImpl.mock.calls[0] ?? [];
+      const body = JSON.parse(String(request?.body)) as {
+        instructions: string;
+        tools: Array<{ type: string }>;
+      };
+      expect(body.instructions).toContain(root);
+      expect(body.tools).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'shell' }),
+          expect.objectContaining({ type: 'apply_patch' }),
+        ]),
+      );
+    } finally {
+      await runtime.end(taskId);
+      await rm(root, { force: true, recursive: true });
+    }
   });
 });

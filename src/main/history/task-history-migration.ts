@@ -2,7 +2,6 @@ import { isDeepStrictEqual } from 'node:util';
 
 import {
   AgentTaskContractV5Schema,
-  AgentRuntimeKindSchema,
   AutonomyModeSchema,
   ExecutionProfileSchema,
   HOST_ALWAYS_CONFIRM_ACTIONS,
@@ -76,9 +75,7 @@ function repairTransitionalV5(value: unknown): AgentTaskContract {
         V5_MIGRATION_DEFAULTS.maxToolCalls,
       ),
     },
-    runtimeKind: AgentRuntimeKindSchema.parse(
-      goal.runtimeKind ?? (workspaceRuntime ? 'codex_app_server' : 'openai_agents'),
-    ),
+    runtimeKind: 'openai_agents',
     schemaVersion: 5,
     workspace,
   });
@@ -106,10 +103,7 @@ export function migratePersistedTaskSnapshot(
   const snapshot = TaskSnapshotSchema.parse({
     ...persisted,
     goal,
-    runtimeResume:
-      goal?.schemaVersion === 5 && goal.runtimeKind === 'codex_app_server'
-        ? (persisted.runtimeResume ?? null)
-        : null,
+    runtimeResume: null,
   });
   return {
     changed: !isDeepStrictEqual(input, snapshot),

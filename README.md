@@ -1,6 +1,8 @@
 # TroCode
 
-TroCode is a cross-platform, general-purpose agent foundation. Everyday tasks run through the OpenAI Agents SDK; explicitly selected project folders run through a local Codex app-server Workspace adapter. Both stay behind the same trusted host policy and activity stream.
+TroCode is a cross-platform, general-purpose agent foundation. Everyday and
+Workspace tasks run through the OpenAI Agents SDK and TroCode's authenticated
+backend. Both stay behind the same trusted host policy and activity stream.
 
 Read the [privacy policy](PRIVACY.md), [code signing policy](CODE_SIGNING_POLICY.md),
 and [security model](docs/security.md).
@@ -14,16 +16,15 @@ Implemented:
 - Secure Electron main/preload/renderer separation.
 - One persistent OpenAI Agents SDK loop for multilingual reasoning, writing,
   desktop work, and installed tools, with incremental Responses SSE.
-- An explicit Workspace mode backed by Codex app-server, a canonical
-  user-selected root, `workspaceWrite`, network-off defaults, exact escalation
-  approvals, persistent thread identity, and in-flight steering.
+- An explicit Workspace mode backed by a canonical user-selected root and the
+  Agents SDK's local shell and patch tools. Commands and file mutations require
+  exact, one-use TroCode approval; provider credentials remain backend-only.
 - A trusted model-visible tool registry with desktop observation/control,
   public HTTPS navigation, grounded guidance, and user-input adapters.
 - Typed task lifecycle with guarded transitions.
 - Task-scoped clarification replies that continue the same goal conversation.
 - Structured pending interactions and exact, single-use approval decisions.
-- Task steering queued for the next safe Agents SDK model boundary or delivered
-  to an active Codex turn.
+- Task steering queued for the next safe Agents SDK model boundary.
 - Concrete tool/operation, target, and approval policy evaluation.
 - Native Google OAuth sign-in with Authorization Code + PKCE, locally verified
   identity claims, and an operating-system-encrypted, revocable hosted session.
@@ -41,7 +42,7 @@ Implemented:
   configurable task, daily, and monthly limits ($0.50/$2/$20 defaults).
 - One resized current screenshot per visual sample, bounded context, and a
   4,000-token output ceiling.
-- SDK/app-server-owned model → tool → result continuation with host-owned
+- SDK-owned model → tool → result continuation with host-owned
   tool/time limits, cancellation, safe steering, post-action screenshots, and
   no repeat after unknown results.
 - Direct public HTTPS navigation and exact, revalidated approval
@@ -78,7 +79,7 @@ directly: that requires a separately configured `music.generate` adapter, which
 can be added to the registry without changing request classification.
 
 When a host-created task reaches `ready`, TroCode starts its selected task-scoped
-runtime. CUA remains stopped unless the Everyday agent requests a desktop tool.
+runtime. CUA remains stopped unless the agent requests a desktop tool.
 The visible **Stop task** control and
 the system-wide **Escape** shortcut cancel a nonterminal task, including while
 the main window is hidden for desktop work. The loop observes after every
@@ -89,10 +90,6 @@ card before anything is dispatched.
 
 - Node.js 24 or newer.
 - npm 11 or newer.
-- Codex CLI 0.146.0 for optional Workspace mode. Set the absolute
-  `TROCODE_CODEX_PATH` when it is not discoverable on `PATH`. Workspace remains
-  hidden until `codex login status` succeeds against TroCode's app-scoped
-  `CODEX_HOME`; the setup message displays that directory and login command.
 - Docker Desktop with Docker Compose v2 for local PostgreSQL.
 - macOS 13+ or a supported 64-bit Windows environment for CUA.
 - macOS development requires Accessibility and Screen Recording permissions.
@@ -142,7 +139,7 @@ Forge executable. The project and config are explicit in the script, so startup
 does not depend on a machine-local Doppler selection. Configure these values:
 
 ```bash
-doppler secrets set OPENAI_API_KEY GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET GOOGLE_OAUTH_PROJECT_ID
+doppler secrets set TROCODE_API_BASE_URL GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET GOOGLE_OAUTH_PROJECT_ID
 npm start
 ```
 
@@ -158,8 +155,8 @@ for Next. TroCode registers each shortcut only while a guidance step is waiting
 and hides any shortcut that the operating system would not grant.
 
 Paste the value at Doppler's prompt, then enter a line containing only `.`.
-Doppler injects the values while Electron Forge builds and starts the app. The
-OpenAI key and Google tokens stay main-process-only. A desktop OAuth client
+Doppler injects the public configuration while Electron Forge builds and starts
+the app. Provider keys stay only in the hosted API. A desktop OAuth client
 secret is public-client configuration rather than an authorization credential;
 the user session itself is encrypted with Electron `safeStorage` and never
 crosses into the renderer.
@@ -346,7 +343,7 @@ proxied by Railway.
 
 ### First Gmail execution test
 
-1. Start TroCode with `OPENAI_API_KEY` configured and choose **Connect
+1. Start TroCode with `TROCODE_API_BASE_URL` configured and choose **Connect
    computer** if CUA is not ready.
 2. Sign in to Gmail yourself. TroCode will not type passwords.
 3. Enter a complete bounded request, for example: `Open Gmail, compose an
@@ -462,7 +459,8 @@ React renderer
     -> trusted Electron IPC
       -> Google OAuth service / encrypted local session
       -> TaskContract v5 / runtime factory / policy brokers
-      -> OpenAI Agents SDK (Everyday) / Codex app-server (Workspace)
+      -> OpenAI Agents SDK through the TroCode backend
+        -> trusted local Workspace shell/patch tools when explicitly selected
       -> PostHog analytics service (allowlisted metadata only)
       -> OpenAI voice service (short-lived Realtime sessions)
       -> CUA service
@@ -485,7 +483,7 @@ src/
 ├── main/
 │   ├── agent/       runtime boundary, SDK adapter, brokers, policy, coordinator
 │   ├── analytics/   privacy-safe PostHog events and durable identity
-│   ├── codex/       app-server transport, protocol adapter, workspace selection
+│   ├── workspace/   canonical folder selection and opaque root binding
 │   ├── cua/         permission-aware CUA lifecycle
 │   └── ipc/         trusted renderer boundary
 ├── renderer/        React desktop interface

@@ -13,7 +13,6 @@
     "db:up": "doppler run --project tro-app --config dev -- docker compose up -d --wait --wait-timeout 60 postgres",
     "cost:report": "node scripts/inference-cost-report.mjs",
     "agent:runtime-versions": "node scripts/check-agent-runtime-versions.mjs",
-    "codex:generate-app-server-types": "node scripts/generate-codex-app-server-types.mjs",
     "package": "doppler run --project tro-app --config prd -- npm exec -- electron-forge package",
     "package:dev": "doppler run --project tro-app --config dev -- npm exec -- electron-forge package",
     "make": "doppler run --project tro-app --config prd -- npm exec -- electron-forge make",
@@ -24,10 +23,10 @@
     "membership:keygen": "node scripts/membership-codes.mjs keygen",
     "membership:issue": "node scripts/membership-codes.mjs issue",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run && node --test scripts/access-codes.test.mjs scripts/generate-codex-app-server-types.test.mjs scripts/windows-release-metadata.test.mjs && npm --prefix services/api test",
+    "test": "vitest run && node --test scripts/access-codes.test.mjs scripts/windows-release-metadata.test.mjs && npm --prefix services/api test",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "check": "npm run agent:runtime-versions && npm run codex:generate-app-server-types -- --check && npm run lint && npm run typecheck && npm run test"
+    "check": "npm run agent:runtime-versions && npm run lint && npm run typecheck && npm run test"
   },
   "keywords": [
     "ai-agent",

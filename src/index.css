@@ -2635,8 +2635,9 @@ h1 {
 .approval-details {
   display: grid;
   gap: 1px;
+  max-height: min(50vh, 440px);
   margin: 16px 0;
-  overflow: hidden;
+  overflow: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--border);
@@ -2662,6 +2663,16 @@ h1 {
   overflow-wrap: anywhere;
   color: var(--text);
   font-size: 11px;
+}
+
+.approval-details dd.approval-details__payload {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .approval-note {

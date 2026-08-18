@@ -82,7 +82,7 @@ describe('TaskApplicationService', () => {
       expect.objectContaining({ executionProfile: 'workspace' }),
       expect.objectContaining({
         autonomyMode: 'strict',
-        runtimeKind: 'codex_app_server',
+        runtimeKind: 'openai_agents',
         workspace,
       }),
     );

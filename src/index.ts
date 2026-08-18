@@ -37,9 +37,6 @@ import { GoogleAuthService } from './main/auth/google-auth-service';
 import { LocalOAuthBrowserFlow } from './main/auth/local-oauth-browser-flow';
 import { keepWindowAliveForBackgroundVoice } from './main/background-app-lifecycle';
 import { UsageBudgetService } from './main/budget/usage-budget-service';
-import { CodexAppServerRuntime } from './main/codex/codex-app-server-runtime';
-import { CodexRuntimeLocator } from './main/codex/codex-runtime-locator';
-import { WorkspaceSelectionService } from './main/codex/workspace-selection-service';
 import {
   isAuthenticatedCompanionSession,
   toCompanionInteraction,
@@ -88,6 +85,7 @@ import {
 import { createSystemAudioDuckingService } from './main/voice/system-audio-ducking-service';
 import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-store';
 import { VoiceService } from './main/voice/voice-service';
+import { WorkspaceSelectionService } from './main/workspace/workspace-selection-service';
 import {
   CompanionGuidanceSchema,
   TROCODE_AUDIO_SCHEME,
@@ -185,8 +183,6 @@ const appPreferencesService = new AppPreferencesService(
     path.join(app.getPath('userData'), 'app-preferences.json'),
   ),
 );
-const appCodexHome = path.join(app.getPath('userData'), 'codex-home');
-const codexRuntimeLocator = new CodexRuntimeLocator({ appCodexHome });
 const workspaceSelectionService = new WorkspaceSelectionService(
   {
     pickDirectory: async () => {
@@ -201,7 +197,6 @@ const workspaceSelectionService = new WorkspaceSelectionService(
       return result.canceled ? null : (result.filePaths[0] ?? null);
     },
   },
-  codexRuntimeLocator,
 );
 const systemAudioDuckingService = createSystemAudioDuckingService();
 const voiceCredentialStore = new EncryptedVoiceCredentialStore();
@@ -222,14 +217,8 @@ const companionNarrationService = new CompanionNarrationService({
 const agentRuntime = new OpenAIAgentsRuntime({
   accessTokenProvider: () => authService.getAccessToken(),
   apiBaseUrl: trocodeApiBaseUrl,
-  credentialStore: voiceCredentialStore,
-});
-const codexRuntime = new CodexAppServerRuntime({
-  appCodexHome,
-  locator: codexRuntimeLocator,
 });
 const agentRuntimeFactory = new AgentRuntimeFactory({
-  codexAppServer: codexRuntime,
   openaiAgents: agentRuntime,
 });
 const executionCoordinator = new TaskExecutionCoordinator({

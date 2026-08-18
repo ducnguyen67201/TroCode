@@ -4,8 +4,8 @@ import {
 } from '../../shared/contracts';
 import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
 import type { TaskRuntime } from '../agent/task-runtime';
-import type { WorkspaceSelectionService } from '../codex/workspace-selection-service';
 import type { AppPreferencesService } from '../preferences/app-preferences-service';
+import type { WorkspaceSelectionService } from '../workspace/workspace-selection-service';
 
 interface TaskApplicationServiceOptions {
   appPreferencesService?: Pick<AppPreferencesService, 'get'>;
@@ -33,10 +33,7 @@ export class TaskApplicationService {
     const submitted = this.runtime.submit(request, {
       autonomyMode: preferences?.autonomyMode ?? 'balanced',
       executionProfile: request.executionProfile,
-      runtimeKind:
-        request.executionProfile === 'workspace'
-          ? 'codex_app_server'
-          : 'openai_agents',
+      runtimeKind: 'openai_agents',
       workspace,
     });
     return this.execution.start({ taskId: submitted.taskId });

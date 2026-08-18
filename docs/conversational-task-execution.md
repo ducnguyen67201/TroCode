@@ -1,18 +1,17 @@
 # Conversational task execution
 
 TroCode keeps one bounded runtime conversation for each task. A user request is
-not precompiled into answer/guide/act modes. The default Everyday runtime is an
-OpenAI Agents SDK run; explicitly selected Workspace tasks are Codex app-server
-threads and turns. Tool results, clarification answers, approval decisions, and
-steering continue the same run or turn.
+not precompiled into answer/guide/act modes. Everyday and explicitly selected
+Workspace tasks are OpenAI Agents SDK runs authenticated through the TroCode
+backend. Tool results, clarification answers, approval decisions, and steering
+continue the same run.
 
 ## Core loop
 
 ```mermaid
 flowchart TD
     USER["User message"] --> RUNTIME{"Host-selected runtime"}
-    RUNTIME -->|"Everyday"| MODEL["OpenAI Agents SDK run"]
-    RUNTIME -->|"Workspace"| CODEX["Codex app-server turn"]
+    RUNTIME -->|"Everyday or Workspace"| MODEL["OpenAI Agents SDK run"]
     MODEL -->|"Assistant candidate"| REVIEW{"Contextual completion review needed?"}
     REVIEW -->|"No or already reviewed"| DONE["Finished"]
     REVIEW -->|"Yes, once"| CHECK["Trusted GPT completion checkpoint"]
@@ -27,8 +26,7 @@ flowchart TD
     APPROVE --> USER
     EXECUTE --> OUTPUT
     OUTPUT --> MODEL
-    CODEX -->|"Workspace sandbox or exact server request"| ROUTER
-    OUTPUT --> CODEX
+    MODEL -->|"Workspace shell or patch"| APPROVE
 ```
 
 `show_guidance` adds one user-controlled pacing boundary to this loop. The host
@@ -57,8 +55,7 @@ task so a faulty model cannot create an unbounded self-review loop.
 `request_user_input` creates an `awaiting_input` interaction bound to the active
 runtime request. The user's answer becomes exactly one response, then the same
 run or turn continues. Everyday steering is queued until the next safe model
-boundary. Workspace steering uses `turn/steer` while active. Neither mutates an
-already dispatched atomic action.
+boundary. Neither profile mutates an already dispatched atomic action.
 
 ## Exact approval
 
@@ -76,11 +73,11 @@ Approval denial is returned to GPT as a denied tool output so the assistant can
 continue usefully. For desktop work, approval is followed by a fresh screen
 check; changed state invalidates the action instead of guessing.
 
-Codex command and file responses are one-request `accept` or `decline`
-decisions—never `acceptForSession`. Permission grants are turn-scoped. The
-adapter rejects secret-input requests, cross-thread or cross-turn messages,
-workspace/version mismatches, and malformed or oversized JSONL. It never
-replays a crashed turn.
+Workspace command and patch responses are one-request decisions. Their approval
+digest includes the bounded commands or diff, target, operation, and declared
+consequence; there is no session-wide approval. Patch paths must remain within
+the selected canonical root, and the command subprocess receives no provider
+or TroCode secrets.
 
 ## Optional tools and permissions
 
@@ -90,9 +87,10 @@ requests microphone access when used. Missing CUA permission pauses the held
 observation with Connect computer and Continue without computer choices; only a
 user click starts the OS permission flow.
 
-The Everyday catalog contains desktop observation/control, public HTTPS
-navigation, grounded visual guidance, and task interaction. Future filesystem,
-terminal, email, calendar, image, audio, and music providers register a model
+The shared catalog contains desktop observation/control, public HTTPS
+navigation, grounded visual guidance, and task interaction. Workspace adds
+SDK shell and patch tools only for an explicitly selected folder. Future email,
+calendar, image, audio, and music providers register a model
 specification, strict parser, trusted internal identity, policy metadata, and
 executor. Until such a provider exists, GPT must explain the limitation rather
 than claim an artifact was generated.
@@ -107,7 +105,7 @@ output, and diffs are dropped. Partial deltas do not enter task history or
 analytics. Unknown effects are reported honestly and their exact action digest
 cannot execute again.
 
-The Everyday adapter uses one configured model without a classifier or fallback
+The Agents SDK adapter uses one configured model without a classifier or fallback
 call and applies a 4,000-token output cap. Each hosted sample reserves
 server-priced micro-USD before dispatch and settles provider usage afterward.
 Typed and finalized voice transcripts enter this same task path, so voice does

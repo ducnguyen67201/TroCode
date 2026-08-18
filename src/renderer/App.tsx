@@ -31,6 +31,7 @@ import type {
 
 import { acceptAgentActivity } from './agent-activity-projection';
 import { appLanguageLabel, translate } from './app-language';
+import { approvalDetails } from './approval-details';
 import { BrandMark } from './BrandMark';
 import { HistoryPage } from './HistoryPage';
 import { InsightsPage } from './InsightsPage';
@@ -416,7 +417,7 @@ function LiveTaskRail({
             {goal?.schemaVersion === 2
               ? formatLabel(goal.behavior, appLanguage)
               : goal?.schemaVersion === 5
-                ? goal.runtimeKind === 'codex_app_server'
+                ? goal.executionProfile === 'workspace'
                   ? t('Workspace agent')
                   : t('Everyday agent')
                 : goal
@@ -714,6 +715,14 @@ function PendingInteractionCard({
             <dd>{interaction.action.target}</dd>
           </div>
         )}
+        {approvalDetails(interaction.action.parameters).map((detail) => (
+          <div key={detail.key}>
+            <dt>{t(detail.label)}</dt>
+            <dd className={detail.payload ? 'approval-details__payload' : undefined}>
+              {detail.value}
+            </dd>
+          </div>
+        ))}
       </dl>
       <p className="approval-note">
         {t(
@@ -1047,7 +1056,7 @@ export function App({
           summary:
             workspaceError instanceof Error
               ? workspaceError.message
-              : 'Workspace mode is unavailable. Install the supported Codex CLI.',
+              : 'Workspace mode is temporarily unavailable.',
         });
       });
 
@@ -1157,11 +1166,7 @@ export function App({
     isPrimaryLanguageSetupComplete(appPreferences, preferencesLoaded);
   const membershipAccessAllowed = membershipAllowsAccess(membershipStatus);
   const agentReady = voiceProviderStatus.state === 'ready';
-  const selectedTaskRuntimeReady =
-    snapshot?.goal?.schemaVersion === 5 &&
-    snapshot.goal.runtimeKind === 'codex_app_server'
-      ? workspaceRuntime?.available === true
-      : agentReady;
+  const selectedTaskRuntimeReady = agentReady;
   const voiceReady =
     agentReady && microphonePermission !== 'unavailable';
   const desktopReady =

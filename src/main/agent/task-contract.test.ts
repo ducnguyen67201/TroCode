@@ -75,7 +75,7 @@ describe('task contract', () => {
     ).toThrow();
   });
 
-  it('binds Workspace mode to Codex and a trusted canonical root', () => {
+  it('binds Workspace mode to the backend SDK and a trusted canonical root', () => {
     const workspace = {
       selectionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       canonicalPath: '/tmp/project',
@@ -90,7 +90,7 @@ describe('task contract', () => {
     ).toMatchObject({
       schemaVersion: 5,
       executionProfile: 'workspace',
-      runtimeKind: 'codex_app_server',
+      runtimeKind: 'openai_agents',
       workspace,
     });
     expect(() =>

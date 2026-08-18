@@ -30,7 +30,6 @@ import type { TaskRuntime } from '../agent/task-runtime';
 import type { TaskApplicationService } from '../application/task-application-service';
 import type { GoogleAuthService } from '../auth/google-auth-service';
 import type { UsageBudgetService } from '../budget/usage-budget-service';
-import type { WorkspaceSelectionService } from '../codex/workspace-selection-service';
 import type { CuaService } from '../cua/cua-service';
 import type { TaskHistoryService } from '../history/task-history-service';
 import type { MembershipService } from '../membership/membership-service';
@@ -38,6 +37,7 @@ import type { AppPreferencesService } from '../preferences/app-preferences-servi
 import type { AppUpdateService } from '../update/app-update-service';
 import type { SystemAudioDuckingService } from '../voice/system-audio-ducking-service';
 import type { VoiceService } from '../voice/voice-service';
+import type { WorkspaceSelectionService } from '../workspace/workspace-selection-service';
 
 interface IpcServices {
   agentActivityService: AgentActivityService;

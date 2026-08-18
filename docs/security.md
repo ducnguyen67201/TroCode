@@ -11,7 +11,7 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
 - A model cannot register a tool, approve an action, alter host limits, or make
   a private/local browser target admissible.
 - A model cannot select a runtime, choose or expand a workspace, change the
-  Codex sandbox, grant network access, or operate TroCode approval controls.
+  trusted root, grant itself an approval, or operate TroCode approval controls.
 
 ## Default behavior
 
@@ -51,20 +51,20 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
   not gain authority from a keyword, domain label, or model-produced capability
   string.
 
-Workspace mode is explicit and available only after both Codex CLI 0.146.0 and
-an app-scoped Codex login are verified. The
-trusted main-process picker canonicalizes one directory and returns only an
-opaque selection ID to the renderer. App-server runs with an app-scoped
-`CODEX_HOME`, that root as the only runtime workspace, `workspaceWrite`,
-`approvalPolicy: 'on-request'`, and network disabled. Command, file, permission,
-and input requests must match the active thread and turn. Approval responses are
-one-request `accept` decisions, never session-wide grants.
-
-Codex stdio is bounded JSONL. Malformed lines, oversized messages, duplicate
-IDs, version drift, workspace mismatch, and process exit fail closed. TroCode
-does not restart or replay a turn when completion is unknown. The subprocess
-receives an allowlisted OS environment plus its isolated `CODEX_HOME`; TroCode,
-provider, database, analytics, and release secrets are not inherited.
+Workspace mode uses the authenticated TroCode backend; it never asks the user
+for a Codex login, ChatGPT subscription, or OpenAI API key. The trusted
+main-process picker canonicalizes one directory and returns only an opaque
+selection ID to the renderer. SDK patch operations resolve paths against that
+canonical root, reject lexical and symlink escapes, bound file and patch sizes,
+and require a single-use exact approval. SDK shell operations start in the root,
+receive only an allowlisted OS environment, and require exact approval for the
+full bounded command list. TroCode, provider, database, analytics, and release
+secrets are not inherited. A command is host code after the user approves it,
+so the approval card displays the full command or patch and is the permission
+boundary rather than an implicit session-wide grant. The shell is not an OS
+sandbox: it starts in the selected directory, but an approved command can use
+absolute paths or the network. Patch operations, unlike shell commands, are
+structurally confined to the selected root.
 
 ## Sensitive data
 

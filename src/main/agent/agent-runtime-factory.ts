@@ -3,7 +3,6 @@ import type { AgentTaskContract } from '../../shared/contracts';
 import type { AgentRuntime } from './agent-runtime';
 
 export interface AgentRuntimeFactoryOptions {
-  codexAppServer?: AgentRuntime;
   openaiAgents: AgentRuntime;
 }
 
@@ -14,9 +13,6 @@ export class AgentRuntimeFactory {
   constructor(options: AgentRuntimeFactoryOptions) {
     const runtimes = new Map<AgentTaskContract['runtimeKind'], AgentRuntime>();
     runtimes.set('openai_agents', options.openaiAgents);
-    if (options.codexAppServer) {
-      runtimes.set('codex_app_server', options.codexAppServer);
-    }
     this.runtimes = runtimes;
   }
 
@@ -24,12 +20,6 @@ export class AgentRuntimeFactory {
     const runtime = this.runtimes.get(contract.runtimeKind);
     if (!runtime || runtime.kind !== contract.runtimeKind) {
       throw new Error(`${contract.runtimeKind} is not available for this task.`);
-    }
-    if (
-      contract.runtimeKind === 'codex_app_server' &&
-      (contract.executionProfile !== 'workspace' || !contract.workspace)
-    ) {
-      throw new Error('Codex runtime requires a trusted Workspace task contract.');
     }
     return runtime;
   }

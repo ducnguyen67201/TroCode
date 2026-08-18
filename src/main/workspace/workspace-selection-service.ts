@@ -9,33 +9,29 @@ import {
   type WorkspaceSelection,
 } from '../../shared/contracts';
 
-import type { CodexRuntimeLocator } from './codex-runtime-locator';
-
 export interface WorkspaceDirectoryPicker {
   pickDirectory(): Promise<string | null>;
 }
+
+const WORKSPACE_AVAILABILITY: WorkspaceRuntimeAvailability = {
+  available: true,
+  runtimeVersion: null,
+  summary: 'Workspace mode is available through the TroCode service.',
+};
 
 export class WorkspaceSelectionService {
   private readonly selections = new Map<string, WorkspaceIdentity>();
 
   constructor(
     private readonly picker: WorkspaceDirectoryPicker,
-    private readonly locator: Pick<CodexRuntimeLocator, 'locate'>,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
   async availability(): Promise<WorkspaceRuntimeAvailability> {
-    const located = await this.locator.locate();
-    return {
-      available: located.available,
-      runtimeVersion: located.runtimeVersion,
-      summary: located.summary,
-    };
+    return WORKSPACE_AVAILABILITY;
   }
 
   async select(): Promise<WorkspaceSelection | null> {
-    const runtime = await this.availability();
-    if (!runtime.available) throw new Error(runtime.summary);
     const selectedPath = await this.picker.pickDirectory();
     if (!selectedPath) return null;
     const canonicalPath = await this.canonicalDirectory(selectedPath);
@@ -46,13 +42,18 @@ export class WorkspaceSelectionService {
       selectedAt: this.now().toISOString(),
     };
     this.selections.set(identity.selectionId, identity);
-    return WorkspaceSelectionSchema.parse({ ...identity, runtime });
+    return WorkspaceSelectionSchema.parse({
+      ...identity,
+      runtime: WORKSPACE_AVAILABILITY,
+    });
   }
 
   async resolve(selectionId: string): Promise<WorkspaceIdentity> {
     const selected = this.selections.get(selectionId);
     if (!selected) {
-      throw new Error('The workspace selection is missing or no longer trusted. Select the folder again.');
+      throw new Error(
+        'The workspace selection is missing or no longer trusted. Select the folder again.',
+      );
     }
     const canonicalPath = await this.canonicalDirectory(selected.canonicalPath);
     if (canonicalPath !== selected.canonicalPath) {

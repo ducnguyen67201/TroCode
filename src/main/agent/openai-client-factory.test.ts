@@ -12,7 +12,6 @@ describe('OpenAIClientFactory', () => {
         { headers: { 'Content-Type': 'application/json' }, status: 400 },
       );
     });
-    const readLocalCredential = vi.fn(async () => 'local-provider-key');
     const requestIds = [
       '11111111-1111-4111-8111-111111111111',
       '22222222-2222-4222-8222-222222222222',
@@ -20,7 +19,6 @@ describe('OpenAIClientFactory', () => {
     const client = await new OpenAIClientFactory({
       accessTokenProvider: vi.fn(async () => 'opaque-hosted-token'),
       apiBaseUrl: 'https://api.trocode.test',
-      credentialStore: { read: readLocalCredential },
       fetchImpl,
       uuid: () => requestIds.shift() ?? '33333333-3333-4333-8333-333333333333',
     }).create('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
@@ -32,7 +30,6 @@ describe('OpenAIClientFactory', () => {
     }
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(readLocalCredential).not.toHaveBeenCalled();
     expect(requests.map(({ headers }) => headers.get('x-trocode-task-id'))).toEqual([
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -46,5 +43,16 @@ describe('OpenAIClientFactory', () => {
     expect(requests.every(({ url }) => url.endsWith('/v1/openai/responses'))).toBe(
       true,
     );
+  });
+
+  it('fails closed when the TroCode backend is not configured', async () => {
+    const accessTokenProvider = vi.fn(async () => 'unused-token');
+    await expect(
+      new OpenAIClientFactory({
+        accessTokenProvider,
+        apiBaseUrl: '',
+      }).create('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+    ).rejects.toThrow('TroCode model service is not configured');
+    expect(accessTokenProvider).not.toHaveBeenCalled();
   });
 });

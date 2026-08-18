@@ -159,7 +159,7 @@ describe('AnalyticsService', () => {
       {
         autonomyMode: 'balanced',
         executionProfile: 'workspace',
-        runtimeKind: 'codex_app_server',
+        runtimeKind: 'openai_agents',
         workspace: {
           canonicalPath: '/Users/example',
           displayName: 'example',
@@ -187,7 +187,7 @@ describe('AnalyticsService', () => {
       autonomy_mode: 'balanced',
       contract_version: 5,
       execution_profile: 'workspace',
-      runtime_kind: 'codex_app_server',
+      runtime_kind: 'openai_agents',
     });
     expect(client.events.at(-1)?.properties).not.toHaveProperty('behavior');
   });

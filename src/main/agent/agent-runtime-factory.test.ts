@@ -16,9 +16,7 @@ function runtime(kind: AgentRuntime['kind']): AgentRuntime {
 describe('AgentRuntimeFactory', () => {
   it('routes only from the host-compiled contract', () => {
     const openai = runtime('openai_agents');
-    const codex = runtime('codex_app_server');
     const factory = new AgentRuntimeFactory({
-      codexAppServer: codex,
       openaiAgents: openai,
     });
     const workspace = {
@@ -36,25 +34,6 @@ describe('AgentRuntimeFactory', () => {
           workspace,
         }),
       ),
-    ).toBe(codex);
-  });
-
-  it('fails closed when a selected runtime is unavailable', () => {
-    const factory = new AgentRuntimeFactory({
-      openaiAgents: runtime('openai_agents'),
-    });
-    expect(() =>
-      factory.forContract(
-        createTaskContract('Fix tests.', {
-          executionProfile: 'workspace',
-          workspace: {
-            selectionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-            canonicalPath: '/tmp/project',
-            displayName: 'project',
-            selectedAt: '2026-08-18T00:00:00.000Z',
-          },
-        }),
-      ),
-    ).toThrow('not available');
+    ).toBe(openai);
   });
 });
