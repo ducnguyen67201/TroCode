@@ -7,11 +7,16 @@ import type { CuaService } from '../cua/cua-service';
 
 import { createActionDigest } from './action-approval';
 import type {
-  AgentModel,
+  AgentToolCall,
   AgentToolOutput,
   ResolvedToolInvocation,
   ToolExecutionResult,
 } from './agent-contracts';
+import type { AgentRuntime, AgentRuntimeActivity } from './agent-runtime';
+import {
+  StaticAgentRuntimeFactory,
+  type AgentRuntimeFactory,
+} from './agent-runtime-factory';
 import { decideCompletionReview } from './completion-policy';
 import {
   mapScreenshotPointToDesktop,
@@ -30,10 +35,13 @@ import {
   type RuntimeToolRegistry,
 } from './runtime-tool-registry';
 import { taskMaxModelSamples, taskMaxToolCalls } from './task-contract';
+import { TaskInteractionBroker } from './task-interaction-broker';
 import type { TaskRuntime } from './task-runtime';
+import { ToolExecutionBroker } from './tool-execution-broker';
 
 interface ExecutionCoordinatorOptions {
-  agent: AgentModel;
+  agent?: AgentRuntime;
+  agentRuntimeFactory?: Pick<AgentRuntimeFactory, 'forContract'>;
   cua: Pick<
     CuaService,
     | 'startTaskSession'
@@ -49,6 +57,7 @@ interface ExecutionCoordinatorOptions {
     taskId: string,
   ) => CompanionGuidance['shortcuts'] | undefined;
   onGuidancePlaybackChange?: (taskId: string, paused: boolean) => void;
+  onActivity?: (taskId: string, activity: AgentRuntimeActivity) => void;
   openExternal?: (url: string) => Promise<void>;
   prepareDesktop?: () => Promise<DesktopObservationCleanup | void>;
   prepareObservation?: (
@@ -61,9 +70,10 @@ interface ExecutionCoordinatorOptions {
   ) => Promise<GuidancePresentationHandle | void>;
   runtime: TaskRuntime;
   toolDispatcher?: Pick<RuntimeToolDispatcher, 'dispatch'>;
+  toolExecutionBroker?: ToolExecutionBroker;
   toolRegistry?: Pick<
     RuntimeToolRegistry,
-    'endTask' | 'modelVisibleSpecs' | 'resolve' | 'supports'
+    'endTask' | 'modelVisibleSpecs' | 'preview' | 'resolve' | 'supports'
   >;
 }
 
@@ -88,16 +98,12 @@ interface GuidanceHistoryEntry {
 }
 
 interface HeldApproval {
-  invocation: ResolvedToolInvocation;
-}
-
-interface HeldInteraction {
-  callId: string;
   invocation?: ResolvedToolInvocation;
-  resume: 'model_input' | 'desktop_observation';
 }
 
 interface ExecutionContext {
+  agent?: AgentRuntime;
+  approvalPreviews: Map<string, ResolvedToolInvocation>;
   cleanupPromise?: Promise<void>;
   completionReviewRequested: boolean;
   controller: AbortController;
@@ -107,15 +113,16 @@ interface ExecutionContext {
   activeGuidance?: GuidancePresentationHandle;
   guidanceCursor: number;
   guidanceHistory: GuidanceHistoryEntry[];
+  idleBoundary?: Promise<void>;
+  imagesCaptured: number;
   latestObservation?: DesktopObservation;
+  markIdle?: () => void;
   pendingApproval?: HeldApproval;
-  pendingInteraction?: HeldInteraction;
+  pendingInteraction: boolean;
   playback: GuidancePlaybackController;
-  rerunRequested: boolean;
   resolvedToolCalls: number;
   modelSamples: number;
   running?: Promise<void>;
-  unknownActionDigests: Set<string>;
 }
 
 const TERMINAL_PHASES: ReadonlySet<TaskSnapshot['phase']> = new Set([
@@ -169,6 +176,12 @@ function errorMessage(error: unknown): string {
 
 function isAbort(error: unknown, signal: AbortSignal): boolean {
   return signal.aborted || (error instanceof Error && error.name === 'AbortError');
+}
+
+function executionStoppedError(): Error {
+  const error = new Error('Task execution stopped at a host boundary.');
+  error.name = 'AbortError';
+  return error;
 }
 
 function toolIdentity(invocation: ResolvedToolInvocation): {
@@ -294,7 +307,7 @@ function presentationFor(
 }
 
 export class TaskExecutionCoordinator {
-  private readonly agent: AgentModel;
+  private readonly agentRuntimeFactory: Pick<AgentRuntimeFactory, 'forContract'>;
 
   private readonly contexts = new Map<string, ExecutionContext>();
 
@@ -308,6 +321,8 @@ export class TaskExecutionCoordinator {
     ExecutionCoordinatorOptions['onGuidancePlaybackChange']
   >;
 
+  private readonly onActivity: NonNullable<ExecutionCoordinatorOptions['onActivity']>;
+
   private readonly onGuidanceWaitEnd: NonNullable<
     ExecutionCoordinatorOptions['onGuidanceWaitEnd']
   >;
@@ -315,6 +330,8 @@ export class TaskExecutionCoordinator {
   private readonly onGuidanceWaitStart: NonNullable<
     ExecutionCoordinatorOptions['onGuidanceWaitStart']
   >;
+
+  private readonly interactions = new TaskInteractionBroker();
 
   private readonly prepareDesktop: () => Promise<DesktopObservationCleanup | void>;
 
@@ -330,17 +347,21 @@ export class TaskExecutionCoordinator {
 
   private readonly toolDispatcher: Pick<RuntimeToolDispatcher, 'dispatch'>;
 
+  private readonly toolExecutionBroker: ToolExecutionBroker;
+
   private readonly toolRegistry: Pick<
     RuntimeToolRegistry,
-    'endTask' | 'modelVisibleSpecs' | 'resolve' | 'supports'
+    'endTask' | 'modelVisibleSpecs' | 'preview' | 'resolve' | 'supports'
   >;
 
   constructor({
     agent,
+    agentRuntimeFactory,
     cua,
     dismissPresentation = () => undefined,
     guidanceAutoAdvanceMs,
     onGuidancePlaybackChange = () => undefined,
+    onActivity = () => undefined,
     onGuidanceWaitEnd = () => undefined,
     onGuidanceWaitStart = () => undefined,
     openExternal = async () => {
@@ -351,13 +372,19 @@ export class TaskExecutionCoordinator {
     presentAction = async () => undefined,
     runtime,
     toolDispatcher,
+    toolExecutionBroker,
     toolRegistry = defaultRuntimeToolRegistry,
   }: ExecutionCoordinatorOptions) {
-    this.agent = agent;
+    if (!agentRuntimeFactory && !agent) {
+      throw new Error('TaskExecutionCoordinator requires an agent runtime factory.');
+    }
+    this.agentRuntimeFactory =
+      agentRuntimeFactory ?? new StaticAgentRuntimeFactory(agent as AgentRuntime);
     this.cua = cua;
     this.dismissPresentation = dismissPresentation;
     this.guidanceAutoAdvanceMs = guidanceAutoAdvanceMs;
     this.onGuidancePlaybackChange = onGuidancePlaybackChange;
+    this.onActivity = onActivity;
     this.onGuidanceWaitEnd = onGuidanceWaitEnd;
     this.onGuidanceWaitStart = onGuidanceWaitStart;
     this.prepareDesktop = prepareDesktop;
@@ -365,6 +392,8 @@ export class TaskExecutionCoordinator {
     this.presentAction = presentAction;
     this.runtime = runtime;
     this.toolRegistry = toolRegistry;
+    this.toolExecutionBroker =
+      toolExecutionBroker ?? new ToolExecutionBroker(toolRegistry);
     this.toolDispatcher =
       toolDispatcher ??
       new RuntimeToolDispatcher([
@@ -421,7 +450,19 @@ export class TaskExecutionCoordinator {
   resume(taskId: string): TaskSnapshot {
     const snapshot = this.runtime.getSnapshot(taskId);
     if (TERMINAL_PHASES.has(snapshot.phase)) return snapshot;
-    this.kick(taskId);
+    const context = this.contexts.get(taskId);
+    if (context?.pendingApproval && snapshot.phase !== 'awaiting_approval') {
+      this.armIdleBoundary(context);
+      this.interactions.release(taskId, 'approval');
+    } else if (
+      context?.pendingInteraction &&
+      snapshot.phase !== 'awaiting_input'
+    ) {
+      this.armIdleBoundary(context);
+      this.interactions.release(taskId, 'input');
+    } else if (!context?.running) {
+      this.kick(taskId);
+    }
     return this.runtime.getSnapshot(taskId);
   }
 
@@ -429,10 +470,11 @@ export class TaskExecutionCoordinator {
     const snapshot = this.runtime.cancel(input);
     const context = this.contexts.get(snapshot.taskId);
     context?.activeGuidance?.cancel();
+    this.interactions.cancel(snapshot.taskId);
     context?.controller.abort();
     this.onGuidanceWaitEnd(snapshot.taskId);
     this.dismissPresentation();
-    void this.cleanup(snapshot.taskId);
+    this.cleanupAfterRun(snapshot.taskId, context);
     return snapshot;
   }
 
@@ -444,10 +486,16 @@ export class TaskExecutionCoordinator {
     });
   }
 
-  steer(input: unknown): TaskSnapshot {
+  async steer(input: unknown): Promise<TaskSnapshot> {
     const snapshot = this.runtime.steer(input);
+    const context = this.contexts.get(snapshot.taskId);
+    if (context?.agent?.steer) {
+      for (const instruction of this.runtime.takeSteering(snapshot.taskId)) {
+        await context.agent.steer(snapshot.taskId, instruction.instruction);
+      }
+    }
     this.kick(snapshot.taskId);
-    return snapshot;
+    return this.runtime.getSnapshot(snapshot.taskId);
   }
 
   toggleGuidancePause(taskId: string): boolean {
@@ -467,8 +515,8 @@ export class TaskExecutionCoordinator {
   }
 
   async waitForIdle(taskId: string): Promise<void> {
-    const running = this.contexts.get(taskId)?.running;
-    if (running) await running;
+    const context = this.contexts.get(taskId);
+    if (context?.idleBoundary) await context.idleBoundary;
   }
 
   async shutdown(): Promise<void> {
@@ -481,17 +529,18 @@ export class TaskExecutionCoordinator {
     const existing = this.contexts.get(taskId);
     if (existing) return existing;
     const context: ExecutionContext = {
+      approvalPreviews: new Map(),
       completionReviewRequested: false,
       controller: new AbortController(),
       desktopSessionStarted: false,
       initialized: false,
       guidanceCursor: -1,
       guidanceHistory: [],
+      imagesCaptured: 0,
       playback: new GuidancePlaybackController(this.guidanceAutoAdvanceMs),
-      rerunRequested: false,
       resolvedToolCalls: 0,
       modelSamples: 0,
-      unknownActionDigests: new Set<string>(),
+      pendingInteraction: false,
     };
     this.contexts.set(taskId, context);
     return context;
@@ -500,16 +549,17 @@ export class TaskExecutionCoordinator {
   private kick(taskId: string): void {
     const context = this.contextFor(taskId);
     if (context.controller.signal.aborted) return;
-    if (context.running) {
-      context.rerunRequested = true;
-      return;
-    }
-    context.rerunRequested = false;
+    if (context.running) return;
+    this.armIdleBoundary(context);
     context.running = this.run(taskId, context)
       .catch((error: unknown) => {
         if (isAbort(error, context.controller.signal)) return;
         const snapshot = this.runtime.getSnapshot(taskId);
         if (!TERMINAL_PHASES.has(snapshot.phase)) {
+          this.onActivity(taskId, {
+            kind: 'run_failed',
+            summary: 'The agent run stopped with an error.',
+          });
           if (
             error &&
             typeof error === 'object' &&
@@ -525,148 +575,185 @@ export class TaskExecutionCoordinator {
         }
       })
       .finally(async () => {
+        context.markIdle?.();
         context.running = undefined;
         const snapshot = this.runtime.getSnapshot(taskId);
-        if (TERMINAL_PHASES.has(snapshot.phase)) {
+        if (TERMINAL_PHASES.has(snapshot.phase) || snapshot.phase === 'blocked') {
           await this.cleanup(taskId);
-        } else if (context.rerunRequested) {
-          queueMicrotask(() => this.kick(taskId));
         }
       });
   }
 
+  private armIdleBoundary(context: ExecutionContext): void {
+    let marked = false;
+    context.idleBoundary = new Promise<void>((resolve) => {
+      context.markIdle = () => {
+        if (marked) return;
+        marked = true;
+        resolve();
+      };
+    });
+  }
+
   private async run(taskId: string, context: ExecutionContext): Promise<void> {
     const signal = context.controller.signal;
-    let snapshot = this.runtime.getSnapshot(taskId);
+    const snapshot = this.runtime.getSnapshot(taskId);
     if (!snapshot.goal) throw new Error('Task has no agent contract.');
-
-    if (!context.initialized) {
-      await this.agent.start(taskId, snapshot.request, signal);
-      context.initialized = true;
+    if (snapshot.goal.schemaVersion !== 5) {
+      throw new Error('Persisted legacy tasks cannot be resumed after the runtime cutover.');
     }
+    if (context.initialized) return;
+    context.initialized = true;
+    const agent = this.agentRuntimeFactory.forContract(snapshot.goal);
+    context.agent = agent;
+    this.onActivity(taskId, {
+      kind: 'run_started',
+      summary: 'Agent started.',
+    });
 
-    if (context.pendingInteraction) {
-      if (snapshot.phase === 'awaiting_input') return;
-      const heldInteraction = context.pendingInteraction;
-      const answer = [...snapshot.messages]
-        .reverse()
-        .find((message) => message.role === 'user')?.text;
-      if (!answer) throw new Error('The interaction resumed without a user answer.');
-      context.pendingInteraction = undefined;
-      if (
-        heldInteraction.resume === 'desktop_observation' &&
-        heldInteraction.invocation
-      ) {
-        if (answer.toLocaleLowerCase().includes('without')) {
-          this.agent.appendToolOutput(taskId, {
-            callId: heldInteraction.callId,
-            output: JSON.stringify({
-              status: 'not_executed',
-              summary: 'The user chose to continue without computer access.',
-            }),
-          });
-          this.runtime.resumePlanning(
-            taskId,
-            'Continued without the optional computer tool.',
-          );
-        } else {
-          const paused = await this.handleObservation(
-            taskId,
-            context,
-            heldInteraction.invocation,
-          );
-          if (paused) return;
-        }
-      } else {
-        this.agent.appendToolOutput(taskId, {
-          callId: heldInteraction.callId,
-          output: JSON.stringify({ status: 'confirmed', answer }),
-        });
-        this.runtime.resumePlanning(taskId, 'Returned the user answer to the model.');
+    const beforeModel = (): string[] => {
+      const current = this.runtime.getSnapshot(taskId);
+      if (TERMINAL_PHASES.has(current.phase) || current.phase === 'blocked') {
+        throw executionStoppedError();
       }
-    }
-
-    if (context.pendingApproval) {
-      if (snapshot.phase === 'awaiting_approval') return;
-      await this.resumeHeldApproval(taskId, context);
-      snapshot = this.runtime.getSnapshot(taskId);
-      if (snapshot.phase === 'awaiting_approval') return;
-    }
-
-    while (!signal.aborted) {
-      snapshot = this.runtime.getSnapshot(taskId);
-      if (TERMINAL_PHASES.has(snapshot.phase) || snapshot.phase === 'blocked') {
-        return;
-      }
-      if (snapshot.pendingInteraction) return;
-      if (!snapshot.goal) throw new Error('Task has no agent contract.');
-      if (progressCompleted(snapshot) >= taskMaxToolCalls(snapshot.goal)) {
-        this.runtime.block(taskId, 'The task reached its tool-call limit.', [
-          'Provide steering to narrow the task or start a new task.',
-        ]);
-        await this.cleanup(taskId);
-        return;
-      }
-      if (context.modelSamples >= taskMaxModelSamples(snapshot.goal)) {
+      if (!current.goal) throw new Error('Task has no agent contract.');
+      if (context.modelSamples >= taskMaxModelSamples(current.goal)) {
         this.runtime.block(taskId, 'The task reached its model-sample limit.', [
-          'Provide steering to narrow the task or start a new task.',
+          'Provide a narrower request or start a new task.',
         ]);
-        await this.cleanup(taskId);
-        return;
-      }
-
-      for (const steering of this.runtime.takeSteering(taskId)) {
-        this.agent.appendUserMessage(taskId, steering.instruction);
+        throw executionStoppedError();
       }
       this.runtime.recordModelSampling(taskId);
       context.modelSamples += 1;
-      const turn = await this.agent.sample(
-        taskId,
-        this.toolRegistry.modelVisibleSpecs(),
-        signal,
-      );
-      if (turn.kind === 'assistant_message') {
-        const reviewDecision = decideCompletionReview({
-            request: snapshot.request,
-            resolvedToolCalls: context.resolvedToolCalls,
-          });
-        if (!context.completionReviewRequested && reviewDecision.required) {
-          context.completionReviewRequested = true;
-          this.agent.requestCompletionReview(taskId);
-          this.runtime.resumePlanning(
-            taskId,
-            'Reviewing the candidate completion against the full request.',
-          );
-          continue;
-        }
-        this.runtime.complete(taskId, turn.text);
-        return;
-      }
+      return this.runtime
+        .takeSteering(taskId)
+        .map((steering) => steering.instruction);
+    };
 
+    const executeTool = async (
+      call: Parameters<RuntimeToolRegistry['resolve']>[0],
+    ): Promise<AgentToolOutput['output']> => {
+      const current = this.runtime.getSnapshot(taskId);
+      if (!current.goal) throw new Error('Task has no agent contract.');
       let invocation: ResolvedToolInvocation;
+      let decision: ReturnType<typeof evaluateAction>;
       try {
-        invocation = this.toolRegistry.resolve(turn.call, {
+        const resolved = this.toolExecutionBroker.resolve({
+          call,
+          completedToolCalls: progressCompleted(current),
+          goal: current.goal,
+          maxToolCalls: taskMaxToolCalls(current.goal),
           taskId,
           latestObservation: context.latestObservation,
         });
+        invocation = resolved.invocation;
+        decision = resolved.decision;
       } catch (error) {
-        this.agent.appendToolOutput(taskId, {
-          callId: turn.call.callId,
-          output: JSON.stringify({
-            status: 'not_executed',
-            summary: errorMessage(error),
-          }),
+        if (errorMessage(error).includes('tool-call limit')) {
+          this.runtime.block(taskId, 'The task reached its tool-call limit.', [
+            'Provide a narrower request or start a new task.',
+          ]);
+        } else {
+          this.runtime.resumePlanning(
+            taskId,
+            'Rejected an invalid or unavailable model tool call.',
+          );
+        }
+        return JSON.stringify({
+          status: 'not_executed',
+          summary: errorMessage(error),
         });
-        this.runtime.resumePlanning(
-          taskId,
-          'Rejected an invalid or unavailable model tool call.',
-        );
-        continue;
       }
       context.resolvedToolCalls += 1;
+      this.onActivity(taskId, {
+        kind: 'tool_started',
+        summary: `Using ${invocation.modelName}.`,
+        tool: { name: invocation.modelName, status: 'running' },
+      });
+      const output = await this.handleInvocation(
+        taskId,
+        context,
+        invocation,
+        decision,
+      );
+      this.onActivity(taskId, {
+        kind: 'tool_completed',
+        summary: `${invocation.modelName} finished.`,
+        tool: { name: invocation.modelName, status: 'completed' },
+      });
+      return output;
+    };
 
-      const shouldPause = await this.handleInvocation(taskId, context, invocation);
-      if (shouldPause) return;
+    const previewApproval = (
+      call: Parameters<RuntimeToolRegistry['preview']>[0],
+    ): boolean => {
+      const current = this.runtime.getSnapshot(taskId);
+      if (!current.goal) throw new Error('Task has no agent contract.');
+      const preview = this.toolExecutionBroker.preview({
+        call,
+        goal: current.goal,
+        latestObservation: context.latestObservation,
+        taskId,
+      });
+      context.approvalPreviews.set(call.callId, preview.invocation);
+      return preview.decision.status === 'needs_approval';
+    };
+
+    let finalOutput = await agent.runTask({
+      callbacks: {
+        beforeModel,
+        executeTool,
+        needsApproval: previewApproval,
+        requestApproval: (request) =>
+          this.requestRuntimeApproval(taskId, context, request),
+        requestInput: (request) =>
+          this.requestRuntimeInput(taskId, context, request),
+        resolveToolApproval: (call) =>
+          this.resolveSdkToolApproval(taskId, context, call),
+        setRuntimeResumeMetadata: (metadata) => {
+          this.runtime.setRuntimeResumeMetadata(taskId, metadata);
+        },
+      },
+      contract: snapshot.goal,
+      maxTurns: taskMaxModelSamples(snapshot.goal),
+      request: snapshot.request,
+      resumeMetadata: snapshot.runtimeResume,
+      emitActivity: (activity) => this.onActivity(taskId, activity),
+      signal,
+      taskId,
+      tools: this.toolRegistry.modelVisibleSpecs(),
+    });
+    const reviewDecision = decideCompletionReview({
+      request: snapshot.request,
+      resolvedToolCalls: context.resolvedToolCalls,
+    });
+    if (
+      agent.kind === 'openai_agents' &&
+      !context.completionReviewRequested &&
+      reviewDecision.required
+    ) {
+      context.completionReviewRequested = true;
+      this.runtime.resumePlanning(
+        taskId,
+        'Reviewing the candidate completion against the full request.',
+      );
+      finalOutput = await agent.continueTask(
+        taskId,
+        [
+          'Trusted host completion checkpoint: re-read the original request and tool-result history.',
+          'Verify every requested outcome is grounded by available evidence.',
+          'If anything remains, call the next tool. Otherwise return only the final user-facing answer.',
+        ].join('\n'),
+        signal,
+      );
+    }
+    const current = this.runtime.getSnapshot(taskId);
+    if (!TERMINAL_PHASES.has(current.phase) && current.phase !== 'blocked') {
+      this.runtime.complete(taskId, finalOutput);
+      this.onActivity(taskId, {
+        kind: 'run_completed',
+        summary: 'Agent completed.',
+      });
     }
   }
 
@@ -674,17 +761,17 @@ export class TaskExecutionCoordinator {
     taskId: string,
     context: ExecutionContext,
     invocation: ResolvedToolInvocation,
-  ): Promise<boolean> {
+    decision?: ReturnType<typeof evaluateAction>,
+  ): Promise<AgentToolOutput['output']> {
     switch (invocation.kind) {
       case 'observe':
         return this.handleObservation(taskId, context, invocation);
       case 'interaction':
-        this.handleInteraction(taskId, context, invocation);
-        return true;
+        return this.handleInteraction(taskId, context, invocation);
       case 'desktop':
       case 'direct':
       case 'guidance':
-        return this.handleAction(taskId, context, invocation);
+        return this.handleAction(taskId, context, invocation, decision);
     }
   }
 
@@ -692,7 +779,7 @@ export class TaskExecutionCoordinator {
     taskId: string,
     context: ExecutionContext,
     invocation: ResolvedToolInvocation,
-  ): Promise<boolean> {
+  ): Promise<AgentToolOutput['output']> {
     try {
       const observation = await this.captureObservation(
         taskId,
@@ -704,23 +791,25 @@ export class TaskExecutionCoordinator {
         'Captured a fresh desktop observation.',
         toolIdentity(invocation),
       );
-      this.agent.appendToolOutput(
+      this.runtime.resumePlanning(
         taskId,
-        observationOutput(
-          invocation.callId,
-          observation,
-          'Fresh desktop observation captured.',
-        ),
+        'Returned the observation result to the model.',
       );
+      return observationOutput(
+        invocation.callId,
+        observation,
+        'Fresh desktop observation captured.',
+      ).output;
     } catch (error) {
       if (isAbort(error, context.controller.signal)) throw error;
       const status = await this.cua.getStatus();
       if (status.state !== 'ready' || !status.available) {
-        context.pendingInteraction = {
-          callId: invocation.callId,
-          invocation,
-          resume: 'desktop_observation',
-        };
+        const wait = this.interactions.wait(
+          taskId,
+          'input',
+          context.controller.signal,
+        );
+        context.pendingInteraction = true;
         this.runtime.requestInput({
           taskId,
           prompt:
@@ -730,7 +819,27 @@ export class TaskExecutionCoordinator {
             { id: 'continue_without', label: 'Continue without computer access' },
           ],
         });
-        return true;
+        context.markIdle?.();
+        await wait;
+        const snapshot = this.runtime.getSnapshot(taskId);
+        const answer = [...snapshot.messages]
+          .reverse()
+          .find((message) => message.role === 'user')?.text;
+        context.pendingInteraction = false;
+        if (!answer) {
+          throw new Error('The interaction resumed without a user answer.');
+        }
+        if (answer.toLocaleLowerCase().includes('without')) {
+          this.runtime.resumePlanning(
+            taskId,
+            'Continued without the optional computer tool.',
+          );
+          return JSON.stringify({
+            status: 'not_executed',
+            summary: 'The user chose to continue without computer access.',
+          });
+        }
+        return this.handleObservation(taskId, context, invocation);
       }
       this.runtime.beginVerification(
         taskId,
@@ -738,136 +847,241 @@ export class TaskExecutionCoordinator {
         true,
         toolIdentity(invocation),
       );
-      this.agent.appendToolOutput(taskId, {
-        callId: invocation.callId,
-        output: JSON.stringify({
-          status: 'failed',
-          summary: errorMessage(error),
-        }),
+      this.runtime.resumePlanning(
+        taskId,
+        'Returned the observation result to the model.',
+      );
+      return JSON.stringify({
+        status: 'failed',
+        summary: errorMessage(error),
       });
     }
-    this.runtime.resumePlanning(taskId, 'Returned the observation result to the model.');
-    return false;
   }
 
-  private handleInteraction(
+  private async handleInteraction(
     taskId: string,
     context: ExecutionContext,
     invocation: ResolvedToolInvocation,
-  ): void {
+  ): Promise<AgentToolOutput['output']> {
+    const input = invocation.input as InteractionToolInput;
+    const answer = await this.requestRuntimeInput(taskId, context, {
+      prompt: input.prompt,
+      ...(input.choices ? { choices: input.choices } : {}),
+    });
+    return JSON.stringify({ status: 'confirmed', answer });
+  }
+
+  private async requestRuntimeInput(
+    taskId: string,
+    context: ExecutionContext,
+    request: { choices?: string[]; prompt: string },
+  ): Promise<string> {
     context.activeGuidance?.cancel();
     context.activeGuidance = undefined;
     this.onGuidanceWaitEnd(taskId);
     this.dismissPresentation();
-    const input = invocation.input as InteractionToolInput;
-    context.pendingInteraction = {
-      callId: invocation.callId,
-      resume: 'model_input',
-    };
+    const wait = this.interactions.wait(
+      taskId,
+      'input',
+      context.controller.signal,
+    );
+    context.pendingInteraction = true;
     this.runtime.requestInput({
       taskId,
-      prompt: input.prompt,
-      ...(input.choices
+      prompt: request.prompt,
+      ...(request.choices
         ? {
-            choices: input.choices.map((label, index) => ({
+            choices: request.choices.map((label, index) => ({
               id: String(index + 1),
               label,
             })),
           }
         : {}),
     });
+    context.markIdle?.();
+    await wait;
+    const snapshot = this.runtime.getSnapshot(taskId);
+    const answer = [...snapshot.messages]
+      .reverse()
+      .find((message) => message.role === 'user')?.text;
+    context.pendingInteraction = false;
+    if (!answer) throw new Error('The interaction resumed without a user answer.');
+    this.runtime.resumePlanning(taskId, 'Returned the user answer to the model.');
+    return answer;
+  }
+
+  private async resolveSdkToolApproval(
+    taskId: string,
+    context: ExecutionContext,
+    call: AgentToolCall,
+  ): Promise<boolean> {
+    const snapshot = this.runtime.getSnapshot(taskId);
+    if (!snapshot.goal) throw new Error('Approval requires a task contract.');
+    const preview = context.approvalPreviews.get(call.callId) ??
+      this.toolExecutionBroker.preview({
+        call,
+        goal: snapshot.goal,
+        latestObservation: context.latestObservation,
+        taskId,
+      }).invocation;
+    context.approvalPreviews.delete(call.callId);
+    if (!preview.action) {
+      throw new Error('The SDK requested approval for a non-action tool call.');
+    }
+    return this.requestExactApproval(
+      taskId,
+      context,
+      {
+        action: preview.action,
+        consequence: approvalConsequence(preview.action),
+        prompt: preview.action.description,
+      },
+      preview,
+    );
+  }
+
+  private async requestRuntimeApproval(
+    taskId: string,
+    context: ExecutionContext,
+    request: {
+      action: ProposedAction;
+      consequence: string;
+      prompt: string;
+    },
+  ): Promise<boolean> {
+    const approved = await this.requestExactApproval(
+      taskId,
+      context,
+      request,
+    );
+    if (approved) {
+      this.runtime.consumeApprovalGrant({ taskId, action: request.action });
+      this.runtime.resumePlanning(
+        taskId,
+        'Returned the one-use approval to the workspace runtime.',
+      );
+    }
+    return approved;
+  }
+
+  private async requestExactApproval(
+    taskId: string,
+    context: ExecutionContext,
+    request: {
+      action: ProposedAction;
+      consequence: string;
+      prompt: string;
+    },
+    invocation?: ResolvedToolInvocation,
+  ): Promise<boolean> {
+    context.activeGuidance?.cancel();
+    context.activeGuidance = undefined;
+    this.onGuidanceWaitEnd(taskId);
+    this.dismissPresentation();
+    const wait = this.interactions.wait(
+      taskId,
+      'approval',
+      context.controller.signal,
+    );
+    context.pendingApproval = invocation ? { invocation } : {};
+    this.runtime.requestApproval({ taskId, ...request });
+    this.onActivity(taskId, {
+      kind: 'approval_required',
+      summary: request.prompt,
+    });
+    context.markIdle?.();
+    await wait;
+    const snapshot = this.runtime.getSnapshot(taskId);
+    context.pendingApproval = undefined;
+    const approved =
+      snapshot.approvalGrant?.actionDigest ===
+      createActionDigest(request.action);
+    if (!approved) {
+      this.runtime.resumePlanning(
+        taskId,
+        'Returned the approval denial to the active runtime.',
+      );
+    }
+    return approved;
   }
 
   private async handleAction(
     taskId: string,
     context: ExecutionContext,
     invocation: ResolvedToolInvocation,
-  ): Promise<boolean> {
+    previewDecision?: ReturnType<typeof evaluateAction>,
+  ): Promise<AgentToolOutput['output']> {
     const action = invocation.action;
     if (!action) {
-      this.agent.appendToolOutput(taskId, {
-        callId: invocation.callId,
-        output: JSON.stringify({
-          status: 'not_executed',
-          summary: 'This tool call did not produce a policy-checkable action.',
-        }),
-      });
       this.runtime.resumePlanning(taskId, 'Rejected a malformed model tool call.');
-      return false;
-    }
-
-    const digest = createActionDigest(action);
-    if (context.unknownActionDigests.has(digest)) {
-      this.agent.appendToolOutput(taskId, {
-        callId: invocation.callId,
-        output: JSON.stringify({
-          status: 'not_executed',
-          summary:
-            'This exact action previously had an unknown outcome and will not be repeated.',
-        }),
+      return JSON.stringify({
+        status: 'not_executed',
+        summary: 'This tool call did not produce a policy-checkable action.',
       });
-      this.runtime.resumePlanning(taskId, 'Prevented an exact repeat after an unknown outcome.');
-      return false;
     }
 
     const snapshot = this.runtime.getSnapshot(taskId);
     if (!snapshot.goal) throw new Error('Tool action requires a task contract.');
-    const policy = evaluateAction(snapshot.goal, action, this.toolRegistry);
+    const policy =
+      previewDecision ?? evaluateAction(snapshot.goal, action, this.toolRegistry);
     if (policy.status === 'denied') {
-      this.agent.appendToolOutput(taskId, {
-        callId: invocation.callId,
-        output: JSON.stringify({ status: 'denied', summary: policy.summary }),
-      });
       if (policy.terminal) {
         this.runtime.block(taskId, policy.summary, policy.nextActions);
-        await this.cleanup(taskId);
-        return true;
+      } else {
+        this.runtime.resumePlanning(taskId, 'Denied a tool call at the host boundary.');
       }
-      this.runtime.resumePlanning(taskId, 'Denied a tool call at the host boundary.');
-      return false;
+      return JSON.stringify({ status: 'denied', summary: policy.summary });
     }
     if (policy.status === 'needs_approval') {
-      context.activeGuidance?.cancel();
-      context.activeGuidance = undefined;
-      this.onGuidanceWaitEnd(taskId);
-      this.dismissPresentation();
+      if (
+        snapshot.approvalGrant?.actionDigest !== createActionDigest(action)
+      ) {
+        const approved = await this.requestExactApproval(
+          taskId,
+          context,
+          {
+            action,
+            consequence: approvalConsequence(action),
+            prompt: action.description,
+          },
+          invocation,
+        );
+        if (!approved) {
+          return JSON.stringify({
+            status: 'denied',
+            summary: 'The user denied this exact action.',
+          });
+        }
+      }
       context.pendingApproval = { invocation };
-      this.runtime.requestApproval({
-        taskId,
-        action,
-        prompt: action.description,
-        consequence: approvalConsequence(action),
-      });
-      return true;
+      return this.resumeHeldApproval(taskId, context);
     }
 
     this.runtime.beginAllowedAction(taskId, action);
-    await this.dispatchAction(taskId, context, invocation, false);
-    return false;
+    return this.dispatchAction(taskId, context, invocation, false);
   }
 
   private async resumeHeldApproval(
     taskId: string,
     context: ExecutionContext,
-  ): Promise<void> {
+  ): Promise<AgentToolOutput['output']> {
     const held = context.pendingApproval;
-    if (!held) return;
+    if (!held?.invocation) {
+      throw new Error('The approval resumed without a held action.');
+    }
+    const invocation = held.invocation;
     const snapshot = this.runtime.getSnapshot(taskId);
     if (!snapshot.approvalGrant) {
-      this.agent.appendToolOutput(taskId, {
-        callId: held.invocation.callId,
-        output: JSON.stringify({
-          status: 'denied',
-          summary: 'The user denied this exact action.',
-        }),
-      });
       context.pendingApproval = undefined;
       this.runtime.resumePlanning(taskId, 'Returned the approval denial to the model.');
-      return;
+      return JSON.stringify({
+        status: 'denied',
+        summary: 'The user denied this exact action.',
+      });
     }
 
-    const input = held.invocation.input as Partial<DesktopControlToolInput>;
-    if (held.invocation.kind === 'desktop' && input.observationFingerprint) {
+    const input = invocation.input as Partial<DesktopControlToolInput>;
+    if (invocation.kind === 'desktop' && input.observationFingerprint) {
       const current = await this.captureObservation(
         taskId,
         context,
@@ -882,18 +1096,6 @@ export class TaskExecutionCoordinator {
           taskId,
           'The screen changed after approval; the held action was not executed.',
         );
-        this.agent.appendToolOutput(
-          taskId,
-          resultOutput(
-            held.invocation.callId,
-            {
-              status: 'not_executed',
-              summary:
-                'The screen changed after approval. Re-observe and propose a fresh action.',
-            },
-            current,
-          ),
-        );
         context.pendingApproval = undefined;
         this.runtime.block(
           taskId,
@@ -902,18 +1104,25 @@ export class TaskExecutionCoordinator {
             'Return to the target application, confirm the intended action is still visible, then start a new request.',
           ],
         );
-        await this.cleanup(taskId);
-        return;
+        return resultOutput(
+          invocation.callId,
+          {
+            status: 'not_executed',
+            summary:
+              'The screen changed after approval. Re-observe and propose a fresh action.',
+          },
+          current,
+        ).output;
       }
       this.runtime.resumePlanning(taskId, 'Approval state validation finished.');
     }
 
     this.runtime.consumeApprovalGrant({
       taskId,
-      action: held.invocation.action,
+      action: invocation.action,
     });
     context.pendingApproval = undefined;
-    await this.dispatchAction(taskId, context, held.invocation, true);
+    return this.dispatchAction(taskId, context, invocation, true);
   }
 
   private async dispatchAction(
@@ -921,7 +1130,7 @@ export class TaskExecutionCoordinator {
     context: ExecutionContext,
     invocation: ResolvedToolInvocation,
     approvedConsequentialAction: boolean,
-  ): Promise<void> {
+  ): Promise<AgentToolOutput['output']> {
     const signal = context.controller.signal;
     let guidanceEntry: GuidanceHistoryEntry | undefined;
     if (invocation.kind === 'desktop' || invocation.kind === 'guidance') {
@@ -967,6 +1176,7 @@ export class TaskExecutionCoordinator {
     }
 
     let observation: DesktopObservation | undefined;
+    let verificationUnavailable = false;
     if (invocation.kind === 'desktop') {
       try {
         observation = await this.captureObservation(
@@ -976,8 +1186,9 @@ export class TaskExecutionCoordinator {
         );
       } catch (error) {
         if (isAbort(error, signal)) throw error;
+        verificationUnavailable = true;
         result = {
-          status: result.status,
+          status: 'unknown',
           summary:
             result.summary +
             ' A fresh verification screenshot was unavailable: ' +
@@ -987,7 +1198,7 @@ export class TaskExecutionCoordinator {
     }
 
     if (result.status === 'unknown' && invocation.action) {
-      context.unknownActionDigests.add(createActionDigest(invocation.action));
+      this.toolExecutionBroker.markUnknown(taskId, invocation.action);
     }
     if (invocation.kind === 'guidance') {
       const input = invocation.input as GuidanceToolInput;
@@ -998,10 +1209,7 @@ export class TaskExecutionCoordinator {
       result.summary,
       toolIdentity(invocation),
     );
-    this.agent.appendToolOutput(
-      taskId,
-      resultOutput(invocation.callId, result, observation),
-    );
+    const output = resultOutput(invocation.callId, result, observation).output;
     if (guidanceEntry) {
       context.guidanceHistory.push(guidanceEntry);
       if (context.guidanceHistory.length > 50) context.guidanceHistory.shift();
@@ -1014,10 +1222,18 @@ export class TaskExecutionCoordinator {
         'A consequential action has an unknown outcome. TroCode will not retry it or dispatch another consequential action in this task.',
         ['Inspect the target application before starting a new task.'],
       );
-      await this.cleanup(taskId);
-      return;
+      return output;
+    }
+    if (verificationUnavailable) {
+      this.runtime.block(
+        taskId,
+        'TroCode could not capture the fresh desktop state required after the action, so it stopped before another model step.',
+        ['Inspect the target application before starting a new task.'],
+      );
+      return output;
     }
     this.runtime.resumePlanning(taskId, 'Returned the tool result to the model.');
+    return output;
   }
 
   private async waitForGuidance(
@@ -1065,6 +1281,18 @@ export class TaskExecutionCoordinator {
     context: ExecutionContext,
     summary: string,
   ): Promise<DesktopObservation> {
+    const snapshot = this.runtime.getSnapshot(taskId);
+    if (!snapshot.goal) throw new Error('Task has no agent contract.');
+    const maxImages =
+      snapshot.goal.schemaVersion === 4 || snapshot.goal.schemaVersion === 5
+        ? snapshot.goal.limits.maxImages
+        : 20;
+    if (context.imagesCaptured >= maxImages) {
+      this.runtime.block(taskId, 'The task reached its image-evidence limit.', [
+        'Provide a narrower request or start a new task.',
+      ]);
+      throw executionStoppedError();
+    }
     await this.ensureDesktopSession(taskId, context);
     this.runtime.beginObservation(taskId, summary);
     const cleanup = await this.prepareDesktop();
@@ -1072,6 +1300,7 @@ export class TaskExecutionCoordinator {
       const observation = this.prepareObservation(
         await this.cua.observe(taskId, context.controller.signal),
       );
+      context.imagesCaptured += 1;
       context.latestObservation = observation;
       return observation;
     } finally {
@@ -1100,6 +1329,18 @@ export class TaskExecutionCoordinator {
       'Provide a narrower request or start a new task.',
     ]);
     this.dismissPresentation();
+    this.cleanupAfterRun(taskId, context);
+  }
+
+  private cleanupAfterRun(
+    taskId: string,
+    context: ExecutionContext | undefined,
+  ): void {
+    const running = context?.running;
+    if (running) {
+      void running.finally(() => this.cleanup(taskId));
+      return;
+    }
     void this.cleanup(taskId);
   }
 
@@ -1113,8 +1354,8 @@ export class TaskExecutionCoordinator {
       this.onGuidanceWaitEnd(taskId);
       this.dismissPresentation();
       if (context.desktopSessionStarted) await this.cua.endTaskSession(taskId);
-      await this.agent.end(taskId);
-      this.toolRegistry.endTask(taskId);
+      await context.agent?.end(taskId);
+      this.toolExecutionBroker.endTask(taskId);
       this.contexts.delete(taskId);
     })();
     await context.cleanupPromise;

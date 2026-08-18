@@ -23,6 +23,7 @@ function createSnapshot(
     phase,
     progress: null,
     queuedSteering: [],
+    runtimeResume: null,
     request: `Request ${taskId}`,
     taskId,
     updatedAt,

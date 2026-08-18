@@ -1,0 +1,75 @@
+import { randomUUID } from 'node:crypto';
+import { realpath, stat } from 'node:fs/promises';
+import path from 'node:path';
+
+import {
+  WorkspaceSelectionSchema,
+  type WorkspaceIdentity,
+  type WorkspaceRuntimeAvailability,
+  type WorkspaceSelection,
+} from '../../shared/contracts';
+
+import type { CodexRuntimeLocator } from './codex-runtime-locator';
+
+export interface WorkspaceDirectoryPicker {
+  pickDirectory(): Promise<string | null>;
+}
+
+export class WorkspaceSelectionService {
+  private readonly selections = new Map<string, WorkspaceIdentity>();
+
+  constructor(
+    private readonly picker: WorkspaceDirectoryPicker,
+    private readonly locator: Pick<CodexRuntimeLocator, 'locate'>,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
+
+  async availability(): Promise<WorkspaceRuntimeAvailability> {
+    const located = await this.locator.locate();
+    return {
+      available: located.available,
+      runtimeVersion: located.runtimeVersion,
+      summary: located.summary,
+    };
+  }
+
+  async select(): Promise<WorkspaceSelection | null> {
+    const runtime = await this.availability();
+    if (!runtime.available) throw new Error(runtime.summary);
+    const selectedPath = await this.picker.pickDirectory();
+    if (!selectedPath) return null;
+    const canonicalPath = await this.canonicalDirectory(selectedPath);
+    const identity: WorkspaceIdentity = {
+      selectionId: randomUUID(),
+      canonicalPath,
+      displayName: path.basename(canonicalPath) || canonicalPath,
+      selectedAt: this.now().toISOString(),
+    };
+    this.selections.set(identity.selectionId, identity);
+    return WorkspaceSelectionSchema.parse({ ...identity, runtime });
+  }
+
+  async resolve(selectionId: string): Promise<WorkspaceIdentity> {
+    const selected = this.selections.get(selectionId);
+    if (!selected) {
+      throw new Error('The workspace selection is missing or no longer trusted. Select the folder again.');
+    }
+    const canonicalPath = await this.canonicalDirectory(selected.canonicalPath);
+    if (canonicalPath !== selected.canonicalPath) {
+      this.selections.delete(selectionId);
+      throw new Error('The selected workspace changed. Select the folder again.');
+    }
+    return selected;
+  }
+
+  private async canonicalDirectory(candidate: string): Promise<string> {
+    if (!path.isAbsolute(candidate)) {
+      throw new Error('A workspace must be selected through an absolute host path.');
+    }
+    const canonicalPath = await realpath(candidate);
+    if (!(await stat(canonicalPath)).isDirectory()) {
+      throw new Error('The selected workspace is not a directory.');
+    }
+    return canonicalPath;
+  }
+}

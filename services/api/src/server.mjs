@@ -85,6 +85,41 @@ function sendBuffer(response, status, body, contentType, extraHeaders = {}) {
   response.end(body);
 }
 
+function waitForWritable(response) {
+  return new Promise((resolve) => {
+    const done = () => {
+      response.off('close', done);
+      response.off('drain', done);
+      resolve();
+    };
+    response.once('close', done);
+    response.once('drain', done);
+  });
+}
+
+async function sendStream(
+  response,
+  status,
+  stream,
+  contentType,
+  extraHeaders = {},
+) {
+  response.statusCode = status;
+  response.setHeader('Content-Type', contentType);
+  for (const [name, headerValue] of Object.entries(extraHeaders)) {
+    response.setHeader(name, headerValue);
+  }
+  response.flushHeaders();
+  for await (const chunk of stream) {
+    if (response.destroyed) return;
+    if (!response.write(chunk)) {
+      await waitForWritable(response);
+      if (response.destroyed) return;
+    }
+  }
+  if (!response.destroyed) response.end();
+}
+
 async function readBody(request, maxBytes) {
   const chunks = [];
   let size = 0;
@@ -420,20 +455,31 @@ export function createApiHandler({
         ) {
           throw new HttpError(400, 'Responses request is invalid.');
         }
-        const upstream = await responsesService.execute({
+        const execute = body.stream === true ? 'executeStream' : 'execute';
+        const upstream = await responsesService[execute]({
           body,
           requestId,
           safetyIdentifier: modelSafetyIdentifier(session.user.id),
           taskId,
           userId: session.user.id,
         });
-        sendBuffer(
-          response,
-          upstream.status,
-          upstream.body,
-          upstream.contentType,
-          upstream.headers,
-        );
+        if (upstream.stream) {
+          await sendStream(
+            response,
+            upstream.status,
+            upstream.stream,
+            upstream.contentType,
+            upstream.headers,
+          );
+        } else {
+          sendBuffer(
+            response,
+            upstream.status,
+            upstream.body,
+            upstream.contentType,
+            upstream.headers,
+          );
+        }
         return;
       }
 

@@ -68,6 +68,8 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   updateAppPreferences: ReturnType<typeof vi.fn>;
   updateCompanionVoiceActivity: ReturnType<typeof vi.fn>;
   unregister: () => void;
+  workspaceAvailability: ReturnType<typeof vi.fn>;
+  workspaceSelect: ReturnType<typeof vi.fn>;
 } {
   electronMock.handlers.clear();
   const mainFrame = {};
@@ -231,7 +233,14 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   const setVoiceAudioDucking = vi.fn(async () => undefined);
   const revealMainWindow = vi.fn();
   const reportCompanionSpeechPlayback = vi.fn();
+  const workspaceAvailability = vi.fn(async () => ({
+    available: true,
+    runtimeVersion: '0.146.0',
+    summary: 'Codex is ready.',
+  }));
+  const workspaceSelect = vi.fn(async () => null);
   const services = {
+    agentActivityService: { off: vi.fn(), on: vi.fn() },
     appUpdateService: {
       checkForUpdates,
       getStatus: vi.fn(() => appUpdateStatus),
@@ -273,6 +282,10 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
         warningThresholdMicroUsd: 16_000_000,
       })),
     },
+    workspaceSelectionService: {
+      availability: workspaceAvailability,
+      select: workspaceSelect,
+    },
   } as unknown as Parameters<typeof registerIpcHandlers>[1];
 
   return {
@@ -300,6 +313,8 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     updateAppPreferences,
     updateCompanionVoiceActivity,
     unregister: registerIpcHandlers(mainWindow, services),
+    workspaceAvailability,
+    workspaceSelect,
   };
 }
 
@@ -539,6 +554,7 @@ describe('registerIpcHandlers auth boundary', () => {
         ?.(event, { primaryLanguage: 'vi' }),
     ).resolves.toEqual({
       appLanguage: 'en',
+      autonomyMode: 'balanced',
       muteSystemAudioWhileSpeaking: false,
       primaryLanguage: 'vi',
     });
@@ -546,10 +562,35 @@ describe('registerIpcHandlers auth boundary', () => {
     expect(getAppPreferences).toHaveBeenCalledOnce();
     expect(updateAppPreferences).toHaveBeenCalledWith({
       appLanguage: 'en',
+      autonomyMode: 'balanced',
       muteSystemAudioWhileSpeaking: false,
       primaryLanguage: 'vi',
     });
     unregister();
+  });
+
+  it('checks Workspace availability after sign-in and requires membership to pick a folder', async () => {
+    const active = setup(true);
+    await expect(
+      electronMock.handlers
+        .get(IPC_CHANNELS.getWorkspaceRuntimeAvailability)
+        ?.(active.event),
+    ).resolves.toMatchObject({ available: true, runtimeVersion: '0.146.0' });
+    await expect(
+      electronMock.handlers.get(IPC_CHANNELS.selectWorkspace)?.(active.event),
+    ).resolves.toBeNull();
+    expect(active.workspaceAvailability).toHaveBeenCalledOnce();
+    expect(active.workspaceSelect).toHaveBeenCalledOnce();
+    active.unregister();
+
+    const inactive = setup(true, false);
+    await expect(
+      electronMock.handlers
+        .get(IPC_CHANNELS.selectWorkspace)
+        ?.(inactive.event),
+    ).rejects.toThrow('active membership');
+    expect(inactive.workspaceSelect).not.toHaveBeenCalled();
+    inactive.unregister();
   });
 
   it('loads only the signed-in user task history', async () => {

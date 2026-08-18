@@ -35,6 +35,7 @@ describe('AppPreferencesService', () => {
 
     await expect(service.get()).resolves.toEqual({
       appLanguage: 'en',
+      autonomyMode: 'balanced',
       muteSystemAudioWhileSpeaking: false,
       primaryLanguage: null,
     });
@@ -54,17 +55,20 @@ describe('AppPreferencesService', () => {
     await expect(
       service.update({
         appLanguage: 'vi',
+        autonomyMode: 'strict',
         muteSystemAudioWhileSpeaking: true,
         primaryLanguage: 'vi',
       }),
     ).resolves.toEqual({
       appLanguage: 'vi',
+      autonomyMode: 'strict',
       muteSystemAudioWhileSpeaking: true,
       primaryLanguage: 'vi',
     });
     await expect(service.getPrimaryLanguage()).resolves.toBe('vi');
     expect(store.write).toHaveBeenCalledWith({
       appLanguage: 'vi',
+      autonomyMode: 'strict',
       muteSystemAudioWhileSpeaking: true,
       primaryLanguage: 'vi',
     });
@@ -105,17 +109,22 @@ describe('FileAppPreferencesStore', () => {
     await expect(store.read()).resolves.toBeNull();
     await store.write({
       appLanguage: 'vi',
+      autonomyMode: 'strict',
       muteSystemAudioWhileSpeaking: true,
       primaryLanguage: 'en',
     });
 
     await expect(store.read()).resolves.toEqual({
       appLanguage: 'vi',
+      autonomyMode: 'strict',
       muteSystemAudioWhileSpeaking: true,
       primaryLanguage: 'en',
     });
     await expect(readFile(filePath, 'utf8')).resolves.toContain(
       '"appLanguage": "vi"',
+    );
+    await expect(readFile(filePath, 'utf8')).resolves.toContain(
+      '"autonomyMode": "strict"',
     );
     await expect(readFile(filePath, 'utf8')).resolves.toContain(
       '"muteSystemAudioWhileSpeaking": true',
@@ -133,6 +142,7 @@ describe('FileAppPreferencesStore', () => {
 
     await expect(service.get()).resolves.toEqual({
       appLanguage: 'en',
+      autonomyMode: 'balanced',
       muteSystemAudioWhileSpeaking: false,
       primaryLanguage: 'vi',
     });

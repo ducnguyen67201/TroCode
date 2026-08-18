@@ -8,11 +8,14 @@ import {
 } from 'react';
 
 import type {
+  AgentActivityUpdate,
+  AutonomyMode,
   AppLanguage,
   AppPreferences,
   AppUpdateStatus,
   AuthUser,
   CuaStatus,
+  ExecutionProfile,
   GoalSpec,
   MembershipStatus,
   PendingInteraction,
@@ -22,8 +25,11 @@ import type {
   TaskSnapshot,
   UsageBudgetSnapshot,
   VoiceStatus,
+  WorkspaceRuntimeAvailability,
+  WorkspaceSelection,
 } from '../shared/contracts';
 
+import { acceptAgentActivity } from './agent-activity-projection';
 import { appLanguageLabel, translate } from './app-language';
 import { BrandMark } from './BrandMark';
 import { HistoryPage } from './HistoryPage';
@@ -310,6 +316,8 @@ function VoiceShortcut({ platform }: { platform: PushToTalkPlatform }) {
 }
 
 function LiveTaskRail({
+  activities,
+  activity,
   appLanguage,
   autoStartFailed,
   canStart,
@@ -320,7 +328,10 @@ function LiveTaskRail({
   phase,
   progress,
   request,
+  streamingDraft,
 }: {
+  activities: readonly AgentActivityUpdate[];
+  activity: AgentActivityUpdate | null;
   appLanguage: AppLanguage;
   autoStartFailed: boolean;
   canStart: boolean;
@@ -331,6 +342,7 @@ function LiveTaskRail({
   phase: TaskSnapshot['phase'];
   progress: TaskSnapshot['progress'];
   request: string;
+  streamingDraft: string;
 }) {
   const t = (message: string) => translate(appLanguage, message);
   const isAgentProgress = Boolean(progress && 'kind' in progress);
@@ -345,10 +357,9 @@ function LiveTaskRail({
         )
       : `${progress.currentStep} / ${progress.maxSteps}`
     : t('Not started');
-  const progressPercentage = progress
-    ? 'kind' in progress
-      ? Math.min(100, Math.round((progress.completed / progress.limit) * 100))
-      : Math.min(
+  const progressPercentage =
+    progress && !('kind' in progress)
+      ? Math.min(
           100,
           Math.round((progress.currentStep / progress.maxSteps) * 100),
         )
@@ -359,6 +370,15 @@ function LiveTaskRail({
       : goal.objective
     : request;
   const showProgress = !isAgentProgress || completedToolCalls > 0;
+  const activityText =
+    activity?.kind === 'text_delta'
+      ? streamingDraft.slice(-500)
+      : activity?.summary ?? lastEvent?.summary;
+  const announceActivity =
+    activity?.kind === 'tool_started' || activity?.kind === 'tool_completed';
+  const visibleActivities = activities
+    .filter((item) => item.kind !== 'text_delta')
+    .slice(-50);
 
   return (
     <section
@@ -371,7 +391,7 @@ function LiveTaskRail({
       <div className="live-task-rail__body">
         <div className="live-task-rail__header">
           <div>
-            <p className="eyebrow">
+            <p aria-live="polite" className="eyebrow">
               {t('Live task')} · {formatLabel(phase, appLanguage)}
             </p>
             <h2 id="live-task-heading">{taskTitle}</h2>
@@ -382,9 +402,11 @@ function LiveTaskRail({
               className="live-task-rail__progress"
             >
               <span>{progressLabel}</span>
-              <i aria-hidden="true">
-                <span style={{ width: `${progressPercentage}%` }} />
-              </i>
+              {!isAgentProgress && (
+                <i aria-hidden="true">
+                  <span style={{ width: `${progressPercentage}%` }} />
+                </i>
+              )}
             </div>
           )}
         </div>
@@ -393,8 +415,12 @@ function LiveTaskRail({
           <span>
             {goal?.schemaVersion === 2
               ? formatLabel(goal.behavior, appLanguage)
-              : goal
-                ? 'GPT agent'
+              : goal?.schemaVersion === 5
+                ? goal.runtimeKind === 'codex_app_server'
+                  ? t('Workspace agent')
+                  : t('Everyday agent')
+                : goal
+                  ? t('Agent')
                 : t('Understanding request')}
           </span>
           <span aria-hidden="true">·</span>
@@ -402,6 +428,37 @@ function LiveTaskRail({
             {goal ? t('Tools selected at runtime') : t('Preparing task')}
           </span>
         </div>
+
+        {activityText && !['ready', 'blocked'].includes(phase) && (
+          <p
+            aria-live={announceActivity ? 'polite' : 'off'}
+            className="live-task-rail__activity"
+          >
+            {activityText}
+          </p>
+        )}
+
+        {visibleActivities.length > 0 && (
+          <details className="agent-activity-list">
+            <summary>{t('Activity')}</summary>
+            <ol>
+              {visibleActivities.map((item) => (
+                <li key={`${item.taskId}-${item.sequence}`}>
+                  <span>{item.summary}</span>
+                  {item.kind === 'plan_updated' && item.plan && (
+                    <ul>
+                      {item.plan.map((step, index) => (
+                        <li key={`${item.sequence}-${index}`}>
+                          <span>{step.status}</span> {step.step}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
 
         {goal && (
           <details className="live-task-details">
@@ -700,6 +757,12 @@ export function App({
   const [voiceTranscript, setVoiceTranscript] = useState('');
   const [snapshot, setSnapshot] = useState<TaskSnapshot | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
+  const [agentActivity, setAgentActivity] =
+    useState<AgentActivityUpdate | null>(null);
+  const [agentActivities, setAgentActivities] = useState<
+    AgentActivityUpdate[]
+  >([]);
+  const [streamingDraft, setStreamingDraft] = useState('');
   const [sessionEvents, setSessionEvents] = useState<TaskEvent[]>([]);
   const [sessionSnapshots, setSessionSnapshots] = useState<
     Record<string, TaskSnapshot>
@@ -727,6 +790,15 @@ export function App({
     useState<PrimaryLanguage>('en');
   const [appLanguageDraft, setAppLanguageDraft] =
     useState<AppLanguage>('en');
+  const [autonomyModeDraft, setAutonomyModeDraft] =
+    useState<AutonomyMode>('balanced');
+  const [executionProfile, setExecutionProfile] =
+    useState<ExecutionProfile>('everyday');
+  const [workspaceRuntime, setWorkspaceRuntime] =
+    useState<WorkspaceRuntimeAvailability | null>(null);
+  const [workspaceSelection, setWorkspaceSelection] =
+    useState<WorkspaceSelection | null>(null);
+  const [isSelectingWorkspace, setIsSelectingWorkspace] = useState(false);
   const [
     muteSystemAudioWhileSpeakingDraft,
     setMuteSystemAudioWhileSpeakingDraft,
@@ -857,6 +929,20 @@ export function App({
   }, []);
 
   useEffect(() => {
+    const activitySequences = new Map<string, number>();
+    const unsubscribeAgentActivity = window.tro.onAgentActivity((activity) => {
+      const activeTaskId = activeTaskIdRef.current;
+      if (!acceptAgentActivity(activity, activeTaskId, activitySequences)) return;
+      if (activity.kind === 'run_started') setStreamingDraft('');
+      if (activity.kind === 'run_started') setAgentActivities([]);
+      if (activity.kind === 'text_delta' && activity.textDelta) {
+        setStreamingDraft((current) =>
+          `${current}${activity.textDelta}`.slice(-8_000),
+        );
+      }
+      setAgentActivity(activity);
+      setAgentActivities((current) => [...current, activity].slice(-100));
+    });
     const unsubscribeTaskUpdates = window.tro.onTaskUpdate((update) => {
       const activeTaskId = activeTaskIdRef.current;
       if (activeTaskId && activeTaskId !== update.snapshot.taskId) return;
@@ -933,6 +1019,7 @@ export function App({
       .then((preferences) => {
         setAppPreferences(preferences);
         setAppLanguageDraft(preferences.appLanguage);
+        setAutonomyModeDraft(preferences.autonomyMode);
         setMuteSystemAudioWhileSpeakingDraft(
           preferences.muteSystemAudioWhileSpeaking,
         );
@@ -950,7 +1037,22 @@ export function App({
       })
       .finally(() => setPreferencesLoaded(true));
 
+    void window.tro
+      .getWorkspaceRuntimeAvailability()
+      .then(setWorkspaceRuntime)
+      .catch((workspaceError: unknown) => {
+        setWorkspaceRuntime({
+          available: false,
+          runtimeVersion: null,
+          summary:
+            workspaceError instanceof Error
+              ? workspaceError.message
+              : 'Workspace mode is unavailable. Install the supported Codex CLI.',
+        });
+      });
+
     return () => {
+      unsubscribeAgentActivity();
       unsubscribeTaskUpdates();
       unsubscribeAppUpdates();
     };
@@ -987,6 +1089,10 @@ export function App({
   const canSubmit =
     input.trim().length >= (pendingClarification || isSteering ? 1 : 2) &&
     !isSubmitting &&
+    (pendingClarification ||
+      isSteering ||
+      executionProfile === 'everyday' ||
+      Boolean(workspaceRuntime?.available && workspaceSelection)) &&
     pendingInteraction?.kind !== 'approval';
   const taskPhase = useMemo(
     () =>
@@ -1051,6 +1157,11 @@ export function App({
     isPrimaryLanguageSetupComplete(appPreferences, preferencesLoaded);
   const membershipAccessAllowed = membershipAllowsAccess(membershipStatus);
   const agentReady = voiceProviderStatus.state === 'ready';
+  const selectedTaskRuntimeReady =
+    snapshot?.goal?.schemaVersion === 5 &&
+    snapshot.goal.runtimeKind === 'codex_app_server'
+      ? workspaceRuntime?.available === true
+      : agentReady;
   const voiceReady =
     agentReady && microphonePermission !== 'unavailable';
   const desktopReady =
@@ -1136,6 +1247,7 @@ export function App({
     try {
       const preferences = await window.tro.updateAppPreferences({
         appLanguage: appLanguageDraft,
+        autonomyMode: autonomyModeDraft,
         muteSystemAudioWhileSpeaking: muteSystemAudioWhileSpeakingDraft,
         primaryLanguage: languageDraft,
       });
@@ -1164,8 +1276,35 @@ export function App({
     }
   }, [
     appLanguageDraft,
+    autonomyModeDraft,
     languageDraft,
     muteSystemAudioWhileSpeakingDraft,
+  ]);
+
+  const chooseWorkspace = useCallback(async () => {
+    if (!workspaceRuntime?.available || isSelectingWorkspace) return;
+
+    setIsSelectingWorkspace(true);
+    clearError();
+    try {
+      const selection = await window.tro.selectWorkspace();
+      if (!selection) return;
+      setWorkspaceSelection(selection);
+      setExecutionProfile('workspace');
+    } catch (selectionError) {
+      reportError(
+        selectionError instanceof Error
+          ? selectionError.message
+          : 'TroCode could not select that workspace.',
+      );
+    } finally {
+      setIsSelectingWorkspace(false);
+    }
+  }, [
+    clearError,
+    isSelectingWorkspace,
+    reportError,
+    workspaceRuntime?.available,
   ]);
 
   const checkForAppUpdates = useCallback(async () => {
@@ -1243,9 +1382,17 @@ export function App({
           }
           activeTaskIdRef.current = null;
           setEvents([]);
+          setAgentActivities([]);
+          setAgentActivity(null);
+          setStreamingDraft('');
           recordSnapshot(null);
           nextSnapshot = await window.tro.submitTask({
+            executionProfile,
             text: normalizedRequest,
+            workspaceSelectionId:
+              executionProfile === 'workspace'
+                ? workspaceSelection?.selectionId ?? null
+                : null,
           });
         }
 
@@ -1265,6 +1412,7 @@ export function App({
     },
     [
       clearError,
+      executionProfile,
       input,
       isSteering,
       isSubmitting,
@@ -1272,6 +1420,7 @@ export function App({
       recordSnapshot,
       reportError,
       snapshot,
+      workspaceSelection,
     ],
   );
 
@@ -1437,6 +1586,7 @@ export function App({
       try {
         const preferences = await window.tro.updateAppPreferences({
           appLanguage: appLanguageDraft,
+          autonomyMode: autonomyModeDraft,
           muteSystemAudioWhileSpeaking: muteSystemAudioWhileSpeakingDraft,
           primaryLanguage: languageDraft,
         });
@@ -1456,6 +1606,7 @@ export function App({
     }
   }, [
     appLanguageDraft,
+    autonomyModeDraft,
     languageDraft,
     muteSystemAudioWhileSpeakingDraft,
   ]);
@@ -1551,7 +1702,7 @@ export function App({
     if (
       !snapshot ||
       !shouldAutoStartTask(snapshot, {
-        agentReady,
+        agentReady: selectedTaskRuntimeReady,
         isBusy: isSubmitting,
       }) ||
       autoStartAttemptedTaskIdsRef.current.has(snapshot.taskId)
@@ -1562,7 +1713,7 @@ export function App({
     autoStartAttemptedTaskIdsRef.current.add(snapshot.taskId);
     const taskId = snapshot.taskId;
     queueMicrotask(() => void startTask(taskId));
-  }, [agentReady, isSubmitting, snapshot, startTask]);
+  }, [isSubmitting, selectedTaskRuntimeReady, snapshot, startTask]);
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent): void => {
@@ -1847,11 +1998,13 @@ export function App({
         ) : activeView === 'settings' ? (
           <SettingsPage
             appLanguage={appLanguageDraft}
+            autonomyMode={autonomyModeDraft}
             appUpdateError={appUpdateError}
             appUpdateStatus={appUpdateStatus}
             error={settingsError}
             hasChanges={
               appPreferences?.appLanguage !== appLanguageDraft ||
+              appPreferences?.autonomyMode !== autonomyModeDraft ||
               appPreferences?.muteSystemAudioWhileSpeaking !==
                 muteSystemAudioWhileSpeakingDraft ||
               appPreferences?.primaryLanguage !== languageDraft
@@ -1860,6 +2013,11 @@ export function App({
             isUpdatingApp={isUpdatingApp}
             onAppLanguageChange={(language) => {
               setAppLanguageDraft(language);
+              setSettingsError(null);
+              setSettingsSaveMessage(null);
+            }}
+            onAutonomyModeChange={(mode) => {
+              setAutonomyModeDraft(mode);
               setSettingsError(null);
               setSettingsSaveMessage(null);
             }}
@@ -1953,6 +2111,55 @@ export function App({
                 rows={hasLiveTask || pendingInteraction ? 2 : 4}
                 value={input}
               />
+              {!pendingClarification && !isSteering && (
+                <div
+                  aria-label={t('Execution mode')}
+                  className="execution-profile-picker"
+                  role="group"
+                >
+                  <button
+                    aria-pressed={executionProfile === 'everyday'}
+                    onClick={() => setExecutionProfile('everyday')}
+                    type="button"
+                  >
+                    <strong>{t('Everyday')}</strong>
+                    <span>{t('Apps, research, and routine desktop work')}</span>
+                  </button>
+                  {workspaceRuntime?.available && (
+                    <button
+                      aria-pressed={executionProfile === 'workspace'}
+                      disabled={isSelectingWorkspace}
+                      onClick={() => {
+                        if (
+                          workspaceSelection &&
+                          executionProfile !== 'workspace'
+                        ) {
+                          setExecutionProfile('workspace');
+                        } else {
+                          void chooseWorkspace();
+                        }
+                      }}
+                      type="button"
+                    >
+                      <strong>
+                        {isSelectingWorkspace
+                          ? t('Choosing…')
+                          : t('Workspace')}
+                      </strong>
+                      <span>
+                        {workspaceSelection
+                          ? workspaceSelection.displayName
+                          : t('Choose a trusted project folder')}
+                      </span>
+                    </button>
+                  )}
+                  {workspaceRuntime && !workspaceRuntime.available && (
+                    <p className="execution-profile-picker__unavailable">
+                      {workspaceRuntime.summary}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="composer-footer">
                 <span>
                   {pendingClarification
@@ -1960,7 +2167,9 @@ export function App({
                     : isSteering
                       ? t('Steering is reviewed at the next safe boundary.')
                       : t(
-                          'Nothing executes until scope and approvals are checked.',
+                          autonomyModeDraft === 'balanced'
+                            ? 'Routine reversible actions flow automatically; consequential actions still ask.'
+                            : 'Strict mode asks before routine desktop changes and consequential actions.',
                         )}
                 </span>
                 <button className="primary-button" disabled={!canSubmit} type="submit">
@@ -1992,9 +2201,17 @@ export function App({
 
             {hasLiveTask && snapshot && (
               <LiveTaskRail
+                activities={agentActivities.filter(
+                  (item) => item.taskId === snapshot.taskId,
+                )}
+                activity={
+                  agentActivity?.taskId === snapshot.taskId
+                    ? agentActivity
+                    : null
+                }
                 appLanguage={appLanguageDraft}
                 autoStartFailed={autoStartFailedTaskId === snapshot.taskId}
-                canStart={agentReady}
+                canStart={selectedTaskRuntimeReady}
                 goal={snapshot.goal}
                 isStarting={isSubmitting}
                 lastEvent={snapshot.lastEvent}
@@ -2002,6 +2219,7 @@ export function App({
                 phase={snapshot.phase}
                 progress={snapshot.progress}
                 request={snapshot.request}
+                streamingDraft={streamingDraft}
               />
             )}
 

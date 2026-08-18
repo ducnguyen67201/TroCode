@@ -5,11 +5,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CuaStatus } from '../../shared/contracts';
 
 import type {
-  AgentModel,
   AgentToolOutput,
-  AgentTurn,
   ModelToolSpec,
 } from './agent-contracts';
+import type { AgentRuntime, AgentRuntimeStart } from './agent-runtime';
 import type {
   DesktopActionOutcome,
   DesktopCommand,
@@ -23,18 +22,34 @@ import {
 import { RuntimeToolRegistry } from './runtime-tool-registry';
 import { TaskRuntime } from './task-runtime';
 
-class FakeAgent implements AgentModel {
+type FakeAgentTurn =
+  | { kind: 'assistant_message'; text: string }
+  | {
+      kind: 'tool_call';
+      call: { arguments: string; callId: string; name: string };
+    };
+
+class FakeAgent implements AgentRuntime {
+  readonly kind = 'openai_agents' as const;
   readonly completionReviews: string[] = [];
   readonly outputs: AgentToolOutput[] = [];
   readonly userMessages: string[] = [];
-  readonly start = vi.fn(async () => undefined);
-  readonly end = vi.fn(async () => undefined);
+  readonly start = vi.fn(
+    async (_taskId: string, _request: string, _signal?: AbortSignal) => {
+      void _taskId;
+      void _request;
+      void _signal;
+    },
+  );
+  readonly end = vi.fn(async (_taskId: string) => {
+    void _taskId;
+  });
   readonly sample = vi.fn(
     async (
       _taskId: string,
       _tools: readonly ModelToolSpec[],
       _signal?: AbortSignal,
-    ): Promise<AgentTurn> => {
+    ): Promise<FakeAgentTurn> => {
       void _taskId;
       void _tools;
       void _signal;
@@ -44,33 +59,49 @@ class FakeAgent implements AgentModel {
     },
   );
 
-  constructor(private readonly turns: AgentTurn[]) {}
+  constructor(private readonly turns: FakeAgentTurn[]) {}
 
-  appendToolOutput(_taskId: string, output: AgentToolOutput): void {
-    this.outputs.push(output);
+  private active?: AgentRuntimeStart;
+
+  async runTask(input: AgentRuntimeStart): Promise<string> {
+    this.active = input;
+    await this.start(input.taskId, input.request, input.signal);
+    return this.runTurns(input);
   }
 
-  appendUserMessage(_taskId: string, text: string): void {
-    this.userMessages.push(text);
-  }
-
-  requestCompletionReview(taskId: string): void {
+  async continueTask(
+    taskId: string,
+    _instruction: string,
+    _signal?: AbortSignal,
+  ): Promise<string> {
+    void _instruction;
+    void _signal;
     this.completionReviews.push(taskId);
+    if (!this.active) throw new Error('Fake agent has no active run.');
+    return this.runTurns(this.active);
+  }
+
+  private async runTurns(input: AgentRuntimeStart): Promise<string> {
+    this.userMessages.push(...(await input.callbacks.beforeModel()));
+    const turn = await this.sample(input.taskId, input.tools, input.signal);
+    if (turn.kind === 'assistant_message') return turn.text;
+    const output = await input.callbacks.executeTool(turn.call);
+    this.outputs.push({ callId: turn.call.callId, output });
+    return this.runTurns(input);
   }
 }
 
-function assistant(text: string): AgentTurn {
-  return { kind: 'assistant_message', responseItems: [], text };
+function assistant(text: string): FakeAgentTurn {
+  return { kind: 'assistant_message', text };
 }
 
 function tool(
   callId: string,
   name: string,
   input: Record<string, unknown>,
-): AgentTurn {
+): FakeAgentTurn {
   return {
     kind: 'tool_call',
-    responseItems: [],
     call: { callId, name, arguments: JSON.stringify(input) },
   };
 }
@@ -99,7 +130,7 @@ function observation(
 }
 
 function setup(
-  turns: AgentTurn[],
+  turns: FakeAgentTurn[],
   observations: DesktopObservation[] = [],
   options: {
     guidanceAutoAdvanceMs?: number;
@@ -308,12 +339,6 @@ describe('TaskExecutionCoordinator', () => {
       'a'.repeat(64),
       'Gmail inbox with the newest email in the first row.',
     );
-    const approvedCurrent = observation(
-      taskId,
-      randomUUID(),
-      'a'.repeat(64),
-      'Gmail inbox with the newest email in the first row.',
-    );
     const openedEmail = observation(
       taskId,
       randomUUID(),
@@ -345,29 +370,15 @@ describe('TaskExecutionCoordinator', () => {
         }),
         assistant('The newest email is open and its complete body is readable.'),
       ],
-      [inbox, approvedCurrent, openedEmail],
+      [inbox, openedEmail],
     );
     const ready = runtime.submit({
       text: 'Open Gmail and read the latest email.',
     });
     inbox.taskId = ready.taskId;
-    approvedCurrent.taskId = ready.taskId;
     openedEmail.taskId = ready.taskId;
 
     coordinator.start({ taskId: ready.taskId });
-    await coordinator.waitForIdle(ready.taskId);
-    const waiting = runtime.getSnapshot(ready.taskId);
-    if (!waiting.pendingInteraction || waiting.pendingInteraction.kind !== 'approval') {
-      throw new Error('Expected approval.');
-    }
-    runtime.decideApproval({
-      taskId: ready.taskId,
-      interactionId: waiting.pendingInteraction.id,
-      kind: 'approval',
-      decision: 'approve',
-      actionDigest: waiting.pendingInteraction.actionDigest,
-    });
-    coordinator.resume(ready.taskId);
     await coordinator.waitForIdle(ready.taskId);
 
     expect(openExternal).toHaveBeenCalledWith('https://mail.google.com/');
@@ -377,7 +388,7 @@ describe('TaskExecutionCoordinator', () => {
       expect.objectContaining({ kind: 'click' }),
       expect.any(AbortSignal),
     );
-    expect(cua.observe).toHaveBeenCalledTimes(3);
+    expect(cua.observe).toHaveBeenCalledTimes(2);
     expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
       phase: 'completed',
       progress: { completed: 3 },
@@ -388,7 +399,6 @@ describe('TaskExecutionCoordinator', () => {
     const taskId = randomUUID();
     const observationId = randomUUID();
     const first = observation(taskId, observationId, 'a'.repeat(64));
-    const approvedCurrent = observation(taskId, randomUUID(), 'a'.repeat(64));
     const after = observation(taskId, randomUUID(), 'b'.repeat(64));
     const { agent, coordinator, cua, runtime } = setup(
       [
@@ -409,31 +419,17 @@ describe('TaskExecutionCoordinator', () => {
         assistant('The newest email is open.'),
         assistant('The newest email is open.'),
       ],
-      [first, approvedCurrent, after],
+      [first, after],
     );
     const ready = runtime.submit({ text: 'Open Gmail and read the latest email.' });
     first.taskId = ready.taskId;
-    approvedCurrent.taskId = ready.taskId;
     after.taskId = ready.taskId;
 
     coordinator.start({ taskId: ready.taskId });
     await coordinator.waitForIdle(ready.taskId);
-    const waiting = runtime.getSnapshot(ready.taskId);
-    if (!waiting.pendingInteraction || waiting.pendingInteraction.kind !== 'approval') {
-      throw new Error('Expected approval.');
-    }
-    runtime.decideApproval({
-      taskId: ready.taskId,
-      interactionId: waiting.pendingInteraction.id,
-      kind: 'approval',
-      decision: 'approve',
-      actionDigest: waiting.pendingInteraction.actionDigest,
-    });
-    coordinator.resume(ready.taskId);
-    await coordinator.waitForIdle(ready.taskId);
 
     expect(cua.startTaskSession).toHaveBeenCalledOnce();
-    expect(cua.observe).toHaveBeenCalledTimes(3);
+    expect(cua.observe).toHaveBeenCalledTimes(2);
     expect(cua.executeCommand).toHaveBeenCalledWith(
       ready.taskId,
       expect.objectContaining({ kind: 'click', x: 1000, y: 250 }),
@@ -493,6 +489,30 @@ describe('TaskExecutionCoordinator', () => {
       'Observe the desktop before requesting a control action.',
     );
     expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+  });
+
+  it('blocks before capturing more image evidence than the task contract permits', async () => {
+    const turns = Array.from({ length: 21 }, (_, index) =>
+      tool(`call-observe-${index}`, 'observe_desktop', {
+        reason: `Inspect state ${index}.`,
+      }),
+    );
+    const observations = Array.from({ length: 20 }, (_, index) =>
+      observation(randomUUID(), randomUUID(), String(index).padStart(64, '0')),
+    );
+    const { agent, coordinator, cua, runtime } = setup(turns, observations);
+    const ready = runtime.submit({ text: 'Inspect the changing screen repeatedly.' });
+    for (const current of observations) current.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(cua.observe).toHaveBeenCalledTimes(20);
+    expect(agent.sample).toHaveBeenCalledTimes(21);
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'blocked',
+      lastEvent: { summary: expect.stringContaining('image-evidence limit') },
+    });
   });
 
   it('blocks after an approved desktop action has an unknown outcome', async () => {

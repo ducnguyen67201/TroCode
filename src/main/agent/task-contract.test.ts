@@ -11,12 +11,16 @@ import {
 } from './task-contract';
 
 describe('task contract', () => {
-  it('creates a host-owned v4 contract with cost ceilings and no semantic grants', () => {
+  it('creates a host-owned v5 Everyday contract with cost ceilings and no semantic grants', () => {
     const contract = createTaskContract('Create a simple beat in GarageBand.');
 
     expect(contract).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
+      autonomyMode: 'balanced',
+      executionProfile: 'everyday',
       originalRequest: 'Create a simple beat in GarageBand.',
+      runtimeKind: 'openai_agents',
+      workspace: null,
       approvalPolicy: { alwaysConfirm: HOST_APPROVAL_POLICY },
       limits: {
         maxImages: 20,
@@ -62,12 +66,37 @@ describe('task contract', () => {
   it('rejects malformed or unknown future contract versions', () => {
     expect(() =>
       TaskContractSchema.parse({
-        schemaVersion: 5,
+        schemaVersion: 6,
         id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         originalRequest: 'Complete a future task',
         approvalPolicy: { alwaysConfirm: [] },
         limits: { maxMinutes: 10, maxToolCalls: 12 },
       }),
     ).toThrow();
+  });
+
+  it('binds Workspace mode to Codex and a trusted canonical root', () => {
+    const workspace = {
+      selectionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      canonicalPath: '/tmp/project',
+      displayName: 'project',
+      selectedAt: '2026-08-18T00:00:00.000Z',
+    };
+    expect(
+      createTaskContract('Fix the tests.', {
+        executionProfile: 'workspace',
+        workspace,
+      }),
+    ).toMatchObject({
+      schemaVersion: 5,
+      executionProfile: 'workspace',
+      runtimeKind: 'codex_app_server',
+      workspace,
+    });
+    expect(() =>
+      createTaskContract('Fix the tests.', {
+        executionProfile: 'workspace',
+      }),
+    ).toThrow('trusted workspace');
   });
 });

@@ -5,11 +5,11 @@ import {
   type ProposedAction,
 } from '../../shared/contracts';
 
+import { classifyActionRisk } from './action-risk-classifier';
 import {
   defaultRuntimeToolRegistry,
   type RuntimeToolRegistry,
 } from './runtime-tool-registry';
-import { taskApprovalPolicy } from './task-contract';
 
 export { ProposedActionSchema };
 export type { ProposedAction };
@@ -25,17 +25,6 @@ const APPROVAL_PATTERN = /\bapprov(?:e|al|ed|ing)\b/iu;
 const INTERNAL_APPROVAL_LABEL_PATTERN =
   /\b(?:approve exact action|deny exact action|approval control|approval dialog)\b/iu;
 const TROCODE_PATTERN = /\btro\s*code\b/iu;
-const HOST_APPROVAL_DESKTOP_OPERATIONS: ReadonlySet<string> = new Set([
-  'click',
-  'drag',
-  'type_text',
-  'keypress',
-]);
-
-function declaredConsequence(action: ProposedAction): string | undefined {
-  const value = action.parameters?.declaredConsequence;
-  return typeof value === 'string' ? value : undefined;
-}
 
 function isTroCodeApprovalUiAction(action: ProposedAction): boolean {
   if (action.toolId !== 'desktop.control') return false;
@@ -47,24 +36,6 @@ function isTroCodeApprovalUiAction(action: ProposedAction): boolean {
   return (
     (referencesApprovalControl && TROCODE_PATTERN.test(actionText)) ||
     INTERNAL_APPROVAL_LABEL_PATTERN.test(actionText)
-  );
-}
-
-function requiresApproval(action: ProposedAction): boolean {
-  const alwaysConfirm = taskApprovalPolicy() as readonly string[];
-  const consequence = declaredConsequence(action);
-  return (
-    (action.toolId === 'desktop.control' &&
-      Boolean(
-        action.operation &&
-          HOST_APPROVAL_DESKTOP_OPERATIONS.has(action.operation),
-      )) ||
-    alwaysConfirm.includes(action.action) ||
-    Boolean(
-      action.toolId === 'desktop.control' &&
-        consequence &&
-        alwaysConfirm.includes(consequence),
-    )
   );
 }
 
@@ -130,8 +101,13 @@ export function evaluateAction(
 ): PolicyDecision {
   GoalSpecSchema.parse(goal);
   const action = ProposedActionSchema.parse(proposedAction);
+  const workspaceRuntimeApproval =
+    goal.schemaVersion === 5 &&
+    goal.runtimeKind === 'codex_app_server' &&
+    !action.toolId &&
+    ['run_command', 'write_file', 'system_permission'].includes(action.action);
 
-  if (!toolRegistry.supports(action)) {
+  if (!workspaceRuntimeApproval && !toolRegistry.supports(action)) {
     return {
       status: 'denied',
       summary: 'The requested runtime tool operation is unavailable.',
@@ -159,10 +135,11 @@ export function evaluateAction(
     };
   }
 
-  if (requiresApproval(action)) {
+  const risk = classifyActionRisk(goal, action);
+  if (risk.level === 'sensitive') {
     return {
       status: 'needs_approval',
-      summary: `${action.description} requires explicit user approval.`,
+      summary: `${action.description} requires explicit user approval. ${risk.reason}`,
       nextActions: ['Present a scoped approval request to the user.'],
     };
   }

@@ -1,6 +1,6 @@
 # Computer-use lifecycle
 
-Computer use is an optional tool inside the general Responses loop. A new task
+Computer use is an optional tool inside the Everyday Agents SDK loop. A new task
 does not create a CUA session, infer a computer capability, or capture a
 screenshot.
 
@@ -26,8 +26,8 @@ coordinates are mapped separately into desktop points.
 
 Before model input, wide screenshots are resized to at most 1,536 pixels and
 encoded as bounded JPEG evidence. Exactly one current screenshot may appear in
-a Responses request. After that sample its bytes are demoted from manual
-history while bounded textual observation facts remain. A later action must
+a Responses request. After that model boundary its bytes are demoted from the
+bounded SDK session while textual observation facts remain. A later action must
 produce a newer observation; historical screenshots are never replayed.
 
 ## Freshness and approvals
@@ -40,10 +40,12 @@ screen again. Any fingerprint change invalidates the grant, returns
 Opening a browser URL also invalidates the cached observation before any later
 coordinate action can be resolved.
 
-The model's declared consequence is retained for audit and exact approval copy,
-but it cannot downgrade policy. The host requires approval for every desktop
-click, drag, text-entry, or keypress operation; only non-mutating scrolling can
-run without that desktop-mutation gate.
+The model's declared consequence is retained for exact approval copy, but it
+cannot downgrade policy. Balanced autonomy allows routine grounded clicks,
+drags, text entry, keypresses, and scrolling. The host risk classifier raises
+sensitive cues, opaque targets, stale observations, and declared consequential
+effects to exact approval. Strict autonomy confirms routine desktop mutations
+too.
 
 ## Outcomes
 

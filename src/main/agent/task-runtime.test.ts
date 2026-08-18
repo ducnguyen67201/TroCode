@@ -5,7 +5,7 @@ import { TaskUpdateSchema } from '../../shared/contracts';
 import { TaskRuntime } from './task-runtime';
 
 describe('TaskRuntime', () => {
-  it('submits a ready v4 task synchronously', () => {
+  it('submits a ready v5 task synchronously', () => {
     const runtime = new TaskRuntime();
     const listener = vi.fn();
     runtime.on('task-update', listener);
@@ -14,7 +14,10 @@ describe('TaskRuntime', () => {
 
     expect(snapshot.phase).toBe('ready');
     expect(snapshot.goal).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
+      autonomyMode: 'balanced',
+      executionProfile: 'everyday',
+      runtimeKind: 'openai_agents',
       originalRequest: 'What is 27 × 14?',
     });
     expect(snapshot.progress).toEqual({
@@ -134,7 +137,7 @@ describe('TaskRuntime', () => {
     ).toBe('acting');
   });
 
-  it('increments v3 progress only when a tool result is recorded', () => {
+  it('increments agent progress only when a tool result is recorded', () => {
     const runtime = new TaskRuntime();
     const ready = runtime.submit({ text: 'Open Gmail.' });
     runtime.start({ taskId: ready.taskId });

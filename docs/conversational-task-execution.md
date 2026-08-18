@@ -1,20 +1,23 @@
 # Conversational task execution
 
-TroCode keeps one bounded GPT conversation for each task. A user request is not
-precompiled into answer/guide/act modes. The model can answer normally or call
-one concrete host-advertised tool; a tool result, clarification answer,
-approval decision, or steering message returns to the same session.
+TroCode keeps one bounded runtime conversation for each task. A user request is
+not precompiled into answer/guide/act modes. The default Everyday runtime is an
+OpenAI Agents SDK run; explicitly selected Workspace tasks are Codex app-server
+threads and turns. Tool results, clarification answers, approval decisions, and
+steering continue the same run or turn.
 
 ## Core loop
 
 ```mermaid
 flowchart TD
-    USER["User message"] --> MODEL["GPT Responses sample"]
+    USER["User message"] --> RUNTIME{"Host-selected runtime"}
+    RUNTIME -->|"Everyday"| MODEL["OpenAI Agents SDK run"]
+    RUNTIME -->|"Workspace"| CODEX["Codex app-server turn"]
     MODEL -->|"Assistant candidate"| REVIEW{"Contextual completion review needed?"}
     REVIEW -->|"No or already reviewed"| DONE["Finished"]
     REVIEW -->|"Yes, once"| CHECK["Trusted GPT completion checkpoint"]
     CHECK --> MODEL
-    MODEL -->|"One function call"| ROUTER["Host tool router"]
+    MODEL -->|"Function call"| ROUTER["Host tool broker"]
     ROUTER --> POLICY["Availability, target, exact-risk policy"]
     POLICY -->|"Denied/recoverable"| OUTPUT["Function-call output"]
     POLICY -->|"Missing information"| ASK["Task-scoped question"]
@@ -24,6 +27,8 @@ flowchart TD
     APPROVE --> USER
     EXECUTE --> OUTPUT
     OUTPUT --> MODEL
+    CODEX -->|"Workspace sandbox or exact server request"| ROUTER
+    OUTPUT --> CODEX
 ```
 
 `show_guidance` adds one user-controlled pacing boundary to this loop. The host
@@ -49,25 +54,33 @@ task so a faulty model cannot create an unbounded self-review loop.
 
 ## Clarification and steering
 
-`request_user_input` creates an `awaiting_input` interaction bound to the model
-function call ID. The user's answer becomes exactly one output for that call,
-then sampling continues. Steering is queued until a safe boundary, appended as
-a user message, and never interrupts an already dispatched atomic action.
+`request_user_input` creates an `awaiting_input` interaction bound to the active
+runtime request. The user's answer becomes exactly one response, then the same
+run or turn continues. Everyday steering is queued until the next safe model
+boundary. Workspace steering uses `turn/steer` while active. Neither mutates an
+already dispatched atomic action.
 
 ## Exact approval
 
-Send, submit, upload, download, delete, purchase, install, login, command
-execution, and file writes always pause immediately before the concrete action.
-Desktop clicks, drags, text entry, and keypresses also pause because the trusted
-host cannot infer a control's real-world effect from a model-provided label.
-The UI shows target, description, and exact bounded parameters. Typed or spoken
-“yes” is not approval. A grant is single-use, expires, and matches a digest of
-tool, operation, consequence, target, payload, command, coordinates, and desktop
-observation evidence.
+Send, submit, upload, download, delete, purchase, install, login, permission
+changes, command execution, and file writes pause at a concrete escalation
+boundary. Under the default Balanced preference, routine grounded clicks,
+drags, text entry, keypresses, and scrolling continue automatically. Host-visible
+sensitive cues can only raise risk. Strict mode also confirms routine desktop
+mutations. The UI shows target, description, and exact bounded parameters. Typed
+or spoken “yes” is not approval. A desktop grant is single-use, expires, and
+matches a digest of tool, operation, consequence, target, payload, command,
+coordinates, and desktop observation evidence.
 
 Approval denial is returned to GPT as a denied tool output so the assistant can
 continue usefully. For desktop work, approval is followed by a fresh screen
 check; changed state invalidates the action instead of guessing.
+
+Codex command and file responses are one-request `accept` or `decline`
+decisions—never `acceptForSession`. Permission grants are turn-scoped. The
+adapter rejects secret-input requests, cross-thread or cross-turn messages,
+workspace/version mismatches, and malformed or oversized JSONL. It never
+replays a crashed turn.
 
 ## Optional tools and permissions
 
@@ -77,7 +90,7 @@ requests microphone access when used. Missing CUA permission pauses the held
 observation with Connect computer and Continue without computer choices; only a
 user click starts the OS permission flow.
 
-The initial catalog contains desktop observation/control, public HTTPS
+The Everyday catalog contains desktop observation/control, public HTTPS
 navigation, grounded visual guidance, and task interaction. Future filesystem,
 terminal, email, calendar, image, audio, and music providers register a model
 specification, strict parser, trusted internal identity, policy metadata, and
@@ -86,15 +99,16 @@ than claim an artifact was generated.
 
 ## Evidence and privacy
 
-Every desktop action is followed by a fresh screenshot before the next sample.
-Screenshots and Responses items stay in bounded main-process memory and are
-erased on cleanup. They are not sent through renderer IPC, task history, or
+Every desktop action is followed by a fresh screenshot before the next model
+boundary. Screenshots and runtime items stay in bounded main-process memory and
+are erased on cleanup. The renderer receives only coalesced text deltas and
+bounded status/tool/plan summaries; raw reasoning, tool arguments, command
+output, and diffs are dropped. Partial deltas do not enter task history or
 analytics. Unknown effects are reported honestly and their exact action digest
 cannot execute again.
 
-The inference shell selects a deterministic cost profile without a classifier
-call. Standard and visual turns use Luna with a 2,000-token output cap; only a
-long-response profile raises this to 4,000. Each hosted sample reserves
+The Everyday adapter uses one configured model without a classifier or fallback
+call and applies a 4,000-token output cap. Each hosted sample reserves
 server-priced micro-USD before dispatch and settles provider usage afterward.
 Typed and finalized voice transcripts enter this same task path, so voice does
 not create a second reasoning call.

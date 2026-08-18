@@ -18,6 +18,7 @@ function createIdleTask(): TaskSnapshot {
     approvalGrant: null,
     progress: null,
     queuedSteering: [],
+    runtimeResume: null,
     createdAt: timestamp,
     updatedAt: timestamp,
     lastEvent: null,

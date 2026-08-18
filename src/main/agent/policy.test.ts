@@ -28,7 +28,7 @@ describe('concrete tool policy', () => {
   });
 
   it.each(['click', 'drag', 'type_text', 'keypress'] as const)(
-    'requires host approval for desktop %s even when the model declares a benign consequence',
+    'allows routine desktop %s when the declared consequence is benign',
     (operation) => {
       expect(
         evaluateAction(contract, {
@@ -42,6 +42,31 @@ describe('concrete tool policy', () => {
           operation,
           description: 'Perform the visible desktop action.',
         }).status,
+      ).toBe('allowed');
+    },
+  );
+
+  it.each([
+    ['click_element', 'click'],
+    ['drag', 'drag'],
+    ['type_text', 'type_text'],
+    ['press_key', 'keypress'],
+    ['scroll', 'scroll'],
+  ] as const)(
+    'requires strict-mode approval for routine desktop %s',
+    (action, operation) => {
+      expect(
+        evaluateAction(
+          createTaskContract('Perform the visible desktop action.', {
+            autonomyMode: 'strict',
+          }),
+          {
+            action,
+            toolId: 'desktop.control',
+            operation,
+            description: 'Perform the visible desktop action.',
+          },
+        ).status,
       ).toBe('needs_approval');
     },
   );
@@ -97,6 +122,7 @@ describe('concrete tool policy', () => {
     'install',
     'run_command',
     'write_file',
+    'system_permission',
   ] as const)('requires exact approval for %s', (action) => {
     expect(
       evaluateAction(contract, {

@@ -10,6 +10,8 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
 - Only trusted main-process code creates and destroys the CUA runtime.
 - A model cannot register a tool, approve an action, alter host limits, or make
   a private/local browser target admissible.
+- A model cannot select a runtime, choose or expand a workspace, change the
+  Codex sandbox, grant network access, or operate TroCode approval controls.
 
 ## Default behavior
 
@@ -36,15 +38,33 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
   the revocable Google-backed device session instead of an offline activation.
 - Assistant text and tool calls share one model session. A model tool call is a
   proposal, not permission or proof that an effect occurred.
-- Consequential actions require explicit approval. For desktop control, the
-  trusted tool operation—not the model's declared consequence—sets the minimum
-  approval level: click, drag, text entry, and keypress operations all pause,
-  while scroll remains non-mutating.
+- Consequential actions require explicit approval. Balanced autonomy permits
+  routine click, drag, text entry, keypress, and scroll while the action remains
+  grounded and in scope. The pure host classifier can raise risk from normalized
+  action identity, declared consequence, opaque/stale state, and visible
+  destructive, financial, credential, submission, or permission cues. Strict
+  autonomy additionally confirms routine desktop mutations. Untrusted content
+  can raise risk but can never lower it or satisfy approval.
 - Remote navigation and creation of unexpected Electron windows are denied.
 - Current actions are bounded by registered tool operations, public-target
   checks, task budgets, fresh observations, and exact approvals. A task does
   not gain authority from a keyword, domain label, or model-produced capability
   string.
+
+Workspace mode is explicit and available only after both Codex CLI 0.146.0 and
+an app-scoped Codex login are verified. The
+trusted main-process picker canonicalizes one directory and returns only an
+opaque selection ID to the renderer. App-server runs with an app-scoped
+`CODEX_HOME`, that root as the only runtime workspace, `workspaceWrite`,
+`approvalPolicy: 'on-request'`, and network disabled. Command, file, permission,
+and input requests must match the active thread and turn. Approval responses are
+one-request `accept` decisions, never session-wide grants.
+
+Codex stdio is bounded JSONL. Malformed lines, oversized messages, duplicate
+IDs, version drift, workspace mismatch, and process exit fail closed. TroCode
+does not restart or replay a turn when completion is unknown. The subprocess
+receives an allowlisted OS environment plus its isolated `CODEX_HOME`; TroCode,
+provider, database, analytics, and release secrets are not inherited.
 
 ## Sensitive data
 
@@ -65,8 +85,10 @@ application. Production database credentials and network policy are deliberately
 separate from this development setup.
 
 PostHog runs only in the trusted Electron main process. Its event surface is an
-explicit allowlist of application lifecycle, task phase, contract version,
-tool ID/operation, and count fields. Voice events contain only character count.
+explicit allowlist of application lifecycle, task phase, contract/runtime/profile
+labels, first-delta latency, tool ID/operation, and count fields. Voice events
+contain only character count. Partial text, command text, arguments, paths, and
+approval descriptions are excluded.
 Anonymous activity uses a random local installation ID without a person
 profile. Email and display name are sent only after successful Google
 authentication.
@@ -75,7 +97,7 @@ Do not ship a shared model-provider API key inside the renderer, Electron main,
 or application bundle. Production OpenAI and optional ElevenLabs keys are
 injected into the Railway API only. Electron sends its opaque device session to
 fixed, HTTPS provider-proxy endpoints; provider credentials never reach the
-desktop. Responses sampling remains host-driven, Realtime SDP is bounded, and
+desktop. Responses streaming is SDK-driven behind the host broker, Realtime SDP is bounded, and
 only a validated private media descriptor crosses the narrow preload boundary.
 MP3 bytes stream through a `trocode-audio://speech/<UUID>` protocol handler
 owned by Electron main. Tickets are short-lived, one-use, bounded, and served

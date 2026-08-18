@@ -52,6 +52,7 @@ export const SensitiveActionSchema = z.enum([
   'install',
   'run_command',
   'write_file',
+  'system_permission',
 ]);
 
 export const HOST_ALWAYS_CONFIRM_ACTIONS = [
@@ -161,6 +162,49 @@ export const AgentTaskContractV4Schema = z.object({
   }),
 });
 
+export const AgentRuntimeKindSchema = z.enum([
+  'openai_agents',
+  'codex_app_server',
+]);
+
+export const ExecutionProfileSchema = z.enum(['everyday', 'workspace']);
+
+export const AutonomyModeSchema = z.enum(['balanced', 'strict']);
+
+export const WorkspaceIdentitySchema = z.object({
+  selectionId: z.string().uuid(),
+  canonicalPath: z.string().trim().min(1).max(4_096),
+  displayName: z.string().trim().min(1).max(255),
+  selectedAt: z.string().datetime(),
+});
+
+export const AgentTaskContractV5Schema = z
+  .object({
+    schemaVersion: z.literal(5),
+    id: z.string().uuid(),
+    originalRequest: z.string().min(2).max(8_000),
+    runtimeKind: AgentRuntimeKindSchema,
+    executionProfile: ExecutionProfileSchema,
+    autonomyMode: AutonomyModeSchema,
+    workspace: WorkspaceIdentitySchema.nullable(),
+    approvalPolicy: z.object({
+      alwaysConfirm: z.array(SensitiveActionSchema),
+    }),
+    limits: AgentTaskContractV4Schema.shape.limits,
+  })
+  .superRefine((contract, context) => {
+    const workspaceRuntime = contract.runtimeKind === 'codex_app_server';
+    const workspaceProfile = contract.executionProfile === 'workspace';
+    if (workspaceRuntime !== workspaceProfile || workspaceRuntime !== Boolean(contract.workspace)) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Workspace profile, Codex runtime, and trusted workspace identity must be selected together.',
+        path: ['workspace'],
+      });
+    }
+  });
+
 function normalizeLegacyGoal(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
   const goal = value as Record<string, unknown>;
@@ -185,6 +229,7 @@ export const TaskContractSchema = z.preprocess(
     LegacyTaskContractV2Schema,
     AgentTaskContractV3Schema,
     AgentTaskContractV4Schema,
+    AgentTaskContractV5Schema,
   ]),
 );
 
@@ -225,6 +270,90 @@ export const TaskEventSchema = z.object({
     })
     .optional(),
 });
+
+export const AgentActivityKindSchema = z.enum([
+  'run_started',
+  'status',
+  'text_delta',
+  'tool_started',
+  'tool_completed',
+  'plan_updated',
+  'approval_required',
+  'run_completed',
+  'run_failed',
+]);
+
+export const AgentActivityUpdateSchema = z
+  .object({
+    activityId: z.string().uuid(),
+    sequence: z.number().int().nonnegative(),
+    taskId: z.string().uuid(),
+    timestamp: z.string().datetime(),
+    kind: AgentActivityKindSchema,
+    textDelta: z.string().min(1).max(2_000).optional(),
+    summary: z.string().min(1).max(1_000).optional(),
+    tool: z
+      .object({
+        name: z.string().trim().min(1).max(100),
+        status: z.enum(['running', 'completed', 'failed']),
+      })
+      .optional(),
+    plan: z
+      .array(
+        z.object({
+          step: z.string().trim().min(1).max(500),
+          status: z.enum(['pending', 'in_progress', 'completed']),
+        }),
+      )
+      .max(20)
+      .optional(),
+  })
+  .superRefine((activity, context) => {
+    const textEvent = activity.kind === 'text_delta';
+    if (textEvent !== Boolean(activity.textDelta)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Only text-delta activity may carry a text delta.',
+        path: ['textDelta'],
+      });
+    }
+    const toolEvent =
+      activity.kind === 'tool_started' || activity.kind === 'tool_completed';
+    if (toolEvent !== Boolean(activity.tool)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Tool activity requires matching bounded tool metadata.',
+        path: ['tool'],
+      });
+    }
+    if (
+      activity.kind === 'tool_started' &&
+      activity.tool?.status !== 'running'
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'A started tool must have running status.',
+        path: ['tool', 'status'],
+      });
+    }
+    if (
+      activity.kind === 'tool_completed' &&
+      activity.tool?.status === 'running'
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'A completed tool cannot have running status.',
+        path: ['tool', 'status'],
+      });
+    }
+    if ((activity.kind === 'plan_updated') !== Boolean(activity.plan)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Only plan activity may carry a bounded plan.',
+        path: ['plan'],
+      });
+    }
+  });
 
 const PendingInteractionBaseSchema = z.object({
   id: z.string().uuid(),
@@ -319,6 +448,15 @@ export const TaskSnapshotSchema = z
     approvalGrant: ActionApprovalGrantSchema.nullable(),
     progress: TaskProgressSchema.nullable(),
     queuedSteering: z.array(SteeringInstructionSchema).max(50),
+    runtimeResume: z
+      .object({
+        kind: z.literal('codex_app_server'),
+        threadId: z.string().trim().min(1).max(255),
+        runtimeVersion: z.string().trim().min(1).max(100),
+        workspaceSelectionId: z.string().uuid(),
+      })
+      .nullable()
+      .default(null),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
     lastEvent: TaskEventSchema.nullable(),
@@ -355,6 +493,33 @@ export const TaskSnapshotSchema = z
 
 export const SubmitTaskRequestSchema = z.object({
   text: z.string().trim().min(2).max(8_000),
+  executionProfile: ExecutionProfileSchema.default('everyday'),
+  workspaceSelectionId: z.string().uuid().nullable().default(null),
+}).superRefine((request, context) => {
+  if (
+    (request.executionProfile === 'workspace') !==
+    Boolean(request.workspaceSelectionId)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Workspace tasks require a trusted workspace selection.',
+      path: ['workspaceSelectionId'],
+    });
+  }
+});
+
+export const WorkspaceRuntimeAvailabilitySchema = z.object({
+  available: z.boolean(),
+  runtimeVersion: z.string().trim().min(1).max(100).nullable(),
+  summary: z.string().trim().min(1).max(1_000),
+});
+
+export const SelectWorkspaceRequestSchema = z.object({}).strict();
+
+export const WorkspaceSelectionSchema = WorkspaceIdentitySchema.omit({
+  canonicalPath: true,
+}).extend({
+  runtime: WorkspaceRuntimeAvailabilitySchema,
 });
 
 export const GetUsageBudgetRequestSchema = z.object({
@@ -481,12 +646,14 @@ export const AppLanguageSchema = z.enum(['en', 'vi']);
 
 export const AppPreferencesSchema = z.object({
   appLanguage: AppLanguageSchema.default('en'),
+  autonomyMode: AutonomyModeSchema.default('balanced'),
   muteSystemAudioWhileSpeaking: z.boolean().default(false),
   primaryLanguage: PrimaryLanguageSchema.nullable(),
 });
 
 export const UpdateAppPreferencesRequestSchema = z.object({
   appLanguage: AppLanguageSchema.default('en'),
+  autonomyMode: AutonomyModeSchema.default('balanced'),
   muteSystemAudioWhileSpeaking: z.boolean().default(false),
   primaryLanguage: PrimaryLanguageSchema,
 });
@@ -786,6 +953,7 @@ export type Capability = z.infer<typeof CapabilitySchema>;
 export type ActionApprovalGrant = z.infer<typeof ActionApprovalGrantSchema>;
 export type AppLanguage = z.infer<typeof AppLanguageSchema>;
 export type AppPreferences = z.infer<typeof AppPreferencesSchema>;
+export type AutonomyMode = z.infer<typeof AutonomyModeSchema>;
 export type AppUpdateStatus = z.infer<typeof AppUpdateStatusSchema>;
 export type AuthStatus = z.infer<typeof AuthStatusSchema>;
 export type AuthUser = z.infer<typeof AuthUserSchema>;
@@ -826,8 +994,12 @@ export type GetUsageBudgetRequest = z.infer<
   typeof GetUsageBudgetRequestSchema
 >;
 export type TaskContract = z.infer<typeof TaskContractSchema>;
-export type AgentTaskContract = z.infer<typeof AgentTaskContractV4Schema>;
+export type AgentTaskContract = z.infer<typeof AgentTaskContractV5Schema>;
+export type AgentRuntimeKind = z.infer<typeof AgentRuntimeKindSchema>;
+export type ExecutionProfile = z.infer<typeof ExecutionProfileSchema>;
 export type InteractionMode = z.infer<typeof InteractionModeSchema>;
+export type AgentActivityKind = z.infer<typeof AgentActivityKindSchema>;
+export type AgentActivityUpdate = z.infer<typeof AgentActivityUpdateSchema>;
 export type MembershipStatus = z.infer<typeof MembershipStatusSchema>;
 export type PendingInteraction = z.infer<typeof PendingInteractionSchema>;
 export type PrimaryLanguage = z.infer<typeof PrimaryLanguageSchema>;
@@ -860,6 +1032,11 @@ export type UsageBudgetSnapshot = z.infer<typeof UsageBudgetSnapshotSchema>;
 export type UpdateAppPreferencesRequest = z.infer<
   typeof UpdateAppPreferencesRequestSchema
 >;
+export type WorkspaceIdentity = z.infer<typeof WorkspaceIdentitySchema>;
+export type WorkspaceRuntimeAvailability = z.infer<
+  typeof WorkspaceRuntimeAvailabilitySchema
+>;
+export type WorkspaceSelection = z.infer<typeof WorkspaceSelectionSchema>;
 export type VoiceCallAnswer = z.infer<typeof VoiceCallAnswerSchema>;
 export type VoiceDiagnostic = z.infer<typeof VoiceDiagnosticSchema>;
 export type VoiceShortcutEvent = z.infer<typeof VoiceShortcutEventSchema>;

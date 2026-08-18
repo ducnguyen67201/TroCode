@@ -245,7 +245,12 @@ describe('RuntimeToolRegistry', () => {
       modelName: 'generate_music',
       description: 'Configured later.',
       operations: ['create_track'],
-      parameters: { type: 'object' },
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {},
+        required: [],
+      },
       available: () => false,
       parse: () => ({}),
       normalize: (_input, call) => ({

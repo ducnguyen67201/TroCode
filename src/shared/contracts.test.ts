@@ -4,8 +4,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ActivateMembershipRequestSchema,
+  AgentActivityUpdateSchema,
   AgentTaskContractV3Schema,
   AgentTaskContractV4Schema,
+  AgentTaskContractV5Schema,
+  AppPreferencesSchema,
+  SubmitTaskRequestSchema,
   CompanionSpeechPlaybackReportSchema,
   CompanionSpeechSchema,
   MembershipStatusSchema,
@@ -43,6 +47,33 @@ const legacyBase = {
 };
 
 describe('shared task contracts', () => {
+  it('bounds normalized agent activity without exposing raw provider payloads', () => {
+    const activity = AgentActivityUpdateSchema.parse({
+      activityId: randomUUID(),
+      sequence: 2,
+      taskId: randomUUID(),
+      timestamp: '2026-08-17T00:00:00.000Z',
+      kind: 'tool_started',
+      summary: 'Using observe_desktop.',
+      tool: { name: 'observe_desktop', status: 'running' },
+    });
+    expect(activity.sequence).toBe(2);
+    expect(activity).not.toHaveProperty('arguments');
+    expect(() =>
+      AgentActivityUpdateSchema.parse({
+        ...activity,
+        textDelta: 'x'.repeat(2_001),
+      }),
+    ).toThrow();
+    expect(() =>
+      AgentActivityUpdateSchema.parse({
+        ...activity,
+        kind: 'text_delta',
+        tool: undefined,
+      }),
+    ).toThrow();
+  });
+
   it('accepts only credential-free private companion audio URLs', () => {
     const id = randomUUID();
     expect(
@@ -154,7 +185,58 @@ describe('shared task contracts', () => {
     ).not.toHaveProperty('prompt');
   });
 
-  it('loads mixed persisted v1, v2, and v3 history', () => {
+  it('binds v5 Workspace contracts and submissions to one trusted selection', () => {
+    const workspace = {
+      selectionId: randomUUID(),
+      canonicalPath: '/Users/person/project',
+      displayName: 'project',
+      selectedAt: '2026-08-18T00:00:00.000Z',
+    };
+    expect(
+      AgentTaskContractV5Schema.parse({
+        approvalPolicy: { alwaysConfirm: ['send'] },
+        autonomyMode: 'balanced',
+        executionProfile: 'workspace',
+        id: randomUUID(),
+        limits: {
+          maxImages: 20,
+          maxMicroUsd: 500_000,
+          maxMinutes: 10,
+          maxModelSamples: 40,
+          maxToolCalls: 30,
+        },
+        originalRequest: 'Fix the tests.',
+        runtimeKind: 'codex_app_server',
+        schemaVersion: 5,
+        workspace,
+      }),
+    ).toMatchObject({ runtimeKind: 'codex_app_server', workspace });
+    expect(
+      SubmitTaskRequestSchema.parse({
+        executionProfile: 'workspace',
+        text: 'Fix the tests.',
+        workspaceSelectionId: workspace.selectionId,
+      }),
+    ).toMatchObject({ executionProfile: 'workspace' });
+    expect(() =>
+      SubmitTaskRequestSchema.parse({
+        executionProfile: 'workspace',
+        text: 'Fix the tests.',
+      }),
+    ).toThrow();
+  });
+
+  it('defaults missing persisted autonomy preferences to balanced', () => {
+    expect(
+      AppPreferencesSchema.parse({
+        appLanguage: 'en',
+        muteSystemAudioWhileSpeaking: false,
+        primaryLanguage: 'en',
+      }),
+    ).toMatchObject({ autonomyMode: 'balanced' });
+  });
+
+  it('loads mixed persisted v1 through v4 history', () => {
     const history = TaskHistorySchema.parse({
       events: [],
       persistence: { mode: 'postgres', summary: 'Saved.' },
@@ -186,11 +268,30 @@ describe('shared task contracts', () => {
           },
           { kind: 'tool_calls', completed: 0, limit: 30 },
         ),
+        snapshot(
+          {
+            schemaVersion: 4,
+            id: randomUUID(),
+            originalRequest: 'Summarize the current screen.',
+            approvalPolicy: { alwaysConfirm: ['send'] },
+            limits: {
+              maxImages: 20,
+              maxMicroUsd: 500_000,
+              maxMinutes: 10,
+              maxModelSamples: 40,
+              maxToolCalls: 30,
+            },
+          },
+          { kind: 'tool_calls', completed: 1, limit: 30 },
+        ),
       ],
     });
 
     expect(history.snapshots.map((item) => item.goal?.schemaVersion)).toEqual([
-      2, 2, 3,
+      2, 2, 3, 4,
     ]);
+    expect(history.snapshots.every((item) => item.runtimeResume === null)).toBe(
+      true,
+    );
   });
 });

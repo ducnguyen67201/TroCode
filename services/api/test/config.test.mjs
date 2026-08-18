@@ -28,11 +28,10 @@ test('loadConfig validates required production secrets', () => {
 test('loadConfig restricts requests to configured models', () => {
   const config = loadConfig({
     ...VALID_ENVIRONMENT,
-    TROCODE_PLANNER_FALLBACK_MODEL: 'fallback-model',
-    TROCODE_PLANNER_MODEL: 'primary-model',
+    TROCODE_AGENT_MODEL: 'primary-model',
   });
 
-  assert.deepEqual([...config.openAiModels], ['primary-model', 'fallback-model']);
+  assert.deepEqual([...config.openAiModels], ['primary-model']);
   assert.equal(config.sessionDurationDays, 30);
   assert.equal(config.costGuard.monthlyMicroUsd, 20_000_000);
   assert.equal(config.costGuard.dailyMicroUsd, 2_000_000);

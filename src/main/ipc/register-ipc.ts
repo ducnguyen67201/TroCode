@@ -2,6 +2,7 @@ import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 
 import {
   ActivateMembershipRequestSchema,
+  AgentActivityUpdateSchema,
   CompanionSpeechPlaybackReportSchema,
   CompanionStateSchema,
   CompanionVoiceActivitySchema,
@@ -23,11 +24,13 @@ import {
   type UsageBudgetSnapshot,
 } from '../../shared/contracts';
 import { IPC_CHANNELS } from '../../shared/desktop-api';
+import type { AgentActivityService } from '../agent/agent-activity-service';
 import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
 import type { TaskRuntime } from '../agent/task-runtime';
 import type { TaskApplicationService } from '../application/task-application-service';
 import type { GoogleAuthService } from '../auth/google-auth-service';
 import type { UsageBudgetService } from '../budget/usage-budget-service';
+import type { WorkspaceSelectionService } from '../codex/workspace-selection-service';
 import type { CuaService } from '../cua/cua-service';
 import type { TaskHistoryService } from '../history/task-history-service';
 import type { MembershipService } from '../membership/membership-service';
@@ -37,6 +40,7 @@ import type { SystemAudioDuckingService } from '../voice/system-audio-ducking-se
 import type { VoiceService } from '../voice/voice-service';
 
 interface IpcServices {
+  agentActivityService: AgentActivityService;
   appUpdateService: Pick<
     AppUpdateService,
     | 'checkForUpdates'
@@ -74,6 +78,7 @@ interface IpcServices {
   ): void;
   voiceService: VoiceService;
   usageBudgetService: UsageBudgetService;
+  workspaceSelectionService: WorkspaceSelectionService;
 }
 
 async function assertAuthorizedSender(
@@ -179,6 +184,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.getUsageBudget,
     IPC_CHANNELS.getTaskHistory,
     IPC_CHANNELS.getVoiceStatus,
+    IPC_CHANNELS.getWorkspaceRuntimeAvailability,
     IPC_CHANNELS.openSystemPermissionSettings,
     IPC_CHANNELS.recordVoiceTranscript,
     IPC_CHANNELS.respondToInteraction,
@@ -192,6 +198,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.signOutGoogle,
     IPC_CHANNELS.steerTask,
     IPC_CHANNELS.submitTask,
+    IPC_CHANNELS.selectWorkspace,
     IPC_CHANNELS.updateAppPreferences,
   ];
 
@@ -257,6 +264,19 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.getAppPreferences, async (event) => {
     await assertAuthorizedSender(event, mainWindow, services.authService);
     return services.appPreferencesService.get();
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.getWorkspaceRuntimeAvailability,
+    async (event) => {
+      await assertAuthorizedSender(event, mainWindow, services.authService);
+      return services.workspaceSelectionService.availability();
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.selectWorkspace, async (event) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    return services.workspaceSelectionService.select();
   });
 
   ipcMain.handle(IPC_CHANNELS.getTaskHistory, async (event) => {
@@ -454,6 +474,12 @@ export function registerIpcHandlers(
   };
 
   services.taskRuntime.on('task-update', forwardTaskUpdate);
+  const forwardAgentActivity = (value: unknown): void => {
+    if (mainWindow.isDestroyed()) return;
+    const activity = AgentActivityUpdateSchema.parse(value);
+    mainWindow.webContents.send(IPC_CHANNELS.agentActivity, activity);
+  };
+  services.agentActivityService.on('activity', forwardAgentActivity);
   const stopForwardingAppUpdateStatus = services.appUpdateService.onStatusChange(
     (status) => {
       if (mainWindow.isDestroyed()) return;
@@ -463,6 +489,7 @@ export function registerIpcHandlers(
 
   return () => {
     stopForwardingAppUpdateStatus();
+    services.agentActivityService.off('activity', forwardAgentActivity);
     services.taskRuntime.off('task-update', forwardTaskUpdate);
     for (const channel of channels) ipcMain.removeHandler(channel);
   };

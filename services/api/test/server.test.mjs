@@ -402,6 +402,65 @@ test('model proxy requires authentication and enforces model allowlist', async (
   );
 });
 
+test('model proxy delivers SSE before the provider completes', async () => {
+  let releaseCompleted;
+  const completed = new Promise((resolve) => {
+    releaseCompleted = resolve;
+  });
+  const firstEvent = Buffer.from(
+    'data: {"type":"response.output_text.delta","delta":"Hi"}\n\n',
+  );
+  const completedEvent = Buffer.from(
+    'data: {"type":"response.completed","response":{"id":"response-stream","model":"test-model","usage":{"input_tokens":4,"output_tokens":2}}}\n\n',
+  );
+  let pulls = 0;
+
+  await withApi(
+    async ({ baseUrl }) => {
+      const session = await signInAndActivate(baseUrl);
+      const response = await fetch(`${baseUrl}/v1/openai/responses`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+          'X-Trocode-Request-Id': TEST_REQUEST_ID,
+          'X-Trocode-Task-Id': TEST_TASK_ID,
+        },
+        body: JSON.stringify({ ...responsesBody(), stream: true }),
+      });
+      assert.equal(response.headers.get('content-type'), 'text/event-stream');
+      const reader = response.body.getReader();
+      const first = await reader.read();
+      try {
+        assert.deepEqual(Buffer.from(first.value), firstEvent);
+      } finally {
+        releaseCompleted();
+      }
+      const second = await reader.read();
+      assert.deepEqual(Buffer.from(second.value), completedEvent);
+      assert.equal((await reader.read()).done, true);
+    },
+    {
+      fetchImpl: async () =>
+        new Response(
+          new ReadableStream({
+            async pull(controller) {
+              pulls += 1;
+              if (pulls === 1) {
+                controller.enqueue(firstEvent);
+                return;
+              }
+              await completed;
+              controller.enqueue(completedEvent);
+              controller.close();
+            },
+          }),
+          { headers: { 'Content-Type': 'text/event-stream' }, status: 200 },
+        ),
+    },
+  );
+});
+
 test('usage budget returns only the authenticated caller snapshot', async () => {
   await withApi(async ({ baseUrl }) => {
     const unauthenticated = await fetch(`${baseUrl}/v1/usage/budget`);

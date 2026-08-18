@@ -1,7 +1,11 @@
 const MAX_REQUEST_ITEMS = 128;
 
 function withoutImages(item: Record<string, unknown>): Record<string, unknown> {
-  if (item.type !== 'function_call_output' || !Array.isArray(item.output)) {
+  if (
+    (item.type !== 'function_call_output' &&
+      item.type !== 'function_call_result') ||
+    !Array.isArray(item.output)
+  ) {
     return item;
   }
   const output = item.output.filter(
@@ -9,7 +13,9 @@ function withoutImages(item: Record<string, unknown>): Record<string, unknown> {
       !content ||
       typeof content !== 'object' ||
       Array.isArray(content) ||
-      (content as Record<string, unknown>).type !== 'input_image',
+      !['input_image', 'image'].includes(
+        String((content as Record<string, unknown>).type),
+      ),
   );
   return { ...item, output };
 }
@@ -17,7 +23,11 @@ function withoutImages(item: Record<string, unknown>): Record<string, unknown> {
 export function countCurrentImages(items: readonly Record<string, unknown>[]): number {
   let count = 0;
   for (const item of items) {
-    if (item.type !== 'function_call_output' || !Array.isArray(item.output)) {
+    if (
+      (item.type !== 'function_call_output' &&
+        item.type !== 'function_call_result') ||
+      !Array.isArray(item.output)
+    ) {
       continue;
     }
     count += item.output.filter(
@@ -25,7 +35,9 @@ export function countCurrentImages(items: readonly Record<string, unknown>[]): n
         content &&
         typeof content === 'object' &&
         !Array.isArray(content) &&
-        (content as Record<string, unknown>).type === 'input_image',
+        ['input_image', 'image'].includes(
+          String((content as Record<string, unknown>).type),
+        ),
     ).length;
   }
   return count;

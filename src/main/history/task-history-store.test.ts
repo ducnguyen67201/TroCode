@@ -30,6 +30,7 @@ function createUpdate(): TaskUpdate {
     phase: 'completed',
     progress: null,
     queuedSteering: [],
+    runtimeResume: null,
     request: 'Complete the task',
     taskId,
     updatedAt: timestamp,

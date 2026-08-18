@@ -12,6 +12,8 @@
     "db:ps": "doppler run --project tro-app --config dev -- docker compose ps",
     "db:up": "doppler run --project tro-app --config dev -- docker compose up -d --wait --wait-timeout 60 postgres",
     "cost:report": "node scripts/inference-cost-report.mjs",
+    "agent:runtime-versions": "node scripts/check-agent-runtime-versions.mjs",
+    "codex:generate-app-server-types": "node scripts/generate-codex-app-server-types.mjs",
     "package": "doppler run --project tro-app --config prd -- npm exec -- electron-forge package",
     "package:dev": "doppler run --project tro-app --config dev -- npm exec -- electron-forge package",
     "make": "doppler run --project tro-app --config prd -- npm exec -- electron-forge make",
@@ -22,10 +24,10 @@
     "membership:keygen": "node scripts/membership-codes.mjs keygen",
     "membership:issue": "node scripts/membership-codes.mjs issue",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run && node --test scripts/access-codes.test.mjs scripts/windows-release-metadata.test.mjs && npm --prefix services/api test",
+    "test": "vitest run && node --test scripts/access-codes.test.mjs scripts/generate-codex-app-server-types.test.mjs scripts/windows-release-metadata.test.mjs && npm --prefix services/api test",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "check": "npm run lint && npm run typecheck && npm run test"
+    "check": "npm run agent:runtime-versions && npm run codex:generate-app-server-types -- --check && npm run lint && npm run typecheck && npm run test"
   },
   "keywords": [
     "ai-agent",
@@ -86,13 +88,15 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@openai/agents": "0.16.1",
     "@trycua/cua-driver": "^0.19.3",
     "electron-squirrel-startup": "^1.0.1",
+    "openai": "7.5.0",
     "pg": "^8.23.0",
     "posthog-node": "^5.49.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "ws": "^8.21.3",
-    "zod": "^4.4.3"
+    "zod": "4.4.3"
   }
 }

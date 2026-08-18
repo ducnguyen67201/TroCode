@@ -9,6 +9,7 @@ function renderSettings(appUpdateStatus: AppUpdateStatus): string {
   return renderToStaticMarkup(
     SettingsPage({
       appLanguage: 'en',
+      autonomyMode: 'balanced',
       appUpdateError: null,
       appUpdateStatus,
       error: null,
@@ -17,6 +18,7 @@ function renderSettings(appUpdateStatus: AppUpdateStatus): string {
       isUpdatingApp: false,
       muteSystemAudioWhileSpeaking: false,
       onAppLanguageChange: vi.fn(),
+      onAutonomyModeChange: vi.fn(),
       onCheckForUpdates: vi.fn(),
       onLanguageChange: vi.fn(),
       onMuteSystemAudioWhileSpeakingChange: vi.fn(),
@@ -75,6 +77,7 @@ describe('SettingsPage app language', () => {
     const markup = renderToStaticMarkup(
       SettingsPage({
         appLanguage: 'vi',
+        autonomyMode: 'strict',
         appUpdateError: null,
         appUpdateStatus: {
           currentVersion: '0.1.0',
@@ -88,6 +91,7 @@ describe('SettingsPage app language', () => {
         isUpdatingApp: false,
         muteSystemAudioWhileSpeaking: true,
         onAppLanguageChange: vi.fn(),
+        onAutonomyModeChange: vi.fn(),
         onCheckForUpdates: vi.fn(),
         onLanguageChange: vi.fn(),
         onMuteSystemAudioWhileSpeakingChange: vi.fn(),
@@ -119,5 +123,20 @@ describe('SettingsPage voice audio preference', () => {
     expect(markup).toContain('Mute other audio while speaking');
     expect(markup).toContain('restore its previous mute state');
     expect(markup).toContain('type="checkbox"');
+  });
+});
+
+describe('SettingsPage autonomy preference', () => {
+  it('explains balanced autonomy without hiding strict mode', () => {
+    const markup = renderSettings({
+      currentVersion: '0.1.0',
+      message: 'No updates found.',
+      phase: 'up_to_date',
+      targetVersion: null,
+    });
+
+    expect(markup).toContain('Autonomy');
+    expect(markup).toContain('Routine, reversible actions continue automatically');
+    expect(markup).toContain('value="strict"');
   });
 });

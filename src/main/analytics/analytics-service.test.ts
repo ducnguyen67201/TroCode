@@ -150,9 +150,24 @@ describe('AnalyticsService', () => {
     const runtime = new TaskRuntime({
       now: () => new Date('2026-08-15T06:00:00.000Z'),
     });
-    const snapshot = runtime.submit({
-      text: 'Research private acquisition documents in /Users/example',
-    });
+    const snapshot = runtime.submit(
+      {
+        text: 'Research private acquisition documents in /Users/example',
+        executionProfile: 'workspace',
+        workspaceSelectionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      },
+      {
+        autonomyMode: 'balanced',
+        executionProfile: 'workspace',
+        runtimeKind: 'codex_app_server',
+        workspace: {
+          canonicalPath: '/Users/example',
+          displayName: 'example',
+          selectedAt: '2026-08-15T05:59:00.000Z',
+          selectionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        },
+      },
+    );
 
     await service.start();
     await service.trackTaskUpdate({
@@ -169,9 +184,85 @@ describe('AnalyticsService', () => {
     expect(serializedEvents).not.toContain('private acquisition');
     expect(serializedEvents).not.toContain('/Users/example');
     expect(client.events.at(-1)?.properties).toMatchObject({
-      contract_version: expect.any(Number),
+      autonomy_mode: 'balanced',
+      contract_version: 5,
+      execution_profile: 'workspace',
+      runtime_kind: 'codex_app_server',
     });
     expect(client.events.at(-1)?.properties).not.toHaveProperty('behavior');
+  });
+
+  it('captures first-delta latency once without capturing streamed text', async () => {
+    const client = new RecordingAnalyticsClient();
+    const service = createService(
+      client,
+      new MemoryIdentityStore({
+        anonymousId: '28824655-b32f-41d3-ab2d-2f7df31363ef',
+      }),
+    );
+    const runtime = new TaskRuntime({
+      now: () => new Date('2026-08-15T06:00:00.000Z'),
+    });
+    const snapshot = runtime.submit({ text: 'Private prompt' });
+
+    await service.trackTaskUpdate({ event: snapshot.lastEvent, snapshot });
+    await service.trackAgentActivity({
+      activityId: '58fcc14c-69bd-42e2-914f-fc66cf43a69d',
+      kind: 'text_delta',
+      sequence: 0,
+      taskId: snapshot.taskId,
+      textDelta: 'Private streamed answer',
+      timestamp: '2026-08-15T06:00:01.250Z',
+    });
+    await service.trackAgentActivity({
+      activityId: '2e6b2da0-232a-4f3a-bfbd-e0d01144056c',
+      kind: 'text_delta',
+      sequence: 1,
+      taskId: snapshot.taskId,
+      textDelta: 'Another private chunk',
+      timestamp: '2026-08-15T06:00:01.500Z',
+    });
+
+    expect(client.events.filter((event) => event.event === 'agent first delta')).toEqual([
+      expect.objectContaining({
+        properties: expect.objectContaining({ time_to_first_delta_ms: 1_250 }),
+      }),
+    ]);
+    expect(JSON.stringify(client.events)).not.toContain('Private streamed answer');
+    expect(JSON.stringify(client.events)).not.toContain('Another private chunk');
+  });
+
+  it('records only aggregate approval and tool counts at terminal status', async () => {
+    const client = new RecordingAnalyticsClient();
+    const service = createService(
+      client,
+      new MemoryIdentityStore({
+        anonymousId: '28824655-b32f-41d3-ab2d-2f7df31363ef',
+      }),
+    );
+    const runtime = new TaskRuntime({
+      now: () => new Date('2026-08-15T06:00:00.000Z'),
+    });
+    const ready = runtime.submit({ text: 'Complete a bounded task.' });
+    await service.trackTaskUpdate({ event: ready.lastEvent, snapshot: ready });
+    const terminal = {
+      ...ready,
+      phase: 'completed' as const,
+      progress: { kind: 'tool_calls' as const, completed: 2, limit: 30 },
+      lastEvent: {
+        ...ready.lastEvent,
+        eventId: '7bb1510d-51f9-429c-bbde-97112712b7b8',
+        phase: 'completed' as const,
+        summary: 'Task completed.',
+      },
+    };
+
+    await service.trackTaskUpdate({ event: terminal.lastEvent, snapshot: terminal });
+
+    expect(client.events.at(-1)).toMatchObject({
+      event: 'task ended',
+      properties: { approval_count: 0, outcome: 'completed', tool_count: 2 },
+    });
   });
 
   it('captures only voice transcript counts, never transcript content', async () => {

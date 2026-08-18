@@ -1,13 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import {
-  PostHog,
-  type EventMessage,
-  type IdentifyMessage,
-} from 'posthog-node';
+import { PostHog, type EventMessage, type IdentifyMessage } from 'posthog-node';
 import { z } from 'zod';
 
 import {
+  AgentActivityUpdateSchema,
   RecordVoiceTranscriptRequestSchema,
   TaskUpdateSchema,
   type TaskSnapshot,
@@ -117,6 +114,14 @@ export class AnalyticsService {
 
   private readonly seenTaskIds = new Set<string>();
 
+  private readonly seenFirstDeltaTaskIds = new Set<string>();
+
+  private readonly pendingFirstDeltaAt = new Map<string, number>();
+
+  private readonly taskApprovalCounts = new Map<string, number>();
+
+  private readonly taskStartedAt = new Map<string, number>();
+
   constructor(options: AnalyticsServiceOptions) {
     this.client =
       options.client === undefined
@@ -164,9 +169,14 @@ export class AnalyticsService {
     const isNewTask = !this.seenTaskIds.has(snapshot.taskId);
     if (isNewTask) {
       this.seenTaskIds.add(snapshot.taskId);
+      this.taskStartedAt.set(snapshot.taskId, Date.parse(snapshot.createdAt));
       this.capture('task created', {
         initial_phase: snapshot.phase,
       });
+      const pendingFirstDeltaAt = this.pendingFirstDeltaAt.get(snapshot.taskId);
+      if (pendingFirstDeltaAt !== undefined) {
+        this.captureFirstDelta(snapshot.taskId, pendingFirstDeltaAt);
+      }
     }
 
     if (!TRACKED_PHASES.has(snapshot.phase)) return;
@@ -174,6 +184,13 @@ export class AnalyticsService {
     const goalProperties: AnalyticsProperties = snapshot.goal
       ? {
           contract_version: snapshot.goal.schemaVersion,
+          ...(snapshot.goal.schemaVersion === 5
+            ? {
+                autonomy_mode: snapshot.goal.autonomyMode,
+                execution_profile: snapshot.goal.executionProfile,
+                runtime_kind: snapshot.goal.runtimeKind,
+              }
+            : {}),
           ...(snapshot.goal.schemaVersion === 2
             ? { legacy_behavior: snapshot.goal.behavior }
             : {}),
@@ -198,6 +215,10 @@ export class AnalyticsService {
           ? snapshot.pendingInteraction.action
           : null;
       const toolIdentity = action ? toolIdentityForAction(action) : null;
+      this.taskApprovalCounts.set(
+        snapshot.taskId,
+        (this.taskApprovalCounts.get(snapshot.taskId) ?? 0) + 1,
+      );
       this.capture('approval requested', {
         action_type: action?.action ?? 'unknown',
         operation: toolIdentity?.operation ?? 'unknown',
@@ -213,11 +234,55 @@ export class AnalyticsService {
       return;
     }
     if (TERMINAL_PHASES.has(snapshot.phase)) {
+      const toolCount = snapshot.progress
+        ? 'kind' in snapshot.progress
+          ? snapshot.progress.completed
+          : snapshot.progress.currentStep
+        : 0;
       this.capture('task ended', {
         ...goalProperties,
+        approval_count: this.taskApprovalCounts.get(snapshot.taskId) ?? 0,
         outcome: snapshot.phase,
+        tool_count: toolCount,
       });
     }
+  }
+
+  async trackAgentActivity(input: unknown): Promise<void> {
+    if (!this.client) return;
+    await this.start();
+    if (!this.identity) return;
+
+    const activity = AgentActivityUpdateSchema.safeParse(input);
+    if (
+      !activity.success ||
+      activity.data.kind !== 'text_delta' ||
+      this.seenFirstDeltaTaskIds.has(activity.data.taskId)
+    ) {
+      return;
+    }
+    const startedAt = this.taskStartedAt.get(activity.data.taskId);
+    const deltaAt = Date.parse(activity.data.timestamp);
+    if (startedAt === undefined) {
+      const pending = this.pendingFirstDeltaAt.get(activity.data.taskId);
+      this.pendingFirstDeltaAt.set(
+        activity.data.taskId,
+        pending === undefined ? deltaAt : Math.min(pending, deltaAt),
+      );
+      return;
+    }
+    this.captureFirstDelta(activity.data.taskId, deltaAt);
+  }
+
+  private captureFirstDelta(taskId: string, deltaAt: number): void {
+    if (this.seenFirstDeltaTaskIds.has(taskId)) return;
+    const startedAt = this.taskStartedAt.get(taskId);
+    if (startedAt === undefined) return;
+    this.seenFirstDeltaTaskIds.add(taskId);
+    this.pendingFirstDeltaAt.delete(taskId);
+    this.capture('agent first delta', {
+      time_to_first_delta_ms: Math.max(0, deltaAt - startedAt),
+    });
   }
 
   async identifyUser(input: AnalyticsUser): Promise<void> {
