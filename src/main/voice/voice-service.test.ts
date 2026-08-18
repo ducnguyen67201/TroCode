@@ -51,9 +51,8 @@ function memoryStore(initial: string | null = null): {
 function providerResponse(text = 'open YouTube'): Response {
   return new Response(
     JSON.stringify({
-      duration: 0.3,
+      languages: [{ code: 'en' }],
       text,
-      usage: { seconds: 0.31, type: 'duration' },
     }),
     { headers: { 'Content-Type': 'application/json' }, status: 200 },
   );
@@ -68,8 +67,8 @@ describe('VoiceService', () => {
       new Response(
         JSON.stringify({
           audioDurationMs: 300,
-          billedSeconds: 0.31,
-          model: 'whisper-1',
+          billedSeconds: 0.3,
+          model: 'gpt-transcribe',
           text: 'open YouTube',
           usageSource: 'actual',
         }),
@@ -87,7 +86,7 @@ describe('VoiceService', () => {
     });
 
     await expect(service.getStatus()).resolves.toMatchObject({
-      model: 'whisper-1',
+      model: 'gpt-transcribe',
       state: 'ready',
     });
     await expect(service.transcribeSegment(request)).resolves.toMatchObject({
@@ -133,7 +132,7 @@ describe('VoiceService', () => {
     }
   });
 
-  it('sends local audio only as bounded Whisper multipart form data', async () => {
+  it('sends local audio as bounded gpt-transcribe multipart form data', async () => {
     const request = segmentRequest();
     const fetchImpl = vi.fn<typeof fetch>(async () => providerResponse());
     const service = new VoiceService({
@@ -146,8 +145,8 @@ describe('VoiceService', () => {
     });
     await expect(service.transcribeSegment(request)).resolves.toEqual({
       audioDurationMs: 300,
-      billedSeconds: 0.31,
-      model: 'whisper-1',
+      billedSeconds: 0.3,
+      model: 'gpt-transcribe',
       sequence: 2,
       text: 'open YouTube',
       utteranceId: request.utteranceId,
@@ -157,17 +156,18 @@ describe('VoiceService', () => {
     expect(options?.headers).toEqual({ Authorization: `Bearer ${TEST_API_KEY}` });
     expect(options?.body).toBeInstanceOf(FormData);
     const form = options?.body as FormData;
-    expect(form.get('model')).toBe('whisper-1');
-    expect(form.get('language')).toBe('en');
-    expect(form.get('response_format')).toBe('verbose_json');
-    expect(form.get('temperature')).toBe('0');
+    expect(form.get('model')).toBe('gpt-transcribe');
+    expect(form.getAll('languages[]')).toEqual(['en']);
+    expect(form.get('language')).toBeNull();
+    expect(form.get('response_format')).toBeNull();
+    expect(form.get('temperature')).toBeNull();
     expect((form.get('file') as File).type).toBe('audio/wav');
   });
 
-  it('validates Whisper model access before storing a local key', async () => {
+  it('validates GPT Transcribe model access before storing a local key', async () => {
     const { store, write } = memoryStore();
     const fetchImpl = vi.fn<typeof fetch>(async () =>
-      new Response(JSON.stringify({ id: 'whisper-1' }), { status: 200 }),
+      new Response(JSON.stringify({ id: 'gpt-transcribe' }), { status: 200 }),
     );
     const service = new VoiceService({
       credentialStore: store,
@@ -175,10 +175,10 @@ describe('VoiceService', () => {
       fetchImpl,
     });
     await expect(service.configure({ apiKey: TEST_API_KEY })).resolves.toMatchObject(
-      { model: 'whisper-1', state: 'ready' },
+      { model: 'gpt-transcribe', state: 'ready' },
     );
     expect(fetchImpl).toHaveBeenCalledWith(
-      'https://api.openai.com/v1/models/whisper-1',
+      'https://api.openai.com/v1/models/gpt-transcribe',
       expect.objectContaining({
         headers: { Authorization: `Bearer ${TEST_API_KEY}` },
         method: 'GET',
@@ -216,7 +216,7 @@ describe('VoiceService', () => {
     );
 
     const fetchImpl = vi.fn<typeof fetch>(async () =>
-      new Response(JSON.stringify({ text: 'missing usage' }), { status: 200 }),
+      new Response(JSON.stringify({ text: 42 }), { status: 200 }),
     );
     const malformed = new VoiceService({
       credentialStore: memoryStore(TEST_API_KEY).store,

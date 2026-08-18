@@ -413,20 +413,20 @@ describe('voice segment contracts', () => {
       VoiceSegmentTranscriptionSchema.parse({
         audioDurationMs: 300,
         billedSeconds: 0.3,
-        model: 'whisper-1',
+        model: 'gpt-transcribe',
         sequence: request.sequence,
         text: '',
         utteranceId: request.utteranceId,
       }),
-    ).toMatchObject({ model: 'whisper-1', text: '' });
+    ).toMatchObject({ model: 'gpt-transcribe', text: '' });
     expect(
       VoiceStatusSchema.parse({
-        model: 'whisper-1',
+        model: 'gpt-transcribe',
         provider: 'openai',
         state: 'ready',
         summary: 'Voice input is ready.',
       }),
-    ).toMatchObject({ model: 'whisper-1' });
+    ).toMatchObject({ model: 'gpt-transcribe' });
   });
 
   it('rejects malformed identifiers, sequence, duration, and base64', () => {

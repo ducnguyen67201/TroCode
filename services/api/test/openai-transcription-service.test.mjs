@@ -82,26 +82,15 @@ test('strict PCM WAV parser validates format, duration, and client metadata', ()
   assert.throws(() => parsePcmWav(wav(), 350), /does not match/u);
 });
 
-test('provider parser requires bounded duration usage when present', () => {
+test('provider parser accepts gpt-transcribe text and detected languages', () => {
   assert.deepEqual(
     parseTranscriptionResponse({
-      duration: 0.3,
+      languages: [{ code: 'vi' }],
       text: ' hello ',
-      usage: { seconds: 0.31, type: 'duration' },
     }),
-    { billedSeconds: 0.31, duration: 0.3, text: 'hello' },
+    { text: 'hello' },
   );
-  assert.equal(
-    parseTranscriptionResponse({ duration: 0.3, text: 'hello' }).billedSeconds,
-    null,
-  );
-  assert.throws(() =>
-    parseTranscriptionResponse({
-      duration: 0.3,
-      text: 'hello',
-      usage: { seconds: 0.3, type: 'tokens' },
-    }),
-  );
+  assert.throws(() => parseTranscriptionResponse({ text: 42 }));
 });
 
 test('invalid client audio is rejected before any budget reservation or dispatch', async () => {
@@ -120,7 +109,7 @@ test('invalid client audio is rejected before any budget reservation or dispatch
   assert.deepEqual(calls, []);
 });
 
-test('transcription service sends exact multipart fields and settles duration usage', async () => {
+test('transcription service sends gpt-transcribe language hints and settles validated duration', async () => {
   const calls = [];
   let observedRequest;
   const service = new OpenAiTranscriptionService({
@@ -129,9 +118,8 @@ test('transcription service sends exact multipart fields and settles duration us
       observedRequest = { request, url };
       return new Response(
         JSON.stringify({
-          duration: 0.3,
+          languages: [{ code: 'en' }],
           text: 'open YouTube',
-          usage: { seconds: 0.31, type: 'duration' },
         }),
         { headers: { 'Content-Type': 'application/json' }, status: 200 },
       );
@@ -144,42 +132,46 @@ test('transcription service sends exact multipart fields and settles duration us
   assert.equal(observedRequest.request.method, 'POST');
   assert.equal(observedRequest.request.headers.Authorization, 'Bearer secret');
   assert.equal(observedRequest.request.headers['OpenAI-Safety-Identifier'], 'safe-user');
-  assert.equal(observedRequest.request.body.get('model'), 'whisper-1');
-  assert.equal(observedRequest.request.body.get('language'), 'en');
-  assert.equal(observedRequest.request.body.get('response_format'), 'verbose_json');
-  assert.equal(observedRequest.request.body.get('temperature'), '0');
+  assert.equal(observedRequest.request.body.get('model'), 'gpt-transcribe');
+  assert.deepEqual(observedRequest.request.body.getAll('languages[]'), ['en']);
+  assert.equal(observedRequest.request.body.get('language'), null);
+  assert.equal(observedRequest.request.body.get('response_format'), null);
+  assert.equal(observedRequest.request.body.get('temperature'), null);
   assert.equal(observedRequest.request.body.get('file').name, 'segment.wav');
   assert.equal(observedRequest.request.body.get('file').type, 'audio/wav');
   assert(observedRequest.request.signal instanceof AbortSignal);
   assert.equal(calls[0][0], 'reserve');
+  assert.equal(calls[0][1].catalogVersion, 'gpt-transcribe-duration-2026-08-18');
   assert.equal(calls[0][1].lane, 'transcription');
+  assert.equal(calls[0][1].model, 'gpt-transcribe');
   assert.equal(calls[0][1].taskId, UTTERANCE_ID);
   assert.equal(calls[1], 'dispatch');
   assert.equal(calls[2][0], 'settle');
   assert.equal(calls[2][1].usage.audioDurationMs, 300);
   assert.deepEqual(result, {
     audioDurationMs: 300,
-    billedSeconds: 0.31,
-    model: 'whisper-1',
+    billedSeconds: 0.3,
+    model: 'gpt-transcribe',
     text: 'open YouTube',
     usageSource: 'actual',
   });
 });
 
-test('missing provider usage preserves text and marks the reservation uncertain', async () => {
+test('successful gpt-transcribe responses do not require provider usage metadata', async () => {
   const calls = [];
   const service = new OpenAiTranscriptionService({
     budgetService: budget(calls),
     fetchImpl: async () =>
-      new Response(JSON.stringify({ duration: 0.3, text: 'hello' }), {
+      new Response(JSON.stringify({ languages: [], text: 'hello' }), {
         status: 200,
       }),
     openAiApiKey: 'secret',
   });
   const result = await service.execute(input());
-  assert.deepEqual(calls.slice(1), ['dispatch', 'uncertain']);
+  assert.equal(calls.at(-1)[0], 'settle');
+  assert.equal(calls.at(-1)[1].usage.audioDurationMs, 300);
   assert.equal(result.text, 'hello');
-  assert.equal(result.usageSource, 'missing');
+  assert.equal(result.usageSource, 'actual');
 });
 
 test('malformed success is uncertain and is not retried', async () => {
@@ -189,7 +181,7 @@ test('malformed success is uncertain and is not retried', async () => {
     budgetService: budget(calls),
     fetchImpl: async () => {
       fetchCount += 1;
-      return new Response(JSON.stringify({ duration: 0.3, text: 42 }), {
+      return new Response(JSON.stringify({ languages: [], text: 42 }), {
         status: 200,
       });
     },

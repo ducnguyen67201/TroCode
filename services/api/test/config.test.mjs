@@ -36,7 +36,7 @@ test('loadConfig restricts requests to configured models', () => {
   assert.equal(config.costGuard.monthlyMicroUsd, 45_000_000);
   assert.equal(config.costGuard.dailyMicroUsd, 8_000_000);
   assert.equal(config.costGuard.taskMicroUsd, 5_000_000);
-  assert.equal(config.costGuard.transcriptionMicroUsdPerMinute, 6_000);
+  assert.equal(config.costGuard.transcriptionMicroUsdPerMinute, 4_500);
   assert.equal(config.costGuard.mode, 'enforce');
 });
 
