@@ -11,30 +11,10 @@ const VISIBLE_CONTEXT_PHRASES = [
   'trước mặt',
 ] as const;
 
-const VISUAL_ARTIFACT_TERMS = [
-  'document',
-  'email',
-  'form',
-  'google sheet',
-  'message',
-  'presentation',
-  'sheet',
-  'slide',
-  'spreadsheet',
-  'table',
-  'workbook',
-  'worksheet',
-  'bảng tính',
-  'biểu mẫu',
-  'email',
-  'tin nhắn',
-  'tài liệu',
-  'trang tính',
-  'trình chiếu',
-] as const;
-
 const VISUAL_ACTION_PATTERN =
-  /\b(?:add|change|create|edit|enter|fill|format|make|select|type|update|write)\b|(?:^|\s)(?:chọn|điền|định dạng|nhập|sửa|tạo|viết)(?:$|[\s.,!?;:])/u;
+  /\b(?:add|change|create|edit|enter|fill|format|make|select|type|update)\b|(?:^|\s)(?:chọn|điền|định dạng|nhập|sửa|tạo)(?:$|[\s.,!?;:])/u;
+const VISUAL_ARTIFACT_PATTERN =
+  /\b(?:document|email|form|google\s+sheets?|message|presentation|sheets?|slides?|spreadsheet|table|workbook|worksheet)\b|(?:^|\s)(?:bảng tính|biểu mẫu|tin nhắn|tài liệu|trang tính|trình chiếu)(?:$|[\s.,!?;:])/u;
 const NAVIGATION_FIRST_PATTERN =
   /^\s*(?:go\s+to|launch|navigate\s+to|open)\b|^\s*(?:mở|truy cập)(?:$|\s)/u;
 
@@ -66,7 +46,7 @@ export function shouldCaptureInitialDesktopObservation(
   if (NAVIGATION_FIRST_PATTERN.test(normalized)) return false;
   return (
     VISUAL_ACTION_PATTERN.test(normalized) &&
-    VISUAL_ARTIFACT_TERMS.some((term) => normalized.includes(term))
+    VISUAL_ARTIFACT_PATTERN.test(normalized)
   );
 }
 
