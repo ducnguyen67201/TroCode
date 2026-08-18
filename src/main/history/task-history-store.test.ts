@@ -38,7 +38,9 @@ function createUpdate(): TaskUpdate {
   return { event, snapshot };
 }
 
-function createPool() {
+function createPool(snapshot: unknown = createUpdate().snapshot) {
+  const update = createUpdate();
+  const snapshots = Array.isArray(snapshot) ? snapshot : [snapshot];
   const client = {
     query: vi.fn(async (sql: string, values?: unknown[]) => {
       void sql;
@@ -52,9 +54,8 @@ function createPool() {
     end: vi.fn(async () => undefined),
     query: vi.fn(async (sql: string, values?: unknown[]) => {
       void values;
-      const update = createUpdate();
       if (sql.includes('SELECT snapshot')) {
-        return { rows: [{ snapshot: update.snapshot }] };
+        return { rows: snapshots.map((item) => ({ snapshot: item })) };
       }
       if (sql.includes('SELECT event')) {
         return { rows: [{ event: update.event }] };
@@ -126,6 +127,84 @@ describe('PostgresTaskHistoryStore', () => {
     expect(poolMocks.query).toHaveBeenCalledTimes(2);
     expect(poolMocks.query.mock.calls[0]?.[1]).toEqual(['google-user-1']);
     expect(poolMocks.query.mock.calls[1]?.[1]).toEqual(['google-user-1']);
+  });
+
+  it('backfills transitional contracts with an owner-scoped compare-and-swap', async () => {
+    const transitionalSnapshot = {
+      ...createUpdate().snapshot,
+      goal: {
+        approvalPolicy: { alwaysConfirm: ['login'] },
+        id: '22222222-2222-4222-8222-222222222222',
+        limits: {
+          maxImages: 20,
+          maxMicroUsd: 500_000,
+          maxMinutes: 10,
+          maxModelSamples: 40,
+          maxToolCalls: 30,
+        },
+        originalRequest: 'Complete the task',
+        schemaVersion: 5,
+      },
+    };
+    const { pool, poolMocks } = createPool(transitionalSnapshot);
+    const store = new PostgresTaskHistoryStore('postgresql://example', pool);
+
+    const history = await store.load('google-user-1');
+
+    expect(history.snapshots[0]?.goal).toMatchObject({
+      autonomyMode: 'balanced',
+      executionProfile: 'everyday',
+      runtimeKind: 'openai_agents',
+      schemaVersion: 5,
+      workspace: null,
+    });
+    const backfill = poolMocks.query.mock.calls.find(([sql]) =>
+      sql.includes('UPDATE trocode_task_snapshots'),
+    );
+    expect(backfill?.[1]?.[0]).toBe('google-user-1');
+    const rows = JSON.parse(String(backfill?.[1]?.[1]));
+    expect(rows).toEqual([
+      {
+        previous_snapshot: transitionalSnapshot,
+        snapshot: history.snapshots[0],
+        task_id: taskId,
+      },
+    ]);
+    expect(backfill?.[0]).toContain(
+      'stored.snapshot = candidate.previous_snapshot',
+    );
+  });
+
+  it('bounds snapshot backfills to short batches', async () => {
+    const snapshots = Array.from({ length: 51 }, (_, index) => ({
+      ...createUpdate().snapshot,
+      goal: {
+        approvalPolicy: { alwaysConfirm: ['login'] },
+        id: '22222222-2222-4222-8222-222222222222',
+        limits: {
+          maxImages: 20,
+          maxMicroUsd: 500_000,
+          maxMinutes: 10,
+          maxModelSamples: 40,
+          maxToolCalls: 30,
+        },
+        originalRequest: 'Complete the task',
+        schemaVersion: 5,
+      },
+      lastEvent: null,
+      taskId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+    }));
+    const { pool, poolMocks } = createPool(snapshots);
+    const store = new PostgresTaskHistoryStore('postgresql://example', pool);
+
+    await store.load('google-user-1');
+
+    const backfills = poolMocks.query.mock.calls.filter(([sql]) =>
+      sql.includes('UPDATE trocode_task_snapshots'),
+    );
+    expect(backfills).toHaveLength(2);
+    expect(JSON.parse(String(backfills[0]?.[1]?.[1]))).toHaveLength(50);
+    expect(JSON.parse(String(backfills[1]?.[1]?.[1]))).toHaveLength(1);
   });
 
   it('rolls back and releases the client when a write fails', async () => {

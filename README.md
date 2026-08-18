@@ -232,6 +232,14 @@ credentials are not compiled into the desktop bundle or exposed through
 preload. Deployment database configuration remains separate from this local
 Compose setup.
 
+On history load, TroCode validates every persisted snapshot and performs a
+forward-only read repair for transitional v5 contracts created before runtime,
+profile, autonomy, and workspace fields were introduced. Repairs default to
+the Everyday OpenAI runtime unless a complete trusted workspace identity is
+already present, then write back in bounded, owner-scoped batches guarded by
+the previous JSONB value. Valid legacy contracts remain historical and cannot
+silently gain execution authority.
+
 When `DATABASE_URL` is absent or PostgreSQL cannot initialize, the app remains
 usable and labels History as **Session only**. Task requests, conversation
 messages, goal scope, and lifecycle outcomes are stored; raw screenshots and

@@ -8,6 +8,10 @@ import {
   type TaskUpdate,
 } from '../../shared/contracts';
 
+import { migratePersistedTaskSnapshot } from './task-history-migration';
+
+const SNAPSHOT_MIGRATION_BATCH_SIZE = 50;
+
 const TASK_HISTORY_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS trocode_task_snapshots (
   owner_id TEXT NOT NULL,
@@ -52,6 +56,12 @@ interface SnapshotRow {
 
 interface EventRow {
   event: unknown;
+}
+
+interface SnapshotBackfill {
+  previous_snapshot: unknown;
+  snapshot: TaskHistory['snapshots'][number];
+  task_id: string;
 }
 
 export class PostgresTaskHistoryStore implements TaskHistoryStore {
@@ -148,14 +158,30 @@ export class PostgresTaskHistoryStore implements TaskHistoryStore {
       ),
     ]);
 
-    return TaskHistorySchema.parse({
+    const migratedSnapshots = snapshotResult.rows.map((row) => ({
+      migration: migratePersistedTaskSnapshot(row.snapshot),
+      previousSnapshot: row.snapshot,
+    }));
+    const history = TaskHistorySchema.parse({
       events: eventResult.rows.map((row) => row.event),
       persistence: {
         mode: 'postgres',
         summary: 'Task history is saved to PostgreSQL.',
       },
-      snapshots: snapshotResult.rows.map((row) => row.snapshot),
+      snapshots: migratedSnapshots.map(({ migration }) => migration.snapshot),
     });
+    const backfills: SnapshotBackfill[] = migratedSnapshots.flatMap(
+      ({ migration, previousSnapshot }) =>
+        migration.changed
+          ? [{
+              previous_snapshot: previousSnapshot,
+              snapshot: migration.snapshot,
+              task_id: migration.snapshot.taskId,
+            }]
+          : [],
+    );
+    await this.backfillSnapshots(ownerId, backfills);
+    return history;
   }
 
   async close(): Promise<void> {
@@ -169,5 +195,26 @@ export class PostgresTaskHistoryStore implements TaskHistoryStore {
       // Preserve the original transaction error.
     }
   }
-}
 
+  private async backfillSnapshots(
+    ownerId: string,
+    backfills: SnapshotBackfill[],
+  ): Promise<void> {
+    for (let offset = 0; offset < backfills.length; offset += SNAPSHOT_MIGRATION_BATCH_SIZE) {
+      const batch = backfills.slice(offset, offset + SNAPSHOT_MIGRATION_BATCH_SIZE);
+      await this.pool.query(
+        `UPDATE trocode_task_snapshots AS stored
+         SET snapshot = candidate.snapshot
+         FROM jsonb_to_recordset($2::jsonb) AS candidate(
+           task_id UUID,
+           previous_snapshot JSONB,
+           snapshot JSONB
+         )
+         WHERE stored.owner_id = $1
+           AND stored.task_id = candidate.task_id
+           AND stored.snapshot = candidate.previous_snapshot`,
+        [ownerId, JSON.stringify(batch)],
+      );
+    }
+  }
+}

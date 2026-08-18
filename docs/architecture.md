@@ -141,10 +141,12 @@ authority.
 
 PostgreSQL stores validated snapshots and lifecycle events. Persisted v1-v4
 contracts remain readable as legacy history but cannot resume through the new
-runtime; new tasks emit v5 contracts and tool-call progress. Only minimal Codex
-thread/version/workspace continuity metadata may be persisted. Screenshots,
-partial deltas, command output, raw tool arguments, approval state, and reasoning
-never enter task history.
+runtime; new tasks emit v5 contracts and tool-call progress. Transitional v5
+snapshots are repaired on read, validated as complete current contracts, and
+written back in bounded owner-scoped compare-and-swap batches. Only minimal
+Codex thread/version/workspace continuity metadata may be persisted.
+Screenshots, partial deltas, command output, raw tool arguments, approval state,
+and reasoning never enter task history.
 
 Analytics receives allowlisted counts and identifiers such as contract version,
 runtime kind, execution profile, autonomy mode, time to first text delta, phase,
