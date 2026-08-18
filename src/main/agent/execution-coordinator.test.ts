@@ -41,6 +41,7 @@ class FakeAgent implements AgentRuntime {
   readonly outputs: AgentToolOutput[] = [];
   readonly approvalPreviewResults: boolean[] = [];
   readonly userMessages: string[] = [];
+  readonly taskStarts: AgentRuntimeStart[] = [];
   readonly start = vi.fn(
     async (_taskId: string, _request: string, _signal?: AbortSignal) => {
       void _taskId;
@@ -71,6 +72,7 @@ class FakeAgent implements AgentRuntime {
   private active?: AgentRuntimeStart;
 
   async runTask(input: AgentRuntimeStart): Promise<string> {
+    this.taskStarts.push(input);
     this.active = input;
     await this.start(input.taskId, input.request, input.signal);
     return this.runTurns(input);
@@ -627,6 +629,42 @@ describe('TaskExecutionCoordinator', () => {
     });
     expect(cua.startTaskSession).not.toHaveBeenCalled();
     expect(agent.sample).toHaveBeenCalledOnce();
+  });
+
+  it('captures screen-dependent work once before the first model sample', async () => {
+    const first = observation(
+      randomUUID(),
+      randomUUID(),
+      'a'.repeat(64),
+      'A blank Google Sheet is open in the browser.',
+    );
+    const { agent, coordinator, cua, runtime } = setup(
+      [assistant('I created the daily money tracker in the open sheet.')],
+      [first],
+    );
+    const ready = runtime.submit({
+      text: 'Create me a simple sheet for tracking money.',
+    });
+    first.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    const initialObservation = (
+      agent.taskStarts[0] as AgentRuntimeStart & {
+        initialObservation?: DesktopObservation;
+      }
+    ).initialObservation;
+    expect(cua.observe).toHaveBeenCalledOnce();
+    expect(initialObservation).toMatchObject({
+      observationId: first.observationId,
+      text: 'A blank Google Sheet is open in the browser.',
+    });
+    expect(agent.sample).toHaveBeenCalledOnce();
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'completed',
+      progress: { kind: 'tool_calls', completed: 1 },
+    });
   });
 
   it('reviews a generic answer and observes when the request refers to this assignment', async () => {

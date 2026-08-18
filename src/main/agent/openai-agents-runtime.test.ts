@@ -200,6 +200,59 @@ describe('OpenAIAgentsRuntime', () => {
     await runtime.end(taskId);
   });
 
+  it('attaches a trusted initial desktop observation to the first model request', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(hostedRejectedProviderResponse);
+    const runtime = new OpenAIAgentsRuntime({
+      accessTokenProvider: vi.fn(async () => 'hosted-access-token'),
+      apiBaseUrl: 'https://api.trocode.test/',
+      fetchImpl,
+    });
+    const taskId = randomUUID();
+    const initialObservation = {
+      observationId: randomUUID(),
+      taskId,
+      capturedAt: '2026-08-18T00:00:00.000Z',
+      text: 'A blank Google Sheet is open.',
+      degraded: false,
+      fingerprint: 'a'.repeat(64),
+      coordinateSpace: {
+        screenHeight: 500,
+        screenWidth: 1000,
+        screenshotHeight: 1000,
+        screenshotWidth: 2000,
+      },
+      screenshot: { mimeType: 'image/png' as const, dataBase64: 'aGVsbG8=' },
+    };
+    const input = {
+      callbacks: {
+        billableUserTurnIds: () => [TEST_CLIENT_TURN_ID],
+        beforeModel: () => [],
+        executeTool: async () => 'unused',
+      },
+      contract: createTaskContract('Create a money tracker in this sheet.'),
+      initialObservation,
+      maxTurns: 4,
+      request: 'Create a money tracker in this sheet.',
+      taskId,
+      tools: [],
+    };
+
+    await expect(runtime.runTask(input)).rejects.toThrow(
+      'Rejected before inference',
+    );
+
+    const [, request] = modelRequest(fetchImpl) ?? [];
+    const body = JSON.parse(String(request?.body)) as { input: unknown };
+    const serializedInput = JSON.stringify(body.input);
+    expect(serializedInput).toContain('Create a money tracker in this sheet.');
+    expect(serializedInput).toContain(
+      'Trusted host initial desktop observation',
+    );
+    expect(serializedInput).toContain(initialObservation.observationId);
+    expect(serializedInput).toContain('data:image/png;base64,aGVsbG8=');
+    await runtime.end(taskId);
+  });
+
   it('sends Workspace turns through the hosted SDK path with local shell and patch tools', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'trocode-runtime-'));
     const fetchImpl = vi.fn<typeof fetch>(hostedRejectedProviderResponse);
