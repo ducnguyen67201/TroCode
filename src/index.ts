@@ -12,6 +12,7 @@ import {
 } from 'electron';
 import path from 'node:path';
 
+import { TargetAwareDesktopStateValidator } from './main/agent/desktop-state-validator';
 import type { DesktopCommand } from './main/agent/execution-contracts';
 import {
   TaskExecutionCoordinator,
@@ -63,6 +64,7 @@ import {
   FileAppPreferencesStore,
 } from './main/preferences/app-preferences-service';
 import { ElectronPresentationPresenter } from './main/presentation/electron-presentation-presenter';
+import { setNonActivatingWindowInteractivity } from './main/presentation/non-activating-window';
 import { PresentationCoordinator } from './main/presentation/presentation-coordinator';
 import { registerScreenRecordingHost } from './main/screen-recording-registration';
 import {
@@ -201,6 +203,9 @@ const responsesAgent = new CostAwareAgent({
 const executionCoordinator = new TaskExecutionCoordinator({
   agent: responsesAgent,
   cua: cuaService,
+  desktopStateValidator: new TargetAwareDesktopStateValidator({
+    create: (data) => nativeImage.createFromBuffer(data),
+  }),
   dismissPresentation: dismissCompanionGuidance,
   onGuidancePlaybackChange: (_taskId, paused) =>
     updateGuidancePlaybackState(paused),
@@ -240,6 +245,7 @@ const executionCoordinator = new TaskExecutionCoordinator({
 const taskApplicationService = new TaskApplicationService(
   taskRuntime,
   executionCoordinator,
+  appPreferencesService,
 );
 const presentationCoordinator = new PresentationCoordinator(
   new ElectronPresentationPresenter(
@@ -267,7 +273,7 @@ const COMPANION_GLIDE_DURATION_MS = 360;
 const COMPANION_FOLLOW_INTERVAL_MS = 16;
 const GUIDANCE_CALLOUT_SIZE = { height: 176, width: 380 } as const;
 const CLARIFICATION_CALLOUT_SIZE = { height: 286, width: 396 } as const;
-const APPROVAL_CALLOUT_SIZE = { height: 448, width: 432 } as const;
+const APPROVAL_CALLOUT_SIZE = { height: 388, width: 396 } as const;
 const VOICE_ISLAND_SIZE = { height: 76, width: 420 } as const;
 const VOICE_ISLAND_TOP_GAP = 10;
 const SHUTDOWN_GRACE_PERIOD_MS = 2_000;
@@ -460,8 +466,7 @@ function registerCompanionAudioProtocol(): void {
 
 function setGuidanceWindowInteractive(interactive: boolean): void {
   if (!guidanceWindow || guidanceWindow.isDestroyed()) return;
-  guidanceWindow.setFocusable(interactive);
-  guidanceWindow.setIgnoreMouseEvents(!interactive, { forward: true });
+  setNonActivatingWindowInteractivity(guidanceWindow, interactive);
 }
 
 function clearCompanionInteraction(taskId?: string): void {

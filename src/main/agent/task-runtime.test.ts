@@ -5,16 +5,20 @@ import { TaskUpdateSchema } from '../../shared/contracts';
 import { TaskRuntime } from './task-runtime';
 
 describe('TaskRuntime', () => {
-  it('submits a ready v4 task synchronously', () => {
+  it('submits a ready v5 task synchronously with trusted approval mode', () => {
     const runtime = new TaskRuntime();
     const listener = vi.fn();
     runtime.on('task-update', listener);
 
-    const snapshot = runtime.submit({ text: 'What is 27 × 14?' });
+    const snapshot = runtime.submit(
+      { text: 'What is 27 × 14?' },
+      'fully_approved',
+    );
 
     expect(snapshot.phase).toBe('ready');
     expect(snapshot.goal).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
+      approvalMode: 'fully_approved',
       originalRequest: 'What is 27 × 14?',
     });
     expect(snapshot.progress).toEqual({
@@ -132,6 +136,56 @@ describe('TaskRuntime', () => {
     expect(
       runtime.consumeApprovalGrant({ taskId: ready.taskId, action }).phase,
     ).toBe('acting');
+  });
+
+  it('audits Full actions as task-preauthorized without creating a grant', () => {
+    const runtime = new TaskRuntime();
+    const ready = runtime.submit(
+      { text: 'Open the displayed email.' },
+      'fully_approved',
+    );
+    runtime.start({ taskId: ready.taskId });
+    const action = {
+      action: 'click_element' as const,
+      toolId: 'desktop.control',
+      operation: 'click',
+      description: 'Open the displayed email.',
+    };
+
+    expect(() =>
+      runtime.requestApproval({
+        taskId: ready.taskId,
+        prompt: action.description,
+        consequence: 'Open the displayed email.',
+        action,
+      }),
+    ).toThrow('Approval cannot be requested');
+    expect(runtime.beginAllowedAction(ready.taskId, action)).toMatchObject({
+      phase: 'acting',
+      approvalGrant: null,
+      lastEvent: {
+        summary: expect.stringContaining('task-preauthorized'),
+      },
+    });
+  });
+
+  it('keeps approval authority immutable per task', () => {
+    const runtime = new TaskRuntime();
+    const fullyApproved = runtime.submit(
+      { text: 'Complete the first task.' },
+      'fully_approved',
+    );
+    const askEveryTime = runtime.submit(
+      { text: 'Complete the second task.' },
+      'ask_every_time',
+    );
+
+    expect(runtime.getSnapshot(fullyApproved.taskId).goal).toMatchObject({
+      approvalMode: 'fully_approved',
+    });
+    expect(runtime.getSnapshot(askEveryTime.taskId).goal).toMatchObject({
+      approvalMode: 'ask_every_time',
+    });
   });
 
   it('increments v3 progress only when a tool result is recorded', () => {

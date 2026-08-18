@@ -205,7 +205,12 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     answerSdp: 'v=0\r\nanswer',
   }));
   const recordVoiceTranscript = vi.fn(async () => undefined);
-  const getAppPreferences = vi.fn(async () => ({ primaryLanguage: null }));
+  const getAppPreferences = vi.fn(async () => ({
+    approvalMode: 'ask_every_time',
+    appLanguage: 'en',
+    muteSystemAudioWhileSpeaking: false,
+    primaryLanguage: null,
+  }));
   const getTaskHistory = vi.fn(async () => ({
     events: [],
     persistence: {
@@ -532,12 +537,21 @@ describe('registerIpcHandlers auth boundary', () => {
 
     await expect(
       electronMock.handlers.get(IPC_CHANNELS.getAppPreferences)?.(event),
-    ).resolves.toEqual({ primaryLanguage: null });
+    ).resolves.toEqual({
+      approvalMode: 'ask_every_time',
+      appLanguage: 'en',
+      muteSystemAudioWhileSpeaking: false,
+      primaryLanguage: null,
+    });
     await expect(
       electronMock.handlers
         .get(IPC_CHANNELS.updateAppPreferences)
-        ?.(event, { primaryLanguage: 'vi' }),
+        ?.(event, {
+          approvalMode: 'fully_approved',
+          primaryLanguage: 'vi',
+        }),
     ).resolves.toEqual({
+      approvalMode: 'fully_approved',
       appLanguage: 'en',
       muteSystemAudioWhileSpeaking: false,
       primaryLanguage: 'vi',
@@ -545,6 +559,7 @@ describe('registerIpcHandlers auth boundary', () => {
 
     expect(getAppPreferences).toHaveBeenCalledOnce();
     expect(updateAppPreferences).toHaveBeenCalledWith({
+      approvalMode: 'fully_approved',
       appLanguage: 'en',
       muteSystemAudioWhileSpeaking: false,
       primaryLanguage: 'vi',
@@ -593,7 +608,25 @@ describe('registerIpcHandlers auth boundary', () => {
     await expect(
       electronMock.handlers
         .get(IPC_CHANNELS.updateAppPreferences)
-        ?.(event, { primaryLanguage: 'xx' }),
+        ?.(event, {
+          approvalMode: 'ask_every_time',
+          primaryLanguage: 'xx',
+        }),
+    ).rejects.toThrow();
+    expect(updateAppPreferences).not.toHaveBeenCalled();
+    unregister();
+  });
+
+  it('rejects unsupported approval modes at the IPC boundary', async () => {
+    const { event, unregister, updateAppPreferences } = setup(true);
+
+    await expect(
+      electronMock.handlers
+        .get(IPC_CHANNELS.updateAppPreferences)
+        ?.(event, {
+          approvalMode: 'approve_everything_forever',
+          primaryLanguage: 'en',
+        }),
     ).rejects.toThrow();
     expect(updateAppPreferences).not.toHaveBeenCalled();
     unregister();

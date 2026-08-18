@@ -54,6 +54,11 @@ export const SensitiveActionSchema = z.enum([
   'write_file',
 ]);
 
+export const ApprovalModeSchema = z.enum([
+  'ask_every_time',
+  'fully_approved',
+]);
+
 export const HOST_ALWAYS_CONFIRM_ACTIONS = [
   ...SensitiveActionSchema.options,
 ] as const;
@@ -161,6 +166,23 @@ export const AgentTaskContractV4Schema = z.object({
   }),
 });
 
+export const AgentTaskContractV5Schema = z.object({
+  schemaVersion: z.literal(5),
+  id: z.string().uuid(),
+  originalRequest: z.string().min(2).max(8_000),
+  approvalPolicy: z.object({
+    alwaysConfirm: z.array(SensitiveActionSchema),
+  }),
+  approvalMode: ApprovalModeSchema,
+  limits: z.object({
+    maxImages: z.number().int().positive().max(100),
+    maxMicroUsd: z.number().int().positive().max(20_000_000),
+    maxMinutes: z.number().int().positive().max(120),
+    maxModelSamples: z.number().int().positive().max(200),
+    maxToolCalls: z.number().int().positive().max(200),
+  }),
+});
+
 function normalizeLegacyGoal(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
   const goal = value as Record<string, unknown>;
@@ -185,6 +207,7 @@ export const TaskContractSchema = z.preprocess(
     LegacyTaskContractV2Schema,
     AgentTaskContractV3Schema,
     AgentTaskContractV4Schema,
+    AgentTaskContractV5Schema,
   ]),
 );
 
@@ -480,12 +503,14 @@ export const PrimaryLanguageSchema = z.enum([
 export const AppLanguageSchema = z.enum(['en', 'vi']);
 
 export const AppPreferencesSchema = z.object({
+  approvalMode: ApprovalModeSchema.default('ask_every_time'),
   appLanguage: AppLanguageSchema.default('en'),
   muteSystemAudioWhileSpeaking: z.boolean().default(false),
   primaryLanguage: PrimaryLanguageSchema.nullable(),
 });
 
 export const UpdateAppPreferencesRequestSchema = z.object({
+  approvalMode: ApprovalModeSchema,
   appLanguage: AppLanguageSchema.default('en'),
   muteSystemAudioWhileSpeaking: z.boolean().default(false),
   primaryLanguage: PrimaryLanguageSchema,
@@ -784,6 +809,7 @@ export const ActivateMembershipRequestSchema = z.object({
 
 export type Capability = z.infer<typeof CapabilitySchema>;
 export type ActionApprovalGrant = z.infer<typeof ActionApprovalGrantSchema>;
+export type ApprovalMode = z.infer<typeof ApprovalModeSchema>;
 export type AppLanguage = z.infer<typeof AppLanguageSchema>;
 export type AppPreferences = z.infer<typeof AppPreferencesSchema>;
 export type AppUpdateStatus = z.infer<typeof AppUpdateStatusSchema>;
@@ -826,7 +852,7 @@ export type GetUsageBudgetRequest = z.infer<
   typeof GetUsageBudgetRequestSchema
 >;
 export type TaskContract = z.infer<typeof TaskContractSchema>;
-export type AgentTaskContract = z.infer<typeof AgentTaskContractV4Schema>;
+export type AgentTaskContract = z.infer<typeof AgentTaskContractV5Schema>;
 export type InteractionMode = z.infer<typeof InteractionModeSchema>;
 export type MembershipStatus = z.infer<typeof MembershipStatusSchema>;
 export type PendingInteraction = z.infer<typeof PendingInteractionSchema>;

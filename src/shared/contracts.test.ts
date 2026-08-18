@@ -6,9 +6,11 @@ import {
   ActivateMembershipRequestSchema,
   AgentTaskContractV3Schema,
   AgentTaskContractV4Schema,
+  AgentTaskContractV5Schema,
   CompanionSpeechPlaybackReportSchema,
   CompanionSpeechSchema,
   MembershipStatusSchema,
+  SubmitTaskRequestSchema,
   TaskHistorySchema,
   TaskProgressSchema,
   UsageBudgetSnapshotSchema,
@@ -154,7 +156,35 @@ describe('shared task contracts', () => {
     ).not.toHaveProperty('prompt');
   });
 
-  it('loads mixed persisted v1, v2, and v3 history', () => {
+  it('parses v5 approval mode and defaults old preferences to Ask', () => {
+    expect(
+      AgentTaskContractV5Schema.parse({
+        approvalMode: 'fully_approved',
+        approvalPolicy: { alwaysConfirm: ['send'] },
+        id: randomUUID(),
+        limits: {
+          maxImages: 20,
+          maxMicroUsd: 500_000,
+          maxMinutes: 10,
+          maxModelSamples: 40,
+          maxToolCalls: 30,
+        },
+        originalRequest: 'Complete a useful task.',
+        schemaVersion: 5,
+      }),
+    ).toMatchObject({ approvalMode: 'fully_approved', schemaVersion: 5 });
+  });
+
+  it('does not accept renderer-supplied task authority', () => {
+    expect(
+      SubmitTaskRequestSchema.parse({
+        text: 'Complete a useful task.',
+        approvalMode: 'fully_approved',
+      }),
+    ).toEqual({ text: 'Complete a useful task.' });
+  });
+
+  it('loads mixed persisted v1, v2, v3, v4, and v5 history', () => {
     const history = TaskHistorySchema.parse({
       events: [],
       persistence: { mode: 'postgres', summary: 'Saved.' },
@@ -186,11 +216,44 @@ describe('shared task contracts', () => {
           },
           { kind: 'tool_calls', completed: 0, limit: 30 },
         ),
+        snapshot(
+          {
+            schemaVersion: 4,
+            id: randomUUID(),
+            originalRequest: 'Complete a v4 task.',
+            approvalPolicy: { alwaysConfirm: ['send'] },
+            limits: {
+              maxImages: 20,
+              maxMicroUsd: 500_000,
+              maxMinutes: 10,
+              maxModelSamples: 40,
+              maxToolCalls: 30,
+            },
+          },
+          { kind: 'tool_calls', completed: 0, limit: 30 },
+        ),
+        snapshot(
+          {
+            schemaVersion: 5,
+            id: randomUUID(),
+            originalRequest: 'Complete a v5 task.',
+            approvalPolicy: { alwaysConfirm: ['send'] },
+            approvalMode: 'fully_approved',
+            limits: {
+              maxImages: 20,
+              maxMicroUsd: 500_000,
+              maxMinutes: 10,
+              maxModelSamples: 40,
+              maxToolCalls: 30,
+            },
+          },
+          { kind: 'tool_calls', completed: 0, limit: 30 },
+        ),
       ],
     });
 
     expect(history.snapshots.map((item) => item.goal?.schemaVersion)).toEqual([
-      2, 2, 3,
+      2, 2, 3, 4, 5,
     ]);
   });
 });

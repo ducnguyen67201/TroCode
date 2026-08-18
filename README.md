@@ -5,7 +5,7 @@ TroCode is a cross-platform, general-purpose desktop agent foundation. One GPT R
 Read the [privacy policy](PRIVACY.md), [code signing policy](CODE_SIGNING_POLICY.md),
 and [security model](docs/security.md).
 
-The desktop application uses Electron, React, TypeScript, and [CUA Driver](https://github.com/trycua/cua). It is domain-agnostic: requests are not placed into a Gold domain/capability grant before execution. The host still enforces concrete tool availability, public HTTPS targets, fresh observations, exact consequential-action approvals, cancellation, and task limits.
+The desktop application uses Electron, React, TypeScript, and [CUA Driver](https://github.com/trycua/cua). It is domain-agnostic: requests are not placed into a Gold domain/capability grant before execution. The host still enforces concrete tool availability, public HTTPS targets, fresh observations, Ask-mode exact approvals or explicit Full task preauthorization, cancellation, verification, and task limits.
 
 ## Current status
 
@@ -18,7 +18,8 @@ Implemented:
   public HTTPS navigation, grounded guidance, and user-input adapters.
 - Typed task lifecycle with guarded transitions.
 - Task-scoped clarification replies that continue the same goal conversation.
-- Structured pending interactions and exact, single-use approval decisions.
+- Two persistent action-approval modes: safe-default exact Ask decisions and
+  acknowledged Full preauthorization for new tasks.
 - Task steering queued for goal review at the next safe execution boundary.
 - Concrete tool/operation, target, and approval policy evaluation.
 - Native Google OAuth sign-in with Authorization Code + PKCE, locally verified
@@ -39,8 +40,8 @@ Implemented:
   profile-specific 2k/4k output ceilings.
 - A serialized sample → tool → result loop with tool/time limits, cancellation,
   safe steering, post-action screenshots, and no repeat after unknown results.
-- Direct public HTTPS navigation and exact, revalidated approval
-  before consequential CUA actions such as Send.
+- Direct public HTTPS navigation plus exact, target-revalidated Ask approval or
+  audited Full preauthorization before host-required CUA actions.
 - Focused-window push-to-talk plus system-wide background voice shortcuts
   through OpenAI Realtime using `gpt-realtime-whisper`.
 - Every grounded `show_guidance` step has one narration attempt. Optional
@@ -75,8 +76,10 @@ When a host-created task reaches `ready`, TroCode starts its task-scoped
 Responses session. CUA remains stopped unless GPT requests a desktop tool. The visible **Stop task** control and
 the system-wide **Escape** shortcut cancel a nonterminal task, including while
 the main window is hidden for desktop work. The loop observes after every
-admitted action, and consequential actions still pause on an exact approval
-card before anything is dispatched.
+admitted action. Ask mode pauses host-required mutations on a non-activating
+cursor approval card; Full mode skips those prompts for new tasks while keeping
+hard denials, budgets, grounding, cancellation, unknown-outcome blocking, and
+post-action verification.
 
 ## Requirements
 
@@ -480,5 +483,5 @@ src/
 
 GPT chooses between assistant text and host-advertised tools, but it never gains
 host authority. The main process owns tool registration, parsing, public-target
-checks, exact approval, execution, cancellation, and limits. CUA is only one
+checks, Ask/Full authorization, execution, cancellation, and limits. CUA is only one
 lazy execution adapter behind that boundary.

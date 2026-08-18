@@ -34,6 +34,7 @@ describe('AppPreferencesService', () => {
     });
 
     await expect(service.get()).resolves.toEqual({
+      approvalMode: 'ask_every_time',
       appLanguage: 'en',
       muteSystemAudioWhileSpeaking: false,
       primaryLanguage: null,
@@ -53,17 +54,20 @@ describe('AppPreferencesService', () => {
 
     await expect(
       service.update({
+        approvalMode: 'fully_approved',
         appLanguage: 'vi',
         muteSystemAudioWhileSpeaking: true,
         primaryLanguage: 'vi',
       }),
     ).resolves.toEqual({
+      approvalMode: 'fully_approved',
       appLanguage: 'vi',
       muteSystemAudioWhileSpeaking: true,
       primaryLanguage: 'vi',
     });
     await expect(service.getPrimaryLanguage()).resolves.toBe('vi');
     expect(store.write).toHaveBeenCalledWith({
+      approvalMode: 'fully_approved',
       appLanguage: 'vi',
       muteSystemAudioWhileSpeaking: true,
       primaryLanguage: 'vi',
@@ -78,7 +82,7 @@ describe('AppPreferencesService', () => {
     const service = new AppPreferencesService(store);
 
     await expect(
-      service.update({ primaryLanguage: 'xx' }),
+      service.update({ approvalMode: 'ask_every_time', primaryLanguage: 'xx' }),
     ).rejects.toThrow();
     expect(store.write).not.toHaveBeenCalled();
   });
@@ -91,7 +95,11 @@ describe('AppPreferencesService', () => {
     const service = new AppPreferencesService(store);
 
     await expect(
-      service.update({ appLanguage: 'fr', primaryLanguage: 'en' }),
+      service.update({
+        approvalMode: 'ask_every_time',
+        appLanguage: 'fr',
+        primaryLanguage: 'en',
+      }),
     ).rejects.toThrow();
     expect(store.write).not.toHaveBeenCalled();
   });
@@ -104,16 +112,21 @@ describe('FileAppPreferencesStore', () => {
 
     await expect(store.read()).resolves.toBeNull();
     await store.write({
+      approvalMode: 'fully_approved',
       appLanguage: 'vi',
       muteSystemAudioWhileSpeaking: true,
       primaryLanguage: 'en',
     });
 
     await expect(store.read()).resolves.toEqual({
+      approvalMode: 'fully_approved',
       appLanguage: 'vi',
       muteSystemAudioWhileSpeaking: true,
       primaryLanguage: 'en',
     });
+    await expect(readFile(filePath, 'utf8')).resolves.toContain(
+      '"approvalMode": "fully_approved"',
+    );
     await expect(readFile(filePath, 'utf8')).resolves.toContain(
       '"appLanguage": "vi"',
     );
@@ -132,9 +145,27 @@ describe('FileAppPreferencesStore', () => {
     });
 
     await expect(service.get()).resolves.toEqual({
+      approvalMode: 'ask_every_time',
       appLanguage: 'en',
       muteSystemAudioWhileSpeaking: false,
       primaryLanguage: 'vi',
     });
+  });
+
+  it('rejects an unsupported approval mode before writing', async () => {
+    const store: AppPreferencesStore = {
+      read: vi.fn(async () => null),
+      write: vi.fn(),
+    };
+    const service = new AppPreferencesService(store);
+
+    await expect(
+      service.update({
+        approvalMode: 'silent_forever',
+        appLanguage: 'en',
+        primaryLanguage: 'en',
+      }),
+    ).rejects.toThrow();
+    expect(store.write).not.toHaveBeenCalled();
   });
 });

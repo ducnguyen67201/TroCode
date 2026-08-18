@@ -18,8 +18,9 @@ flowchart TD
     ROUTER --> POLICY["Availability, target, exact-risk policy"]
     POLICY -->|"Denied/recoverable"| OUTPUT["Function-call output"]
     POLICY -->|"Missing information"| ASK["Task-scoped question"]
-    POLICY -->|"Consequential"| APPROVE["Exact approval card"]
-    POLICY -->|"Allowed"| EXECUTE["Registered adapter executes once"]
+    POLICY -->|"Ask + host-required"| APPROVE["Exact cursor approval card"]
+    POLICY -->|"Full task-preauthorized"| EXECUTE["Registered adapter executes once"]
+    POLICY -->|"No approval required"| EXECUTE
     ASK --> USER
     APPROVE --> USER
     EXECUTE --> OUTPUT
@@ -54,20 +55,31 @@ function call ID. The user's answer becomes exactly one output for that call,
 then sampling continues. Steering is queued until a safe boundary, appended as
 a user message, and never interrupts an already dispatched atomic action.
 
-## Exact approval
+## Approval modes
 
-Send, submit, upload, download, delete, purchase, install, login, command
+Ask every time is the default. Send, submit, upload, download, delete, purchase, install, login, command
 execution, and file writes always pause immediately before the concrete action.
 Desktop clicks, drags, text entry, and keypresses also pause because the trusted
 host cannot infer a control's real-world effect from a model-provided label.
 The UI shows target, description, and exact bounded parameters. Typed or spoken
 “yes” is not approval. A grant is single-use, expires, and matches a digest of
 tool, operation, consequence, target, payload, command, coordinates, and desktop
-observation evidence.
+observation evidence. The non-activating cursor card accepts the exact decision
+without opening or focusing the main TroCode window.
+
+Fully approved is an acknowledged Settings preference copied into each new v5
+task contract. It suppresses per-action approval prompts, but it cannot bypass
+hard policy denials, target grounding, budgets, cancellation, fresh
+observations, post-action verification, or the do-not-repeat rule for unknown
+outcomes. It creates an explicit task-preauthorized audit reason, never a fake
+exact approval grant. Changing Settings affects only future tasks.
 
 Approval denial is returned to GPT as a denied tool output so the assistant can
 continue usefully. For desktop work, approval is followed by a fresh screen
-check; changed state invalidates the action instead of guessing.
+check. Exact fingerprint equality succeeds immediately; otherwise a local,
+command-aware structural comparison tolerates small unrelated compositor or
+cursor changes. Material target changes or unavailable evidence invalidate the
+action instead of guessing, with no additional model sample.
 
 ## Optional tools and permissions
 

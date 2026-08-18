@@ -27,6 +27,7 @@ describe('primary language options', () => {
     expect(
       isPrimaryLanguageSetupComplete(
         {
+          approvalMode: 'ask_every_time',
           appLanguage: 'en',
           muteSystemAudioWhileSpeaking: false,
           primaryLanguage: null,
@@ -37,6 +38,7 @@ describe('primary language options', () => {
     expect(
       isPrimaryLanguageSetupComplete(
         {
+          approvalMode: 'ask_every_time',
           appLanguage: 'en',
           muteSystemAudioWhileSpeaking: false,
           primaryLanguage: 'en',

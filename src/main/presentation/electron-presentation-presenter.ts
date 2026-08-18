@@ -27,7 +27,8 @@ export class ElectronPresentationPresenter implements PresentationPresenter {
   ) {}
 
   apply(state: PresentationState, task: TaskSnapshot | null): void {
-    if (task?.pendingInteraction) this.showInteraction(task.pendingInteraction);
+    const pendingInteraction = task?.pendingInteraction ?? null;
+    if (pendingInteraction) this.showInteraction(pendingInteraction);
     else this.clearInteraction(task?.taskId);
     this.setCompanionState(COMPANION_STATES[state]);
     if (
@@ -37,7 +38,7 @@ export class ElectronPresentationPresenter implements PresentationPresenter {
       task?.phase === 'cancelled'
     ) {
       this.resetGuidance();
-      this.revealMainWindow();
+      if (!pendingInteraction) this.revealMainWindow();
     }
   }
 }

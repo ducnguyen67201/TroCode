@@ -11,7 +11,8 @@ adapters, cancellation, and budgets.
 flowchart LR
     UI["Sandboxed React renderer"] -->|"Narrow DesktopApi"| PRELOAD["Validated preload"]
     PRELOAD -->|"Authenticated IPC"| MAIN["Electron main"]
-    MAIN --> RUNTIME["Task runtime v3"]
+    MAIN --> PREFS["Trusted approval preference"]
+    PREFS --> RUNTIME["Task contract v5 + runtime"]
     RUNTIME --> AGENT["CostAwareAgent + bounded InferenceSession"]
     AGENT -->|"Request UUID + opaque session"| API["Railway API"]
     API --> BUDGET["BudgetService"]
@@ -25,15 +26,20 @@ flowchart LR
     REVIEW -->|"More work"| AGENT
     AGENT -->|"One function call"| ROUTER["Trusted tool router"]
     ROUTER --> POLICY["Concrete-action policy"]
-    POLICY --> ADAPTERS["Browser, CUA, guidance, interaction adapters"]
+    POLICY -->|"Ask: exact grant"| APPROVAL["Non-activating cursor card"]
+    APPROVAL --> VALIDATOR["Local target-state validator"]
+    VALIDATOR --> ADAPTERS["Browser, CUA, guidance, interaction adapters"]
+    POLICY -->|"Full: task-preauthorized"| ADAPTERS
     ADAPTERS -->|"Tool output + evidence"| AGENT
 ```
 
 ## Assistant-or-tool loop
 
-A new request synchronously creates a host-owned `TaskContract` v4 containing
+A new request reads the local approval preference in trusted Electron main and
+creates a host-owned `TaskContract` v5 containing
 the original request, fixed exact-approval policy, tool-call limit, and time
-limit plus model-sample, image, and task-spend ceilings. It contains no domain,
+limit plus model-sample, image, task-spend ceilings, and immutable approval
+mode. It contains no domain,
 behavior, capability grant, application allowlist,
 or model-authored authority.
 
@@ -82,9 +88,14 @@ Provider credentials, response bodies, and raw errors never cross that bridge.
 - Policy checks only a concrete normalized action: installed operation, public
   HTTPS target, and fixed host approval list. Desktop mutation sensitivity is
   derived from the trusted operation rather than the model's consequence label.
-- Exact approvals bind target, payload, command, coordinates, observation ID,
-  and observation fingerprint. A changed screen invalidates a held desktop
-  approval.
+- Ask-mode exact approvals bind target, payload, command, coordinates,
+  observation ID, and observation fingerprint. Before dispatch, exact
+  fingerprint equality is a fast path; otherwise a deterministic local
+  validator compares the target crop, drag path, or whole-screen structural
+  signature. Material changes and unavailable evidence fail closed.
+- Full mode is explicit host preauthorization for action prompts only. It does
+  not bypass availability, target, budget, grounding, cancellation,
+  post-action verification, self-approval denial, or unknown-outcome rules.
 - Unknown action outcomes are returned with a fresh observation. An unknown
   approved consequence blocks and cleans up the task; safe unknowns retain an
   exact digest that cannot be dispatched again.
@@ -118,8 +129,8 @@ authority.
 
 ## Persistence and analytics
 
-PostgreSQL stores validated snapshots and lifecycle events. Persisted v1/v2/v3
-contracts remain readable as legacy history; new tasks emit v4 contracts and
+PostgreSQL stores validated snapshots and lifecycle events. Persisted v1-v4
+contracts remain readable as Ask-mode legacy history; new tasks emit v5 contracts and
 tool-call progress. Screenshots, Responses items, pending raw tool arguments,
 and reasoning never enter task history.
 

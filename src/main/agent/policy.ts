@@ -9,17 +9,29 @@ import {
   defaultRuntimeToolRegistry,
   type RuntimeToolRegistry,
 } from './runtime-tool-registry';
-import { taskApprovalPolicy } from './task-contract';
+import { taskApprovalMode, taskApprovalPolicy } from './task-contract';
 
 export { ProposedActionSchema };
 export type { ProposedAction };
 
-export interface PolicyDecision {
-  terminal?: boolean;
-  status: 'allowed' | 'needs_approval' | 'denied';
-  summary: string;
-  nextActions: string[];
-}
+export type PolicyDecision =
+  | {
+      status: 'allowed';
+      authorization: 'not_required' | 'task_preapproved';
+      summary: string;
+      nextActions: string[];
+    }
+  | {
+      status: 'needs_approval';
+      summary: string;
+      nextActions: string[];
+    }
+  | {
+      status: 'denied';
+      terminal?: boolean;
+      summary: string;
+      nextActions: string[];
+    };
 
 const APPROVAL_PATTERN = /\bapprov(?:e|al|ed|ing)\b/iu;
 const INTERNAL_APPROVAL_LABEL_PATTERN =
@@ -160,6 +172,14 @@ export function evaluateAction(
   }
 
   if (requiresApproval(action)) {
+    if (taskApprovalMode(goal) === 'fully_approved') {
+      return {
+        status: 'allowed',
+        authorization: 'task_preapproved',
+        summary: `${action.description} is pre-authorized by the task approval mode.`,
+        nextActions: ['Execute once, then observe and verify the result.'],
+      };
+    }
     return {
       status: 'needs_approval',
       summary: `${action.description} requires explicit user approval.`,
@@ -169,6 +189,7 @@ export function evaluateAction(
 
   return {
     status: 'allowed',
+    authorization: 'not_required',
     summary: action.description,
     nextActions: ['Execute once, then observe and verify the result.'],
   };

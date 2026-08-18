@@ -1,15 +1,18 @@
 import type { TaskSnapshot } from '../../shared/contracts';
 import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
 import type { TaskRuntime } from '../agent/task-runtime';
+import type { AppPreferencesService } from '../preferences/app-preferences-service';
 
 export class TaskApplicationService {
   constructor(
     private readonly runtime: TaskRuntime,
     private readonly execution: TaskExecutionCoordinator,
+    private readonly preferences: Pick<AppPreferencesService, 'get'>,
   ) {}
 
-  submitAndStart(input: unknown): TaskSnapshot {
-    const submitted = this.runtime.submit(input);
+  async submitAndStart(input: unknown): Promise<TaskSnapshot> {
+    const preferences = await this.preferences.get();
+    const submitted = this.runtime.submit(input, preferences.approvalMode);
     return this.execution.start({ taskId: submitted.taskId });
   }
 

@@ -17,6 +17,7 @@ import {
   getFocusedApprovalShortcut,
   isApprovalExpired,
 } from './companion-interaction';
+import { CursorApprovalChat } from './CursorApprovalChat';
 import {
   createGuidanceAudioPlayback,
   type GuidanceAudioPlayback,
@@ -291,8 +292,8 @@ export function GuidanceCallout() {
         <aside
           aria-labelledby="companion-interaction-title"
           aria-live={interaction.kind === 'approval' ? 'assertive' : 'polite'}
-          className={`guidance-callout guidance-callout--interactive guidance-callout--${interaction.side}`}
-          role="dialog"
+          className={`guidance-callout guidance-callout--interactive guidance-callout--${interaction.kind} guidance-callout--${interaction.side}`}
+          role={interaction.kind === 'approval' ? 'alertdialog' : 'dialog'}
         >
           <div className="guidance-callout__header">
             <span className="guidance-callout__avatar" aria-hidden="true">
@@ -356,69 +357,12 @@ export function GuidanceCallout() {
               </p>
             </>
           ) : (
-            <>
-              <p className="guidance-callout__consequence">
-                {interaction.consequence}
-              </p>
-              <dl className="guidance-callout__approval-details">
-                <div>
-                  <dt>Action</dt>
-                  <dd>{interaction.action.label}</dd>
-                </div>
-                <div>
-                  <dt>Description</dt>
-                  <dd>{interaction.action.description}</dd>
-                </div>
-                {interaction.action.target ? (
-                  <div>
-                    <dt>Target</dt>
-                    <dd>{interaction.action.target}</dd>
-                  </div>
-                ) : null}
-                {interaction.action.details.map((detail) => (
-                  <div key={detail.label}>
-                    <dt>{detail.label}</dt>
-                    <dd>{detail.value}</dd>
-                  </div>
-                ))}
-              </dl>
-              {interaction.action.hasMoreDetails ? (
-                <button
-                  className="guidance-callout__details-link"
-                  onClick={() => void window.troCompanion.revealMainWindow()}
-                  type="button"
-                >
-                  Open this task in TroCode
-                </button>
-              ) : null}
-              {approvalExpired ? (
-                <p className="guidance-callout__expired">
-                  This approval expired. Ask TroCode to try again.
-                </p>
-              ) : (
-                <div className="guidance-callout__approval-actions">
-                  <button
-                    disabled={isSending}
-                    onClick={() => void decideApproval('deny')}
-                    type="button"
-                  >
-                    Deny
-                  </button>
-                  <button
-                    className="guidance-callout__approve"
-                    disabled={isSending}
-                    onClick={() => void decideApproval('approve')}
-                    type="button"
-                  >
-                    {isSending ? 'Submitting…' : 'Approve exact action'}
-                  </button>
-                </div>
-              )}
-              <p className="guidance-callout__hint">
-                Voice or typed “yes” cannot approve · <kbd>⌘/Ctrl ⇧ ↵</kbd>{' '}
-                approve
-              </p>
-            </>
+            <CursorApprovalChat
+              approvalExpired={approvalExpired}
+              interaction={interaction}
+              isSending={isSending}
+              onDecision={(decision) => void decideApproval(decision)}
+            />
           )}
           {error ? <p className="guidance-callout__error">{error}</p> : null}
         </aside>

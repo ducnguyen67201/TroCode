@@ -41,6 +41,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Activation code': 'Mã kích hoạt',
   acting: 'đang thực hiện',
   Action: 'Hành động',
+  'Action approvals': 'Phê duyệt hành động',
   Activity: 'Hoạt động',
   Agent: 'Trợ lý',
   'App interface': 'Giao diện ứng dụng',
@@ -57,6 +58,9 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Answer TroCode to continue this task': 'Trả lời TroCode để tiếp tục tác vụ',
   'App controls will use {appLanguage}; new voice turns will use {spokenLanguage}.':
     'Giao diện ứng dụng sẽ dùng {appLanguage}; lượt nói mới sẽ dùng {spokenLanguage}.',
+  'Acknowledge the Fully approved warning before saving.':
+    'Hãy xác nhận cảnh báo Phê duyệt hoàn toàn trước khi lưu.',
+  'Ask every time (recommended)': 'Hỏi mỗi lần (khuyên dùng)',
   'Assistant only': 'Chỉ dùng trợ lý',
   'Assistant-only tasks need no tools. Tool activity will appear here when used.':
     'Tác vụ chỉ dùng trợ lý không cần công cụ. Hoạt động công cụ sẽ xuất hiện ở đây khi được sử dụng.',
@@ -72,6 +76,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Checking your membership…': 'Đang kiểm tra tư cách thành viên…',
   'Choose the language used for navigation, settings, and other TroCode controls.':
     'Chọn ngôn ngữ dùng cho điều hướng, cài đặt và các thành phần điều khiển khác của TroCode.',
+  'Choose the default approval behavior for new tasks.':
+    'Chọn cách phê duyệt mặc định cho các tác vụ mới.',
   'Choose how you talk with TroCode': 'Chọn cách bạn trò chuyện với TroCode',
   'Choose your spoken language, then give TroCode the macOS permissions it needs to hear your request, use the computer, and confirm the result. You stay in control and can revoke permissions in System Settings at any time.':
     'Chọn ngôn ngữ nói, sau đó cấp cho TroCode các quyền macOS cần thiết để nghe yêu cầu, sử dụng máy tính và xác nhận kết quả. Bạn luôn nắm quyền kiểm soát và có thể thu hồi quyền trong Cài đặt hệ thống bất cứ lúc nào.',
@@ -119,6 +125,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   failed: 'thất bại',
   'Final setup step': 'Bước thiết lập cuối cùng',
   Finished: 'Đã kết thúc',
+  'Fully approved': 'Phê duyệt hoàn toàn',
   'Finished task history': 'Lịch sử tác vụ đã kết thúc',
   'Finished tasks will settle here.': 'Tác vụ đã kết thúc sẽ xuất hiện ở đây.',
   'Finish setup': 'Hoàn tất thiết lập',
@@ -133,6 +140,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   Insights: 'Phân tích',
   'Insights overview': 'Tổng quan phân tích',
   'Interface language': 'Ngôn ngữ giao diện',
+  'I understand consequential actions may run automatically.':
+    'Tôi hiểu rằng các hành động có hậu quả có thể tự động chạy.',
   interpreting: 'đang phân tích',
   Latest: 'Mới nhất',
   'Language & permissions': 'Ngôn ngữ và quyền truy cập',
@@ -187,13 +196,19 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'One-time setup': 'Thiết lập một lần',
   'Personal preferences': 'Tùy chọn cá nhân',
   Preferences: 'Tùy chọn',
+  'Preferences saved. Approval changes apply to new tasks; app controls will use {appLanguage}, and new voice turns will use {spokenLanguage}.':
+    'Đã lưu tùy chọn. Thay đổi phê duyệt áp dụng cho tác vụ mới; giao diện sẽ dùng {appLanguage}, và lượt nói mới sẽ dùng {spokenLanguage}.',
   'Primary language': 'Ngôn ngữ chính',
+  'Require an exact cursor-card approval for host-required actions.':
+    'Yêu cầu phê duyệt chính xác trên thẻ cạnh con trỏ cho các hành động do hệ thống yêu cầu.',
   'Private on-device summary': 'Tóm tắt riêng tư trên thiết bị',
   'Realtime voice is ready. The microphone stays off until you hold the shortcut.':
     'Giọng nói thời gian thực đã sẵn sàng. Micrô sẽ tắt cho đến khi bạn giữ phím tắt.',
   'Restart to update': 'Khởi động lại để cập nhật',
   'Restarting…': 'Đang khởi động lại…',
   Saved: 'Đã lưu',
+  'Run host-approved action types without a per-action prompt for new tasks.':
+    'Chạy các loại hành động được hệ thống cho phép mà không hỏi từng lần trong tác vụ mới.',
   'Saved task history': 'Lịch sử tác vụ đã lưu',
   'Save preferences': 'Lưu tùy chọn',
   'Saving…': 'Đang lưu…',
@@ -271,6 +286,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'TroCode needs your input': 'TroCode cần phản hồi của bạn',
   'TroCode sends this as a transcription hint so short or noisy speech is less likely to be interpreted as an unexpected language or script.':
     'TroCode gửi lựa chọn này làm gợi ý phiên âm để lời nói ngắn hoặc có tạp âm ít bị nhận diện nhầm thành ngôn ngữ hay hệ chữ khác.',
+  'TroCode will still enforce target grounding, budgets, blocked destinations, cancellation, and result verification.':
+    'TroCode vẫn bắt buộc neo đúng mục tiêu, giới hạn ngân sách, chặn đích không an toàn, cho phép hủy và xác minh kết quả.',
   'TroCode registers itself with macOS for Screen Recording. If System Settings opens, switch on the TroCode row—you should not need the + button. Then return here and we’ll connect automatically. Screen Recording may require restarting TroCode once.':
     'TroCode tự đăng ký với macOS để ghi màn hình. Nếu Cài đặt hệ thống mở ra, hãy bật TroCode trong danh sách—bạn không cần dùng nút +. Sau đó quay lại đây và chúng tôi sẽ tự động kết nối. Quyền ghi màn hình có thể yêu cầu khởi động lại TroCode một lần.',
   'Updates unavailable': 'Không thể cập nhật',

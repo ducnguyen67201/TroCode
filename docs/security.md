@@ -36,13 +36,16 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
   the revocable Google-backed device session instead of an offline activation.
 - Assistant text and tool calls share one model session. A model tool call is a
   proposal, not permission or proof that an effect occurred.
-- Consequential actions require explicit approval. For desktop control, the
-  trusted tool operation—not the model's declared consequence—sets the minimum
-  approval level: click, drag, text entry, and keypress operations all pause,
-  while scroll remains non-mutating.
+- Ask mode, the default, requires explicit exact approval. For desktop control,
+  the trusted tool operation—not the model's declared consequence—sets the
+  minimum approval level: click, drag, text entry, and keypress operations all
+  pause, while scroll remains non-mutating. Full mode is an explicit,
+  acknowledged host preference copied into new task contracts; it suppresses
+  only those per-action prompts.
 - Remote navigation and creation of unexpected Electron windows are denied.
 - Current actions are bounded by registered tool operations, public-target
-  checks, task budgets, fresh observations, and exact approvals. A task does
+  checks, task budgets, fresh observations, and either exact Ask grants or
+  explicit Full task preauthorization. A task does
   not gain authority from a keyword, domain label, or model-produced capability
   string.
 
@@ -108,7 +111,8 @@ revocation or authoritative time; those require an authenticated backend.
 
 Every nonterminal task exposes a renderer **Stop task** control, and the trusted
 main process registers **Escape** system-wide while work is active. Cancelling
-does not widen authority or bypass exact-action approvals.
+does not widen authority or bypass Ask grants, Full preauthorization
+boundaries, or post-action verification.
 
 ## Release requirements
 

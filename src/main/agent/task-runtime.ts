@@ -12,6 +12,7 @@ import {
   SteerTaskRequestSchema,
   SubmitTaskRequestSchema,
   TaskSnapshotSchema,
+  type ApprovalMode,
   type PendingInteraction,
   type ProposedAction,
   type RuntimeToolId,
@@ -118,10 +119,13 @@ export class TaskRuntime extends EventEmitter {
     this.toolRegistry = options.toolRegistry ?? defaultRuntimeToolRegistry;
   }
 
-  submit(input: unknown): TaskSnapshot {
+  submit(
+    input: unknown,
+    approvalMode: ApprovalMode = 'ask_every_time',
+  ): TaskSnapshot {
     const request = SubmitTaskRequestSchema.parse(input);
     const timestamp = this.timestamp();
-    const contract = createTaskContract(request.text);
+    const contract = createTaskContract(request.text, approvalMode);
     const idle: TaskSnapshot = {
       taskId: randomUUID(),
       request: request.text,
@@ -222,7 +226,10 @@ export class TaskRuntime extends EventEmitter {
       throw new Error('Action is not directly dispatchable: ' + decision.summary);
     }
     return this.move(snapshot, 'acting', {
-      summary: 'Using tool: ' + action.description,
+      summary:
+        decision.authorization === 'task_preapproved'
+          ? 'Using task-preauthorized tool action: ' + action.description
+          : 'Using tool: ' + action.description,
       nextActions: ['Return the tool result before choosing another action.'],
       ...(action.toolId && action.operation
         ? { tool: { toolId: action.toolId, operation: action.operation } }

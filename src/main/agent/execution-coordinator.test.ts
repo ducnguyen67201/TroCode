@@ -11,6 +11,10 @@ import type {
   ModelToolSpec,
 } from './agent-contracts';
 import type {
+  DesktopStateValidation,
+  DesktopStateValidator,
+} from './desktop-state-validator';
+import type {
   DesktopActionOutcome,
   DesktopCommand,
   DesktopObservation,
@@ -102,6 +106,7 @@ function setup(
   turns: AgentTurn[],
   observations: DesktopObservation[] = [],
   options: {
+    desktopStateValidator?: DesktopStateValidator;
     guidanceAutoAdvanceMs?: number;
     presentAction?: (
       command: DesktopCommand,
@@ -144,6 +149,26 @@ function setup(
   const coordinator = new TaskExecutionCoordinator({
     agent,
     cua,
+    desktopStateValidator:
+      options.desktopStateValidator ??
+      {
+        validate: ({ current, reference }): DesktopStateValidation =>
+          current.fingerprint === reference.fingerprint
+            ? {
+                status: 'stable',
+                reason: 'exact_fingerprint',
+                regionKind: 'target',
+                changedCellRatio: 0,
+                meanLumaDelta: 0,
+              }
+            : {
+                status: 'changed',
+                reason: 'material_visual_change',
+                regionKind: 'target',
+                changedCellRatio: 1,
+                meanLumaDelta: 255,
+              },
+      },
     openExternal,
     runtime,
     toolRegistry: registry,
@@ -451,6 +476,161 @@ describe('TaskExecutionCoordinator', () => {
     });
   });
 
+  it('executes an approved Ask action when target evidence remains stable despite a new full-screen fingerprint', async () => {
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId, 'a'.repeat(64));
+    const approvalCheck = observation(
+      randomUUID(),
+      randomUUID(),
+      'b'.repeat(64),
+    );
+    const after = observation(randomUUID(), randomUUID(), 'c'.repeat(64));
+    const stableValidator: DesktopStateValidator = {
+      validate: vi.fn(
+        (): DesktopStateValidation => ({
+          status: 'stable',
+          reason: 'within_tolerance',
+          regionKind: 'target',
+          changedCellRatio: 0.001,
+          meanLumaDelta: 0.2,
+        }),
+      ),
+    };
+    const { coordinator, cua, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect Gmail.' }),
+        tool('call-click', 'control_desktop', {
+          observationId,
+          consequence: 'click_element',
+          description: 'Open the newest email.',
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 250,
+            button: 'left',
+            count: 1,
+          },
+        }),
+        assistant('The newest email is open.'),
+        assistant('The newest email is open.'),
+      ],
+      [first, approvalCheck, after],
+      { desktopStateValidator: stableValidator },
+    );
+    const ready = runtime.submit({ text: 'Open the newest email.' });
+    first.taskId = ready.taskId;
+    approvalCheck.taskId = ready.taskId;
+    after.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+    const waiting = runtime.getSnapshot(ready.taskId);
+    if (!waiting.pendingInteraction || waiting.pendingInteraction.kind !== 'approval') {
+      throw new Error('Expected approval.');
+    }
+    runtime.decideApproval({
+      taskId: ready.taskId,
+      interactionId: waiting.pendingInteraction.id,
+      kind: 'approval',
+      decision: 'approve',
+      actionDigest: waiting.pendingInteraction.actionDigest,
+    });
+    coordinator.resume(ready.taskId);
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(stableValidator.validate).toHaveBeenCalledOnce();
+    expect(cua.executeCommand).toHaveBeenCalledOnce();
+    expect(cua.observe).toHaveBeenCalledTimes(3);
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+  });
+
+  it('runs Full mode without an approval grant and preserves post-action verification', async () => {
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId, 'a'.repeat(64));
+    const after = observation(randomUUID(), randomUUID(), 'b'.repeat(64));
+    const { coordinator, cua, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect Gmail.' }),
+        tool('call-click', 'control_desktop', {
+          observationId,
+          consequence: 'click_element',
+          description: 'Open the newest email.',
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 250,
+            button: 'left',
+            count: 1,
+          },
+        }),
+        assistant('The newest email is open.'),
+        assistant('The newest email is open.'),
+      ],
+      [first, after],
+    );
+    const ready = runtime.submit(
+      { text: 'Open the newest email.' },
+      'fully_approved',
+    );
+    first.taskId = ready.taskId;
+    after.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(cua.executeCommand).toHaveBeenCalledOnce();
+    expect(cua.observe).toHaveBeenCalledTimes(2);
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'completed',
+      pendingInteraction: null,
+      approvalGrant: null,
+    });
+  });
+
+  it('blocks and never retries an unknown task-preauthorized action', async () => {
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId, 'a'.repeat(64));
+    const after = observation(randomUUID(), randomUUID(), 'b'.repeat(64));
+    const { agent, coordinator, cua, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect Gmail.' }),
+        tool('call-delete', 'control_desktop', {
+          observationId,
+          consequence: 'delete',
+          description: 'Delete the selected email.',
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 250,
+            button: 'left',
+            count: 1,
+          },
+        }),
+      ],
+      [first, after],
+    );
+    const ready = runtime.submit(
+      { text: 'Delete the selected email.' },
+      'fully_approved',
+    );
+    first.taskId = ready.taskId;
+    after.taskId = ready.taskId;
+    cua.executeCommand.mockResolvedValueOnce({
+      status: 'unknown',
+      summary: 'The desktop driver could not confirm the outcome.',
+    });
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(cua.executeCommand).toHaveBeenCalledOnce();
+    expect(agent.sample).toHaveBeenCalledTimes(2);
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'blocked',
+      lastEvent: { summary: expect.stringContaining('unknown outcome') },
+    });
+  });
+
   it('invalidates the cached observation after browser navigation', async () => {
     const taskId = randomUUID();
     const observationId = randomUUID();
@@ -636,7 +816,7 @@ describe('TaskExecutionCoordinator', () => {
     expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
   });
 
-  it('invalidates approved desktop work when the screen fingerprint changes', async () => {
+  it('invalidates approved desktop work when target validation detects change', async () => {
     const observationId = randomUUID();
     const { agent, coordinator, cua, runtime } = setup([
       tool('call-observe', 'observe_desktop', { reason: 'Inspect the inbox.' }),
@@ -676,14 +856,14 @@ describe('TaskExecutionCoordinator', () => {
 
     expect(cua.executeCommand).not.toHaveBeenCalled();
     expect(JSON.stringify(agent.outputs.at(-1)?.output)).toContain(
-      'screen changed',
+      'target changed',
     );
     expect(agent.sample).toHaveBeenCalledTimes(2);
     expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
       phase: 'blocked',
       lastEvent: {
         status: 'warning',
-        summary: expect.stringContaining('screen changed'),
+        summary: expect.stringContaining('target changed'),
       },
     });
   });

@@ -13,6 +13,7 @@ import type {
   ToolExecutionResult,
 } from './agent-contracts';
 import { decideCompletionReview } from './completion-policy';
+import type { DesktopStateValidator } from './desktop-state-validator';
 import {
   mapScreenshotPointToDesktop,
   type DesktopCommand,
@@ -43,6 +44,7 @@ interface ExecutionCoordinatorOptions {
     | 'getStatus'
   >;
   dismissPresentation?: () => void;
+  desktopStateValidator: DesktopStateValidator;
   guidanceAutoAdvanceMs?: number;
   onGuidanceWaitEnd?: (taskId: string) => void;
   onGuidanceWaitStart?: (
@@ -89,6 +91,7 @@ interface GuidanceHistoryEntry {
 
 interface HeldApproval {
   invocation: ResolvedToolInvocation;
+  referenceObservation?: DesktopObservation;
 }
 
 interface HeldInteraction {
@@ -302,6 +305,8 @@ export class TaskExecutionCoordinator {
 
   private readonly dismissPresentation: () => void;
 
+  private readonly desktopStateValidator: DesktopStateValidator;
+
   private readonly guidanceAutoAdvanceMs?: number;
 
   private readonly onGuidancePlaybackChange: NonNullable<
@@ -338,6 +343,7 @@ export class TaskExecutionCoordinator {
   constructor({
     agent,
     cua,
+    desktopStateValidator,
     dismissPresentation = () => undefined,
     guidanceAutoAdvanceMs,
     onGuidancePlaybackChange = () => undefined,
@@ -355,6 +361,7 @@ export class TaskExecutionCoordinator {
   }: ExecutionCoordinatorOptions) {
     this.agent = agent;
     this.cua = cua;
+    this.desktopStateValidator = desktopStateValidator;
     this.dismissPresentation = dismissPresentation;
     this.guidanceAutoAdvanceMs = guidanceAutoAdvanceMs;
     this.onGuidancePlaybackChange = onGuidancePlaybackChange;
@@ -831,7 +838,31 @@ export class TaskExecutionCoordinator {
       context.activeGuidance = undefined;
       this.onGuidanceWaitEnd(taskId);
       this.dismissPresentation();
-      context.pendingApproval = { invocation };
+      let referenceObservation: DesktopObservation | undefined;
+      if (invocation.kind === 'desktop') {
+        const input = invocation.input as DesktopControlToolInput;
+        referenceObservation = context.latestObservation;
+        if (
+          !referenceObservation ||
+          referenceObservation.observationId !== input.observationId ||
+          referenceObservation.fingerprint !== input.observationFingerprint
+        ) {
+          this.agent.appendToolOutput(taskId, {
+            callId: invocation.callId,
+            output: JSON.stringify({
+              status: 'not_executed',
+              summary:
+                'The desktop action was not grounded in the current trusted observation.',
+            }),
+          });
+          this.runtime.resumePlanning(
+            taskId,
+            'Rejected an approval request without matching observation evidence.',
+          );
+          return false;
+        }
+      }
+      context.pendingApproval = { invocation, referenceObservation };
       this.runtime.requestApproval({
         taskId,
         action,
@@ -842,7 +873,12 @@ export class TaskExecutionCoordinator {
     }
 
     this.runtime.beginAllowedAction(taskId, action);
-    await this.dispatchAction(taskId, context, invocation, false);
+    await this.dispatchAction(
+      taskId,
+      context,
+      invocation,
+      policy.authorization === 'task_preapproved',
+    );
     return false;
   }
 
@@ -866,21 +902,56 @@ export class TaskExecutionCoordinator {
       return;
     }
 
-    const input = held.invocation.input as Partial<DesktopControlToolInput>;
-    if (held.invocation.kind === 'desktop' && input.observationFingerprint) {
-      const current = await this.captureObservation(
-        taskId,
-        context,
-        'Checking that the approved desktop state is still current.',
-      );
+    if (held.invocation.kind === 'desktop') {
+      const input = held.invocation.input as DesktopControlToolInput;
+      const reference = held.referenceObservation;
+      let current: DesktopObservation | undefined;
+      if (reference) {
+        try {
+          current = await this.captureObservation(
+            taskId,
+            context,
+            'Checking that the approved desktop state is still current.',
+          );
+        } catch (error) {
+          if (isAbort(error, context.controller.signal)) throw error;
+        }
+      }
       this.runtime.beginVerification(
         taskId,
         'Validated the current desktop before using approval.',
       );
-      if (current.fingerprint !== input.observationFingerprint) {
+      const validation =
+        reference && current
+          ? this.desktopStateValidator.validate({
+              command: input.command,
+              current,
+              reference,
+            })
+          : ({
+              status: 'unavailable',
+              reason: 'missing_evidence',
+            } as const);
+      console.info('[desktop-state-validator]', {
+        status: validation.status,
+        reason: validation.reason,
+        ...('regionKind' in validation
+          ? { regionKind: validation.regionKind }
+          : {}),
+        ...('changedCellRatio' in validation
+          ? {
+              changedCellRatio: validation.changedCellRatio,
+              meanLumaDelta: validation.meanLumaDelta,
+            }
+          : {}),
+      });
+      if (validation.status !== 'stable') {
+        const targetChanged = validation.status === 'changed';
         this.runtime.discardApprovalGrant(
           taskId,
-          'The screen changed after approval; the held action was not executed.',
+          targetChanged
+            ? 'The approved target changed; the held action was not executed.'
+            : 'The approved target could not be validated; the held action was not executed.',
         );
         this.agent.appendToolOutput(
           taskId,
@@ -888,8 +959,9 @@ export class TaskExecutionCoordinator {
             held.invocation.callId,
             {
               status: 'not_executed',
-              summary:
-                'The screen changed after approval. Re-observe and propose a fresh action.',
+              summary: targetChanged
+                ? 'The approved target changed. Re-observe and propose a fresh action.'
+                : 'The approved target state could not be validated. Re-observe before proposing a fresh action.',
             },
             current,
           ),
@@ -897,7 +969,9 @@ export class TaskExecutionCoordinator {
         context.pendingApproval = undefined;
         this.runtime.block(
           taskId,
-          'The screen changed after approval, so the action was not executed and TroCode stopped before requesting approval again.',
+          targetChanged
+            ? 'The target changed after approval, so the action was not executed and TroCode stopped before requesting approval again.'
+            : 'The target state could not be validated after approval, so the action was not executed.',
           [
             'Return to the target application, confirm the intended action is still visible, then start a new request.',
           ],
@@ -920,7 +994,7 @@ export class TaskExecutionCoordinator {
     taskId: string,
     context: ExecutionContext,
     invocation: ResolvedToolInvocation,
-    approvedConsequentialAction: boolean,
+    consequentiallyAuthorized: boolean,
   ): Promise<void> {
     const signal = context.controller.signal;
     let guidanceEntry: GuidanceHistoryEntry | undefined;
@@ -1008,7 +1082,7 @@ export class TaskExecutionCoordinator {
       context.guidanceCursor = context.guidanceHistory.length - 1;
       await this.waitForGuidance(taskId, context);
     }
-    if (result.status === 'unknown' && approvedConsequentialAction) {
+    if (result.status === 'unknown' && consequentiallyAuthorized) {
       this.runtime.block(
         taskId,
         'A consequential action has an unknown outcome. TroCode will not retry it or dispatch another consequential action in this task.',

@@ -1,4 +1,5 @@
 import type {
+  ApprovalMode,
   AppLanguage,
   AppUpdateStatus,
   PrimaryLanguage,
@@ -15,17 +16,21 @@ import {
 } from './language-options';
 
 interface SettingsPageProps {
+  approvalMode: ApprovalMode;
   appLanguage: AppLanguage;
   appUpdateError: string | null;
   appUpdateStatus: AppUpdateStatus | null;
   error: string | null;
   hasChanges: boolean;
+  fullyApprovedAcknowledged: boolean;
   isSaving: boolean;
   isUpdatingApp: boolean;
   muteSystemAudioWhileSpeaking: boolean;
   onAppLanguageChange(language: AppLanguage): void;
+  onApprovalModeChange(mode: ApprovalMode): void;
   onCheckForUpdates(): void;
   onLanguageChange(language: PrimaryLanguage): void;
+  onFullyApprovedAcknowledgedChange(acknowledged: boolean): void;
   onMuteSystemAudioWhileSpeakingChange(enabled: boolean): void;
   onRestartAndInstall(): void;
   onSave(): void;
@@ -61,17 +66,21 @@ function appUpdateActionLabel(
 }
 
 export function SettingsPage({
+  approvalMode,
   appLanguage,
   appUpdateError,
   appUpdateStatus,
   error,
+  fullyApprovedAcknowledged,
   hasChanges,
   isSaving,
   isUpdatingApp,
   muteSystemAudioWhileSpeaking,
   onAppLanguageChange,
+  onApprovalModeChange,
   onCheckForUpdates,
   onLanguageChange,
+  onFullyApprovedAcknowledgedChange,
   onMuteSystemAudioWhileSpeakingChange,
   onRestartAndInstall,
   onSave,
@@ -100,6 +109,8 @@ export function SettingsPage({
     t('Loading application update status…');
   const updateHasError =
     Boolean(appUpdateError) || appUpdateStatus?.phase === 'error';
+  const approvalAcknowledgementRequired =
+    approvalMode === 'fully_approved' && !fullyApprovedAcknowledged;
 
   return (
     <section className="settings-page" aria-labelledby="settings-heading">
@@ -152,6 +163,68 @@ export function SettingsPage({
             'Choose the language used for navigation, settings, and other TroCode controls.',
           )}
         </p>
+
+        <div className="settings-section-divider" />
+
+        <fieldset className="approval-mode-fieldset">
+          <legend>{t('Action approvals')}</legend>
+          <p className="settings-help">
+            {t('Choose the default approval behavior for new tasks.')}
+          </p>
+          <label className="approval-mode-option">
+            <input
+              checked={approvalMode === 'ask_every_time'}
+              name="approval-mode"
+              onChange={() => onApprovalModeChange('ask_every_time')}
+              type="radio"
+              value="ask_every_time"
+            />
+            <span>
+              <strong>{t('Ask every time (recommended)')}</strong>
+              <small>
+                {t('Require an exact cursor-card approval for host-required actions.')}
+              </small>
+            </span>
+          </label>
+          <label className="approval-mode-option">
+            <input
+              checked={approvalMode === 'fully_approved'}
+              name="approval-mode"
+              onChange={() => onApprovalModeChange('fully_approved')}
+              type="radio"
+              value="fully_approved"
+            />
+            <span>
+              <strong>{t('Fully approved')}</strong>
+              <small>
+                {t('Run host-approved action types without a per-action prompt for new tasks.')}
+              </small>
+            </span>
+          </label>
+          {approvalMode === 'fully_approved' && (
+            <div className="approval-mode-warning" role="status">
+              <p>
+                {t(
+                  'TroCode will still enforce target grounding, budgets, blocked destinations, cancellation, and result verification.',
+                )}
+              </p>
+              <label className="settings-toggle settings-toggle--warning">
+                <input
+                  checked={fullyApprovedAcknowledged}
+                  onChange={(event) =>
+                    onFullyApprovedAcknowledgedChange(event.target.checked)
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <strong>
+                    {t('I understand consequential actions may run automatically.')}
+                  </strong>
+                </span>
+              </label>
+            </div>
+          )}
+        </fieldset>
 
         <div className="settings-section-divider" />
 
@@ -221,7 +294,9 @@ export function SettingsPage({
         <div className="settings-actions">
           <button
             className="primary-button"
-            disabled={isSaving || !hasChanges}
+            disabled={
+              isSaving || !hasChanges || approvalAcknowledgementRequired
+            }
             type="submit"
           >
             {isSaving

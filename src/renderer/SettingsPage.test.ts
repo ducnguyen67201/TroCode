@@ -8,17 +8,21 @@ import { SettingsPage } from './SettingsPage';
 function renderSettings(appUpdateStatus: AppUpdateStatus): string {
   return renderToStaticMarkup(
     SettingsPage({
+      approvalMode: 'ask_every_time',
       appLanguage: 'en',
       appUpdateError: null,
       appUpdateStatus,
       error: null,
+      fullyApprovedAcknowledged: false,
       hasChanges: false,
       isSaving: false,
       isUpdatingApp: false,
       muteSystemAudioWhileSpeaking: false,
       onAppLanguageChange: vi.fn(),
+      onApprovalModeChange: vi.fn(),
       onCheckForUpdates: vi.fn(),
       onLanguageChange: vi.fn(),
+      onFullyApprovedAcknowledgedChange: vi.fn(),
       onMuteSystemAudioWhileSpeakingChange: vi.fn(),
       onRestartAndInstall: vi.fn(),
       onSave: vi.fn(),
@@ -74,6 +78,7 @@ describe('SettingsPage app language', () => {
   it('renders translated controls when Vietnamese is selected', () => {
     const markup = renderToStaticMarkup(
       SettingsPage({
+        approvalMode: 'fully_approved',
         appLanguage: 'vi',
         appUpdateError: null,
         appUpdateStatus: {
@@ -83,13 +88,16 @@ describe('SettingsPage app language', () => {
           targetVersion: null,
         },
         error: null,
+        fullyApprovedAcknowledged: true,
         hasChanges: true,
         isSaving: false,
         isUpdatingApp: false,
         muteSystemAudioWhileSpeaking: true,
         onAppLanguageChange: vi.fn(),
+        onApprovalModeChange: vi.fn(),
         onCheckForUpdates: vi.fn(),
         onLanguageChange: vi.fn(),
+        onFullyApprovedAcknowledgedChange: vi.fn(),
         onMuteSystemAudioWhileSpeakingChange: vi.fn(),
         onRestartAndInstall: vi.fn(),
         onSave: vi.fn(),
@@ -104,6 +112,64 @@ describe('SettingsPage app language', () => {
     expect(markup).toContain('Ngôn ngữ nói');
     expect(markup).toContain('Lưu tùy chọn');
     expect(markup).toContain('Tắt âm thanh khác khi đang nói');
+    expect(markup).toContain('Phê duyệt hành động');
+    expect(markup).toContain('Phê duyệt hoàn toàn');
+  });
+});
+
+describe('SettingsPage approval mode', () => {
+  it('defaults to Ask and describes exact cursor-card approval', () => {
+    const markup = renderSettings({
+      currentVersion: '0.1.0',
+      message: 'No updates found.',
+      phase: 'up_to_date',
+      targetVersion: null,
+    });
+
+    expect(markup).toContain('Action approvals');
+    expect(markup).toContain('Ask every time (recommended)');
+    expect(markup).toContain('exact cursor-card approval');
+    expect(markup).toMatch(
+      /<input[^>]*name="approval-mode"[^>]*checked=""[^>]*value="ask_every_time"/u,
+    );
+    expect(markup).not.toContain('consequential actions may run automatically');
+  });
+
+  it('shows the Full warning and acknowledgement control', () => {
+    const markup = renderToStaticMarkup(
+      SettingsPage({
+        approvalMode: 'fully_approved',
+        appLanguage: 'en',
+        appUpdateError: null,
+        appUpdateStatus: {
+          currentVersion: '0.1.0',
+          message: 'No updates found.',
+          phase: 'up_to_date',
+          targetVersion: null,
+        },
+        error: null,
+        fullyApprovedAcknowledged: false,
+        hasChanges: true,
+        isSaving: false,
+        isUpdatingApp: false,
+        muteSystemAudioWhileSpeaking: false,
+        onAppLanguageChange: vi.fn(),
+        onApprovalModeChange: vi.fn(),
+        onCheckForUpdates: vi.fn(),
+        onFullyApprovedAcknowledgedChange: vi.fn(),
+        onLanguageChange: vi.fn(),
+        onMuteSystemAudioWhileSpeakingChange: vi.fn(),
+        onRestartAndInstall: vi.fn(),
+        onSave: vi.fn(),
+        primaryLanguage: 'en',
+        saveMessage: null,
+        systemAudioMuteSupported: true,
+      }),
+    );
+
+    expect(markup).toContain('Fully approved');
+    expect(markup).toContain('consequential actions may run automatically');
+    expect(markup).toMatch(/disabled=""[^>]*type="submit"/u);
   });
 });
 

@@ -14,7 +14,7 @@ model calls observe_desktop
   -> model may call control_desktop using that observation ID
   -> host parses normalized coordinates and records the declared consequence
   -> host derives action identity and approval sensitivity from the command
-  -> policy allows, denies, or asks for exact approval
+  -> policy denies, allows, asks for exact approval, or records task preauthorization
   -> execute one atomic command
   -> always capture a fresh observation
   -> return outcome + screenshot to the same model session
@@ -34,16 +34,24 @@ produce a newer observation; historical screenshots are never replayed.
 
 Every control call must cite the latest observation UUID. The host includes the
 observation UUID and fingerprint in the normalized `ProposedAction` and approval
-digest. Before executing a held consequential desktop action, it captures the
-screen again. Any fingerprint change invalidates the grant, returns
-`not_executed` plus the new screenshot, and requires a newly grounded proposal.
+digest. Before executing a held Ask-mode desktop action, it captures the screen
+again. Exact fingerprint equality is the fast path. If unrelated pixels
+changed, a deterministic local validator compares only the trusted command
+evidence: a bounded click/scroll target crop, an expanded drag path, or a
+downsampled whole-screen structural signature for typing and keypresses.
+Material target change, dimension mismatch, missing/degraded evidence, or
+decode failure invalidates the grant and returns `not_executed`. The comparison
+is structural, not semantic, and makes no LLM call.
 Opening a browser URL also invalidates the cached observation before any later
 coordinate action can be resolved.
 
 The model's declared consequence is retained for audit and exact approval copy,
 but it cannot downgrade policy. The host requires approval for every desktop
 click, drag, text-entry, or keypress operation; only non-mutating scrolling can
-run without that desktop-mutation gate.
+run without that desktop-mutation gate in Ask mode. Full mode converts the
+prompt branch to audited task preauthorization while retaining observation
+grounding, post-action capture, verification, cancellation, budgets, hard
+denials, and unknown-outcome blocking.
 
 ## Outcomes
 

@@ -9,6 +9,7 @@ import {
 } from '../../shared/contracts';
 
 const EMPTY_PREFERENCES: AppPreferences = {
+  approvalMode: 'ask_every_time',
   appLanguage: 'en',
   muteSystemAudioWhileSpeaking: false,
   primaryLanguage: null,

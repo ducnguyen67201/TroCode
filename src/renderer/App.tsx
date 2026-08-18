@@ -8,6 +8,7 @@ import {
 } from 'react';
 
 import type {
+  ApprovalMode,
   AppLanguage,
   AppPreferences,
   AppUpdateStatus,
@@ -727,6 +728,10 @@ export function App({
     useState<PrimaryLanguage>('en');
   const [appLanguageDraft, setAppLanguageDraft] =
     useState<AppLanguage>('en');
+  const [approvalModeDraft, setApprovalModeDraft] =
+    useState<ApprovalMode>('ask_every_time');
+  const [fullyApprovedAcknowledged, setFullyApprovedAcknowledged] =
+    useState(false);
   const [
     muteSystemAudioWhileSpeakingDraft,
     setMuteSystemAudioWhileSpeakingDraft,
@@ -932,6 +937,10 @@ export function App({
       .getAppPreferences()
       .then((preferences) => {
         setAppPreferences(preferences);
+        setApprovalModeDraft(preferences.approvalMode);
+        setFullyApprovedAcknowledged(
+          preferences.approvalMode === 'fully_approved',
+        );
         setAppLanguageDraft(preferences.appLanguage);
         setMuteSystemAudioWhileSpeakingDraft(
           preferences.muteSystemAudioWhileSpeaking,
@@ -1130,20 +1139,36 @@ export function App({
   }, []);
 
   const saveSettings = useCallback(async () => {
+    if (
+      approvalModeDraft === 'fully_approved' &&
+      !fullyApprovedAcknowledged
+    ) {
+      setSettingsError(
+        translate(
+          appLanguageDraft,
+          'Acknowledge the Fully approved warning before saving.',
+        ),
+      );
+      return;
+    }
     setIsSavingPreferences(true);
     setSettingsError(null);
     setSettingsSaveMessage(null);
     try {
       const preferences = await window.tro.updateAppPreferences({
+        approvalMode: approvalModeDraft,
         appLanguage: appLanguageDraft,
         muteSystemAudioWhileSpeaking: muteSystemAudioWhileSpeakingDraft,
         primaryLanguage: languageDraft,
       });
       setAppPreferences(preferences);
+      setFullyApprovedAcknowledged(
+        preferences.approvalMode === 'fully_approved',
+      );
       setSettingsSaveMessage(
         translate(
           appLanguageDraft,
-          'App controls will use {appLanguage}; new voice turns will use {spokenLanguage}.',
+          'Preferences saved. Approval changes apply to new tasks; app controls will use {appLanguage}, and new voice turns will use {spokenLanguage}.',
           {
             appLanguage: appLanguageLabel(appLanguageDraft),
             spokenLanguage: primaryLanguageLabel(
@@ -1164,6 +1189,8 @@ export function App({
     }
   }, [
     appLanguageDraft,
+    approvalModeDraft,
+    fullyApprovedAcknowledged,
     languageDraft,
     muteSystemAudioWhileSpeakingDraft,
   ]);
@@ -1436,6 +1463,7 @@ export function App({
     try {
       try {
         const preferences = await window.tro.updateAppPreferences({
+          approvalMode: approvalModeDraft,
           appLanguage: appLanguageDraft,
           muteSystemAudioWhileSpeaking: muteSystemAudioWhileSpeakingDraft,
           primaryLanguage: languageDraft,
@@ -1456,6 +1484,7 @@ export function App({
     }
   }, [
     appLanguageDraft,
+    approvalModeDraft,
     languageDraft,
     muteSystemAudioWhileSpeakingDraft,
   ]);
@@ -1846,12 +1875,15 @@ export function App({
           />
         ) : activeView === 'settings' ? (
           <SettingsPage
+            approvalMode={approvalModeDraft}
             appLanguage={appLanguageDraft}
             appUpdateError={appUpdateError}
             appUpdateStatus={appUpdateStatus}
             error={settingsError}
+            fullyApprovedAcknowledged={fullyApprovedAcknowledged}
             hasChanges={
               appPreferences?.appLanguage !== appLanguageDraft ||
+              appPreferences?.approvalMode !== approvalModeDraft ||
               appPreferences?.muteSystemAudioWhileSpeaking !==
                 muteSystemAudioWhileSpeakingDraft ||
               appPreferences?.primaryLanguage !== languageDraft
@@ -1863,9 +1895,20 @@ export function App({
               setSettingsError(null);
               setSettingsSaveMessage(null);
             }}
+            onApprovalModeChange={(mode) => {
+              setApprovalModeDraft(mode);
+              setFullyApprovedAcknowledged(false);
+              setSettingsError(null);
+              setSettingsSaveMessage(null);
+            }}
             onCheckForUpdates={() => void checkForAppUpdates()}
             onLanguageChange={(language) => {
               setLanguageDraft(language);
+              setSettingsError(null);
+              setSettingsSaveMessage(null);
+            }}
+            onFullyApprovedAcknowledgedChange={(acknowledged) => {
+              setFullyApprovedAcknowledged(acknowledged);
               setSettingsError(null);
               setSettingsSaveMessage(null);
             }}

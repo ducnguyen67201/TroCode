@@ -6,6 +6,10 @@ import { createTaskContract } from './task-contract';
 
 describe('concrete tool policy', () => {
   const contract = createTaskContract('Help me with this task.');
+  const fullyApprovedContract = createTaskContract(
+    'Help me with this task.',
+    'fully_approved',
+  );
 
   it('allows registered safe browser and scroll operations without semantic grants', () => {
     expect(
@@ -43,6 +47,28 @@ describe('concrete tool policy', () => {
           description: 'Perform the visible desktop action.',
         }).status,
       ).toBe('needs_approval');
+    },
+  );
+
+  it.each(['click', 'drag', 'type_text', 'keypress'] as const)(
+    'preauthorizes desktop %s in Full mode with explicit audit metadata',
+    (operation) => {
+      expect(
+        evaluateAction(fullyApprovedContract, {
+          action:
+            operation === 'click'
+              ? 'click_element'
+              : operation === 'keypress'
+                ? 'press_key'
+                : operation,
+          toolId: 'desktop.control',
+          operation,
+          description: 'Perform the visible desktop action.',
+        }),
+      ).toMatchObject({
+        status: 'allowed',
+        authorization: 'task_preapproved',
+      });
     },
   );
 
@@ -117,6 +143,37 @@ describe('concrete tool policy', () => {
     });
     expect(decision.status).toBe('denied');
     expect(decision.summary).not.toContain('Capability');
+  });
+
+  it('keeps hard denials ahead of Full preauthorization', () => {
+    const unavailable = evaluateAction(
+      fullyApprovedContract,
+      {
+        action: 'run_command',
+        toolId: 'terminal.execute',
+        operation: 'run',
+        description: 'Run a command.',
+      },
+      new RuntimeToolRegistry([]),
+    );
+    const privateTarget = evaluateAction(fullyApprovedContract, {
+      action: 'open_url',
+      toolId: 'browser.navigate',
+      operation: 'open_url',
+      description: 'Open a target.',
+      target: 'https://127.0.0.1/admin',
+    });
+    const selfApproval = evaluateAction(fullyApprovedContract, {
+      action: 'click_element',
+      toolId: 'desktop.control',
+      operation: 'click',
+      description: 'Click the approval control in TroCode.',
+      target: 'Approve exact action button in the TroCode window',
+    });
+
+    expect(unavailable.status).toBe('denied');
+    expect(privateTarget.status).toBe('denied');
+    expect(selfApproval).toMatchObject({ status: 'denied', terminal: true });
   });
 
   it('rejects local, private, and credential-bearing browser targets', () => {
