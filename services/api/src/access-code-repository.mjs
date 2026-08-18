@@ -1,5 +1,7 @@
 import { createHmac } from 'node:crypto';
 
+import { planFor } from './plan-catalog.mjs';
+
 const ACCESS_CODE_PATTERN = /^[A-Z0-9][A-Z0-9_-]{3,63}$/u;
 
 export function normalizeAccessCode(value) {
@@ -23,9 +25,11 @@ export function digestAccessCode(value, hmacKey) {
 function activeStatus(row, newlyRedeemed = false) {
   const maxUsers = Number(row.max_users);
   const usedUsers = Number(row.used_users);
+  planFor(row.plan);
   return {
     maxUsers,
     newlyRedeemed,
+    plan: row.plan,
     state: 'active',
     summary: 'Access code accepted.',
     usedUsers,
@@ -41,6 +45,7 @@ export class PostgresAccessCodeRepository {
   async getStatus(userId) {
     const result = await this.pool.query(
       `SELECT codes.max_users,
+              codes.plan,
               COUNT(usage.user_id)::INTEGER AS used_users
        FROM access_code_redemptions AS own_redemption
        JOIN access_codes AS codes
@@ -48,7 +53,7 @@ export class PostgresAccessCodeRepository {
        JOIN access_code_redemptions AS usage
          ON usage.access_code_id = codes.id
        WHERE own_redemption.user_id = $1
-       GROUP BY codes.id, codes.max_users`,
+       GROUP BY codes.id, codes.max_users, codes.plan`,
       [userId],
     );
     const row = result.rows[0];
@@ -82,6 +87,7 @@ export class PostgresAccessCodeRepository {
       const existing = await client.query(
         `SELECT codes.code_digest,
                 codes.max_users,
+                codes.plan,
                 COUNT(usage.user_id)::INTEGER AS used_users
          FROM access_code_redemptions AS own_redemption
          JOIN access_codes AS codes
@@ -89,7 +95,7 @@ export class PostgresAccessCodeRepository {
          JOIN access_code_redemptions AS usage
            ON usage.access_code_id = codes.id
          WHERE own_redemption.user_id = $1
-         GROUP BY codes.id, codes.code_digest, codes.max_users`,
+         GROUP BY codes.id, codes.code_digest, codes.max_users, codes.plan`,
         [userId],
       );
       const existingRow = existing.rows[0];
@@ -101,7 +107,7 @@ export class PostgresAccessCodeRepository {
       }
 
       const codeResult = await client.query(
-        `SELECT id, max_users
+        `SELECT id, max_users, plan
          FROM access_codes
          WHERE code_digest = $1
          FOR UPDATE`,
@@ -135,7 +141,11 @@ export class PostgresAccessCodeRepository {
       return {
         kind: 'active',
         status: activeStatus(
-          { max_users: maxUsers, used_users: usedUsers + 1 },
+          {
+            max_users: maxUsers,
+            plan: code.plan,
+            used_users: usedUsers + 1,
+          },
           true,
         ),
       };

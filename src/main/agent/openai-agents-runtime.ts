@@ -27,6 +27,7 @@ import type {
 import { BoundedAgentSession } from './bounded-agent-session';
 import {
   OpenAIClientFactory,
+  type HostedOpenAIClient,
   type OpenAIClientFactoryOptions,
 } from './openai-client-factory';
 import { requestsGuidedWalkthrough } from './walkthrough-policy';
@@ -63,6 +64,7 @@ interface ActiveAgentSession {
   callbacks: AgentRuntimeCallbacks;
   emitActivity?: (activity: AgentRuntimeActivity) => void;
   maxTurns: number;
+  hostedClient: HostedOpenAIClient;
   provider: OpenAIProvider;
   runner: Runner;
   session: BoundedAgentSession;
@@ -211,9 +213,9 @@ export class OpenAIAgentsRuntime implements AgentRuntime {
       throw new Error('Workspace mode requires a trusted selected folder.');
     }
     if (input.signal?.aborted) throw abortError();
-    const client = await this.clientFactory.create(input.taskId);
+    const hostedClient = await this.clientFactory.create(input.taskId);
     const provider = new OpenAIProvider({
-      openAIClient: client,
+      openAIClient: hostedClient.client,
       useResponses: true,
     });
     const runner = new Runner({
@@ -259,6 +261,7 @@ export class OpenAIAgentsRuntime implements AgentRuntime {
       callbacks: input.callbacks,
       ...(input.emitActivity ? { emitActivity: input.emitActivity } : {}),
       maxTurns: input.maxTurns,
+      hostedClient,
       provider,
       runner,
       session: new BoundedAgentSession(input.taskId),
@@ -295,8 +298,13 @@ export class OpenAIAgentsRuntime implements AgentRuntime {
     for (;;) {
       const result: ActiveStreamResult =
         await active.runner.run(active.agent, nextInput, {
-          callModelInputFilter: async ({ modelData }) =>
-            injectSteering(modelData, await active.callbacks.beforeModel()),
+          callModelInputFilter: async ({ modelData }) => {
+            const steering = await active.callbacks.beforeModel();
+            active.hostedClient.setUserTurnIds(
+              await active.callbacks.billableUserTurnIds(),
+            );
+            return injectSteering(modelData, steering);
+          },
           maxTurns: active.maxTurns,
           session: active.session,
           signal,

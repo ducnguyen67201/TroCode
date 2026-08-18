@@ -15,9 +15,38 @@ function rejectedProviderResponse(): Response {
   );
 }
 
+const TEST_CLIENT_TURN_ID = '11111111-1111-4111-8111-111111111111';
+const TEST_AGENT_TURN_ID = '22222222-2222-4222-8222-222222222222';
+
+async function hostedRejectedProviderResponse(
+  url: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  if (String(url).endsWith('/v1/agent-turns')) {
+    const body = JSON.parse(String(init?.body)) as {
+      clientTurnId: string;
+      taskId: string;
+    };
+    return new Response(
+      JSON.stringify({
+        ...body,
+        id: TEST_AGENT_TURN_ID,
+      }),
+      { headers: { 'Content-Type': 'application/json' }, status: 201 },
+    );
+  }
+  return rejectedProviderResponse();
+}
+
+function modelRequest(fetchImpl: ReturnType<typeof vi.fn>) {
+  return fetchImpl.mock.calls.find(([url]) =>
+    String(url).endsWith('/v1/openai/responses'),
+  );
+}
+
 describe('OpenAIAgentsRuntime', () => {
   it('uses the hosted Responses stream with one SDK-owned request and no retries', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => rejectedProviderResponse());
+    const fetchImpl = vi.fn<typeof fetch>(hostedRejectedProviderResponse);
     const accessTokenProvider = vi.fn(async () => 'hosted-access-token');
     const runtime = new OpenAIAgentsRuntime({
       accessTokenProvider,
@@ -29,6 +58,7 @@ describe('OpenAIAgentsRuntime', () => {
     await expect(
       runtime.runTask({
         callbacks: {
+          billableUserTurnIds: () => [TEST_CLIENT_TURN_ID],
           beforeModel: () => [],
           executeTool: async () => 'unused',
         },
@@ -54,12 +84,13 @@ describe('OpenAIAgentsRuntime', () => {
     ).rejects.toThrow('Rejected before inference');
 
     expect(accessTokenProvider).toHaveBeenCalledOnce();
-    expect(fetchImpl).toHaveBeenCalledOnce();
-    const [url, request] = fetchImpl.mock.calls[0] ?? [];
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const [url, request] = modelRequest(fetchImpl) ?? [];
     expect(String(url)).toBe('https://api.trocode.test/v1/openai/responses');
     const headers = new Headers(request?.headers);
     expect(headers.get('authorization')).toBe('Bearer hosted-access-token');
     expect(headers.get('x-trocode-task-id')).toBe(taskId);
+    expect(headers.get('x-trocode-agent-turn-id')).toBe(TEST_AGENT_TURN_ID);
     expect(headers.get('x-trocode-request-id')).toMatch(
       /^[0-9a-f-]{36}$/u,
     );
@@ -85,6 +116,7 @@ describe('OpenAIAgentsRuntime', () => {
     await expect(
       runtime.runTask({
         callbacks: {
+          billableUserTurnIds: () => [TEST_CLIENT_TURN_ID],
           beforeModel: () => [],
           executeTool: async () => 'unused',
         },
@@ -99,7 +131,7 @@ describe('OpenAIAgentsRuntime', () => {
   });
 
   it('activates strict visible walkthrough instructions only for explicit tutoring intent', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => rejectedProviderResponse());
+    const fetchImpl = vi.fn<typeof fetch>(hostedRejectedProviderResponse);
     const runtime = new OpenAIAgentsRuntime({
       accessTokenProvider: vi.fn(async () => 'hosted-access-token'),
       apiBaseUrl: 'https://api.trocode.test/',
@@ -110,6 +142,7 @@ describe('OpenAIAgentsRuntime', () => {
     await expect(
       runtime.runTask({
         callbacks: {
+          billableUserTurnIds: () => [TEST_CLIENT_TURN_ID],
           beforeModel: () => [],
           executeTool: async () => 'unused',
         },
@@ -121,7 +154,7 @@ describe('OpenAIAgentsRuntime', () => {
       }),
     ).rejects.toThrow('Rejected before inference');
 
-    const [, request] = fetchImpl.mock.calls[0] ?? [];
+    const [, request] = modelRequest(fetchImpl) ?? [];
     const body = JSON.parse(String(request?.body)) as { instructions: string };
     expect(body.instructions).toContain(
       'Trusted host walkthrough mode is active.',
@@ -136,7 +169,7 @@ describe('OpenAIAgentsRuntime', () => {
   });
 
   it('keeps ordinary explanations on the direct-answer instruction path', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => rejectedProviderResponse());
+    const fetchImpl = vi.fn<typeof fetch>(hostedRejectedProviderResponse);
     const runtime = new OpenAIAgentsRuntime({
       accessTokenProvider: vi.fn(async () => 'hosted-access-token'),
       apiBaseUrl: 'https://api.trocode.test/',
@@ -147,6 +180,7 @@ describe('OpenAIAgentsRuntime', () => {
     await expect(
       runtime.runTask({
         callbacks: {
+          billableUserTurnIds: () => [TEST_CLIENT_TURN_ID],
           beforeModel: () => [],
           executeTool: async () => 'unused',
         },
@@ -158,7 +192,7 @@ describe('OpenAIAgentsRuntime', () => {
       }),
     ).rejects.toThrow('Rejected before inference');
 
-    const [, request] = fetchImpl.mock.calls[0] ?? [];
+    const [, request] = modelRequest(fetchImpl) ?? [];
     const body = JSON.parse(String(request?.body)) as { instructions: string };
     expect(body.instructions).not.toContain(
       'Trusted host walkthrough mode is active.',
@@ -168,7 +202,7 @@ describe('OpenAIAgentsRuntime', () => {
 
   it('sends Workspace turns through the hosted SDK path with local shell and patch tools', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'trocode-runtime-'));
-    const fetchImpl = vi.fn<typeof fetch>(async () => rejectedProviderResponse());
+    const fetchImpl = vi.fn<typeof fetch>(hostedRejectedProviderResponse);
     const runtime = new OpenAIAgentsRuntime({
       accessTokenProvider: vi.fn(async () => 'hosted-access-token'),
       apiBaseUrl: 'https://api.trocode.test/',
@@ -179,6 +213,7 @@ describe('OpenAIAgentsRuntime', () => {
       await expect(
         runtime.runTask({
           callbacks: {
+            billableUserTurnIds: () => [TEST_CLIENT_TURN_ID],
             beforeModel: () => [],
             executeTool: async () => 'unused',
             requestApproval: async () => false,
@@ -199,7 +234,7 @@ describe('OpenAIAgentsRuntime', () => {
         }),
       ).rejects.toThrow('Rejected before inference');
 
-      const [, request] = fetchImpl.mock.calls[0] ?? [];
+      const [, request] = modelRequest(fetchImpl) ?? [];
       const body = JSON.parse(String(request?.body)) as {
         instructions: string;
         tools: Array<{ type: string }>;

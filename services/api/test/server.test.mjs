@@ -14,6 +14,8 @@ const TEST_USER = {
 };
 const TEST_TASK_ID = '11111111-1111-4111-8111-111111111111';
 const TEST_REQUEST_ID = '22222222-2222-4222-8222-222222222222';
+const TEST_AGENT_TURN_ID = '33333333-3333-4333-8333-333333333333';
+const TEST_CLIENT_TURN_ID = '44444444-4444-4444-8444-444444444444';
 const SECOND_TEST_USER = {
   email: 'second@example.com',
   id: 'google-subject-456',
@@ -61,10 +63,16 @@ function memoryAccessCodes(
 ) {
   const assignments = new Map();
   const codes = new Map(
-    Object.entries(limits).map(([code, maxUsers]) => [
-      code.toUpperCase(),
-      { maxUsers, users: new Set() },
-    ]),
+    Object.entries(limits).map(([code, definition]) => {
+      const entitlement =
+        typeof definition === 'number'
+          ? { maxUsers: definition, plan: 'basic' }
+          : definition;
+      return [
+        code.toUpperCase(),
+        { ...entitlement, users: new Set() },
+      ];
+    }),
   );
 
   function statusFor(userId, newlyRedeemed = false) {
@@ -81,6 +89,7 @@ function memoryAccessCodes(
     return {
       maxUsers: code.maxUsers,
       newlyRedeemed,
+      plan: code.plan,
       state: 'active',
       summary: 'Access code accepted.',
       usedUsers: code.users.size,
@@ -110,7 +119,7 @@ function memoryAccessCodes(
 
 async function withApi(
   run,
-  { accessCodeLimits, configOverride = {}, fetchImpl } = {},
+  { accessCodeLimits, configOverride = {}, fetchImpl, rateLimiter } = {},
 ) {
   const sessions = memorySessions();
   const accessCodes = memoryAccessCodes(accessCodeLimits);
@@ -121,6 +130,16 @@ async function withApi(
         headers: { 'Content-Type': 'application/json' },
         status: 200,
       }));
+  const sharedRateLimiter =
+    rateLimiter ||
+    {
+      consume: async ({ limit }) => ({
+        allowed: true,
+        limit,
+        remaining: Math.max(0, limit - 1),
+        retryAfterSeconds: 1,
+      }),
+    };
   const budgetService = {
     markDispatched: async () => undefined,
     markUncertain: async () => undefined,
@@ -143,6 +162,26 @@ async function withApi(
     transcriptionActualMicroUsd: (seconds) => Math.ceil(seconds * 100),
     transcriptionEstimateMicroUsd: (durationMs) => Math.ceil(durationMs / 10),
   };
+  const agentTurns = new Map();
+  const agentTurnService = {
+    create: async (input) => {
+      const key = `${input.userId}:${input.clientTurnId}`;
+      const existing = agentTurns.get(key);
+      if (existing) return { ...existing, newlyCreated: false };
+      const turn = {
+        clientTurnId: input.clientTurnId,
+        createdAt: '2026-08-18T10:00:00.000Z',
+        id: TEST_AGENT_TURN_ID,
+        newlyCreated: true,
+        plan: input.planId,
+        status: 'reserved',
+        taskId: input.taskId,
+        wouldDeny: false,
+      };
+      agentTurns.set(key, turn);
+      return turn;
+    },
+  };
   const responsesService = new OpenAiResponsesService({
     budgetService,
     catalog: new ModelCatalog({
@@ -161,6 +200,7 @@ async function withApi(
   });
   const handler = createApiHandler({
     accessCodeRepository: accessCodes,
+    agentTurnService,
     budgetService,
     config: {
       elevenLabsApiKey: null,
@@ -173,6 +213,7 @@ async function withApi(
     },
     fetchImpl: upstreamFetch,
     healthCheck: async () => true,
+    rateLimiter: sharedRateLimiter,
     sessionRepository: sessions,
     transcriptionService: new OpenAiTranscriptionService({
       budgetService,
@@ -326,6 +367,7 @@ test('access codes enforce one code per account and an atomic user limit', async
       assert.deepEqual(await redeemed.json(), {
         maxUsers: 1,
         newlyRedeemed: true,
+        plan: 'basic',
         state: 'active',
         summary: 'Access code accepted.',
         usedUsers: 1,
@@ -366,6 +408,7 @@ test('access codes enforce one code per account and an atomic user limit', async
       assert.deepEqual(await firstStatus.json(), {
         maxUsers: 1,
         newlyRedeemed: false,
+        plan: 'basic',
         state: 'active',
         summary: 'Access code accepted.',
         usedUsers: 1,
@@ -373,6 +416,87 @@ test('access codes enforce one code per account and an atomic user limit', async
     },
     { accessCodeLimits: { CODEA: 1, CODEB: 10 } },
   );
+});
+
+test('Basic response traffic uses the API-owned 30 RPM shared limit', async () => {
+  const consumed = [];
+  await withApi(
+    async ({ baseUrl }) => {
+      const session = await signInAndActivate(baseUrl);
+      const response = await fetch(`${baseUrl}/v1/openai/responses`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(responsesBody()),
+      });
+
+      assert.equal(response.status, 429);
+      assert.equal(response.headers.get('retry-after'), '17');
+      assert.deepEqual(await response.json(), {
+        error: 'Too many requests. Please try again shortly.',
+      });
+      assert.deepEqual(
+        consumed.find((entry) => entry.scope === 'responses.minute'),
+        {
+          key: TEST_USER.id,
+          limit: 30,
+          scope: 'responses.minute',
+          windowMs: 60_000,
+        },
+      );
+    },
+    {
+      rateLimiter: {
+        consume: async (input) => {
+          consumed.push(input);
+          return {
+            allowed: input.scope !== 'responses.minute',
+            limit: input.limit,
+            remaining: 0,
+            retryAfterSeconds: 17,
+          };
+        },
+      },
+    },
+  );
+});
+
+test('agent turns are authenticated, plan-owned, and idempotent', async () => {
+  await withApi(async ({ baseUrl }) => {
+    const session = await signInAndActivate(baseUrl);
+    const reserve = () =>
+      fetch(`${baseUrl}/v1/agent-turns`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          clientTurnId: TEST_CLIENT_TURN_ID,
+          taskId: TEST_TASK_ID,
+        }),
+      });
+
+    const created = await reserve();
+    assert.equal(created.status, 201);
+    assert.equal(created.headers.get('location'), `/v1/agent-turns/${TEST_AGENT_TURN_ID}`);
+    assert.deepEqual(await created.json(), {
+      clientTurnId: TEST_CLIENT_TURN_ID,
+      createdAt: '2026-08-18T10:00:00.000Z',
+      id: TEST_AGENT_TURN_ID,
+      newlyCreated: true,
+      plan: 'basic',
+      status: 'reserved',
+      taskId: TEST_TASK_ID,
+      wouldDeny: false,
+    });
+
+    const duplicate = await reserve();
+    assert.equal(duplicate.status, 200);
+    assert.equal((await duplicate.json()).id, TEST_AGENT_TURN_ID);
+  });
 });
 
 test('model proxy requires authentication and enforces model allowlist', async () => {
@@ -419,8 +543,9 @@ test('model proxy requires authentication and enforces model allowlist', async (
           headers: {
             Authorization: `Bearer ${session.accessToken}`,
             'Content-Type': 'application/json',
-            'X-Trocode-Request-Id':
+          'X-Trocode-Request-Id':
               '44444444-4444-4444-8444-444444444444',
+            'X-Trocode-Agent-Turn-Id': TEST_AGENT_TURN_ID,
             'X-Trocode-Task-Id': TEST_TASK_ID,
           },
           body: JSON.stringify({
@@ -437,6 +562,7 @@ test('model proxy requires authentication and enforces model allowlist', async (
           Authorization: `Bearer ${session.accessToken}`,
           'Content-Type': 'application/json',
           'X-Trocode-Request-Id': TEST_REQUEST_ID,
+          'X-Trocode-Agent-Turn-Id': TEST_AGENT_TURN_ID,
           'X-Trocode-Task-Id': TEST_TASK_ID,
         },
         body: JSON.stringify(responsesBody()),
@@ -466,6 +592,7 @@ test('model proxy requires authentication and enforces model allowlist', async (
           'Content-Type': 'application/json',
           'X-Trocode-Request-Id':
             '33333333-3333-4333-8333-333333333333',
+          'X-Trocode-Agent-Turn-Id': TEST_AGENT_TURN_ID,
           'X-Trocode-Task-Id': TEST_TASK_ID,
         },
         body: JSON.stringify(sdkFollowupBody),
@@ -509,6 +636,7 @@ test('model proxy delivers SSE before the provider completes', async () => {
           Authorization: `Bearer ${session.accessToken}`,
           'Content-Type': 'application/json',
           'X-Trocode-Request-Id': TEST_REQUEST_ID,
+          'X-Trocode-Agent-Turn-Id': TEST_AGENT_TURN_ID,
           'X-Trocode-Task-Id': TEST_TASK_ID,
         },
         body: JSON.stringify({ ...responsesBody(), stream: true }),

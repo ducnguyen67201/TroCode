@@ -21,6 +21,7 @@ function callbacks(
   requestApproval: NonNullable<AgentRuntimeCallbacks['requestApproval']>,
 ): AgentRuntimeCallbacks {
   return {
+    billableUserTurnIds: () => [],
     beforeModel: () => [],
     executeTool: async () => '',
     requestApproval,

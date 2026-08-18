@@ -3,6 +3,8 @@ import { createServer } from 'node:http';
 import pg from 'pg';
 
 import { PostgresAccessCodeRepository } from './access-code-repository.mjs';
+import { PostgresAgentTurnRepository } from './agent-turn-repository.mjs';
+import { AgentTurnService } from './agent-turn-service.mjs';
 import { loadConfig } from './config.mjs';
 import { BudgetService } from './budget-service.mjs';
 import { verifyGoogleIdToken } from './google-token-verifier.mjs';
@@ -10,6 +12,7 @@ import { runMigrations } from './migrate.mjs';
 import { ModelCatalog } from './model-catalog.mjs';
 import { OpenAiResponsesService } from './openai-responses-service.mjs';
 import { OpenAiTranscriptionService } from './openai-transcription-service.mjs';
+import { PostgresRateLimiter } from './rate-limit-repository.mjs';
 import { createApiHandler } from './server.mjs';
 import { PostgresSessionRepository } from './session-repository.mjs';
 import { PostgresUsageRepository } from './usage-repository.mjs';
@@ -35,8 +38,15 @@ const accessCodeRepository = new PostgresAccessCodeRepository(pool, {
 });
 const modelCatalog = new ModelCatalog();
 for (const model of config.openAiModels) modelCatalog.priceFor(model);
+const agentTurnRepository = new PostgresAgentTurnRepository(pool);
+const agentTurnService = new AgentTurnService(agentTurnRepository, {
+  mode: config.costGuard.mode,
+});
 const usageRepository = new PostgresUsageRepository(pool);
 const budgetService = new BudgetService(usageRepository, config.costGuard);
+const rateLimiter = new PostgresRateLimiter(pool, {
+  hmacKey: config.sessionTokenHmacKey,
+});
 const responsesService = new OpenAiResponsesService({
   budgetService,
   catalog: modelCatalog,
@@ -48,6 +58,7 @@ const transcriptionService = new OpenAiTranscriptionService({
 });
 const handler = createApiHandler({
   accessCodeRepository,
+  agentTurnService,
   budgetService,
   config,
   healthCheck: async () => {
@@ -58,6 +69,7 @@ const handler = createApiHandler({
       return false;
     }
   },
+  rateLimiter,
   sessionRepository,
   transcriptionService,
   responsesService,

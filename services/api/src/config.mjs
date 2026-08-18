@@ -50,7 +50,7 @@ export function loadConfig(environment = process.env) {
       dailyMicroUsd: positiveInteger(
         'TROCODE_DAILY_BUDGET_MICRO_USD',
         environment.TROCODE_DAILY_BUDGET_MICRO_USD,
-        2_000_000,
+        8_000_000,
       ),
       enabled: booleanValue(
         'TROCODE_PAID_CALLS_ENABLED',
@@ -61,12 +61,12 @@ export function loadConfig(environment = process.env) {
         'TROCODE_COST_GUARD_MODE',
         environment.TROCODE_COST_GUARD_MODE,
         ['observe', 'enforce'],
-        'observe',
+        'enforce',
       ),
       monthlyMicroUsd: positiveInteger(
         'TROCODE_MONTHLY_BUDGET_MICRO_USD',
         environment.TROCODE_MONTHLY_BUDGET_MICRO_USD,
-        20_000_000,
+        45_000_000,
       ),
       reservationTtlMs: positiveInteger(
         'TROCODE_RESERVATION_TTL_MS',
@@ -91,7 +91,7 @@ export function loadConfig(environment = process.env) {
       taskMicroUsd: positiveInteger(
         'TROCODE_TASK_BUDGET_MICRO_USD',
         environment.TROCODE_TASK_BUDGET_MICRO_USD,
-        500_000,
+        5_000_000,
       ),
       warningPercent: positiveInteger(
         'TROCODE_BUDGET_WARNING_PERCENT',

@@ -13,6 +13,7 @@ sequenceDiagram
     participant App as TaskApplicationService
     participant Agent as OpenAI Agents SDK Runner
     participant Session as bounded SDK Session + context filter
+    participant Turn as AgentTurnService
     participant API as Hosted Responses service
     participant Budget as BudgetService
     participant DB as PostgreSQL usage ledger
@@ -22,11 +23,13 @@ sequenceDiagram
     User->>UI: Typed text or finalized voice transcript
     UI->>App: submitTask(validated text)
     App->>Agent: start one SDK run
+    Agent->>Turn: reserve user message UUID + task UUID
+    Turn->>DB: atomic monthly turn check + idempotent insert
     Agent->>Session: SDK-owned conversation continuity
     Session-->>Agent: current text + at most one current image
-    Agent->>API: streamed request UUID, task UUID, Luna, 4k output cap
+    Agent->>API: streamed request UUID + task UUID + server turn token
     API->>Budget: reserve worst-case micro-USD
-    Budget->>DB: atomic task/day/month check
+    Budget->>DB: validate turn; atomic task/day/month cost check
     alt budget denied
         Budget-->>UI: typed budget attention
     else reserved
@@ -68,7 +71,7 @@ coordinate space. Resizing evidence does not change desktop authority.
 | Context | Up to 256 items/25 MB | 128 request items and one current image |
 | Completion review | Every tool task | Visible or outcome-critical tasks only |
 | Ambiguous failure | Could issue a dearer second request | Reservation retained; SDK and HTTP retries are off |
-| Quota | Request counts only | Atomic $0.50 task, $2/day, $20/month defaults |
+| Quota | Process-local request counts | Atomic user-turn and provider-cost caps in PostgreSQL |
 
 OpenClicky-style presentation evolves from a compact state projection while the
 agent works, but presentation never becomes model context and never triggers a
@@ -78,9 +81,16 @@ to choose windows or animation states.
 ## Reservation and settlement
 
 Money is stored as integer micro-USD. Prices are versioned on every usage event.
-A paid call must have a reservation before dispatch. Successful Responses calls
-settle provider-reported input, cached input, cache-write, and output tokens.
-Reasoning tokens are output detail and are never charged twice.
+A billable message is the initial request, a clarification answer, or a steering
+message. Its task message UUID is an idempotency key for an API-owned
+`agent_turns` record. Internal model/tool continuations reuse the latest server
+turn token and do not increment the message quota. The API still caps provider
+calls per turn and verifies that the token belongs to the authenticated user,
+task, and plan.
+
+A paid provider call must have a cost reservation before dispatch. Successful
+Responses calls settle provider-reported input, cached input, cache-write, and
+output tokens. Reasoning tokens are output detail and are never charged twice.
 
 An explicit provider rejection before inference releases its reservation. A
 timeout, connection loss after dispatch, 5xx, oversized response, malformed
@@ -102,10 +112,11 @@ while natural pauses can reduce cost only when local VAD trims silent audio.
 
 ## Rollout and privacy
 
-`TROCODE_COST_GUARD_MODE=observe` persists usage and records would-deny facts
-without blocking. Switch to `enforce` only after comparing ledger totals to
-provider billing. `TROCODE_PAID_CALLS_ENABLED=false` is the kill switch. Rate
-limits remain abuse protection; they are not spend quotas.
+`TROCODE_COST_GUARD_MODE=enforce` is the default. `observe` persists usage and
+records would-deny facts without blocking and is available for reconciliation
+against provider billing. `TROCODE_PAID_CALLS_ENABLED=false` is the kill switch.
+Shared fixed-window rate limits remain abuse protection; the atomic monthly
+user-turn and provider-cost reservations are the spend quotas.
 
 Run `npm run cost:report` for content-free fixture comparisons. Never put
 prompts, outputs, screenshots, URLs, recipients, tool arguments, provider keys,

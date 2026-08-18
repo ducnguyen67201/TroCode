@@ -1,3 +1,5 @@
+import { planFor } from './plan-catalog.mjs';
+
 export class BudgetError extends Error {
   constructor(code, message, status = 402) {
     super(message);
@@ -91,10 +93,13 @@ export class BudgetService {
       'reservedMicroUsd',
       input.reservedMicroUsd,
     );
+    const limits = this.limitsFor(input.planId);
     const result = await this.repository.reserve({
       ...input,
-      authorize: (committed) => this.denialFor(committed, reservedMicroUsd),
+      authorize: (committed) =>
+        this.denialFor(committed, reservedMicroUsd, input.lane, limits),
       enforce: this.options.mode === 'enforce',
+      maxProviderCallsPerTurn: limits.providerCallsPerTurn,
       reservationTtlMs: this.options.reservationTtlMs,
     });
     if (result.kind === 'duplicate') {
@@ -106,6 +111,20 @@ export class BudgetService {
     }
     if (result.kind === 'denied') {
       throw new BudgetError(result.denial.code, result.denial.message);
+    }
+    if (result.kind === 'invalid_turn') {
+      throw new BudgetError(
+        'invalid_agent_turn',
+        'The agent turn is missing, expired, or belongs to another task.',
+        403,
+      );
+    }
+    if (result.kind === 'turn_exhausted') {
+      throw new BudgetError(
+        'agent_turn_call_limit_reached',
+        'This agent turn reached its internal model-call limit.',
+        429,
+      );
     }
     return { ...result.reservation, wouldDeny: Boolean(result.denial) };
   }
@@ -126,7 +145,8 @@ export class BudgetService {
     return this.repository.markUncertain(userId, requestId);
   }
 
-  async snapshot(userId, taskId = null) {
+  async snapshot(userId, taskId = null, planId = 'basic') {
+    const limits = this.limitsFor(planId);
     const value = await this.repository.snapshot(userId, taskId);
     const monthCommitted =
       value.monthSettledMicroUsd + value.monthReservedMicroUsd;
@@ -135,19 +155,24 @@ export class BudgetService {
     return {
       actualMicroUsd: value.monthSettledMicroUsd,
       daily: {
-        limitMicroUsd: this.options.dailyMicroUsd,
-        remainingMicroUsd: Math.max(0, this.options.dailyMicroUsd - dayCommitted),
+        limitMicroUsd: limits.dailyMicroUsd,
+        remainingMicroUsd: Math.max(0, limits.dailyMicroUsd - dayCommitted),
         reservedMicroUsd: value.dayReservedMicroUsd,
         settledMicroUsd: value.daySettledMicroUsd,
       },
       enforcementMode: this.options.mode,
       estimatedMicroUsd: value.monthReservedMicroUsd,
+      messages: {
+        limit: limits.monthlyMessages,
+        remaining: Math.max(0, limits.monthlyMessages - value.monthMessages),
+        used: value.monthMessages,
+      },
       monthEndsAt: value.monthEndsAt,
       monthly: {
-        limitMicroUsd: this.options.monthlyMicroUsd,
+        limitMicroUsd: limits.monthlyMicroUsd,
         remainingMicroUsd: Math.max(
           0,
-          this.options.monthlyMicroUsd - monthCommitted,
+          limits.monthlyMicroUsd - monthCommitted,
         ),
         reservedMicroUsd: value.monthReservedMicroUsd,
         settledMicroUsd: value.monthSettledMicroUsd,
@@ -162,37 +187,57 @@ export class BudgetService {
           ),
         ).toISOString();
       })(),
+      plan: planId,
+      pricing: {
+        currency: 'usd',
+        monthlyCents: limits.monthlyPriceCents,
+      },
       task: {
-        limitMicroUsd: this.options.taskMicroUsd,
-        remainingMicroUsd: Math.max(0, this.options.taskMicroUsd - taskCommitted),
+        limitMicroUsd: limits.taskMicroUsd,
+        remainingMicroUsd: Math.max(0, limits.taskMicroUsd - taskCommitted),
         reservedMicroUsd: value.taskReservedMicroUsd,
         settledMicroUsd: value.taskSettledMicroUsd,
       },
       warningThresholdMicroUsd: Math.floor(
-        (this.options.monthlyMicroUsd * this.options.warningPercent) / 100,
+        (limits.monthlyMicroUsd * this.options.warningPercent) / 100,
       ),
     };
   }
 
-  denialFor(committed, amount) {
-    if (committed.monthMicroUsd + amount > this.options.monthlyMicroUsd) {
+  denialFor(committed, amount, lane, limits) {
+    if (committed.monthMicroUsd + amount > limits.monthlyMicroUsd) {
       return {
         code: 'monthly_budget_exhausted',
         message: 'The monthly model budget has been reached.',
       };
     }
-    if (committed.dayMicroUsd + amount > this.options.dailyMicroUsd) {
+    if (committed.dayMicroUsd + amount > limits.dailyMicroUsd) {
       return {
         code: 'daily_budget_exhausted',
         message: 'The daily model budget has been reached.',
       };
     }
-    if (committed.taskMicroUsd + amount > this.options.taskMicroUsd) {
+    if (committed.taskMicroUsd + amount > limits.taskMicroUsd) {
       return {
         code: 'task_budget_exhausted',
         message: 'This task needs another budget tranche before it can continue.',
       };
     }
     return null;
+  }
+
+  limitsFor(planId) {
+    const plan = planFor(planId);
+    return {
+      dailyMicroUsd: Math.min(plan.dailyMicroUsd, this.options.dailyMicroUsd),
+      monthlyMessages: plan.monthlyMessages,
+      monthlyPriceCents: plan.monthlyPriceCents,
+      providerCallsPerTurn: plan.providerCallsPerTurn,
+      monthlyMicroUsd: Math.min(
+        plan.monthlyMicroUsd,
+        this.options.monthlyMicroUsd,
+      ),
+      taskMicroUsd: Math.min(plan.taskMicroUsd, this.options.taskMicroUsd),
+    };
   }
 }

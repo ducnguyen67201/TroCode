@@ -33,11 +33,11 @@ test('loadConfig restricts requests to configured models', () => {
 
   assert.deepEqual([...config.openAiModels], ['primary-model']);
   assert.equal(config.sessionDurationDays, 30);
-  assert.equal(config.costGuard.monthlyMicroUsd, 20_000_000);
-  assert.equal(config.costGuard.dailyMicroUsd, 2_000_000);
-  assert.equal(config.costGuard.taskMicroUsd, 500_000);
+  assert.equal(config.costGuard.monthlyMicroUsd, 45_000_000);
+  assert.equal(config.costGuard.dailyMicroUsd, 8_000_000);
+  assert.equal(config.costGuard.taskMicroUsd, 5_000_000);
   assert.equal(config.costGuard.transcriptionMicroUsdPerMinute, 6_000);
-  assert.equal(config.costGuard.mode, 'observe');
+  assert.equal(config.costGuard.mode, 'enforce');
 });
 
 test('loadConfig validates cost guard controls', () => {

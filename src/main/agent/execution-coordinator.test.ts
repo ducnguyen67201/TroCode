@@ -15,6 +15,7 @@ import type {
   DesktopObservation,
 } from './execution-contracts';
 import {
+  billableUserTurnIds,
   TaskExecutionCoordinator,
   type DesktopPresentation,
   type GuidancePresentationHandle,
@@ -212,6 +213,21 @@ function setup(
 }
 
 describe('TaskExecutionCoordinator', () => {
+  it('bills requests, clarification answers, and steering but not approvals', () => {
+    const requestId = randomUUID();
+    const answerId = randomUUID();
+    const steeringId = randomUUID();
+    expect(
+      billableUserTurnIds([
+        { kind: 'request', messageId: requestId, role: 'user' },
+        { kind: 'clarification', messageId: randomUUID(), role: 'assistant' },
+        { kind: 'answer', messageId: answerId, role: 'user' },
+        { kind: 'approval_decision', messageId: randomUUID(), role: 'user' },
+        { kind: 'steering', messageId: steeringId, role: 'user' },
+      ]),
+    ).toEqual([requestId, answerId, steeringId]);
+  });
+
   it('recovers when SDK approval preview receives an invalid desktop pair', async () => {
     const observationId = randomUUID();
     const first = observation(randomUUID(), observationId);

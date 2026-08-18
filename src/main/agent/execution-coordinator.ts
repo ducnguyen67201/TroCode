@@ -1,6 +1,7 @@
 import type {
   CompanionGuidance,
   ProposedAction,
+  TaskMessage,
   TaskSnapshot,
 } from '../../shared/contracts';
 import type { CuaService } from '../cua/cua-service';
@@ -90,6 +91,20 @@ interface ExecutionCoordinatorOptions {
 }
 
 type DesktopObservationCleanup = () => Promise<void> | void;
+
+export function billableUserTurnIds(
+  messages: readonly Pick<TaskMessage, 'kind' | 'messageId' | 'role'>[],
+): string[] {
+  return messages
+    .filter(
+      (message) =>
+        message.role === 'user' &&
+        (message.kind === 'request' ||
+          message.kind === 'answer' ||
+          message.kind === 'steering'),
+    )
+    .map((message) => message.messageId);
+}
 
 export interface DesktopPresentation {
   message?: string;
@@ -726,6 +741,9 @@ export class TaskExecutionCoordinator {
         : steering;
     };
 
+    const currentBillableUserTurnIds = (): string[] =>
+      billableUserTurnIds(this.runtime.getSnapshot(taskId).messages);
+
     const executeTool = async (
       call: Parameters<RuntimeToolRegistry['resolve']>[0],
     ): Promise<AgentToolOutput['output']> => {
@@ -822,6 +840,7 @@ export class TaskExecutionCoordinator {
 
     let finalOutput = await agent.runTask({
       callbacks: {
+        billableUserTurnIds: currentBillableUserTurnIds,
         beforeModel,
         executeTool,
         needsApproval: previewApproval,

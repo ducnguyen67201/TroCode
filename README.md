@@ -38,8 +38,8 @@ Implemented:
   keypresses, scrolling, dragging, and session cleanup.
 - One configured GPT-5.6 model through the Responses API (Luna by default),
   with no classifier or fallback request after a failure.
-- Hosted integer micro-USD accounting with atomic request reservations and
-  configurable task, daily, and monthly limits ($0.50/$2/$20 defaults).
+- API-owned Basic, Pro, and Max entitlements with atomic agent-message and
+  integer micro-USD reservations before any paid provider dispatch.
 - One resized current screenshot per visual sample, bounded context, and a
   4,000-token output ceiling.
 - SDK-owned model → tool → result continuation with host-owned
@@ -204,17 +204,19 @@ The API requires these production variables:
 - `OPENAI_API_KEY`
 - `TROCODE_SESSION_TOKEN_HMAC_KEY`
 - `TROCODE_AGENT_MODEL`
-- `TROCODE_COST_GUARD_MODE`, starting at `observe` and moving to `enforce`
+- `TROCODE_COST_GUARD_MODE` (`enforce` by default; `observe` is available for
+  reconciliation)
 - optional server-owned budget overrides documented in `.env.example`
 - optional `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, and
   `ELEVENLABS_MODEL_ID`
 
 Provider endpoints require the opaque session, atomically reserve spend before
-dispatch, enforce per-user task/day/month limits and bounded bodies, restrict
-Responses models to the configured allowlist, and keep `store: false`. The API
-stores sanitized usage counts and integer cost, but never task prompts, model
-responses, screenshots, or desktop actions. Native computer-use policy remains
-in the trusted Electron main process.
+dispatch, enforce per-user message/task/day/month limits and bounded bodies,
+restrict Responses models to the configured allowlist, and keep `store: false`.
+Burst limits use shared PostgreSQL buckets, so adding API replicas does not
+multiply an allowance. The API stores sanitized usage counts and integer cost,
+but never task prompts, model responses, screenshots, or desktop actions.
+Native computer-use policy remains in the trusted Electron main process.
 
 ### PostgreSQL task history
 
@@ -258,6 +260,7 @@ doppler run --project tro-app --config prd -- \
   npm run access-code:create -- \
   --code CODEA \
   --max-users 10 \
+  --plan basic \
   --label "Private beta batch A"
 ```
 
@@ -267,6 +270,26 @@ the code once for secure distribution. `CODEA --max-users 10` admits at most ten
 distinct Google accounts. Each account is permanently linked to its first code;
 when a code is full, existing linked accounts retain access while new accounts
 are rejected.
+
+The API tier catalog is the pricing and entitlement source of truth:
+
+| Plan | Recommended price | Agent messages/month | Provider-cost cap/month | Responses RPM |
+|---|---:|---:|---:|---:|
+| Basic | $20 | 1,200 | $8 | 30 |
+| Pro | $50 | 3,000 | $20 | 45 |
+| Max | $100 | 7,500 | $45 | 60 |
+
+One agent message is one accepted user turn: the initial request, a clarification
+answer, or a steering message. The desktop sends its message UUID to
+`POST /v1/agent-turns`; the API atomically and idempotently reserves the monthly
+allowance and returns the server turn token required by `/v1/openai/responses`.
+Internal model/tool continuations reuse that token and do not consume more agent
+messages. Approval decisions, speech, and transcription do not consume agent
+messages. A turn whose only provider request is explicitly rejected before
+inference is released; an ambiguous dispatched turn remains counted. Whichever
+monthly message or provider-cost limit is reached first blocks more inference.
+Environment budget values are emergency ceilings and may only lower a tier's
+dollar limits.
 
 The API checks access again before proxying model, voice transcription, or
 speech requests, so bypassing the renderer does not bypass the quota.

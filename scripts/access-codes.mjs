@@ -12,7 +12,7 @@ import { runMigrations } from '../services/api/src/migrate.mjs';
 function usage() {
   return [
     'Usage:',
-    '  npm run access-code:create -- --code <CODE> --max-users <COUNT> [--label <LABEL>]',
+    '  npm run access-code:create -- --code <CODE> --max-users <COUNT> --plan <basic|pro|max> [--label <LABEL>]',
     '',
     'DATABASE_URL and TROCODE_SESSION_TOKEN_HMAC_KEY must match the TroCode API.',
     'Omit --code to generate a strong code automatically.',
@@ -26,7 +26,7 @@ export function generateAccessCode() {
 export function parseCreateOptions(args) {
   if (args[0] !== 'create') throw new Error(usage());
 
-  const allowedOptions = new Set(['--code', '--label', '--max-users']);
+  const allowedOptions = new Set(['--code', '--label', '--max-users', '--plan']);
   const values = new Map();
   for (let index = 1; index < args.length; index += 2) {
     const name = args[index];
@@ -62,7 +62,12 @@ export function parseCreateOptions(args) {
     throw new Error('--label must be at most 100 characters.');
   }
 
-  return { code, label, maxUsers };
+  const plan = values.get('--plan');
+  if (!['basic', 'pro', 'max'].includes(plan)) {
+    throw new Error('--plan must be one of: basic, pro, max.');
+  }
+
+  return { code, label, maxUsers, plan };
 }
 
 export async function createAccessCode({
@@ -71,6 +76,7 @@ export async function createAccessCode({
   hmacKey,
   label,
   maxUsers,
+  plan,
   Pool = pg.Pool,
 }) {
   if (!Number.isInteger(maxUsers) || maxUsers < 1) {
@@ -78,6 +84,9 @@ export async function createAccessCode({
   }
   if (label && (typeof label !== 'string' || label.length > 100)) {
     throw new Error('label must be at most 100 characters.');
+  }
+  if (!['basic', 'pro', 'max'].includes(plan)) {
+    throw new Error('plan must be one of: basic, pro, max.');
   }
   const codeDigest = digestAccessCode(code, hmacKey);
   if (!codeDigest) throw new Error('Access code is invalid.');
@@ -87,10 +96,10 @@ export async function createAccessCode({
   try {
     await runMigrations(pool);
     const result = await pool.query(
-      `INSERT INTO access_codes (code_digest, label, max_users)
-       VALUES ($1, $2, $3)
+      `INSERT INTO access_codes (code_digest, label, max_users, plan)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, created_at`,
-      [codeDigest, label, maxUsers],
+      [codeDigest, label, maxUsers, plan],
     );
     return result.rows[0];
   } catch (error) {
@@ -113,6 +122,7 @@ async function main() {
   console.info(`Created access code ${created.id}.`);
   console.info(`Code: ${options.code}`);
   console.info(`User limit: ${options.maxUsers}`);
+  console.info(`Plan: ${options.plan}`);
   if (options.label) console.info(`Label: ${options.label}`);
   console.info(
     'Store the code securely; PostgreSQL keeps only its keyed HMAC digest.',

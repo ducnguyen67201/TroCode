@@ -180,6 +180,7 @@ export class OpenAiTranscriptionService {
       catalogVersion: TRANSCRIPTION_CATALOG_VERSION,
       lane: 'transcription',
       model: 'whisper-1',
+      planId: input.planId,
       requestId: input.requestId,
       reservedMicroUsd,
       taskId: input.body.utteranceId,

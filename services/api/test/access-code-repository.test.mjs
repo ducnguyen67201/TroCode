@@ -57,7 +57,7 @@ test('redeems a code while holding user and code row locks', async () => {
     { rows: [] },
     { rows: [{ id: 'user-1' }] },
     { rows: [] },
-    { rows: [{ id: 'code-1', max_users: 10 }] },
+    { rows: [{ id: 'code-1', max_users: 10, plan: 'pro' }] },
     { rows: [{ used_users: 9 }] },
     { rows: [] },
     { rows: [] },
@@ -71,6 +71,7 @@ test('redeems a code while holding user and code row locks', async () => {
     status: {
       maxUsers: 10,
       newlyRedeemed: true,
+      plan: 'pro',
       state: 'active',
       summary: 'Access code accepted.',
       usedUsers: 10,
@@ -87,7 +88,7 @@ test('rejects a full code without inserting a redemption', async () => {
     { rows: [] },
     { rows: [{ id: 'user-2' }] },
     { rows: [] },
-    { rows: [{ id: 'code-1', max_users: 10 }] },
+    { rows: [{ id: 'code-1', max_users: 10, plan: 'basic' }] },
     { rows: [{ used_users: 10 }] },
     { rows: [] },
   ]);
@@ -113,7 +114,12 @@ test('keeps an account linked to its first access code', async () => {
     { rows: [{ id: 'user-1' }] },
     {
       rows: [
-        { code_digest: firstCodeDigest, max_users: 10, used_users: 4 },
+        {
+          code_digest: firstCodeDigest,
+          max_users: 10,
+          plan: 'max',
+          used_users: 4,
+        },
       ],
     },
     { rows: [] },

@@ -22,6 +22,7 @@ export interface RuntimeApprovalRequest {
 }
 
 export interface AgentRuntimeCallbacks {
+  billableUserTurnIds(): Promise<string[]> | string[];
   beforeModel(): Promise<string[]> | string[];
   executeTool(call: AgentToolCall): Promise<AgentToolOutput['output']>;
   needsApproval?(call: AgentToolCall): Promise<boolean> | boolean;

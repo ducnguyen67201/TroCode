@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 
+import { planFor } from './plan-catalog.mjs';
+
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 const MAX_AUTH_BODY_BYTES = 32_000;
 const MAX_RESPONSES_BODY_BYTES = 25_000_000;
@@ -43,29 +45,14 @@ class HttpError extends Error {
 
 function requestIp(request) {
   const forwarded = request.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
+  if (typeof forwarded === 'string') {
+    const addresses = forwarded
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (addresses.length > 0) return addresses.at(-1);
+  }
   return request.socket.remoteAddress || 'unknown';
-}
-
-function createRateLimiter({ limit, windowMs }) {
-  const buckets = new Map();
-  return (key, now = Date.now()) => {
-    const current = buckets.get(key);
-    if (!current || current.resetAt <= now) {
-      buckets.set(key, { count: 1, resetAt: now + windowMs });
-      return { allowed: true, retryAfterSeconds: 0 };
-    }
-    current.count += 1;
-    if (buckets.size > 10_000) {
-      for (const [bucketKey, bucket] of buckets) {
-        if (bucket.resetAt <= now) buckets.delete(bucketKey);
-      }
-    }
-    return {
-      allowed: current.count <= limit,
-      retryAfterSeconds: Math.max(1, Math.ceil((current.resetAt - now) / 1_000)),
-    };
-  };
 }
 
 const UUID_PATTERN =
@@ -170,6 +157,10 @@ function enforceRateLimit(result) {
     error.retryAfterSeconds = result.retryAfterSeconds;
     throw error;
   }
+}
+
+async function enforceSharedRateLimit(rateLimiter, input) {
+  enforceRateLimit(await rateLimiter.consume(input));
 }
 
 async function readBoundedUpstreamBody(response) {
@@ -304,35 +295,17 @@ function transcriptionSessionConfig(language) {
 
 export function createApiHandler({
   accessCodeRepository,
+  agentTurnService,
   budgetService,
   config,
   fetchImpl = fetch,
   healthCheck,
+  rateLimiter,
   sessionRepository,
   transcriptionService,
   responsesService,
   verifyGoogleIdToken,
 }) {
-  const limitAuth = createRateLimiter({ limit: 15, windowMs: 15 * 60_000 });
-  const limitAccessCodeIp = createRateLimiter({
-    limit: 100,
-    windowMs: 15 * 60_000,
-  });
-  const limitAccessCodeUser = createRateLimiter({
-    limit: 10,
-    windowMs: 15 * 60_000,
-  });
-  const limitModel = createRateLimiter({ limit: 30, windowMs: 60_000 });
-  const limitModelDaily = createRateLimiter({
-    limit: 500,
-    windowMs: 24 * 60 * 60_000,
-  });
-  const limitVoice = createRateLimiter({ limit: 30, windowMs: 60_000 });
-  const limitTranscription = createRateLimiter({
-    limit: 60,
-    windowMs: 60_000,
-  });
-
   return async function handleRequest(request, response) {
     const requestId = randomUUID();
     const startedAt = Date.now();
@@ -364,7 +337,12 @@ export function createApiHandler({
       }
 
       if (request.method === 'POST' && path === '/v1/auth/google/exchange') {
-        enforceRateLimit(limitAuth(requestIp(request)));
+        await enforceSharedRateLimit(rateLimiter, {
+          key: requestIp(request),
+          limit: 15,
+          scope: 'auth.exchange',
+          windowMs: 15 * 60_000,
+        });
         const body = await readJson(request, MAX_AUTH_BODY_BYTES);
         if (
           !body ||
@@ -389,7 +367,12 @@ export function createApiHandler({
 
       if (request.method === 'POST' && path === '/v1/auth/session/refresh') {
         const current = await requireSession(request, sessionRepository);
-        enforceRateLimit(limitAuth(`refresh:${current.user.id}`));
+        await enforceSharedRateLimit(rateLimiter, {
+          key: current.user.id,
+          limit: 15,
+          scope: 'auth.refresh',
+          windowMs: 15 * 60_000,
+        });
         const rotated = await sessionRepository.rotate(current);
         if (!rotated) throw new HttpError(401, 'Your session expired. Sign in again.');
         sendJson(response, 200, rotated);
@@ -422,12 +405,18 @@ export function createApiHandler({
         path === '/v1/access-code-redemptions'
       ) {
         const session = await requireSession(request, sessionRepository);
-        enforceRateLimit(
-          limitAccessCodeUser(`access-user:${session.user.id}`),
-        );
-        enforceRateLimit(
-          limitAccessCodeIp(`access-ip:${requestIp(request)}`),
-        );
+        await enforceSharedRateLimit(rateLimiter, {
+          key: session.user.id,
+          limit: 10,
+          scope: 'access-code.user',
+          windowMs: 15 * 60_000,
+        });
+        await enforceSharedRateLimit(rateLimiter, {
+          key: requestIp(request),
+          limit: 100,
+          scope: 'access-code.ip',
+          windowMs: 15 * 60_000,
+        });
         const body = await readJson(request, MAX_AUTH_BODY_BYTES);
         if (!body || typeof body !== 'object' || typeof body.code !== 'string') {
           throw new HttpError(400, 'Access code is required.');
@@ -459,11 +448,53 @@ export function createApiHandler({
         return;
       }
 
+      if (request.method === 'POST' && path === '/v1/agent-turns') {
+        const session = await requireSession(request, sessionRepository);
+        const access = await requireAccess(session, accessCodeRepository);
+        await enforceSharedRateLimit(rateLimiter, {
+          key: session.user.id,
+          limit: planFor(access.plan).responsesPerMinute,
+          scope: 'agent-turns.minute',
+          windowMs: 60_000,
+        });
+        const body = await readJson(request, MAX_AUTH_BODY_BYTES);
+        const keys =
+          body && typeof body === 'object' && !Array.isArray(body)
+            ? Object.keys(body).sort()
+            : [];
+        if (
+          !body ||
+          typeof body !== 'object' ||
+          Array.isArray(body) ||
+          keys.join(',') !== 'clientTurnId,taskId' ||
+          typeof body.clientTurnId !== 'string' ||
+          !UUID_PATTERN.test(body.clientTurnId) ||
+          typeof body.taskId !== 'string' ||
+          !UUID_PATTERN.test(body.taskId)
+        ) {
+          throw new HttpError(400, 'Agent turn request is invalid.');
+        }
+        const turn = await agentTurnService.create({
+          clientTurnId: body.clientTurnId,
+          planId: access.plan,
+          taskId: body.taskId,
+          userId: session.user.id,
+        });
+        sendJson(response, turn.newlyCreated ? 201 : 200, turn, {
+          Location: `/v1/agent-turns/${turn.id}`,
+        });
+        return;
+      }
+
       if (request.method === 'POST' && path === '/v1/openai/responses') {
         const session = await requireSession(request, sessionRepository);
-        await requireAccess(session, accessCodeRepository);
-        enforceRateLimit(limitModel(session.user.id));
-        enforceRateLimit(limitModelDaily(`daily:${session.user.id}`));
+        const access = await requireAccess(session, accessCodeRepository);
+        await enforceSharedRateLimit(rateLimiter, {
+          key: session.user.id,
+          limit: planFor(access.plan).responsesPerMinute,
+          scope: 'responses.minute',
+          windowMs: 60_000,
+        });
         const body = await readJson(request, MAX_RESPONSES_BODY_BYTES);
         const normalizedBody =
           body &&
@@ -474,6 +505,7 @@ export function createApiHandler({
             : body;
         const requestId = request.headers['x-trocode-request-id'];
         const taskId = request.headers['x-trocode-task-id'];
+        const agentTurnId = request.headers['x-trocode-agent-turn-id'];
         if (
           !normalizedBody ||
           typeof normalizedBody !== 'object' ||
@@ -492,7 +524,9 @@ export function createApiHandler({
           typeof requestId !== 'string' ||
           !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestId) ||
           typeof taskId !== 'string' ||
-          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(taskId)
+          !UUID_PATTERN.test(taskId) ||
+          typeof agentTurnId !== 'string' ||
+          !UUID_PATTERN.test(agentTurnId)
         ) {
           throw new HttpError(400, 'Responses request is invalid.');
         }
@@ -500,10 +534,12 @@ export function createApiHandler({
           normalizedBody.stream === true ? 'executeStream' : 'execute';
         const upstream = await responsesService[execute]({
           body: normalizedBody,
+          agentTurnId,
           requestId,
           safetyIdentifier: modelSafetyIdentifier(session.user.id),
           taskId,
           userId: session.user.id,
+          planId: access.plan,
         });
         if (upstream.stream) {
           await sendStream(
@@ -527,6 +563,7 @@ export function createApiHandler({
 
       if (request.method === 'GET' && path === '/v1/usage/budget') {
         const session = await requireSession(request, sessionRepository);
+        const access = await accessCodeRepository.getStatus(session.user.id);
         const taskId = url.searchParams.get('taskId');
         if (
           taskId &&
@@ -537,7 +574,11 @@ export function createApiHandler({
         sendJson(
           response,
           200,
-          await budgetService.snapshot(session.user.id, taskId),
+          await budgetService.snapshot(
+            session.user.id,
+            taskId,
+            access.state === 'active' ? access.plan : 'basic',
+          ),
         );
         return;
       }
@@ -547,10 +588,13 @@ export function createApiHandler({
         path === '/v1/openai/audio/transcriptions'
       ) {
         const session = await requireSession(request, sessionRepository);
-        await requireAccess(session, accessCodeRepository);
-        enforceRateLimit(
-          limitTranscription(`transcription:${session.user.id}`),
-        );
+        const access = await requireAccess(session, accessCodeRepository);
+        await enforceSharedRateLimit(rateLimiter, {
+          key: session.user.id,
+          limit: 60,
+          scope: 'transcription.minute',
+          windowMs: 60_000,
+        });
         const body = await readJson(request, MAX_TRANSCRIPTION_BODY_BYTES);
         const requestId = request.headers['x-trocode-request-id'];
         const keys =
@@ -584,6 +628,7 @@ export function createApiHandler({
           requestId,
           safetyIdentifier: modelSafetyIdentifier(session.user.id),
           userId: session.user.id,
+          planId: access.plan,
         });
         sendJson(response, 200, result);
         return;
@@ -591,8 +636,13 @@ export function createApiHandler({
 
       if (request.method === 'POST' && path === '/v1/openai/realtime/calls') {
         const session = await requireSession(request, sessionRepository);
-        await requireAccess(session, accessCodeRepository);
-        enforceRateLimit(limitVoice(session.user.id));
+        const access = await requireAccess(session, accessCodeRepository);
+        await enforceSharedRateLimit(rateLimiter, {
+          key: session.user.id,
+          limit: 30,
+          scope: 'realtime.minute',
+          windowMs: 60_000,
+        });
         const requestBody = await readJson(request, MAX_REALTIME_BODY_BYTES);
         const language = requestBody?.language;
         const offerSdp = requestBody?.offerSdp;
@@ -616,6 +666,7 @@ export function createApiHandler({
           catalogVersion: 'voice-estimate-v1',
           lane: 'realtime_transcription',
           model: 'gpt-realtime-whisper',
+          planId: access.plan,
           requestId,
           reservedMicroUsd,
           taskId: VOICE_TASK_ID,
@@ -673,8 +724,13 @@ export function createApiHandler({
 
       if (request.method === 'POST' && path === '/v1/elevenlabs/speech') {
         const session = await requireSession(request, sessionRepository);
-        await requireAccess(session, accessCodeRepository);
-        enforceRateLimit(limitVoice(`tts:${session.user.id}`));
+        const access = await requireAccess(session, accessCodeRepository);
+        await enforceSharedRateLimit(rateLimiter, {
+          key: session.user.id,
+          limit: 30,
+          scope: 'speech.minute',
+          windowMs: 60_000,
+        });
         if (!config.elevenLabsApiKey || !config.elevenLabsVoiceId) {
           throw new HttpError(503, 'Speech playback is not configured.');
         }
@@ -692,6 +748,7 @@ export function createApiHandler({
           catalogVersion: 'voice-estimate-v1',
           lane: 'speech',
           model: config.elevenLabsModelId,
+          planId: access.plan,
           requestId,
           reservedMicroUsd,
           taskId: VOICE_TASK_ID,

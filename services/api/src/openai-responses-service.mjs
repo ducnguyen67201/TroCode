@@ -110,8 +110,10 @@ export class OpenAiResponsesService {
     const estimate = this.catalog.estimateResponsesReservation(input.body);
     await this.budgetService.reserve({
       catalogVersion: this.catalog.version,
+      agentTurnId: input.agentTurnId,
       lane: 'responses',
       model: input.body.model,
+      planId: input.planId,
       requestId: input.requestId,
       reservedMicroUsd: estimate.microUsd,
       taskId: input.taskId,
@@ -226,8 +228,10 @@ export class OpenAiResponsesService {
     const estimate = this.catalog.estimateResponsesReservation(input.body);
     await this.budgetService.reserve({
       catalogVersion: this.catalog.version,
+      agentTurnId: input.agentTurnId,
       lane: 'responses',
       model: input.body.model,
+      planId: input.planId,
       requestId: input.requestId,
       reservedMicroUsd: estimate.microUsd,
       taskId: input.taskId,
