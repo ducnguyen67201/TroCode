@@ -34,6 +34,7 @@ implementation. The plan and newly added regression cases are the RED record.
 | Full dispatches once, re-observes, and blocks unknown outcomes | `src/main/agent/execution-coordinator.test.ts` |
 | Exact matches fast-path without image decode | `src/main/agent/desktop-state-validator.test.ts` |
 | Cursor noise/unrelated change stays stable; target/drag/global change blocks | `src/main/agent/desktop-state-validator.test.ts` |
+| Model-resized screenshots retain desktop coordinates, scale target evidence, and do not produce a false dimension mismatch | `src/main/agent/desktop-state-validator.test.ts` |
 | Missing, degraded, mismatched, undecodable, and invalid evidence fails closed | `src/main/agent/desktop-state-validator.test.ts` |
 | Cursor input never makes the approval window focusable | `src/main/presentation/non-activating-window.test.ts` |
 | Settings shows both modes and requires the Full acknowledgement | `src/renderer/SettingsPage.test.ts` |
@@ -42,7 +43,7 @@ implementation. The plan and newly added regression cases are the RED record.
 
 - ESLint: PASS.
 - TypeScript: PASS after correcting a policy-union narrowing annotation.
-- Vitest: PASS, 69 files / 407 tests.
+- Vitest: PASS, 69 files / 408 tests.
 - Script tests: PASS, 6 tests.
 - Hosted API tests: PASS, 23 tests.
 - Electron Forge package: PASS for arm64 macOS; packaged output is
@@ -68,3 +69,48 @@ implementation. The plan and newly added regression cases are the RED record.
 
 Manual packaged cross-application validation is required before release and is
 not represented as completed by the unit/package gates alone.
+
+## Resized-evidence runtime regression — 2026-08-18
+
+### User journey
+
+As a user approving a grounded desktop action on a high-DPI display, I want
+TroCode to compare the intended target in the resized evidence it retained, so
+that an unchanged target executes once without revealing the main window.
+
+### Failure capture and RED
+
+The live validator reported `dimension_mismatch` after approval. CUA metadata
+described the original 3456×2234 capture, while the cost-aware model evidence
+had intentionally been resized to 1536 pixels wide. The validator treated that
+expected representation difference as a changed desktop.
+
+`npx vitest run src/main/agent/desktop-state-validator.test.ts` executed the new
+resized-evidence case and failed with the expected mismatch; the other eight
+validator cases passed. Commit `dc3f7af` preserves the RED reproducer.
+
+### Recovery and GREEN
+
+The validator now requires equal decoded dimensions across the reference and
+current samples, verifies that each decoded image preserves the declared
+desktop aspect ratio, and scales the bounded target rectangle from desktop
+coordinates into the decoded image before generating its signature. Genuine
+coordinate-space, decoded-size, aspect-ratio, target, and evidence failures
+continue to fail closed.
+
+`npx vitest run src/main/agent/desktop-state-validator.test.ts` passed 9/9.
+Commit `8cf5a42` preserves the GREEN implementation.
+
+### Verification
+
+| Guarantee | Command | Result |
+|---|---|---|
+| Resized stable evidence is accepted and a resized target change is rejected | `npx vitest run src/main/agent/desktop-state-validator.test.ts` | PASS, 9/9 |
+| Changed validator meets the local coverage target | `npm run test:coverage -- src/main/agent/desktop-state-validator.test.ts` | PASS, 97.14% statements / 98.96% lines |
+| Repository quality gates remain green | `npm run check` | PASS, 69 Vitest files / 408 tests, 6 script tests, 23 API tests |
+| The production Electron configuration packages successfully | `npm run package` | PASS, arm64 macOS |
+
+The targeted coverage command reports 8.81% across all files included by the
+repository coverage configuration because only one test file was selected;
+the changed validator itself is above the 80% requirement. A packaged manual
+Gmail approval remains a release QA check.
