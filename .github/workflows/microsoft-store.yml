@@ -67,7 +67,7 @@ jobs:
             --config prd `
             -- npm exec -- electron-forge make `
               --arch=x64 `
-              --targets '@electron-forge/maker-msix'
+              --targets msix
 
       - name: Validate MSIX identity and contents
         shell: pwsh
