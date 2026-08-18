@@ -1,0 +1,216 @@
+name: Microsoft Store MSIX
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_to_partner_center:
+        description: Upload the MSIX to the TroCode Partner Center draft
+        required: true
+        type: boolean
+        default: false
+      submit_for_certification:
+        description: Submit the uploaded draft for Microsoft certification
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: microsoft-store-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-msix:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dopplerhq/cli-action@v4
+
+      - name: Validate workflow inputs and build credentials
+        shell: pwsh
+        env:
+          SUBMIT_FOR_CERTIFICATION: ${{ inputs.submit_for_certification }}
+          UPLOAD_TO_PARTNER_CENTER: ${{ inputs.upload_to_partner_center }}
+        run: |
+          if (-not $env:DOPPLER_TOKEN) {
+            Write-Error 'Missing required repository secret: DOPPLER_TOKEN'
+            exit 1
+          }
+          if (
+            $env:SUBMIT_FOR_CERTIFICATION -eq 'true' -and
+            $env:UPLOAD_TO_PARTNER_CENTER -ne 'true'
+          ) {
+            Write-Error 'submit_for_certification requires upload_to_partner_center.'
+            exit 1
+          }
+
+      - run: npm ci
+      - run: npm audit --omit=dev
+      - run: npm run check
+
+      - name: Build unsigned Microsoft Store MSIX
+        shell: pwsh
+        run: |
+          doppler run `
+            --project tro-app `
+            --config prd `
+            -- npm exec -- electron-forge make `
+              --arch=x64 `
+              --targets '@electron-forge/maker-msix'
+
+      - name: Validate MSIX identity and contents
+        shell: pwsh
+        run: |
+          $artifactDirectory = 'out\make\msix\x64'
+          $msix = Get-ChildItem $artifactDirectory -Filter '*.msix' -File |
+            Select-Object -First 1
+          if (-not $msix) {
+            Write-Error "MSIX package not found in $artifactDirectory"
+            exit 1
+          }
+
+          $makeAppx = Get-ChildItem `
+            "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" `
+            -File |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
+            Select-Object -First 1
+          if (-not $makeAppx) {
+            Write-Error 'MakeAppx.exe was not found in the Windows SDK.'
+            exit 1
+          }
+
+          $layout = Join-Path $env:RUNNER_TEMP 'trocode-msix-layout'
+          & $makeAppx.FullName unpack /o /p $msix.FullName /d $layout
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          [xml]$manifest = Get-Content -Raw (Join-Path $layout 'AppxManifest.xml')
+          $identity = $manifest.Package.Identity
+          $application = $manifest.Package.Applications.Application
+          $identityName = $identity.GetAttribute('Name')
+          $publisher = $identity.GetAttribute('Publisher')
+          $version = $identity.GetAttribute('Version')
+          $executable = $application.GetAttribute('Executable')
+          if ($identityName -ne 'FeatherlaneAI.TroCode') {
+            Write-Error "Unexpected package identity: $identityName"
+            exit 1
+          }
+          if ($publisher -ne 'CN=55ECF4A8-A613-42A0-9B49-9E83D77D32BE') {
+            Write-Error "Unexpected package publisher: $publisher"
+            exit 1
+          }
+          if ($executable -ne 'app\TroCode.exe') {
+            Write-Error "Unexpected application executable: $executable"
+            exit 1
+          }
+
+          $checksum = (Get-FileHash $msix.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$checksum  $($msix.Name)" |
+            Set-Content (Join-Path $artifactDirectory 'SHA256SUMS.txt') -Encoding ascii
+
+          "### Microsoft Store MSIX" >> $env:GITHUB_STEP_SUMMARY
+          "- Package: $($msix.Name)" >> $env:GITHUB_STEP_SUMMARY
+          "- Identity: $identityName" >> $env:GITHUB_STEP_SUMMARY
+          "- Publisher: $publisher" >> $env:GITHUB_STEP_SUMMARY
+          "- Version: $version" >> $env:GITHUB_STEP_SUMMARY
+          '- Signing: Microsoft signs the package during Store certification.' >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload validated MSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: TroCode-Microsoft-Store-x64-${{ github.run_number }}
+          path: |
+            out/make/msix/x64/*.msix
+            out/make/msix/x64/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-to-store:
+    if: inputs.upload_to_partner_center
+    needs: build-msix
+    runs-on: windows-2025
+    timeout-minutes: 30
+    environment: microsoft-store
+    env:
+      AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+      AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+      AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+      SELLER_ID: ${{ secrets.SELLER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: TroCode-Microsoft-Store-x64-${{ github.run_number }}
+          path: store-artifact
+
+      - name: Validate Partner Center credentials
+        shell: pwsh
+        run: |
+          $required = @(
+            'AZURE_AD_APPLICATION_CLIENT_ID'
+            'AZURE_AD_APPLICATION_SECRET'
+            'AZURE_AD_TENANT_ID'
+            'SELLER_ID'
+          )
+          foreach ($name in $required) {
+            if (-not (Get-Item "env:$name").Value) {
+              Write-Error "Missing Microsoft Store environment secret: $name"
+              exit 1
+            }
+          }
+
+      - name: Install Microsoft Store Developer CLI
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+
+      - name: Authenticate to Partner Center
+        shell: pwsh
+        run: |
+          msstore reconfigure `
+            --tenantId $env:AZURE_AD_TENANT_ID `
+            --sellerId $env:SELLER_ID `
+            --clientId $env:AZURE_AD_APPLICATION_CLIENT_ID `
+            --clientSecret $env:AZURE_AD_APPLICATION_SECRET
+
+      - name: Upload package to Microsoft Store
+        shell: pwsh
+        env:
+          SUBMIT_FOR_CERTIFICATION: ${{ inputs.submit_for_certification }}
+        run: |
+          $msix = Get-ChildItem 'store-artifact' -Filter '*.msix' -File |
+            Select-Object -First 1
+          if (-not $msix) {
+            Write-Error 'Downloaded artifact does not contain an MSIX package.'
+            exit 1
+          }
+
+          $arguments = @(
+            'publish'
+            '.'
+            '--inputFile'
+            $msix.FullName
+            '--appId'
+            '9PHZWW2MCPG1'
+          )
+          if ($env:SUBMIT_FOR_CERTIFICATION -ne 'true') {
+            $arguments += '--noCommit'
+          }
+
+          msstore @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          if ($env:SUBMIT_FOR_CERTIFICATION -eq 'true') {
+            '- Submitted TroCode for Microsoft certification.' >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            '- Uploaded TroCode to the Partner Center draft without submitting.' >> $env:GITHUB_STEP_SUMMARY
+          }

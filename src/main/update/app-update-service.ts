@@ -17,6 +17,7 @@ interface AppUpdateServiceOptions {
   architecture: string;
   currentVersion: string;
   isPackaged: boolean;
+  managedByMicrosoftStore(): boolean;
   platform: NodeJS.Platform;
   prepareToInstall(): Promise<void> | void;
   repository: string;
@@ -108,6 +109,18 @@ export class AppUpdateService {
     }
 
     this.started = true;
+    if (
+      this.options.platform === 'win32' &&
+      this.options.managedByMicrosoftStore()
+    ) {
+      this.updateStatus({
+        message: 'Microsoft Store keeps this installation of TroCode updated.',
+        phase: 'unsupported',
+        targetVersion: null,
+      });
+      return this.getStatus();
+    }
+
     const { updater } = this.options;
     updater.on('checking-for-update', this.handleCheckingForUpdate);
     updater.on('update-available', this.handleUpdateAvailable);
@@ -149,7 +162,10 @@ export class AppUpdateService {
       return this.getStatus();
     }
 
-    if (!this.started) this.start();
+    if (!this.started) {
+      const startedStatus = this.start();
+      if (startedStatus.phase === 'unsupported') return startedStatus;
+    }
     if (this.options.platform === 'darwin' && !this.feedConfigured) {
       return this.getStatus();
     }

@@ -329,6 +329,7 @@ const appUpdateService = new AppUpdateService({
   architecture: process.arch,
   currentVersion: app.getVersion(),
   isPackaged: app.isPackaged,
+  managedByMicrosoftStore: () => process.windowsStore === true,
   platform: process.platform,
   prepareToInstall: prepareForUpdateInstall,
   repository: 'ducnguyen67201/TroCode',

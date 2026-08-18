@@ -40,6 +40,7 @@ function createService(
     architecture: 'arm64',
     currentVersion: '0.1.0',
     isPackaged: true,
+    managedByMicrosoftStore: () => false,
     platform: 'darwin',
     prepareToInstall,
     repository: 'ducnguyen67201/TroCode',
@@ -73,6 +74,24 @@ describe('AppUpdateService', () => {
     expect(linux.service.start()).toMatchObject({ phase: 'unsupported' });
     expect(development.autoUpdater.setFeedURL).not.toHaveBeenCalled();
     expect(linux.autoUpdater.setFeedURL).not.toHaveBeenCalled();
+  });
+
+  it('leaves updates to Microsoft Store for an MSIX installation', async () => {
+    const { autoUpdater, service } = createService({
+      architecture: 'x64',
+      managedByMicrosoftStore: () => true,
+      platform: 'win32',
+    });
+
+    expect(service.start()).toMatchObject({
+      message: 'Microsoft Store keeps this installation of TroCode updated.',
+      phase: 'unsupported',
+    });
+    await expect(service.checkForUpdates()).resolves.toMatchObject({
+      phase: 'unsupported',
+    });
+    expect(autoUpdater.setFeedURL).not.toHaveBeenCalled();
+    expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();
   });
 
   it('does not check when the update feed could not be configured', async () => {

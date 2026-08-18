@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { MakerDeb } from '@electron-forge/maker-deb';
+import { MakerMSIX } from '@electron-forge/maker-msix';
 import { MakerRpm } from '@electron-forge/maker-rpm';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
@@ -33,6 +34,10 @@ const APP_ICON_BASENAME = path.resolve(
 );
 const APP_ICON_PNG = `${APP_ICON_BASENAME}.png`;
 const APP_ICON_ICO = `${APP_ICON_BASENAME}.ico`;
+const MSIX_ASSETS_DIRECTORY = path.resolve(__dirname, 'src/assets/msix');
+const MICROSOFT_STORE_PACKAGE_IDENTITY = 'FeatherlaneAI.TroCode';
+const MICROSOFT_STORE_PUBLISHER =
+  'CN=55ECF4A8-A613-42A0-9B49-9E83D77D32BE';
 const MACOS_SIGNING_IDENTITY = process.env.TROCODE_MACOS_SIGNING_IDENTITY?.trim();
 const MACOS_NOTARIZATION_API_KEY = process.env.TROCODE_APPLE_API_KEY?.trim();
 const MACOS_NOTARIZATION_API_KEY_ID =
@@ -185,6 +190,23 @@ const config: ForgeConfig = {
             certificatePassword: WINDOWS_SIGNING_CERTIFICATE_PASSWORD,
           }
         : {}),
+    }),
+    new MakerMSIX({
+      manifestVariables: {
+        appDisplayName: 'TroCode',
+        packageBackgroundColor: 'transparent',
+        packageDescription:
+          'A general-purpose, goal-driven desktop agent powered by computer use.',
+        packageDisplayName: 'TroCode',
+        packageIdentity: MICROSOFT_STORE_PACKAGE_IDENTITY,
+        packageMinOSVersion: '10.0.17763.0',
+        publisher: MICROSOFT_STORE_PUBLISHER,
+        publisherDisplayName: 'Featherlane AI',
+      },
+      packageAssets: MSIX_ASSETS_DIRECTORY,
+      // Partner Center replaces this with a Microsoft signature after
+      // certification. A locally signed package would not match Store identity.
+      sign: false,
     }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),
