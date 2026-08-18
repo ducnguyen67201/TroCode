@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -23,7 +25,7 @@ describe('CodexRuntimeLocator', () => {
     expect(probeVersion).toHaveBeenCalledOnce();
     expect(probeAuthentication).toHaveBeenCalledWith(
       process.execPath,
-      '/tmp/trocode-codex-home',
+      path.resolve('/tmp/trocode-codex-home'),
     );
   });
 
