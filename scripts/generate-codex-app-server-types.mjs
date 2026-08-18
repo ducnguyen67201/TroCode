@@ -28,6 +28,12 @@ const SELECTED_BINDINGS = [
   'v2/TurnSteerResponse.ts',
 ];
 
+const isCheck = process.argv.includes('--check');
+const target = path.join(
+  process.cwd(),
+  'src/main/codex/generated/protocol-manifest.json',
+);
+
 function run(executable, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -45,43 +51,88 @@ function run(executable, args) {
   });
 }
 
-const executable = process.env.TROCODE_CODEX_PATH?.trim() || 'codex';
-const versionOutput = await run(executable, ['--version']);
-const version = /(?:^|\s)(\d+\.\d+\.\d+)(?:\s|$)/u.exec(versionOutput)?.[1];
-if (version !== SUPPORTED_VERSION) {
-  throw new Error(`Codex ${SUPPORTED_VERSION} is required to generate protocol bindings; found ${version ?? 'unknown'}.`);
-}
-
-const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'trocode-codex-bindings-'));
-try {
-  await run(executable, [
-    'app-server',
-    'generate-ts',
-    '--experimental',
-    '--out',
-    temporaryDirectory,
-  ]);
-  const bindings = {};
-  for (const relativePath of SELECTED_BINDINGS) {
-    const source = await readFile(path.join(temporaryDirectory, relativePath), 'utf8');
-    bindings[relativePath] = createHash('sha256').update(source).digest('hex');
+function validateCommittedManifest(source) {
+  let manifest;
+  try {
+    manifest = JSON.parse(source);
+  } catch {
+    throw new Error('Committed Codex app-server protocol manifest is not valid JSON.');
   }
-  const output = `${JSON.stringify({ bindings, codexVersion: version }, null, 2)}\n`;
-  const target = path.join(
-    process.cwd(),
-    'src/main/codex/generated/protocol-manifest.json',
-  );
-  if (process.argv.includes('--check')) {
-    const current = await readFile(target, 'utf8').catch(() => '');
-    if (current !== output) {
-      throw new Error('Committed Codex app-server bindings do not match the supported CLI.');
+
+  if (manifest?.codexVersion !== SUPPORTED_VERSION) {
+    throw new Error(
+      `Committed Codex app-server protocol manifest must target ${SUPPORTED_VERSION}.`,
+    );
+  }
+  if (manifest.bindings === null || typeof manifest.bindings !== 'object') {
+    throw new Error('Committed Codex app-server protocol manifest has no bindings map.');
+  }
+
+  const actualBindings = Object.keys(manifest.bindings).sort();
+  const expectedBindings = [...SELECTED_BINDINGS].sort();
+  if (JSON.stringify(actualBindings) !== JSON.stringify(expectedBindings)) {
+    throw new Error('Committed Codex app-server protocol manifest has unexpected bindings.');
+  }
+  for (const binding of expectedBindings) {
+    if (!/^[a-f0-9]{64}$/u.test(manifest.bindings[binding])) {
+      throw new Error(`Committed Codex binding hash is invalid for ${binding}.`);
     }
-  } else {
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, output, 'utf8');
   }
-} finally {
-  await rm(temporaryDirectory, { recursive: true, force: true });
 }
 
-console.log(`Codex app-server protocol bindings match ${SUPPORTED_VERSION}.`);
+async function main() {
+  const current = isCheck ? await readFile(target, 'utf8').catch(() => '') : undefined;
+  if (isCheck) validateCommittedManifest(current);
+
+  const executable = process.env.TROCODE_CODEX_PATH?.trim() || 'codex';
+  let versionOutput;
+  try {
+    versionOutput = await run(executable, ['--version']);
+  } catch (error) {
+    if (isCheck && error?.code === 'ENOENT') {
+      console.log(
+        `Codex executable is unavailable; validated the committed ${SUPPORTED_VERSION} protocol manifest.`,
+      );
+      return;
+    }
+    throw error;
+  }
+
+  const version = /(?:^|\s)(\d+\.\d+\.\d+)(?:\s|$)/u.exec(versionOutput)?.[1];
+  if (version !== SUPPORTED_VERSION) {
+    throw new Error(
+      `Codex ${SUPPORTED_VERSION} is required to generate protocol bindings; found ${version ?? 'unknown'}.`,
+    );
+  }
+
+  const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'trocode-codex-bindings-'));
+  try {
+    await run(executable, [
+      'app-server',
+      'generate-ts',
+      '--experimental',
+      '--out',
+      temporaryDirectory,
+    ]);
+    const bindings = {};
+    for (const relativePath of SELECTED_BINDINGS) {
+      const source = await readFile(path.join(temporaryDirectory, relativePath), 'utf8');
+      bindings[relativePath] = createHash('sha256').update(source).digest('hex');
+    }
+    const output = `${JSON.stringify({ bindings, codexVersion: version }, null, 2)}\n`;
+    if (isCheck) {
+      if (current !== output) {
+        throw new Error('Committed Codex app-server bindings do not match the supported CLI.');
+      }
+    } else {
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, output, 'utf8');
+    }
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+
+  console.log(`Codex app-server protocol bindings match ${SUPPORTED_VERSION}.`);
+}
+
+await main();
