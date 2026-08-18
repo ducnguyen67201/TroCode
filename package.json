@@ -1,7 +1,7 @@
 {
   "name": "trocode",
   "productName": "TroCode",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A general-purpose, goal-driven desktop agent powered by CUA.",
   "main": ".webpack/main",
   "private": true,
