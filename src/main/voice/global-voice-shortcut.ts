@@ -148,7 +148,9 @@ export function registerGlobalVoiceShortcut({
     }
 
     return watchForMacOSShortcut((event) => {
-      sendVoiceShortcutEvent(event, { allowFocused: false });
+      sendVoiceShortcutEvent(event, {
+        allowFocused: event.action === 'released',
+      });
     });
   }
 
