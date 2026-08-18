@@ -68,7 +68,7 @@ describe('VoiceService', () => {
         JSON.stringify({
           audioDurationMs: 300,
           billedSeconds: 0.3,
-          model: 'gpt-transcribe',
+          model: 'whisper-1',
           text: 'open YouTube',
           usageSource: 'actual',
         }),
@@ -90,6 +90,7 @@ describe('VoiceService', () => {
       state: 'ready',
     });
     await expect(service.transcribeSegment(request)).resolves.toMatchObject({
+      model: 'whisper-1',
       sequence: request.sequence,
       text: 'open YouTube',
       utteranceId: request.utteranceId,
@@ -108,6 +109,7 @@ describe('VoiceService', () => {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
           'X-Trocode-Request-Id': request.requestId,
+          'X-Trocode-Transcription-Contract': '2',
         },
       }),
     );

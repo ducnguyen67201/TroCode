@@ -908,6 +908,7 @@ test('segmented transcription sends Vietnamese hints and returns validated durat
             Authorization: `Bearer ${session.accessToken}`,
             'Content-Type': 'application/json',
             'X-Trocode-Request-Id': TEST_REQUEST_ID,
+            'X-Trocode-Transcription-Contract': '2',
           },
           method: 'POST',
         },
@@ -924,6 +925,22 @@ test('segmented transcription sends Vietnamese hints and returns validated durat
       assert.equal(upstreamRequest.body.get('language'), null);
       assert.equal(upstreamRequest.body.get('model'), 'gpt-transcribe');
       assert.equal(upstreamRequest.body.get('file').type, 'audio/wav');
+
+      const legacyResponse = await fetch(
+        `${baseUrl}/v1/openai/audio/transcriptions`,
+        {
+          body: JSON.stringify(transcriptionBody({ language: 'vi' })),
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Trocode-Request-Id':
+              '44444444-4444-4444-8444-444444444444',
+          },
+          method: 'POST',
+        },
+      );
+      assert.equal(legacyResponse.status, 200);
+      assert.equal((await legacyResponse.json()).model, 'whisper-1');
     },
     {
       fetchImpl: async (_url, options) => {

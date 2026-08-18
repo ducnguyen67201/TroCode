@@ -420,6 +420,16 @@ describe('voice segment contracts', () => {
       }),
     ).toMatchObject({ model: 'gpt-transcribe', text: '' });
     expect(
+      VoiceSegmentTranscriptionSchema.parse({
+        audioDurationMs: 300,
+        billedSeconds: 0.3,
+        model: 'whisper-1',
+        sequence: request.sequence,
+        text: 'legacy response alias',
+        utteranceId: request.utteranceId,
+      }),
+    ).toMatchObject({ model: 'whisper-1' });
+    expect(
       VoiceStatusSchema.parse({
         model: 'gpt-transcribe',
         provider: 'openai',
