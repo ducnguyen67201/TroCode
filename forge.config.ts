@@ -48,6 +48,7 @@ const WINDOWS_SIGNING_CERTIFICATE_FILE =
   process.env.TROCODE_WINDOWS_CERTIFICATE_FILE?.trim();
 const WINDOWS_SIGNING_CERTIFICATE_PASSWORD =
   process.env.TROCODE_WINDOWS_CERTIFICATE_PASSWORD?.trim();
+const WINDOWS_KIT_VERSION = process.env.TROCODE_WINDOWS_KIT_VERSION?.trim();
 const executeFile = promisify(execFile);
 const MACOS_VOICE_SHORTCUT_SOURCE = path.resolve(
   __dirname,
@@ -204,6 +205,10 @@ const config: ForgeConfig = {
         publisherDisplayName: 'Featherlane AI',
       },
       packageAssets: MSIX_ASSETS_DIRECTORY,
+      // electron-windows-msix otherwise treats MinVersion as the exact SDK
+      // tooling version. CI selects an installed SDK while the manifest keeps
+      // the older supported Windows version.
+      windowsKitVersion: WINDOWS_KIT_VERSION,
       // Partner Center replaces this with a Microsoft signature after
       // certification. A locally signed package would not match Store identity.
       sign: false,
