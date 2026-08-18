@@ -43,6 +43,7 @@ const SYSTEM_INSTRUCTIONS = [
   'Solve text work directly when no tool is needed. Use only supplied tools.',
   'Treat the original request as a checklist and satisfy every requested outcome.',
   'If visible context cannot be resolved from conversation text, call observe_desktop.',
+  'When the original request includes a trusted host initial desktop observation, treat its observation ID and screenshot as the latest visible state. Do not call observe_desktop again before the first grounded action unless that state is degraded or the screen may have changed.',
   'Call observe_desktop before coordinate-grounded actions and use only the latest observation ID.',
   'Never use desktop tools to operate TroCode itself, including its approval cards, dialogs, or controls. Approval and denial are user-only decisions handled by the trusted host.',
   'When the user asks for a visible walkthrough, call show_guidance once per user-controlled step with one visible target and one concise spoken instruction. Wait for that tool output before observing and emitting the next step. Do not substitute control_desktop unless the user asked TroCode to act.',
@@ -113,6 +114,35 @@ function injectSteering(
     content: [{ type: 'input_text', text: instruction }],
   }));
   return { ...modelData, input: [...input, ...items] };
+}
+
+function initialRunInput(input: AgentRuntimeStart): string | AgentInputItem[] {
+  const observation = input.initialObservation;
+  if (!observation) return input.request;
+  const evidence = JSON.stringify({
+    observationId: observation.observationId,
+    capturedAt: observation.capturedAt,
+    degraded: observation.degraded,
+    text: observation.text,
+    structuredState: observation.structuredState,
+  });
+  const content: Extract<AgentInputItem, { role: 'user' }>['content'] = [
+    { type: 'input_text', text: input.request },
+    {
+      type: 'input_text',
+      text: `Trusted host initial desktop observation: ${evidence}`,
+    },
+  ];
+  if (observation.screenshot) {
+    content.push({
+      type: 'input_image',
+      image:
+        `data:${observation.screenshot.mimeType};base64,` +
+        observation.screenshot.dataBase64,
+      detail: 'high',
+    });
+  }
+  return [{ role: 'user', content }];
 }
 
 function runtimeTools(
@@ -269,7 +299,7 @@ export class OpenAIAgentsRuntime implements AgentRuntime {
       ...(workspaceTools ? { workspaceTools } : {}),
     };
     this.sessions.set(input.taskId, active);
-    return this.run(active, input.request, input.signal);
+    return this.run(active, initialRunInput(input), input.signal);
   }
 
   continueTask(
@@ -291,10 +321,13 @@ export class OpenAIAgentsRuntime implements AgentRuntime {
 
   private async run(
     active: ActiveAgentSession,
-    input: string,
+    input: string | AgentInputItem[],
     signal?: AbortSignal,
   ): Promise<string> {
-    let nextInput: string | RunState<unknown, Agent<unknown, 'text'>> = input;
+    let nextInput:
+      | string
+      | AgentInputItem[]
+      | RunState<unknown, Agent<unknown, 'text'>> = input;
     for (;;) {
       const result: ActiveStreamResult =
         await active.runner.run(active.agent, nextInput, {

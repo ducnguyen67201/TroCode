@@ -9,6 +9,7 @@ import type {
   AgentToolOutput,
   ModelToolSpec,
 } from './agent-contracts';
+import type { DesktopObservation } from './execution-contracts';
 
 export interface RuntimeInputRequest {
   choices?: string[];
@@ -60,6 +61,7 @@ export interface AgentRuntimeStart {
   contract: AgentTaskContract;
   maxTurns: number;
   emitActivity?(activity: AgentRuntimeActivity): void;
+  initialObservation?: DesktopObservation;
   request: string;
   resumeMetadata?: TaskSnapshot['runtimeResume'];
   signal?: AbortSignal;

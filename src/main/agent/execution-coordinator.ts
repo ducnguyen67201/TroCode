@@ -18,7 +18,10 @@ import {
   StaticAgentRuntimeFactory,
   type AgentRuntimeFactory,
 } from './agent-runtime-factory';
-import { decideCompletionReview } from './completion-policy';
+import {
+  decideCompletionReview,
+  shouldCaptureInitialDesktopObservation,
+} from './completion-policy';
 import {
   mapScreenshotRegionToDesktop,
   mapScreenshotPointToDesktop,
@@ -838,6 +841,20 @@ export class TaskExecutionCoordinator {
       }
     };
 
+    if (
+      snapshot.goal.executionProfile !== 'workspace' &&
+      !context.walkthrough.enabled &&
+      shouldCaptureInitialDesktopObservation(snapshot.request)
+    ) {
+      await executeTool({
+        arguments: JSON.stringify({
+          reason: 'Ground the first model response in the current desktop.',
+        }),
+        callId: `host-initial-observation:${taskId}`,
+        name: 'observe_desktop',
+      });
+    }
+
     let finalOutput = await agent.runTask({
       callbacks: {
         billableUserTurnIds: currentBillableUserTurnIds,
@@ -856,6 +873,9 @@ export class TaskExecutionCoordinator {
       },
       contract: snapshot.goal,
       maxTurns: taskMaxModelSamples(snapshot.goal),
+      ...(context.latestObservation
+        ? { initialObservation: context.latestObservation }
+        : {}),
       request: snapshot.request,
       resumeMetadata: snapshot.runtimeResume,
       emitActivity: (activity) => this.onActivity(taskId, activity),

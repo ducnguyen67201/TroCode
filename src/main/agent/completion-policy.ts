@@ -11,6 +11,33 @@ const VISIBLE_CONTEXT_PHRASES = [
   'trước mặt',
 ] as const;
 
+const VISUAL_ARTIFACT_TERMS = [
+  'document',
+  'email',
+  'form',
+  'google sheet',
+  'message',
+  'presentation',
+  'sheet',
+  'slide',
+  'spreadsheet',
+  'table',
+  'workbook',
+  'worksheet',
+  'bảng tính',
+  'biểu mẫu',
+  'email',
+  'tin nhắn',
+  'tài liệu',
+  'trang tính',
+  'trình chiếu',
+] as const;
+
+const VISUAL_ACTION_PATTERN =
+  /\b(?:add|change|create|edit|enter|fill|format|make|select|type|update|write)\b|(?:^|\s)(?:chọn|điền|định dạng|nhập|sửa|tạo|viết)(?:$|[\s.,!?;:])/u;
+const NAVIGATION_FIRST_PATTERN =
+  /^\s*(?:go\s+to|launch|navigate\s+to|open)\b|^\s*(?:mở|truy cập)(?:$|\s)/u;
+
 function normalizeRequest(request: string): string {
   return request.normalize('NFKC').toLocaleLowerCase();
 }
@@ -23,6 +50,23 @@ export function requestReferencesVisibleContext(request: string): boolean {
   return (
     /\b(?:this|that|these|those)\b/u.test(normalized) ||
     /(?:^|\s)(?:này|đó|kia)(?:$|[\s.,!?;:])/u.test(normalized)
+  );
+}
+
+/**
+ * Decides locally whether the first model sample needs current desktop evidence.
+ * Keep this selective: direct answers and navigation-first work can choose a tool
+ * without paying the image cost, while visible artifact work starts grounded.
+ */
+export function shouldCaptureInitialDesktopObservation(
+  request: string,
+): boolean {
+  if (requestReferencesVisibleContext(request)) return true;
+  const normalized = normalizeRequest(request);
+  if (NAVIGATION_FIRST_PATTERN.test(normalized)) return false;
+  return (
+    VISUAL_ACTION_PATTERN.test(normalized) &&
+    VISUAL_ARTIFACT_TERMS.some((term) => normalized.includes(term))
   );
 }
 

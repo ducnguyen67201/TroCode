@@ -639,7 +639,10 @@ describe('TaskExecutionCoordinator', () => {
       'A blank Google Sheet is open in the browser.',
     );
     const { agent, coordinator, cua, runtime } = setup(
-      [assistant('I created the daily money tracker in the open sheet.')],
+      [
+        assistant('I created the daily money tracker in the open sheet.'),
+        assistant('I created the daily money tracker in the open sheet.'),
+      ],
       [first],
     );
     const ready = runtime.submit({
@@ -660,14 +663,14 @@ describe('TaskExecutionCoordinator', () => {
       observationId: first.observationId,
       text: 'A blank Google Sheet is open in the browser.',
     });
-    expect(agent.sample).toHaveBeenCalledOnce();
+    expect(agent.sample).toHaveBeenCalledTimes(2);
     expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
       phase: 'completed',
       progress: { kind: 'tool_calls', completed: 1 },
     });
   });
 
-  it('reviews a generic answer and observes when the request refers to this assignment', async () => {
+  it('pre-observes an assignment when the request refers to visible context', async () => {
     const taskId = randomUUID();
     const visibleAssignment = observation(
       taskId,
@@ -675,16 +678,9 @@ describe('TaskExecutionCoordinator', () => {
       'a'.repeat(64),
       'Assignment: solve 3x + 5 = 20.',
     );
-    const genericAnswer = 'Please send the assignment so I can help.';
     const solvedAnswer = 'The visible assignment solves to x = 5.';
     const { agent, coordinator, cua, runtime } = setup(
-      [
-        assistant(genericAnswer),
-        tool('call-assignment-observe', 'observe_desktop', {
-          reason: 'Inspect the assignment already visible on screen.',
-        }),
-        assistant(solvedAnswer),
-      ],
+      [assistant(solvedAnswer), assistant(solvedAnswer)],
       [visibleAssignment],
     );
     const ready = runtime.submit({ text: 'Help me work on this assignment.' });
@@ -698,9 +694,6 @@ describe('TaskExecutionCoordinator', () => {
     expect(cua.observe).toHaveBeenCalledOnce();
     expect(snapshot.phase).toBe('completed');
     expect(snapshot.messages.at(-1)?.text).toBe(solvedAnswer);
-    expect(snapshot.messages.some((message) => message.text === genericAnswer)).toBe(
-      false,
-    );
   });
 
   it('reviews inbox previews and continues until the latest email is opened', async () => {
@@ -1050,7 +1043,6 @@ describe('TaskExecutionCoordinator', () => {
   it('returns an approval denial to GPT without dispatching the action', async () => {
     const observationId = randomUUID();
     const { agent, coordinator, cua, runtime } = setup([
-      tool('call-observe', 'observe_desktop', { reason: 'Inspect the inbox.' }),
       tool('call-delete', 'control_desktop', {
         observationId,
         consequence: 'delete',
@@ -1097,7 +1089,6 @@ describe('TaskExecutionCoordinator', () => {
   it('invalidates approved desktop work when the screen fingerprint changes', async () => {
     const observationId = randomUUID();
     const { agent, coordinator, cua, runtime } = setup([
-      tool('call-observe', 'observe_desktop', { reason: 'Inspect the inbox.' }),
       tool('call-delete', 'control_desktop', {
         observationId,
         consequence: 'delete',
@@ -1136,7 +1127,7 @@ describe('TaskExecutionCoordinator', () => {
     expect(JSON.stringify(agent.outputs.at(-1)?.output)).toContain(
       'screen changed',
     );
-    expect(agent.sample).toHaveBeenCalledTimes(2);
+    expect(agent.sample).toHaveBeenCalledOnce();
     expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
       phase: 'blocked',
       lastEvent: {
