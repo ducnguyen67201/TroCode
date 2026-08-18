@@ -107,11 +107,16 @@ function commandEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return environment;
 }
 
-function shellInvocation(command: string): { executable: string; args: string[] } {
+function shellInvocation(command: string): {
+  executable: string;
+  args: string[];
+  windowsVerbatimArguments?: boolean;
+} {
   if (process.platform === 'win32') {
     return {
       executable: process.env.COMSPEC?.trim() || 'cmd.exe',
-      args: ['/d', '/s', '/c', command],
+      args: ['/d', '/s', '/c', `"${command}"`],
+      windowsVerbatimArguments: true,
     };
   }
   return {
@@ -220,6 +225,7 @@ export class WorkspaceShell implements Shell {
         env: commandEnvironment(process.env),
         shell: false,
         stdio: ['ignore', 'pipe', 'pipe'],
+        windowsVerbatimArguments: invocation.windowsVerbatimArguments,
         windowsHide: true,
       });
       let stdout = '';
