@@ -1640,28 +1640,12 @@ export class TaskExecutionCoordinator {
       context.latestObservation = undefined;
     }
 
-    if (invocation.kind === 'desktop' || invocation.kind === 'surface') {
-      try {
-        await this.onDesktopControlChange(taskId, true);
-      } catch {
-        // The status overlay is best-effort and must not change task execution.
-      }
-    }
-
     let result: ToolExecutionResult;
     try {
       result = await this.toolDispatcher.dispatch(invocation, { taskId, signal });
     } catch (error) {
       if (isAbort(error, signal)) throw error;
       result = { status: 'failed', summary: errorMessage(error) };
-    } finally {
-      if (invocation.kind === 'desktop' || invocation.kind === 'surface') {
-        try {
-          await this.onDesktopControlChange(taskId, false);
-        } catch {
-          // Verification proceeds even if the status overlay cannot be hidden.
-        }
-      }
     }
 
     let observation: DesktopObservation | undefined;
@@ -1838,6 +1822,11 @@ export class TaskExecutionCoordinator {
     if (context.desktopSessionStarted) return;
     await this.cua.startTaskSession(taskId, context.controller.signal);
     context.desktopSessionStarted = true;
+    try {
+      await this.onDesktopControlChange(taskId, true);
+    } catch {
+      // The persistent status overlay is best-effort and cannot block CUA.
+    }
   }
 
   private reachDeadline(taskId: string): void {
@@ -1876,10 +1865,22 @@ export class TaskExecutionCoordinator {
       context.activeGuidance = undefined;
       this.onGuidanceWaitEnd(taskId);
       this.dismissPresentation();
-      if (context.desktopSessionStarted) await this.cua.endTaskSession(taskId);
-      await context.agent?.end(taskId);
-      this.toolExecutionBroker.endTask(taskId);
-      this.contexts.delete(taskId);
+      try {
+        if (context.desktopSessionStarted) {
+          await this.cua.endTaskSession(taskId);
+        }
+        await context.agent?.end(taskId);
+        this.toolExecutionBroker.endTask(taskId);
+        this.contexts.delete(taskId);
+      } finally {
+        if (context.desktopSessionStarted) {
+          try {
+            await this.onDesktopControlChange(taskId, false);
+          } catch {
+            // Session cleanup cannot be blocked by a presentation failure.
+          }
+        }
+      }
     })();
     await context.cleanupPromise;
   }

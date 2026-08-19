@@ -755,6 +755,21 @@ export const CompanionPositionSchema = z.object({
   y: z.number().int().min(0).max(100_000),
 });
 
+export const CompanionGuidanceVisualSchema = z
+  .object({
+    companion: CompanionPositionSchema,
+    moving: z.boolean(),
+    target: z
+      .object({
+        height: z.number().int().min(1).max(100_000),
+        width: z.number().int().min(1).max(100_000),
+        x: z.number().int().min(0).max(100_000),
+        y: z.number().int().min(0).max(100_000),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const TROCODE_AUDIO_SCHEME = 'trocode-audio' as const;
 
 const CompanionSpeechMediaUrlSchema = z
@@ -1017,6 +1032,9 @@ export type ActivateMembershipRequest = z.infer<
   typeof ActivateMembershipRequestSchema
 >;
 export type CompanionPosition = z.infer<typeof CompanionPositionSchema>;
+export type CompanionGuidanceVisual = z.infer<
+  typeof CompanionGuidanceVisualSchema
+>;
 export type CompanionState = z.infer<typeof CompanionStateSchema>;
 export type PresentationState = z.infer<typeof PresentationStateSchema>;
 export type CompanionVoiceActivity = z.infer<

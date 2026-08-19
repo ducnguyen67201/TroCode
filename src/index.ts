@@ -115,6 +115,7 @@ import { WorkspaceSelectionService } from './main/workspace/workspace-selection-
 import {
   AgentActivityUpdateSchema,
   CompanionGuidanceSchema,
+  CompanionGuidanceVisualSchema,
   CompanionResponseCardSchema,
   TaskUpdateSchema,
   TROCODE_AUDIO_SCHEME,
@@ -414,6 +415,7 @@ const desktopControlStartedAt = new Map<string, number>();
 let companionFollowTimer: ReturnType<typeof setInterval> | null = null;
 let companionGlide: CompanionGlide | null = null;
 let companionPinnedPosition: Point | null = null;
+let activeGuidanceTargetBounds: Rectangle | null = null;
 let activeCompanionGuidance: CompanionGuidance | null = null;
 let activeCompanionInteraction: CompanionInteraction | null = null;
 let activeCompanionResponse: CompanionResponseCard | null = null;
@@ -549,6 +551,7 @@ async function updateDesktopControlIndicator(
     ) {
       desktopControlIndicatorWindow.setBounds(getCompanionOverlayBounds(), false);
       desktopControlIndicatorWindow.showInactive();
+      sendCompanionGuidanceVisual();
     }
     return;
   }
@@ -604,6 +607,7 @@ function settleCompanionGlide(error?: Error): void {
   }
 
   companionPinnedPosition = glide.to;
+  sendCompanionGuidanceVisual(glide.to);
   glide.resolve();
 }
 
@@ -619,9 +623,59 @@ function resetCompanionPresentation(): void {
 }
 
 function hideGuidanceTargetMarker(): void {
+  activeGuidanceTargetBounds = null;
+  sendCompanionGuidanceVisual();
   if (guidanceTargetWindow && !guidanceTargetWindow.isDestroyed()) {
     guidanceTargetWindow.hide();
   }
+}
+
+function sendCompanionGuidanceVisual(companionPosition?: Point): void {
+  if (
+    !desktopControlIndicatorWindow ||
+    desktopControlIndicatorWindow.isDestroyed()
+  ) {
+    return;
+  }
+  if (!activeGuidanceTargetBounds) {
+    desktopControlIndicatorWindow.webContents.send(
+      IPC_CHANNELS.companionGuidanceVisualChanged,
+      null,
+    );
+    return;
+  }
+
+  const overlay = getCompanionOverlayBounds();
+  const position = companionPosition ?? getCurrentCompanionScreenPosition();
+  const visual = CompanionGuidanceVisualSchema.parse({
+    companion: {
+      x: Math.max(
+        0,
+        Math.round(position.x - overlay.x + COMPANION_SIZE.width / 2),
+      ),
+      y: Math.max(
+        0,
+        Math.round(position.y - overlay.y + COMPANION_SIZE.height / 2),
+      ),
+    },
+    moving: Boolean(companionGlide),
+    target: {
+      height: activeGuidanceTargetBounds.height,
+      width: activeGuidanceTargetBounds.width,
+      x: Math.max(
+        0,
+        Math.round(activeGuidanceTargetBounds.x - overlay.x),
+      ),
+      y: Math.max(
+        0,
+        Math.round(activeGuidanceTargetBounds.y - overlay.y),
+      ),
+    },
+  });
+  desktopControlIndicatorWindow.webContents.send(
+    IPC_CHANNELS.companionGuidanceVisualChanged,
+    visual,
+  );
 }
 
 function showGuidanceTargetMarker(
@@ -635,11 +689,14 @@ function showGuidanceTargetMarker(
   if (!guidanceTargetWindow || guidanceTargetWindow.isDestroyed()) return false;
 
   const display = screen.getDisplayNearestPoint(target);
-  guidanceTargetWindow.setBounds(
-    placeGuidanceTargetMarker(target, region, display.bounds),
-    false,
+  activeGuidanceTargetBounds = placeGuidanceTargetMarker(
+    target,
+    region,
+    display.bounds,
   );
+  guidanceTargetWindow.setBounds(activeGuidanceTargetBounds, false);
   guidanceTargetWindow.showInactive();
+  sendCompanionGuidanceVisual();
   return true;
 }
 
@@ -727,7 +784,9 @@ function showCompanionResponseCard(
   sendCompanionResponse();
 
   if (currentCompanionOverlayMode() !== 'response') return true;
-  hideGuidanceTargetMarker();
+  if (activeCompanionGuidance?.kind !== 'action_preview') {
+    hideGuidanceTargetMarker();
+  }
   guidanceWindow.setBounds({ ...position, ...RESPONSE_CALLOUT_SIZE }, false);
   setGuidanceWindowInteractive(response.phase === 'completed');
   if (response.phase === 'completed') {
@@ -1012,7 +1071,12 @@ async function presentCompanionAction(
   const isPointPresentation = command.kind === 'point';
   const isGuidancePoint =
     isPointPresentation && presentation?.kind !== 'action_preview';
-  if (isPointPresentation) hideGuidanceTargetMarker();
+  if (isPointPresentation) {
+    showGuidanceTargetMarker(
+      presentation?.screenPoint ?? { x: command.x, y: command.y },
+      presentation?.screenRegion,
+    );
+  }
   const previousCompanionState = companionState;
   const to = companionTargetForCommand(command, presentation);
   if (!to || !companionWindow || companionWindow.isDestroyed()) {
@@ -1946,6 +2010,7 @@ function applyCompanionScreenPosition(position: Point): void {
     if (currentX !== position.x || currentY !== position.y) {
       companionWindow.setPosition(position.x, position.y, false);
     }
+    sendCompanionGuidanceVisual(position);
     return;
   }
 
@@ -1962,6 +2027,7 @@ function applyCompanionScreenPosition(position: Point): void {
     x: position.x - overlayBounds.x,
     y: position.y - overlayBounds.y,
   });
+  sendCompanionGuidanceVisual(position);
 }
 
 function positionCompanion(): void {
@@ -2021,6 +2087,7 @@ function createDesktopControlIndicatorWindow(): void {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
       sandbox: true,
       webSecurity: true,
     },
@@ -2034,6 +2101,9 @@ function createDesktopControlIndicatorWindow(): void {
   desktopControlIndicatorWindow.webContents.setWindowOpenHandler(() => ({
     action: 'deny',
   }));
+  desktopControlIndicatorWindow.webContents.on('did-finish-load', () => {
+    sendCompanionGuidanceVisual();
+  });
   desktopControlIndicatorWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault();
   });
@@ -2224,6 +2294,8 @@ const createGuidanceTargetWindow = (): void => {
     event.preventDefault();
   });
   guidanceTargetWindow.on('closed', () => {
+    activeGuidanceTargetBounds = null;
+    sendCompanionGuidanceVisual();
     guidanceTargetWindow = null;
   });
 

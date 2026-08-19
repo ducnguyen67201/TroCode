@@ -5,6 +5,7 @@ import type {
   AppUpdateStatus,
   AuthStatus,
   CompanionGuidance,
+  CompanionGuidanceVisual,
   CompanionInteraction,
   CompanionPosition,
   CompanionResponseActionRequest,
@@ -45,6 +46,7 @@ export const IPC_CHANNELS = {
   checkForAppUpdates: 'update:check',
   companionPositionChanged: 'companion:position-changed',
   companionGuidanceChanged: 'companion:guidance-changed',
+  companionGuidanceVisualChanged: 'companion:guidance-visual-changed',
   companionInteractionChanged: 'companion:interaction-changed',
   companionResponseAction: 'companion:response-action',
   companionResponseChanged: 'companion:response-changed',
@@ -145,6 +147,9 @@ export interface CompanionApi {
   decideApproval(request: DecideApprovalRequest): Promise<TaskSnapshot>;
   onGuidanceChange(
     listener: (guidance: CompanionGuidance | null) => void,
+  ): () => void;
+  onGuidanceVisualChange(
+    listener: (visual: CompanionGuidanceVisual | null) => void,
   ): () => void;
   onInteractionChange(
     listener: (interaction: CompanionInteraction | null) => void,

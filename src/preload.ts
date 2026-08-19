@@ -9,6 +9,7 @@ import {
   CompanionPositionSchema,
   CancelTaskRequestSchema,
   CompanionGuidanceSchema,
+  CompanionGuidanceVisualSchema,
   CompanionInteractionSchema,
   CompanionResponseActionRequestSchema,
   CompanionResponseCardSchema,
@@ -384,6 +385,25 @@ const companionApi: CompanionApi = {
     return () =>
       ipcRenderer.removeListener(
         IPC_CHANNELS.companionGuidanceChanged,
+        eventHandler,
+      );
+  },
+
+  onGuidanceVisualChange(listener) {
+    const eventHandler = (
+      _event: Electron.IpcRendererEvent,
+      value: unknown,
+    ): void => {
+      listener(CompanionGuidanceVisualSchema.nullable().parse(value));
+    };
+
+    ipcRenderer.on(
+      IPC_CHANNELS.companionGuidanceVisualChanged,
+      eventHandler,
+    );
+    return () =>
+      ipcRenderer.removeListener(
+        IPC_CHANNELS.companionGuidanceVisualChanged,
         eventHandler,
       );
   },

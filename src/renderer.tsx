@@ -61,7 +61,7 @@ if (isVoiceIslandWindow) {
   document.documentElement.classList.add('voice-island-mode');
 }
 
-const hasDesktopBridge = isTargetMarkerWindow || isControlIndicatorWindow
+const hasDesktopBridge = isTargetMarkerWindow
   ? true
   : isAuxiliaryWindow
   ? typeof window.troCompanion !== 'undefined'

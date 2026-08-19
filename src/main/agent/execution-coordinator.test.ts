@@ -1374,7 +1374,7 @@ describe('TaskExecutionCoordinator', () => {
     );
   });
 
-  it('shows desktop control only around dispatch and hides it after a failure', async () => {
+  it('keeps desktop control visible for the session and hides it after a failure', async () => {
     const observationId = randomUUID();
     const before = observation(randomUUID(), observationId, 'a'.repeat(64));
     const after = observation(randomUUID(), randomUUID(), 'b'.repeat(64));
@@ -1405,6 +1405,61 @@ describe('TaskExecutionCoordinator', () => {
     coordinator.start({ taskId: ready.taskId });
     await coordinator.waitForIdle(ready.taskId);
 
+    await vi.waitFor(() => expect(controlChanges).toHaveBeenCalledTimes(2));
+    expect(controlChanges.mock.calls).toEqual([
+      [ready.taskId, true],
+      [ready.taskId, false],
+    ]);
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+  });
+
+  it('does not blink desktop control between consecutive actions', async () => {
+    const firstObservationId = randomUUID();
+    const secondObservationId = randomUUID();
+    const first = observation(
+      randomUUID(),
+      firstObservationId,
+      'a'.repeat(64),
+    );
+    const second = observation(
+      randomUUID(),
+      secondObservationId,
+      'b'.repeat(64),
+    );
+    const third = observation(randomUUID(), randomUUID(), 'c'.repeat(64));
+    const controlChanges = vi.fn(async () => undefined);
+    const { coordinator, cua, runtime } = setup(
+      [
+        tool('call-first-click', 'control_desktop', {
+          observationId: firstObservationId,
+          consequence: 'click_element',
+          description: 'Click the first control.',
+          target: 'First control',
+          command: { kind: 'click', x: 300, y: 180, button: 'left', count: 1 },
+        }),
+        tool('call-second-click', 'control_desktop', {
+          observationId: secondObservationId,
+          consequence: 'click_element',
+          description: 'Click the second control.',
+          target: 'Second control',
+          command: { kind: 'click', x: 700, y: 320, button: 'left', count: 1 },
+        }),
+        assistant('Both controls were clicked.'),
+        assistant('Both controls were clicked.'),
+      ],
+      [first, second, third],
+      { onDesktopControlChange: controlChanges },
+    );
+    const ready = runtime.submit({ text: 'Click these two controls.' });
+    first.taskId = ready.taskId;
+    second.taskId = ready.taskId;
+    third.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(cua.executeCommand).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(controlChanges).toHaveBeenCalledTimes(2));
     expect(controlChanges.mock.calls).toEqual([
       [ready.taskId, true],
       [ready.taskId, false],
