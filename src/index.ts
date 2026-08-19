@@ -17,7 +17,11 @@ import path from 'node:path';
 import { AgentActivityService } from './main/agent/agent-activity-service';
 import { AgentRuntimeFactory } from './main/agent/agent-runtime-factory';
 import { approvalObservationMatches } from './main/agent/approval-observation';
-import type { DesktopCommand } from './main/agent/execution-contracts';
+import {
+  DesktopObservationSchema,
+  type DesktopCommand,
+  type DesktopObservation,
+} from './main/agent/execution-contracts';
 import {
   TaskExecutionCoordinator,
   type DesktopPresentation,
@@ -51,6 +55,7 @@ import {
   placeGuidanceCallout,
   placeGuidanceTargetMarker,
   placeVoiceIsland,
+  resolveDesktopCaptureBounds,
   shouldUseCompanionOverlay,
   type Point,
   type Rectangle,
@@ -302,9 +307,12 @@ const executionCoordinator = new TaskExecutionCoordinator({
     };
   },
   prepareObservation: (observation) =>
-    resizeObservationForModel(observation, {
-      create: (data) => nativeImage.createFromBuffer(data),
-    }),
+    resizeObservationForModel(
+      attachDesktopCaptureOrigin(observation),
+      {
+        create: (data) => nativeImage.createFromBuffer(data),
+      },
+    ),
   presentAction: presentCompanionAction,
 });
 const taskApplicationService = new TaskApplicationService(
@@ -461,6 +469,39 @@ function getCompanionOverlayBounds(): Rectangle {
   return getVirtualDisplayBounds(
     screen.getAllDisplays().map((display) => display.bounds),
   );
+}
+
+function attachDesktopCaptureOrigin(
+  observation: DesktopObservation,
+): DesktopObservation {
+  const coordinateSpace = observation.coordinateSpace;
+  if (
+    !coordinateSpace ||
+    (coordinateSpace.screenX !== undefined &&
+      coordinateSpace.screenY !== undefined)
+  ) {
+    return observation;
+  }
+
+  const displays = screen.getAllDisplays().map((display) => display.bounds);
+  const captureBounds = resolveDesktopCaptureBounds(
+    {
+      height: coordinateSpace.screenHeight,
+      width: coordinateSpace.screenWidth,
+    },
+    displays,
+    screen.getPrimaryDisplay().bounds,
+  );
+  if (!captureBounds) return observation;
+
+  return DesktopObservationSchema.parse({
+    ...observation,
+    coordinateSpace: {
+      ...coordinateSpace,
+      screenX: coordinateSpace.screenX ?? captureBounds.x,
+      screenY: coordinateSpace.screenY ?? captureBounds.y,
+    },
+  });
 }
 
 async function updateDesktopControlIndicator(

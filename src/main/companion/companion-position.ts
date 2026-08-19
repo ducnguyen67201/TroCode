@@ -234,6 +234,27 @@ export function getVirtualDisplayBounds(displays: readonly Rectangle[]): Rectang
   };
 }
 
+function sizeEqual(left: Size, right: Size): boolean {
+  return left.width === right.width && left.height === right.height;
+}
+
+export function resolveDesktopCaptureBounds(
+  captureSize: Size,
+  displays: readonly Rectangle[],
+  primaryDisplayBounds: Rectangle,
+): Rectangle | undefined {
+  const virtualBounds = getVirtualDisplayBounds(displays);
+  if (sizeEqual(captureSize, virtualBounds)) return virtualBounds;
+  if (sizeEqual(captureSize, primaryDisplayBounds)) {
+    return primaryDisplayBounds;
+  }
+
+  const matchingDisplays = displays.filter((display) =>
+    sizeEqual(captureSize, display),
+  );
+  return matchingDisplays.length === 1 ? matchingDisplays[0] : undefined;
+}
+
 export function placeCompanionInOverlay(
   cursor: Point,
   overlayBounds: Rectangle,
