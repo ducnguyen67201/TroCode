@@ -128,6 +128,8 @@ describe('CUA task sessions', () => {
           window: 'Gmail',
           screen_height: 1_117,
           screen_width: 1_728,
+          screen_x: -1_440,
+          screen_y: -100,
           screenshot_height: 2_234,
           screenshot_width: 3_456,
         }),
@@ -156,6 +158,8 @@ describe('CUA task sessions', () => {
       coordinateSpace: {
         screenHeight: 1_117,
         screenWidth: 1_728,
+        screenX: -1_440,
+        screenY: -100,
         screenshotHeight: 2_234,
         screenshotWidth: 3_456,
       },

@@ -9,6 +9,7 @@ import {
   placeGuidanceCallout,
   placeGuidanceTargetMarker,
   placeVoiceIsland,
+  resolveDesktopCaptureBounds,
   shouldUseCompanionOverlay,
 } from './companion-position';
 
@@ -126,6 +127,44 @@ describe('cursor companion placement', () => {
         DISPLAY,
       ]),
     ).toEqual({ height: 900, width: 2640, x: -1440, y: -100 });
+  });
+
+  it('resolves a full-desktop capture to virtual bounds with a negative origin', () => {
+    const secondaryDisplay = { height: 900, width: 1440, x: -1440, y: -100 };
+
+    expect(
+      resolveDesktopCaptureBounds(
+        { height: 900, width: 2640 },
+        [secondaryDisplay, DISPLAY],
+        DISPLAY,
+      ),
+    ).toEqual({ height: 900, width: 2640, x: -1440, y: -100 });
+  });
+
+  it('falls back to the matching primary or unique display capture bounds', () => {
+    const secondaryDisplay = { height: 900, width: 1440, x: -1440, y: -100 };
+
+    expect(
+      resolveDesktopCaptureBounds(
+        { height: DISPLAY.height, width: DISPLAY.width },
+        [secondaryDisplay, DISPLAY],
+        DISPLAY,
+      ),
+    ).toEqual(DISPLAY);
+    expect(
+      resolveDesktopCaptureBounds(
+        { height: secondaryDisplay.height, width: secondaryDisplay.width },
+        [secondaryDisplay, DISPLAY],
+        DISPLAY,
+      ),
+    ).toEqual(secondaryDisplay);
+    expect(
+      resolveDesktopCaptureBounds(
+        { height: 777, width: 999 },
+        [secondaryDisplay, DISPLAY],
+        DISPLAY,
+      ),
+    ).toBeUndefined();
   });
 
   it('places the companion in overlay-local coordinates', () => {
