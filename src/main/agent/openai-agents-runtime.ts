@@ -26,6 +26,10 @@ import type {
 } from './agent-runtime';
 import { BoundedAgentSession } from './bounded-agent-session';
 import {
+  requestUsesCurrentSurfaceContext,
+  requestsVisibleContextAction,
+} from './completion-policy';
+import {
   OpenAIClientFactory,
   type HostedOpenAIClient,
   type OpenAIClientFactoryOptions,
@@ -42,9 +46,10 @@ const SYSTEM_INSTRUCTIONS = [
   'You are TroCode, a general-purpose assistant that can answer directly or use the concrete tools supplied by the trusted host.',
   'Solve text work directly when no tool is needed. Use only supplied tools.',
   'Treat the original request as a checklist and satisfy every requested outcome.',
-  'If visible context cannot be resolved from conversation text, call observe_desktop.',
-  'When the original request includes a trusted host initial desktop observation, treat its observation ID and screenshot as the latest visible state. Do not call observe_desktop again before the first grounded action unless that state is degraded or the screen may have changed.',
-  'Call observe_desktop before coordinate-grounded actions and use only the latest observation ID.',
+  'If visible context cannot be resolved from conversation text, call observe_surface when it is supplied; otherwise call observe_desktop.',
+  'When the original request includes a trusted host initial computer observation, treat its observation ID, surface, elements, text, and optional screenshot as the latest visible state. Do not observe again before the first grounded action unless that state is degraded or may have changed.',
+  'Use control_surface with opaque refs from the latest semantic observation. Call observe_desktop before coordinate-grounded actions and use only the latest observation ID.',
+  'Use prepare_browser_access only when the current browser observation explicitly says deeper access requires approval and the task genuinely needs it.',
   'When entering a table into a visible spreadsheet, use one paste_table command with rectangular rows so each value lands in its own cell. Never simulate a multi-cell table with space-separated type_text.',
   'Declare paste_table as type_text. Reserve write_file, submit, send, and other consequential labels for actions that actually have those effects.',
   'Never use desktop tools to operate TroCode itself, including its approval cards, dialogs, or controls. Approval and denial are user-only decisions handled by the trusted host.',
@@ -130,6 +135,9 @@ function initialRunInput(input: AgentRuntimeStart): string | AgentInputItem[] {
       rule:
         'Measure x from left to right and y from top to bottom; never raw screenshot pixels.',
     },
+    route: observation.route,
+    surface: observation.surface,
+    elements: observation.elements,
     text: observation.text,
     structuredState: observation.structuredState,
   });
@@ -137,7 +145,7 @@ function initialRunInput(input: AgentRuntimeStart): string | AgentInputItem[] {
     { type: 'input_text', text: input.request },
     {
       type: 'input_text',
-      text: `Trusted host initial desktop observation: ${evidence}`,
+      text: `Trusted host initial computer observation: ${evidence}`,
     },
   ];
   if (observation.screenshot) {
@@ -192,6 +200,28 @@ function runtimeTools(
 
 function instructionsFor(input: AgentRuntimeStart): string {
   const instructions = [SYSTEM_INSTRUCTIONS];
+  if (
+    input.initialObservation &&
+    requestUsesCurrentSurfaceContext(input.request)
+  ) {
+    const delegatedAction = requestsVisibleContextAction(input.request);
+    instructions.push(
+      [
+        'Trusted host visible-context mode is active.',
+        'The initial computer observation is the screen content referenced by words such as this, that, or currently visible. Use it directly; never tell the user to upload a screenshot or provide the visible content as though no observation was supplied.',
+        ...(delegatedAction
+          ? [
+              'The user delegated visible work to you. Bias toward making progress: when a relevant routine, reversible action is available, call the supplied computer tool and continue instead of stopping at a description, instructions, or a clarification question.',
+              'A clear visible workflow may be followed through multiple routine reversible steps. Ask only when a material choice, missing authority, or genuine ambiguity remains after safe inspection.',
+              'If the request can be fully completed from the observed content without manipulating the interface, return the completed result directly.',
+            ]
+          : []),
+        'If the requested details are hidden behind a clearly routine, reversible disclosure control such as a tutorial Next button, expand control, tab, or scroll area, use the supplied computer tools to reveal and inspect them before asking the user.',
+        'Do not guess hidden requirements and do not activate submit, send, purchase, delete, or other consequential controls merely to explore.',
+        'Only after safe inspection still cannot locate the needed details, state what is actually visible and ask one specific question about where to find them.',
+      ].join('\n'),
+    );
+  }
   if (requestsGuidedWalkthrough(input.request)) {
     instructions.push(
       [
@@ -274,7 +304,9 @@ export class OpenAIAgentsRuntime implements AgentRuntime {
       ? createWorkspaceAgentTools({
           callbacks: input.callbacks,
           maxToolCalls: input.contract.limits.maxToolCalls,
+          request: input.request,
           root: input.contract.workspace.canonicalPath,
+          taskId: input.taskId,
           ...(input.signal ? { signal: input.signal } : {}),
         })
       : undefined;

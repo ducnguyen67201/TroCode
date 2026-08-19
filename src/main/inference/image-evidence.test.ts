@@ -10,6 +10,7 @@ describe('resizeObservationForModel', () => {
     const result = resizeObservationForModel(
       {
         capturedAt: '2026-08-17T00:00:00.000Z',
+        route: 'desktop_vision',
         coordinateSpace: {
           screenHeight: 1_000,
           screenWidth: 2_000,

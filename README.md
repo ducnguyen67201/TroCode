@@ -67,9 +67,21 @@ Implemented:
   and always-available Stop/Escape cancellation.
 - Unit tests and cross-platform CI definition.
 
+Current computer-context support and limits:
+
+- Compatible CUA builds use browser semantics or native-window accessibility
+  before screenshots, with opaque observation-local element references. Canvas
+  editors, ambiguous windows, unsupported apps, and incomplete accessibility
+  trees fall back to window or full-desktop vision.
+- Existing logged-in browser-profile attachment remains a separate exact
+  permission action. TroCode does not ship a browser or VS Code extension, so
+  unsaved editor buffers and diagnostics are available only when the browser or
+  operating-system accessibility surface exposes them.
+
 Not implemented yet:
 
-- Accessibility-first element targeting and production application allowlists.
+- Production application allowlists beyond current-window selection and the
+  explicit exclusion of TroCode's own windows.
 - Direct Gmail/Calendar connectors and app-specific independent verifiers.
 - Persistent screenshot-rich execution trajectory storage.
 - Direct media/music generation providers and release-credential provisioning.

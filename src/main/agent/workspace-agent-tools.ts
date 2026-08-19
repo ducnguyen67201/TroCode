@@ -24,6 +24,7 @@ import {
 
 import type { ProposedAction } from '../../shared/contracts';
 
+import { createActionPreview } from './action-preview-policy';
 import type { AgentRuntimeCallbacks } from './agent-runtime';
 
 const MAX_COMMANDS = 8;
@@ -63,8 +64,10 @@ export interface WorkspaceAgentToolBundle {
 export interface WorkspaceAgentToolOptions {
   callbacks: AgentRuntimeCallbacks;
   maxToolCalls: number;
+  request?: string;
   root: string;
   signal?: AbortSignal;
+  taskId?: string;
 }
 
 class WorkspaceToolBudget {
@@ -446,6 +449,14 @@ export function createWorkspaceAgentTools(
   const shell = new WorkspaceShell(options.root, options.signal, consumeToolCall);
   const editor = new WorkspaceEditor(options.root, consumeToolCall);
   const requestApproval = approvalRequester(options.callbacks);
+  const approvalPrompt = (action: ProposedAction): string =>
+    options.request
+      ? createActionPreview({
+          action,
+          request: options.request,
+          taskId: options.taskId ?? 'workspace',
+        }).message
+      : action.description;
 
   const tools: Array<ShellTool | ApplyPatchTool> = [
     shellTool({
@@ -473,7 +484,7 @@ export function createWorkspaceAgentTools(
           action,
           consequence:
             'This runs the displayed command exactly once in a local system shell. It starts in the selected workspace but can access other local files and the network.',
-          prompt: action.description,
+          prompt: approvalPrompt(action),
         });
         return approve
           ? { approve: true }
@@ -517,7 +528,7 @@ export function createWorkspaceAgentTools(
             operation.type === 'delete_file'
               ? 'This deletes the displayed file once.'
               : 'This applies the displayed patch once inside the selected workspace.',
-          prompt: action.description,
+          prompt: approvalPrompt(action),
         });
         return approve
           ? { approve: true }

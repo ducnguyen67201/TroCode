@@ -13,6 +13,7 @@ function observation(key: string, fingerprint: string): DesktopObservation {
     observationId: randomUUID(),
     taskId: randomUUID(),
     capturedAt: '2026-08-18T00:00:00.000Z',
+    route: 'desktop_vision',
     text: 'A worksheet is visible.',
     degraded: false,
     fingerprint,

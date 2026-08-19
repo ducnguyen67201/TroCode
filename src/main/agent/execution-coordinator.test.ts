@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { CuaStatus } from '../../shared/contracts';
 
+import type { ActionPreview } from './action-preview-policy';
 import type {
   AgentToolOutput,
   ModelToolSpec,
@@ -13,6 +14,8 @@ import type {
   DesktopActionOutcome,
   DesktopCommand,
   DesktopObservation,
+  SurfaceActionOutcome,
+  SurfaceCommand,
 } from './execution-contracts';
 import {
   billableUserTurnIds,
@@ -141,6 +144,7 @@ function observation(
     observationId,
     taskId,
     capturedAt: '2026-08-17T00:00:00.000Z',
+    route: 'desktop_vision',
     text,
     degraded: false,
     fingerprint,
@@ -174,6 +178,10 @@ function setup(
       signal: AbortSignal,
       presentation?: DesktopPresentation,
     ) => Promise<GuidancePresentationHandle | void>;
+    presentActionPreview?: (
+      preview: ActionPreview,
+      signal: AbortSignal,
+    ) => Promise<boolean>;
   } = {},
 ) {
   const runtime = new TaskRuntime({ toolRegistry: new RuntimeToolRegistry() });
@@ -199,6 +207,26 @@ function setup(
     >(async () => ({
       status: 'confirmed',
       summary: 'The desktop action was confirmed.',
+    })),
+    observeCurrentSurface: vi.fn(async () => undefined),
+    executeSurfaceCommand: vi.fn<
+      (
+        taskId: string,
+        observationId: string,
+        command: SurfaceCommand,
+        signal?: AbortSignal,
+      ) => Promise<SurfaceActionOutcome>
+    >(async () => ({
+      status: 'confirmed',
+      summary: 'The semantic action was confirmed.',
+    })),
+    prepareBrowserAccess: vi.fn(async () => ({
+      status: 'confirmed' as const,
+      summary: 'Browser access was prepared.',
+    })),
+    revalidateSurfaceAction: vi.fn(async (taskId: string) => ({
+      currentObservation: observation(taskId),
+      rebound: true,
     })),
     endTaskSession: vi.fn(async () => undefined),
     getStatus: vi.fn<() => Promise<CuaStatus>>(async () => ({
@@ -317,7 +345,7 @@ describe('TaskExecutionCoordinator', () => {
       { guidanceAutoAdvanceMs: 1, presentAction },
     );
     const ready = runtime.submit({
-      text: 'Teach me step by step how to do this exercise.',
+      text: 'Help me do this exercise myself.',
     });
     first.taskId = ready.taskId;
 
@@ -679,7 +707,10 @@ describe('TaskExecutionCoordinator', () => {
     });
   });
 
-  it('pre-observes an assignment when the request refers to visible context', async () => {
+  it.each([
+    'Help me work on this assignment.',
+    'Giúp tôi làm bài tập Eroki.',
+  ])('pre-observes an assignment for visible or implicit context: %s', async (request) => {
     const taskId = randomUUID();
     const visibleAssignment = observation(
       taskId,
@@ -692,7 +723,7 @@ describe('TaskExecutionCoordinator', () => {
       [assistant(solvedAnswer), assistant(solvedAnswer)],
       [visibleAssignment],
     );
-    const ready = runtime.submit({ text: 'Help me work on this assignment.' });
+    const ready = runtime.submit({ text: request });
     visibleAssignment.taskId = ready.taskId;
 
     coordinator.start({ taskId: ready.taskId });
@@ -700,6 +731,16 @@ describe('TaskExecutionCoordinator', () => {
 
     const snapshot = runtime.getSnapshot(ready.taskId);
     expect(agent.completionReviews).toEqual([ready.taskId]);
+    expect(agent.continuationInstructions[0]).toContain(
+      'Do not claim the user failed to supply the screen',
+    );
+    expect(agent.continuationInstructions[0]).toContain('tutorial Next');
+    expect(agent.continuationInstructions[0]).toContain(
+      'The user delegated visible work',
+    );
+    expect(agent.continuationInstructions[0]).toContain(
+      'routine, reversible visible action',
+    );
     expect(cua.observe).toHaveBeenCalledOnce();
     expect(snapshot.phase).toBe('completed');
     expect(snapshot.messages.at(-1)?.text).toBe(solvedAnswer);
@@ -820,6 +861,129 @@ describe('TaskExecutionCoordinator', () => {
       phase: 'completed',
       progress: { completed: 2 },
     });
+  });
+
+  it('shows the trusted action preview before dispatching a desktop action', async () => {
+    const sequence: string[] = [];
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId, 'a'.repeat(64));
+    const after = observation(randomUUID(), randomUUID(), 'b'.repeat(64));
+    const presentActionPreview = vi.fn(async (preview: ActionPreview) => {
+      sequence.push('preview');
+      expect(preview).toMatchObject({
+        classroom: false,
+        message: 'Next: Open the newest email.',
+        screenPoint: { x: 500, y: 125 },
+        screenRegion: { x: 468, y: 101, width: 64, height: 48 },
+        target: 'Newest inbox row',
+      });
+      return true;
+    });
+    const { coordinator, cua, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect Gmail.' }),
+        tool('call-click', 'control_desktop', {
+          observationId,
+          consequence: 'click_element',
+          description: 'Open the newest email.',
+          target: 'Newest inbox row',
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 250,
+            button: 'left',
+            count: 1,
+          },
+        }),
+        assistant('The newest email is open.'),
+        assistant('The newest email is open.'),
+      ],
+      [first, after],
+      { presentActionPreview },
+    );
+    const ready = runtime.submit({ text: 'Open my latest email.' });
+    first.taskId = ready.taskId;
+    after.taskId = ready.taskId;
+    cua.executeCommand.mockImplementationOnce(async () => {
+      sequence.push('dispatch');
+      return {
+        status: 'confirmed',
+        summary: 'The desktop action was confirmed.',
+      };
+    });
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(sequence).toEqual(['preview', 'dispatch']);
+    expect(presentActionPreview).toHaveBeenCalledOnce();
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+  });
+
+  it('does not dispatch when the required action preview is unavailable', async () => {
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId);
+    const { coordinator, cua, runtime } = setup(
+      [
+        tool('call-observe', 'observe_desktop', { reason: 'Inspect Gmail.' }),
+        tool('call-click', 'control_desktop', {
+          observationId,
+          consequence: 'click_element',
+          description: 'Open the newest email.',
+          target: 'Newest inbox row',
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 250,
+            button: 'left',
+            count: 1,
+          },
+        }),
+      ],
+      [first],
+      { presentActionPreview: async () => false },
+    );
+    const ready = runtime.submit({ text: 'Open my latest email.' });
+    first.taskId = ready.taskId;
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(cua.executeCommand).not.toHaveBeenCalled();
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'blocked',
+      lastEvent: { summary: expect.stringContaining('preview was unavailable') },
+    });
+  });
+
+  it('previews direct navigation before opening the external URL', async () => {
+    const sequence: string[] = [];
+    const presentActionPreview = vi.fn(async (preview: ActionPreview) => {
+      sequence.push('preview');
+      expect(preview.message).toBe('Next: Open the example site.');
+      return true;
+    });
+    const { coordinator, openExternal, runtime } = setup(
+      [
+        tool('call-open', 'open_url', {
+          url: 'https://example.com/',
+          reason: 'Open the example site.',
+        }),
+        assistant('The example site is open.'),
+      ],
+      [],
+      { presentActionPreview },
+    );
+    openExternal.mockImplementationOnce(async () => {
+      sequence.push('dispatch');
+    });
+    const ready = runtime.submit({ text: 'Open example.com.' });
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(sequence).toEqual(['preview', 'dispatch']);
+    expect(openExternal).toHaveBeenCalledWith('https://example.com/');
   });
 
   it('blocks promptly when post-action desktop verification stalls', async () => {

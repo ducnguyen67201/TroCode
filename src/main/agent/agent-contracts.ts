@@ -1,5 +1,7 @@
 import type { ProposedAction, RuntimeToolId } from '../../shared/contracts';
 
+import type { DesktopObservation } from './execution-contracts';
+
 export interface ModelToolSpec {
   type: 'function';
   name: string;
@@ -37,6 +39,8 @@ export interface AgentToolOutput {
 export interface ToolExecutionResult {
   status: 'confirmed' | 'unknown' | 'failed' | 'denied' | 'not_executed';
   summary: string;
+  data?: Record<string, unknown>;
+  observation?: DesktopObservation;
   imageDataUrl?: string;
 }
 
@@ -44,7 +48,13 @@ export interface ResolvedToolInvocation<TInput = unknown> {
   action?: ProposedAction;
   callId: string;
   input: TInput;
-  kind: 'observe' | 'desktop' | 'direct' | 'guidance' | 'interaction';
+  kind:
+    | 'observe'
+    | 'surface'
+    | 'desktop'
+    | 'direct'
+    | 'guidance'
+    | 'interaction';
   modelName: string;
   operation: string;
   toolId: RuntimeToolId;

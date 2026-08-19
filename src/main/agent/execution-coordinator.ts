@@ -1,4 +1,5 @@
 import type {
+  AppLanguage,
   CompanionGuidance,
   ProposedAction,
   TaskMessage,
@@ -7,6 +8,10 @@ import type {
 import type { CuaService } from '../cua/cua-service';
 
 import { createActionDigest } from './action-approval';
+import {
+  createActionPreview,
+  type ActionPreview,
+} from './action-preview-policy';
 import type {
   AgentToolCall,
   AgentToolOutput,
@@ -20,8 +25,14 @@ import {
 } from './agent-runtime-factory';
 import {
   decideCompletionReview,
+  requestUsesCurrentSurfaceContext,
+  requestsVisibleContextAction,
   shouldCaptureInitialDesktopObservation,
 } from './completion-policy';
+import type {
+  PrepareBrowserAccessToolInput,
+  SurfaceControlToolInput,
+} from './cua-semantic-agent-tools';
 import {
   mapScreenshotRegionToDesktop,
   mapScreenshotPointToDesktop,
@@ -55,6 +66,7 @@ import {
 } from './walkthrough-policy';
 
 interface ExecutionCoordinatorOptions {
+  actionPreviewLanguage?: () => AppLanguage | Promise<AppLanguage>;
   approvalObservationMatches?: (
     approved: DesktopObservation,
     current: DesktopObservation,
@@ -66,7 +78,11 @@ interface ExecutionCoordinatorOptions {
     CuaService,
     | 'startTaskSession'
     | 'observe'
+    | 'observeCurrentSurface'
     | 'executeCommand'
+    | 'executeSurfaceCommand'
+    | 'prepareBrowserAccess'
+    | 'revalidateSurfaceAction'
     | 'endTaskSession'
     | 'getStatus'
   >;
@@ -93,6 +109,10 @@ interface ExecutionCoordinatorOptions {
     signal: AbortSignal,
     presentation?: DesktopPresentation,
   ) => Promise<GuidancePresentationHandle | void>;
+  presentActionPreview?: (
+    preview: ActionPreview,
+    signal: AbortSignal,
+  ) => Promise<boolean>;
   runtime: TaskRuntime;
   toolDispatcher?: Pick<RuntimeToolDispatcher, 'dispatch'>;
   toolExecutionBroker?: ToolExecutionBroker;
@@ -119,6 +139,8 @@ export function billableUserTurnIds(
 }
 
 export interface DesktopPresentation {
+  kind?: 'action_preview' | 'guidance';
+  language?: 'en' | 'vi';
   message?: string;
   screenPoint?: { x: number; y: number };
   screenRegion?: { height: number; width: number; x: number; y: number };
@@ -293,6 +315,9 @@ function observationOutput(
     observationId: observation.observationId,
     capturedAt: observation.capturedAt,
     degraded: observation.degraded,
+    route: observation.route,
+    surface: observation.surface,
+    elements: observation.elements,
     text: observation.text,
     structuredState: observation.structuredState,
   });
@@ -320,26 +345,34 @@ function resultOutput(
   result: ToolExecutionResult,
   observation?: DesktopObservation,
 ): AgentToolOutput {
+  const resultObservation = observation ?? result.observation;
+  const rawData = result.data ? JSON.stringify(result.data) : undefined;
+  const safeData =
+    rawData && rawData.length <= 100_000 ? result.data : undefined;
   const description = JSON.stringify({
     status: result.status,
     summary: result.summary,
-    ...(observation
+    ...(safeData ? { data: safeData } : {}),
+    ...(resultObservation
       ? {
-          observationId: observation.observationId,
-          capturedAt: observation.capturedAt,
-          degraded: observation.degraded,
-          text: observation.text,
-          structuredState: observation.structuredState,
+          observationId: resultObservation.observationId,
+          capturedAt: resultObservation.capturedAt,
+          degraded: resultObservation.degraded,
+          route: resultObservation.route,
+          surface: resultObservation.surface,
+          elements: resultObservation.elements,
+          text: resultObservation.text,
+          structuredState: resultObservation.structuredState,
         }
       : {}),
   });
   const imageDataUrl =
     result.imageDataUrl ??
-    (observation?.screenshot
+    (resultObservation?.screenshot
       ? 'data:' +
-        observation.screenshot.mimeType +
+        resultObservation.screenshot.mimeType +
         ';base64,' +
-        observation.screenshot.dataBase64
+        resultObservation.screenshot.dataBase64
       : undefined);
   if (!imageDataUrl) return { callId, output: description };
   return {
@@ -413,7 +446,44 @@ function presentationFor(
   return null;
 }
 
+function actionTargetPresentationFor(
+  invocation: ResolvedToolInvocation,
+  observation: DesktopObservation | undefined,
+): Pick<DesktopPresentation, 'screenPoint' | 'screenRegion'> {
+  const presentation = presentationFor(invocation, observation)?.presentation;
+  if (presentation?.screenPoint) {
+    const screenPoint = presentation.screenPoint;
+    return {
+      screenPoint,
+      screenRegion: presentation.screenRegion ?? {
+        x: screenPoint.x - 32,
+        y: screenPoint.y - 24,
+        width: 64,
+        height: 48,
+      },
+    };
+  }
+  if (invocation.kind !== 'surface') return {};
+  const input = invocation.input as Partial<SurfaceControlToolInput>;
+  const element = observation?.elements?.find(
+    (candidate) => candidate.ref === input.publicRef,
+  );
+  if (!element?.bounds) return {};
+  const screenRegion = element.bounds;
+  return {
+    screenPoint: {
+      x: Math.round(screenRegion.x + screenRegion.width / 2),
+      y: Math.round(screenRegion.y + screenRegion.height / 2),
+    },
+    screenRegion,
+  };
+}
+
 export class TaskExecutionCoordinator {
+  private readonly actionPreviewLanguage: NonNullable<
+    ExecutionCoordinatorOptions['actionPreviewLanguage']
+  >;
+
   private readonly approvalObservationMatches: NonNullable<
     ExecutionCoordinatorOptions['approvalObservationMatches']
   >;
@@ -460,6 +530,10 @@ export class TaskExecutionCoordinator {
     ExecutionCoordinatorOptions['presentAction']
   >;
 
+  private readonly presentActionPreview: NonNullable<
+    ExecutionCoordinatorOptions['presentActionPreview']
+  >;
+
   private readonly runtime: TaskRuntime;
 
   private readonly toolDispatcher: Pick<RuntimeToolDispatcher, 'dispatch'>;
@@ -472,6 +546,7 @@ export class TaskExecutionCoordinator {
   >;
 
   constructor({
+    actionPreviewLanguage = () => 'en',
     agent,
     agentRuntimeFactory,
     approvalObservationMatches = (approved, current) =>
@@ -491,6 +566,7 @@ export class TaskExecutionCoordinator {
     prepareDesktop = async () => undefined,
     prepareObservation = (observation) => observation,
     presentAction = async () => undefined,
+    presentActionPreview = async () => true,
     runtime,
     toolDispatcher,
     toolExecutionBroker,
@@ -501,6 +577,7 @@ export class TaskExecutionCoordinator {
     }
     this.agentRuntimeFactory =
       agentRuntimeFactory ?? new StaticAgentRuntimeFactory(agent as AgentRuntime);
+    this.actionPreviewLanguage = actionPreviewLanguage;
     this.approvalObservationMatches = approvalObservationMatches;
     this.cua = cua;
     this.dismissPresentation = dismissPresentation;
@@ -514,6 +591,7 @@ export class TaskExecutionCoordinator {
     this.prepareDesktop = prepareDesktop;
     this.prepareObservation = prepareObservation;
     this.presentAction = presentAction;
+    this.presentActionPreview = presentActionPreview;
     this.runtime = runtime;
     this.toolRegistry = toolRegistry;
     this.toolExecutionBroker =
@@ -539,6 +617,29 @@ export class TaskExecutionCoordinator {
             return cua.executeCommand(
               context.taskId,
               input.command,
+              context.signal,
+            );
+          },
+        },
+        {
+          id: 'computer.control',
+          execute: (invocation, context) => {
+            const input = invocation.input as SurfaceControlToolInput;
+            return cua.executeSurfaceCommand(
+              context.taskId,
+              input.observationId,
+              input.command,
+              context.signal,
+            );
+          },
+        },
+        {
+          id: 'browser.prepare',
+          execute: (invocation, context) => {
+            const input = invocation.input as PrepareBrowserAccessToolInput;
+            return cua.prepareBrowserAccess(
+              context.taskId,
+              input.observationId,
               context.signal,
             );
           },
@@ -868,12 +969,22 @@ export class TaskExecutionCoordinator {
       !context.walkthrough.enabled &&
       shouldCaptureInitialDesktopObservation(snapshot.request)
     ) {
+      const semanticObservationAvailable = this.toolRegistry
+        .modelVisibleSpecs()
+        .some((tool) => tool.name === 'observe_surface');
       await executeTool({
-        arguments: JSON.stringify({
-          reason: 'Ground the first model response in the current desktop.',
-        }),
+        arguments: JSON.stringify(
+          semanticObservationAvailable
+            ? {
+                reason: 'Ground the first model response in the current surface.',
+                query: null,
+              }
+            : {
+                reason: 'Ground the first model response in the current desktop.',
+              },
+        ),
         callId: `host-initial-observation:${taskId}`,
-        name: 'observe_desktop',
+        name: semanticObservationAvailable ? 'observe_surface' : 'observe_desktop',
       });
     }
 
@@ -959,11 +1070,31 @@ export class TaskExecutionCoordinator {
           taskId,
           'Reviewing the candidate completion against the full request.',
         );
+        const visibleContextCheckpoint =
+          context.latestObservation &&
+          requestUsesCurrentSurfaceContext(snapshot.request)
+            ? [
+                'The request refers to the trusted visible computer observation. Do not claim the user failed to supply the screen, content, assignment, or screenshot.',
+                'If the needed details are behind a clearly routine, reversible control such as tutorial Next, expand, a tab, or scrolling, call the appropriate computer tool to reveal and inspect them before asking the user.',
+                'If safe inspection still cannot reveal the task, describe what you actually inspected and ask one specific question instead of requesting the same screen again.',
+              ]
+            : [];
+        const visibleActionCheckpoint =
+          context.latestObservation &&
+          requestsVisibleContextAction(snapshot.request)
+            ? [
+                'The user delegated visible work, so a description or generic instructions alone are not completion. If a relevant routine, reversible visible action can advance the task, call the appropriate computer tool now and continue while the path remains clear.',
+                'Do not ask for confirmation for routine reversible progress. The host will independently require approval for consequential actions.',
+                'If interface manipulation is unnecessary because the observed task can be completed directly, return the completed result instead.',
+              ]
+            : [];
         finalOutput = await agent.continueTask(
           taskId,
           [
             'Trusted host completion checkpoint: re-read the original request and tool-result history.',
             'Verify every requested outcome is grounded by available evidence.',
+            ...visibleContextCheckpoint,
+            ...visibleActionCheckpoint,
             'If anything remains, call the next tool. Otherwise return only the final user-facing answer.',
           ].join('\n'),
           signal,
@@ -992,6 +1123,7 @@ export class TaskExecutionCoordinator {
       case 'interaction':
         return this.handleInteraction(taskId, context, invocation);
       case 'desktop':
+      case 'surface':
       case 'direct':
       case 'guidance':
         return this.handleAction(taskId, context, invocation, decision);
@@ -1007,11 +1139,19 @@ export class TaskExecutionCoordinator {
       const observation = await this.captureObservation(
         taskId,
         context,
-        'Capturing the desktop requested by the model.',
+        invocation.toolId === 'computer.observe'
+          ? 'Reading the current application surface requested by the model.'
+          : 'Capturing the desktop requested by the model.',
+        invocation.toolId === 'computer.observe' ? 'surface' : 'desktop',
+        invocation.toolId === 'computer.observe'
+          ? (invocation.input as { query?: string }).query
+          : undefined,
       );
       this.runtime.recordToolResult(
         taskId,
-        'Captured a fresh desktop observation.',
+        observation.route === 'desktop_vision'
+          ? 'Captured a fresh desktop observation.'
+          : 'Read a fresh semantic surface observation.',
         toolIdentity(invocation),
       );
       this.runtime.resumePlanning(
@@ -1021,7 +1161,9 @@ export class TaskExecutionCoordinator {
       return observationOutput(
         invocation.callId,
         observation,
-        'Fresh desktop observation captured.',
+        observation.route === 'desktop_vision'
+          ? 'Fresh desktop observation captured.'
+          : 'Fresh current-surface context captured.',
       ).output;
     } catch (error) {
       if (isAbort(error, context.controller.signal)) throw error;
@@ -1313,6 +1455,7 @@ export class TaskExecutionCoordinator {
         taskId,
         context,
         'Checking that the approved desktop state is still current.',
+        'desktop',
       );
       this.runtime.beginVerification(
         taskId,
@@ -1352,6 +1495,44 @@ export class TaskExecutionCoordinator {
       this.runtime.resumePlanning(taskId, 'Approval state validation finished.');
     }
 
+    if (invocation.kind === 'surface') {
+      const surfaceInput = invocation.input as Partial<SurfaceControlToolInput> &
+        Partial<PrepareBrowserAccessToolInput>;
+      if (surfaceInput.observationId) {
+        const validation = await this.cua.revalidateSurfaceAction(
+          taskId,
+          surfaceInput.observationId,
+          surfaceInput.publicRef,
+          context.controller.signal,
+        );
+        if (validation.currentObservation.screenshot) {
+          context.imagesCaptured += 1;
+        }
+        context.latestObservation = validation.currentObservation;
+        if (!validation.rebound) {
+          this.runtime.discardApprovalGrant(
+            taskId,
+            'The semantic target changed after approval; the held action was not executed.',
+          );
+          context.pendingApproval = undefined;
+          this.runtime.block(
+            taskId,
+            'The target changed after approval, so the action was not executed.',
+            ['Review the current application and start a new request.'],
+          );
+          return resultOutput(
+            invocation.callId,
+            {
+              status: 'not_executed',
+              summary:
+                'The approved semantic target changed. Re-observe and propose a fresh action.',
+            },
+            validation.currentObservation,
+          ).output;
+        }
+      }
+    }
+
     this.runtime.consumeApprovalGrant({
       taskId,
       action: invocation.action,
@@ -1368,43 +1549,87 @@ export class TaskExecutionCoordinator {
   ): Promise<AgentToolOutput['output']> {
     const signal = context.controller.signal;
     let guidanceEntry: GuidanceHistoryEntry | undefined;
-    if (invocation.kind === 'desktop' || invocation.kind === 'guidance') {
+    if (invocation.kind === 'guidance') {
       await this.ensureDesktopSession(taskId, context);
       const presentation = presentationFor(invocation, context.latestObservation);
       if (presentation) {
-        const desktopPresentation =
-          invocation.kind === 'guidance'
-            ? {
-                ...presentation.presentation,
-                shortcuts: this.onGuidanceWaitStart(taskId),
-                taskId,
-              }
-            : presentation.presentation;
+        const desktopPresentation = {
+          ...presentation.presentation,
+          shortcuts: this.onGuidanceWaitStart(taskId),
+          taskId,
+        };
         const handle = await this.presentAction(
           presentation.command,
           signal,
           desktopPresentation,
         );
-        if (invocation.kind === 'guidance') {
-          if (!handle) {
-            const summary =
-              'The guidance overlay was unavailable, so this walkthrough step was not shown.';
-            this.onGuidanceWaitEnd(taskId);
-            this.dismissPresentation();
-            this.runtime.block(taskId, summary, [
-              'Open TroCode to review the result, then try the walkthrough again.',
-            ]);
-            return resultOutput(invocation.callId, {
-              status: 'not_executed',
-              summary,
-            }).output;
-          }
-          guidanceEntry = {
-            command: presentation.command,
-            presentation: desktopPresentation,
-          };
-          context.activeGuidance = handle;
+        if (!handle) {
+          const summary =
+            'The guidance overlay was unavailable, so this walkthrough step was not shown.';
+          this.onGuidanceWaitEnd(taskId);
+          this.dismissPresentation();
+          this.runtime.block(taskId, summary, [
+            'Open TroCode to review the result, then try the walkthrough again.',
+          ]);
+          return resultOutput(invocation.callId, {
+            status: 'not_executed',
+            summary,
+          }).output;
         }
+        guidanceEntry = {
+          command: presentation.command,
+          presentation: desktopPresentation,
+        };
+        context.activeGuidance = handle;
+      }
+    }
+
+    if (invocation.action && invocation.kind !== 'guidance') {
+      const snapshot = this.runtime.getSnapshot(taskId);
+      const presentation = actionTargetPresentationFor(
+        invocation,
+        context.latestObservation,
+      );
+      const preview = createActionPreview({
+        action: invocation.action,
+        ...(context.latestObservation
+          ? {
+              context: [
+                context.latestObservation.surface?.application,
+                context.latestObservation.surface?.title,
+                context.latestObservation.surface?.url,
+                context.latestObservation.text,
+              ]
+                .filter(Boolean)
+                .join(' '),
+            }
+          : {}),
+        preferredLanguage: await this.actionPreviewLanguage(),
+        request: snapshot.request,
+        ...(presentation.screenPoint
+          ? { screenPoint: presentation.screenPoint }
+          : {}),
+        ...(presentation.screenRegion
+          ? { screenRegion: presentation.screenRegion }
+          : {}),
+        taskId,
+      });
+      let presented = false;
+      try {
+        presented = await this.presentActionPreview(preview, signal);
+      } catch (error) {
+        if (isAbort(error, signal)) throw error;
+      }
+      if (!presented) {
+        const summary =
+          'The action preview was unavailable, so TroCode did not perform the action.';
+        this.runtime.block(taskId, summary, [
+          'Open TroCode and retry after the companion is available.',
+        ]);
+        return resultOutput(invocation.callId, {
+          status: 'not_executed',
+          summary,
+        }).output;
       }
     }
 
@@ -1415,7 +1640,7 @@ export class TaskExecutionCoordinator {
       context.latestObservation = undefined;
     }
 
-    if (invocation.kind === 'desktop') {
+    if (invocation.kind === 'desktop' || invocation.kind === 'surface') {
       try {
         await this.onDesktopControlChange(taskId, true);
       } catch {
@@ -1430,7 +1655,7 @@ export class TaskExecutionCoordinator {
       if (isAbort(error, signal)) throw error;
       result = { status: 'failed', summary: errorMessage(error) };
     } finally {
-      if (invocation.kind === 'desktop') {
+      if (invocation.kind === 'desktop' || invocation.kind === 'surface') {
         try {
           await this.onDesktopControlChange(taskId, false);
         } catch {
@@ -1441,12 +1666,17 @@ export class TaskExecutionCoordinator {
 
     let observation: DesktopObservation | undefined;
     let verificationUnavailable = false;
-    if (invocation.kind === 'desktop') {
+    if (invocation.kind === 'surface' && result.observation) {
+      observation = result.observation;
+      if (observation.screenshot) context.imagesCaptured += 1;
+      context.latestObservation = observation;
+    } else if (invocation.kind === 'desktop') {
       try {
         observation = await this.captureObservation(
           taskId,
           context,
           'Capturing the desktop after the dispatched action.',
+          'desktop',
         );
       } catch (error) {
         if (isAbort(error, signal)) throw error;
@@ -1544,6 +1774,8 @@ export class TaskExecutionCoordinator {
     taskId: string,
     context: ExecutionContext,
     summary: string,
+    mode: 'surface' | 'desktop' = 'desktop',
+    query?: string,
   ): Promise<DesktopObservation> {
     const snapshot = this.runtime.getSnapshot(taskId);
     if (!snapshot.goal) throw new Error('Task has no agent contract.');
@@ -1551,14 +1783,36 @@ export class TaskExecutionCoordinator {
       snapshot.goal.schemaVersion === 4 || snapshot.goal.schemaVersion === 5
         ? snapshot.goal.limits.maxImages
         : 20;
+    await this.ensureDesktopSession(taskId, context);
+    this.runtime.beginObservation(taskId, summary);
+    if (mode === 'surface') {
+      const semanticObservation = await runWithOperationTimeout(
+        (signal) =>
+          this.cua.observeCurrentSurface(
+            taskId,
+            {
+              allowScreenshot: context.imagesCaptured < maxImages,
+              ...(query ? { query } : {}),
+            },
+            signal,
+          ),
+        context.controller.signal,
+        this.observationTimeoutMs,
+        'Semantic surface observation',
+      );
+      if (semanticObservation) {
+        const observation = this.prepareObservation(semanticObservation);
+        if (observation.screenshot) context.imagesCaptured += 1;
+        context.latestObservation = observation;
+        return observation;
+      }
+    }
     if (context.imagesCaptured >= maxImages) {
       this.runtime.block(taskId, 'The task reached its image-evidence limit.', [
         'Provide a narrower request or start a new task.',
       ]);
       throw executionStoppedError();
     }
-    await this.ensureDesktopSession(taskId, context);
-    this.runtime.beginObservation(taskId, summary);
     const cleanup = await this.prepareDesktop();
     try {
       const observation = this.prepareObservation(

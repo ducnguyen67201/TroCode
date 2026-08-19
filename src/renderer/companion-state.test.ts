@@ -42,6 +42,16 @@ describe('cursor companion state', () => {
     ).toBe(false);
     expect(
       CompanionGuidanceSchema.parse({
+        kind: 'action_preview',
+        message: 'Next: Open the Events category. Why: This starts the script.',
+        side: 'right',
+      }),
+    ).toMatchObject({
+      kind: 'action_preview',
+      message: 'Next: Open the Events category. Why: This starts the script.',
+    });
+    expect(
+      CompanionGuidanceSchema.parse({
         kind: 'result',
         message: 'Your task is complete.',
         side: 'left',

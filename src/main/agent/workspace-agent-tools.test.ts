@@ -187,6 +187,40 @@ describe('createWorkspaceAgentTools', () => {
     }
   });
 
+  it('adds a learning reason to a classroom workspace approval', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'trocode-tools-'));
+    const requestApproval = vi.fn(async () => false);
+    const bundle = createWorkspaceAgentTools({
+      callbacks: callbacks(requestApproval),
+      maxToolCalls: 5,
+      request: 'Help me debug this programming assignment.',
+      root: await realpath(root),
+      taskId: 'classroom-task',
+    });
+    try {
+      const shell = bundle.tools.find((tool) => tool.type === 'shell');
+      await shell?.onApproval?.(
+        {} as never,
+        {
+          rawItem: {
+            type: 'shell_call',
+            callId: 'call-classroom',
+            action: { commands: ['npm test'] },
+          },
+        } as never,
+      );
+
+      expect(requestApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringMatching(/^Next: .* Why: /u),
+        }),
+      );
+    } finally {
+      await bundle.close();
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
   it('binds patch approval to the full diff and rejects an escaping move target', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'trocode-tools-'));
     const requestApproval = vi.fn(async () => true);

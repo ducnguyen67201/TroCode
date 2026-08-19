@@ -91,14 +91,17 @@ function recordFactory<T extends object>() {
 function fakeCuaModule() {
   return {
     ActionEffect: { Confirmed: 0, Refused: 4 },
-    CaptureScope: { Desktop: 2 },
+    CaptureScope: { Auto: 0, Desktop: 2 },
     ClickButton: { Left: 0, Right: 1, Middle: 2 },
     DesktopScope: { Desktop: 0 },
+    EffectiveScope: { Window: 0, Desktop: 1 },
+    EscalationReason: { NoWindowTarget: 3, Other: 4 },
     ScrollDirection: { Up: 0, Down: 1, Left: 2, Right: 3 },
     ClickInput: recordFactory(),
     ClipboardWriteInput: recordFactory(),
     DragInput: recordFactory(),
     EndSessionInput: recordFactory(),
+    EscalateSessionInput: recordFactory(),
     GetDesktopStateInput: recordFactory(),
     HotkeyInput: recordFactory(),
     MoveCursorInput: recordFactory(),
@@ -106,6 +109,28 @@ function fakeCuaModule() {
     ScrollInput: recordFactory(),
     StartSessionInput: recordFactory(),
     TypeTextInput: recordFactory(),
+  };
+}
+
+function startedWindowSession() {
+  return {
+    active: true,
+    revived: false,
+    state: {
+      captureScope: 0,
+      effectiveScope: 0,
+      desktopUnlocked: false,
+      session: 'test-session',
+    },
+  };
+}
+
+function escalatedDesktopSession() {
+  return {
+    captureScope: 0,
+    effectiveScope: 1,
+    desktopUnlocked: true,
+    session: 'test-session',
   };
 }
 
@@ -120,7 +145,8 @@ describe('CUA task sessions', () => {
     const taskId = randomUUID();
     const driver = {
       isAvailable: vi.fn(() => true),
-      startSession: vi.fn(async () => ({ active: true })),
+      startSession: vi.fn(async () => startedWindowSession()),
+      escalateSession: vi.fn(async () => escalatedDesktopSession()),
       getDesktopState: vi.fn(async () => ({
         text: 'Chrome — Gmail',
         images: [{ mimeType: 'image/png', dataBase64: 'aW1hZ2U=' }],
@@ -148,7 +174,15 @@ describe('CUA task sessions', () => {
     await service.endTaskSession(taskId);
 
     expect(driver.startSession).toHaveBeenCalledWith(
-      { session: taskId, captureScope: 2 },
+      { session: taskId, captureScope: 0 },
+      undefined,
+    );
+    expect(driver.escalateSession).toHaveBeenCalledWith(
+      {
+        session: taskId,
+        reason: 3,
+        detail: 'semantic_surface_unavailable',
+      },
       undefined,
     );
     expect(observation).toMatchObject({
@@ -172,12 +206,64 @@ describe('CUA task sessions', () => {
     );
   });
 
+  it('keeps an auto session window-scoped while semantic observation succeeds', async () => {
+    const taskId = randomUUID();
+    const observation = {
+      observationId: randomUUID(),
+      taskId,
+      capturedAt: '2026-08-19T08:00:00.000Z',
+      route: 'window_accessibility' as const,
+      surface: { kind: 'native_app' as const, application: 'Scratch' },
+      elements: [{ ref: 'e1', role: 'button', name: 'Green flag' }],
+      text: 'Scratch project with a green flag.',
+      degraded: false,
+      fingerprint: 'a'.repeat(64),
+    };
+    const driver = {
+      isAvailable: vi.fn(() => true),
+      startSession: vi.fn(async () => startedWindowSession()),
+      escalateSession: vi.fn(async () => escalatedDesktopSession()),
+    };
+    const surfaceRouter = {
+      observeCurrentSurface: vi.fn(async () => observation),
+    };
+    const service = new CuaService();
+    Reflect.set(service, 'cuaModule', fakeCuaModule());
+    Reflect.set(service, 'driver', driver);
+    Reflect.set(service, 'surfaceRouter', surfaceRouter);
+    Reflect.set(service, 'semanticCapabilityState', {
+      browserActions: true,
+      browserPrepare: true,
+      browserState: true,
+      capabilityVersion: '1',
+      verification: true,
+      windowActions: true,
+      windowState: true,
+    });
+
+    await service.startTaskSession(taskId);
+    await expect(service.observeCurrentSurface(taskId)).resolves.toEqual(
+      observation,
+    );
+
+    expect(driver.startSession).toHaveBeenCalledWith(
+      { session: taskId, captureScope: 0 },
+      undefined,
+    );
+    expect(surfaceRouter.observeCurrentSurface).toHaveBeenCalledOnce();
+    expect(driver.escalateSession).not.toHaveBeenCalled();
+  });
+
   it('moves the real pointer before dispatching a typed click', async () => {
     const taskId = randomUUID();
     const actionOrder: string[] = [];
     const driver = {
       isAvailable: vi.fn(() => true),
-      startSession: vi.fn(async () => ({ active: true })),
+      startSession: vi.fn(async () => startedWindowSession()),
+      escalateSession: vi.fn(async () => {
+        actionOrder.push('escalate');
+        return escalatedDesktopSession();
+      }),
       moveCursor: vi.fn(async () => {
         actionOrder.push('move');
         return {
@@ -235,14 +321,23 @@ describe('CUA task sessions', () => {
       },
       undefined,
     );
-    expect(actionOrder).toEqual(['move', 'click']);
+    expect(driver.escalateSession).toHaveBeenCalledWith(
+      {
+        session: taskId,
+        reason: 4,
+        detail: 'desktop_command_required',
+      },
+      undefined,
+    );
+    expect(actionOrder).toEqual(['escalate', 'move', 'click']);
   });
 
   it('dispatches a bounded drag through the typed CUA driver contract', async () => {
     const taskId = randomUUID();
     const driver = {
       isAvailable: vi.fn(() => true),
-      startSession: vi.fn(async () => ({ active: true })),
+      startSession: vi.fn(async () => startedWindowSession()),
+      escalateSession: vi.fn(async () => escalatedDesktopSession()),
       drag: vi.fn(async () => ({
         text: 'Dragged.',
         images: [],
@@ -296,7 +391,8 @@ describe('CUA task sessions', () => {
     });
     const driver = {
       isAvailable: vi.fn(() => true),
-      startSession: vi.fn(async () => ({ active: true })),
+      startSession: vi.fn(async () => startedWindowSession()),
+      escalateSession: vi.fn(async () => escalatedDesktopSession()),
       clipboardWrite: vi.fn(async () => {
         actionOrder.push('clipboard');
         return confirmed('Table copied.');
@@ -343,7 +439,8 @@ describe('CUA task sessions', () => {
     const taskId = randomUUID();
     const driver = {
       isAvailable: vi.fn(() => true),
-      startSession: vi.fn(async () => ({ active: true })),
+      startSession: vi.fn(async () => startedWindowSession()),
+      escalateSession: vi.fn(async () => escalatedDesktopSession()),
       moveCursor: vi.fn(async () => ({
         text: 'Moved the real desktop pointer to (495, 357).',
         images: [],
@@ -377,7 +474,8 @@ describe('CUA task sessions', () => {
     const taskId = randomUUID();
     const driver = {
       isAvailable: vi.fn(() => true),
-      startSession: vi.fn(async () => ({ active: true })),
+      startSession: vi.fn(async () => startedWindowSession()),
+      escalateSession: vi.fn(async () => escalatedDesktopSession()),
       moveCursor: vi.fn(async () => ({
         text: 'Moved the real desktop pointer to (7, 13.5).',
         images: [],
@@ -419,7 +517,8 @@ describe('CUA task sessions', () => {
     const taskId = randomUUID();
     const driver = {
       isAvailable: vi.fn(() => true),
-      startSession: vi.fn(async () => ({ active: true })),
+      startSession: vi.fn(async () => startedWindowSession()),
+      escalateSession: vi.fn(async () => escalatedDesktopSession()),
       moveCursor: vi.fn(async () => ({
         text: 'Desktop pointer movement was refused.',
         images: [],
@@ -463,7 +562,8 @@ describe('CUA task sessions', () => {
     };
     const driver = {
       isAvailable: vi.fn(() => true),
-      startSession: vi.fn(async () => ({ active: true })),
+      startSession: vi.fn(async () => startedWindowSession()),
+      escalateSession: vi.fn(async () => escalatedDesktopSession()),
       moveCursor: vi.fn(async () => {
         actionOrder.push('move');
         return confirmedResult;

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DesktopCommandSchema,
   DesktopObservationSchema,
+  SurfaceCommandSchema,
   mapNormalizedRegionToScreenshot,
   mapNormalizedPointToScreenshot,
   mapScreenshotRegionToDesktop,
@@ -101,6 +102,31 @@ describe('desktop execution contracts', () => {
         screenshot: { mimeType: 'image/png', dataBase64: 'aGVsbG8=' },
       }),
     ).toMatchObject({ text: 'A browser is visible.' });
+  });
+
+  it('parses screenshot-free semantic observations and surface commands', () => {
+    const observation = DesktopObservationSchema.parse({
+      observationId: randomUUID(),
+      taskId: randomUUID(),
+      capturedAt: '2026-08-19T00:00:00.000Z',
+      text: 'Run button and one editor are visible.',
+      route: 'window_accessibility',
+      surface: {
+        kind: 'code_editor',
+        application: 'Code',
+      },
+      elements: [{ ref: 'e1', role: 'button', name: 'Run' }],
+      degraded: false,
+      fingerprint: 'b'.repeat(64),
+    });
+    expect(observation.screenshot).toBeUndefined();
+    expect(observation.elements?.[0]?.ref).toBe('e1');
+    expect(
+      SurfaceCommandSchema.parse({
+        kind: 'click_element',
+        ref: 'e1',
+      }),
+    ).toMatchObject({ kind: 'click_element', button: 'left', count: 1 });
   });
 
   it('rejects insecure navigation and oversized coordinates', () => {

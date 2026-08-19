@@ -68,4 +68,20 @@ describe('ActionRiskClassifier', () => {
       }),
     ).toMatchObject({ level: 'routine' });
   });
+
+  it('applies the same monotonic risk rules to semantic computer control', () => {
+    expect(
+      classifyActionRisk(createTaskContract('Work with the current editor.'), {
+        action: 'click_element',
+        toolId: 'computer.control',
+        operation: 'click_element',
+        description: 'Click the visible control.',
+        parameters: {
+          application: 'Chrome',
+          ariaLabel: 'Submit solution',
+          declaredConsequence: 'click_element',
+        },
+      }),
+    ).toMatchObject({ level: 'sensitive' });
+  });
 });

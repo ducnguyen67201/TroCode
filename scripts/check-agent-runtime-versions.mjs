@@ -3,6 +3,7 @@ import path from 'node:path';
 
 const EXPECTED = Object.freeze({
   '@openai/agents': '0.16.1',
+  '@trycua/cua-driver': '0.19.3',
   openai: '7.5.0',
   zod: '4.4.3',
 });

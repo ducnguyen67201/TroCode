@@ -7,20 +7,31 @@ screenshot.
 ## Lazy flow
 
 ```text
-model calls observe_desktop
-  -> host checks/starts task-scoped CUA
+model calls observe_surface (when the compatible CUA capability is available)
+  -> host checks/starts task-scoped CUA in Auto scope
   -> if permission is absent, pause for user-clicked Connect computer
-  -> capture fresh observation and return screenshot to the same call ID
-  -> model may call control_desktop using that observation ID
-  -> host parses normalized coordinates and records the declared consequence
+  -> identify one current non-TroCode browser/native window
+  -> try browser semantics, window accessibility, window screenshot, then desktop screenshot
+  -> return bounded facts and opaque e1/e2 references to the same call ID
+  -> model may call control_surface using the latest observation ID and reference
+  -> host resolves the private token and records the declared consequence
   -> host derives action identity and approval sensitivity from the command
   -> policy allows, denies, or asks for exact approval
   -> execute one atomic command
-  -> always capture a fresh observation
-  -> return outcome + screenshot to the same model session
+  -> refresh the exact same bound surface and replace all old references
+  -> return outcome + fresh evidence to the same model session
+
+If semantic capability is absent or the target is ambiguous, the existing
+observe_desktop/control_desktop coordinate flow is used unchanged. Auto is a
+hardcoded session invariant, not a user, environment, or model option. The host
+keeps the session window-scoped while semantic reading works and explicitly
+escalates it to desktop scope only when desktop vision or coordinate control is
+required.
 ```
 
-The model never receives CUA, Electron IPC, or driver handles. Its normalized
+The model never receives CUA, Electron IPC, driver handles, process/window/tab
+IDs, browser targets, accessibility tokens, or snapshots. Semantic references
+are observation-local aliases held only in Electron main. Its normalized legacy
 coordinates are converted once into screenshot pixels; companion presentation
 coordinates are mapped separately into desktop points.
 
@@ -39,6 +50,14 @@ screen again. Any fingerprint change invalidates the grant, returns
 `not_executed` plus the new screenshot, and requires a newly grounded proposal.
 Opening a browser URL also invalidates the cached observation before any later
 coordinate action can be resolved.
+
+For semantic approval, the host refreshes the same application/window/tab and
+requires one unique match for the approved element's bounded semantic identity.
+It then rebinds the new private token to the held public reference. A surface
+change, missing target, or duplicate match discards the grant and executes
+nothing. Existing-profile browser attachment is a separate one-use
+`system_permission` approval; the authorization host denies every callback
+unless its session, operation, and resource digest match the armed grant.
 
 The model's declared consequence is retained for exact approval copy, but it
 cannot downgrade policy. Balanced autonomy allows routine grounded clicks,
@@ -59,8 +78,10 @@ action can be dispatched from that session.
 
 ## Cancellation and cleanup
 
-One serialized run is active per task. Cancellation aborts model sampling,
+One serialized run is active per task. A newer observation invalidates prior
+semantic references. Cancellation aborts model sampling,
 permission work, observation, or adapter work. CUA is ended only if it was
 started, the in-memory model session is erased, and resolved call IDs are
-released. A cancellation received after an atomic external effect does not undo
-or automatically retry that effect.
+released. Reference bindings and armed authorization are cleared on task end,
+disconnect, and shutdown. A cancellation received after an atomic external
+effect does not undo or automatically retry that effect.

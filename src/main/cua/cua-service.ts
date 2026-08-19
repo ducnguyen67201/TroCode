@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 
 import type * as CuaDriverSdk from '@trycua/cua-driver';
@@ -11,11 +12,27 @@ import {
   DesktopActionOutcomeSchema,
   DesktopCoordinateSpaceSchema,
   DesktopObservationSchema,
+  type SurfaceActionOutcome,
+  type SurfaceCommand,
   type DesktopActionOutcome,
   type DesktopCommand,
   type DesktopObservation,
   tableRowsToTsv,
 } from '../agent/execution-contracts';
+
+import { CuaAuthorizationBroker } from './cua-authorization-broker';
+import {
+  CuaDriverMetadataSchema,
+  CuaSemanticCapabilitiesSchema,
+  deriveCuaSemanticCapabilities,
+  type CuaOpenToolResult,
+  type CuaSemanticCapabilities,
+} from './cua-semantic-contracts';
+import {
+  CuaSurfaceRouter,
+  type ObserveSurfaceOptions,
+  type SurfaceRevalidationResult,
+} from './cua-surface-router';
 
 const DesktopStateMetadataSchema = z.object({
   screen_height: z.number().int().positive(),
@@ -30,6 +47,39 @@ type CuaModule = typeof CuaDriverSdk;
 type Driver = ReturnType<CuaModule['CuaDriver']['create']> & {
   uniffiDestroy(): void;
 };
+
+const NO_SEMANTIC_CAPABILITIES = CuaSemanticCapabilitiesSchema.parse({
+  browserActions: false,
+  browserPrepare: false,
+  browserState: false,
+  capabilityVersion: 'unavailable',
+  verification: false,
+  windowActions: false,
+  windowState: false,
+});
+
+export interface CuaPerformanceMetric {
+  durationMs: number;
+  fallbackReason:
+    | 'none'
+    | 'semantic_unavailable'
+    | 'semantic_error'
+    | 'screenshot_required';
+  operation: string;
+  route:
+    | 'browser_semantic'
+    | 'window_accessibility'
+    | 'window_vision'
+    | 'desktop_vision';
+  screenshotAttached: boolean;
+  status: 'confirmed' | 'error' | 'not_executed' | 'unknown';
+}
+
+export interface CuaServiceOptions {
+  now?: () => number;
+  onPerformanceMetric?: (metric: CuaPerformanceMetric) => void;
+  performanceNow?: () => number;
+}
 
 const CUA_PACKAGE_ENTRY_PARTS = [
   'cua-runtime',
@@ -166,7 +216,39 @@ export class CuaService {
   private driver: Driver | null = null;
   private driverVersion: string | undefined;
 
+  private semanticCapabilityState: CuaSemanticCapabilities =
+    NO_SEMANTIC_CAPABILITIES;
+
+  private surfaceRouter: CuaSurfaceRouter | null = null;
+
+  private authorizationBroker: CuaAuthorizationBroker | null = null;
+
   private readonly activeSessions = new Set<string>();
+
+  private readonly desktopScopeSessions = new Set<string>();
+
+  private readonly now: () => number;
+
+  private readonly onPerformanceMetric?: (metric: CuaPerformanceMetric) => void;
+
+  private readonly performanceNow: () => number;
+
+  constructor(options: CuaServiceOptions = {}) {
+    this.now = options.now ?? Date.now;
+    this.onPerformanceMetric = options.onPerformanceMetric;
+    this.performanceNow = options.performanceNow ?? performance.now.bind(performance);
+  }
+
+  semanticCapabilities(): CuaSemanticCapabilities {
+    return this.semanticCapabilityState;
+  }
+
+  supportsSemanticFastPath(): boolean {
+    return (
+      this.semanticCapabilityState.windowState &&
+      this.semanticCapabilityState.windowActions
+    );
+  }
 
   async getStatus(): Promise<CuaStatus> {
     const platform = getSupportedPlatform();
@@ -255,12 +337,15 @@ export class CuaService {
     const started = await driver.startSession(
       cua.StartSessionInput.new({
         session: taskId,
-        captureScope: cua.CaptureScope.Desktop,
+        captureScope: cua.CaptureScope.Auto,
       }),
       signal ? { signal } : undefined,
     );
     if (!started.active) {
       throw new Error(`CUA did not activate task session ${taskId}.`);
+    }
+    if (started.state.effectiveScope === cua.EffectiveScope.Desktop) {
+      this.desktopScopeSessions.add(taskId);
     }
     console.info(
       '[cua] session.started',
@@ -279,8 +364,15 @@ export class CuaService {
     taskId: string,
     signal?: AbortSignal,
   ): Promise<DesktopObservation> {
+    const startedAt = this.performanceNow();
     this.assertActiveSession(taskId);
     const cua = await this.loadModule();
+    await this.ensureDesktopScope(
+      taskId,
+      cua.EscalationReason.NoWindowTarget,
+      'semantic_surface_unavailable',
+      signal,
+    );
     const result = await this.requireDriver().getDesktopState(
       cua.GetDesktopStateInput.new({ session: taskId }),
       signal ? { signal } : undefined,
@@ -312,7 +404,7 @@ export class CuaService {
           'utf8',
         );
 
-    return DesktopObservationSchema.parse({
+    const observation = DesktopObservationSchema.parse({
       observationId: randomUUID(),
       taskId,
       capturedAt: new Date().toISOString(),
@@ -329,9 +421,86 @@ export class CuaService {
           }
         : {}),
       ...(coordinateSpace ? { coordinateSpace } : {}),
+      route: 'desktop_vision',
+      surface: { kind: 'desktop', application: 'Desktop' },
       degraded: result.degraded,
       fingerprint: createHash('sha256').update(fingerprintSource).digest('hex'),
     });
+    this.recordPerformance({
+      durationMs: Math.max(0, this.performanceNow() - startedAt),
+      fallbackReason: 'semantic_unavailable',
+      operation: 'observe',
+      route: 'desktop_vision',
+      screenshotAttached: Boolean(observation.screenshot),
+      status: 'confirmed',
+    });
+    return observation;
+  }
+
+  async observeCurrentSurface(
+    taskId: string,
+    options: ObserveSurfaceOptions = {},
+    signal?: AbortSignal,
+  ): Promise<DesktopObservation | undefined> {
+    this.assertActiveSession(taskId);
+    if (this.supportsSemanticFastPath() && this.surfaceRouter) {
+      const observation = await this.surfaceRouter.observeCurrentSurface(
+        taskId,
+        options,
+        signal,
+      );
+      if (observation) return observation;
+    }
+    return undefined;
+  }
+
+  async executeSurfaceCommand(
+    taskId: string,
+    observationId: string,
+    command: SurfaceCommand,
+    signal?: AbortSignal,
+  ): Promise<SurfaceActionOutcome> {
+    this.assertActiveSession(taskId);
+    if (!this.supportsSemanticFastPath() || !this.surfaceRouter) {
+      return {
+        status: 'not_executed',
+        summary: 'The semantic computer-use path is unavailable. Observe the desktop.',
+      };
+    }
+    return this.surfaceRouter.execute(taskId, observationId, command, signal);
+  }
+
+  async revalidateSurfaceAction(
+    taskId: string,
+    observationId: string,
+    publicRef: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<SurfaceRevalidationResult> {
+    this.assertActiveSession(taskId);
+    if (!this.surfaceRouter) {
+      throw new Error('The semantic computer-use path is unavailable.');
+    }
+    return this.surfaceRouter.revalidate(
+      taskId,
+      observationId,
+      publicRef,
+      signal,
+    );
+  }
+
+  async prepareBrowserAccess(
+    taskId: string,
+    observationId: string,
+    signal?: AbortSignal,
+  ): Promise<SurfaceActionOutcome> {
+    this.assertActiveSession(taskId);
+    if (!this.surfaceRouter) {
+      return {
+        status: 'not_executed',
+        summary: 'The semantic browser path is unavailable.',
+      };
+    }
+    return this.surfaceRouter.prepareBrowserAccess(taskId, observationId, signal);
   }
 
   async executeCommand(
@@ -339,8 +508,15 @@ export class CuaService {
     command: DesktopCommand,
     signal?: AbortSignal,
   ): Promise<DesktopActionOutcome> {
+    const startedAt = this.performanceNow();
     this.assertActiveSession(taskId);
     const cua = await this.loadModule();
+    await this.ensureDesktopScope(
+      taskId,
+      cua.EscalationReason.Other,
+      'desktop_command_required',
+      signal,
+    );
     const driver = this.requireDriver();
     const asyncOptions = signal ? { signal } : undefined;
     const movePointer = async (x: number, y: number) => {
@@ -499,44 +675,56 @@ export class CuaService {
     })();
     logCuaResult('command.result', taskId, command, result);
 
+    let outcome: DesktopActionOutcome;
     if (result.isError) {
-      return DesktopActionOutcomeSchema.parse({
+      outcome = DesktopActionOutcomeSchema.parse({
         status: 'failed',
         summary:
           result.text || result.errorCode || 'The desktop action was refused.',
       });
-    }
-
-    const effect = result.action?.effect;
-    if (effect === cua.ActionEffect.Confirmed) {
-      return DesktopActionOutcomeSchema.parse({
+    } else if (result.action?.effect === cua.ActionEffect.Confirmed) {
+      outcome = DesktopActionOutcomeSchema.parse({
         status: 'confirmed',
         summary: result.text || 'CUA confirmed the desktop action.',
       });
-    }
-    if (effect === cua.ActionEffect.Refused) {
-      return DesktopActionOutcomeSchema.parse({
+    } else if (result.action?.effect === cua.ActionEffect.Refused) {
+      outcome = DesktopActionOutcomeSchema.parse({
         status: 'failed',
         summary: result.text || 'CUA refused the desktop action.',
       });
-    }
-    if (command.kind === 'point') {
-      return DesktopActionOutcomeSchema.parse({
+    } else if (command.kind === 'point') {
+      outcome = DesktopActionOutcomeSchema.parse({
         status: 'confirmed',
         summary:
           result.text || 'CUA delivered the non-clicking pointer guidance.',
       });
+    } else {
+      outcome = DesktopActionOutcomeSchema.parse({
+        status: 'unknown',
+        summary:
+          result.text ||
+          'CUA could not confirm whether the desktop action changed the screen.',
+      });
     }
-
-    return DesktopActionOutcomeSchema.parse({
-      status: 'unknown',
-      summary:
-        result.text ||
-        'CUA could not confirm whether the desktop action changed the screen.',
+    this.recordPerformance({
+      durationMs: Math.max(0, this.performanceNow() - startedAt),
+      fallbackReason: 'semantic_unavailable',
+      operation: command.kind,
+      route: 'desktop_vision',
+      screenshotAttached: false,
+      status:
+        outcome.status === 'failed'
+          ? 'error'
+          : outcome.status === 'unknown'
+            ? 'unknown'
+            : 'confirmed',
     });
+    return outcome;
   }
 
   async endTaskSession(taskId: string, signal?: AbortSignal): Promise<void> {
+    this.surfaceRouter?.clearTask(taskId);
+    this.desktopScopeSessions.delete(taskId);
     if (!this.activeSessions.delete(taskId)) return;
     const cua = await this.loadModule();
     await this.requireDriver().endSession(
@@ -575,9 +763,66 @@ export class CuaService {
       }
 
       if (!this.driver) {
-        this.driver = cua.CuaDriver.create(undefined) as Driver;
-        const metadata = await this.driver.metadata();
+        const authorizationBroker = new CuaAuthorizationBroker({
+          allow: cua.DriverAuthorizationAction.Allow,
+          cancel: cua.DriverAuthorizationAction.Cancel,
+          deny: cua.DriverAuthorizationAction.Deny,
+        });
+        const configuredOptions = cua.ConfiguredDriverOptions.new({
+          claudeCodeCompatibility: false,
+          authorization: cua.RuntimeAuthorizationOptions.new({
+            allowedModes: [cua.SessionPermissionMode.Standard],
+            compatibilityMode: cua.SessionPermissionMode.Standard,
+            unrestrictedAcknowledged: false,
+            maxSessionTtlSeconds: 7_200n,
+            maxIdleTtlSeconds: 900n,
+          }),
+        });
+        this.driver = cua.CuaDriver.createConfiguredWithHostIntegrations(
+          configuredOptions,
+          authorizationBroker,
+          {
+            onActivity: (event) => {
+              console.info(
+                '[cua] activity',
+                JSON.stringify({
+                  kind: event.kind,
+                  toolName: event.toolName,
+                  riskClass: event.riskClass,
+                  refusalCode: event.refusalCode ?? null,
+                }),
+              );
+            },
+          },
+        ) as Driver;
+        const metadata = CuaDriverMetadataSchema.parse(
+          await this.driver.metadata(),
+        );
+        if (
+          metadata.driverVersion !== '0.19.3' ||
+          metadata.contractVersion !== '0.6.0' ||
+          metadata.toolsListSchemaVersion !== '1'
+        ) {
+          throw new Error(
+            'CUA runtime does not match TroCode supported contract 0.19.3/0.6.0.',
+          );
+        }
         this.driverVersion = metadata.driverVersion;
+        try {
+          this.semanticCapabilityState = deriveCuaSemanticCapabilities(
+            JSON.parse(await this.driver.listToolsJson()),
+          );
+        } catch {
+          this.semanticCapabilityState = NO_SEMANTIC_CAPABILITIES;
+        }
+        this.authorizationBroker = authorizationBroker;
+        this.surfaceRouter = new CuaSurfaceRouter({
+          authorizationBroker,
+          callTool: (name, argumentsValue, signal) =>
+            this.callOpenTool(name, argumentsValue, signal),
+          capabilities: () => this.semanticCapabilityState,
+          now: this.now,
+        });
       }
 
       return this.getStatus();
@@ -599,7 +844,13 @@ export class CuaService {
     const driver = this.driver;
     this.driver = null;
     this.driverVersion = undefined;
+    this.semanticCapabilityState = NO_SEMANTIC_CAPABILITIES;
     this.activeSessions.clear();
+    this.desktopScopeSessions.clear();
+    this.surfaceRouter?.clear();
+    this.surfaceRouter = null;
+    this.authorizationBroker?.clear();
+    this.authorizationBroker = null;
 
     if (!driver) return;
 
@@ -615,6 +866,89 @@ export class CuaService {
       throw new Error('Connect the computer-use runtime before starting a task.');
     }
     return this.driver;
+  }
+
+  private async ensureDesktopScope(
+    taskId: string,
+    reason: CuaDriverSdk.EscalationReason,
+    detail: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (this.desktopScopeSessions.has(taskId)) return;
+    const cua = await this.loadModule();
+    const state = await this.requireDriver().escalateSession(
+      cua.EscalateSessionInput.new({ session: taskId, reason, detail }),
+      signal ? { signal } : undefined,
+    );
+    if (
+      state.effectiveScope !== cua.EffectiveScope.Desktop ||
+      !state.desktopUnlocked
+    ) {
+      throw new Error('CUA did not escalate the task to desktop scope.');
+    }
+    this.desktopScopeSessions.add(taskId);
+    console.info(
+      '[cua] session.escalated',
+      JSON.stringify({
+        taskId,
+        captureScope: state.captureScope,
+        effectiveScope: state.effectiveScope,
+        desktopUnlocked: state.desktopUnlocked,
+        reason,
+      }),
+    );
+  }
+
+  private async callOpenTool(
+    name: string,
+    argumentsValue: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<CuaOpenToolResult> {
+    const startedAt = this.performanceNow();
+    try {
+      const result = await this.requireDriver().callTool(
+        name,
+        JSON.stringify(argumentsValue),
+        signal ? { signal } : undefined,
+      );
+      this.recordPerformance({
+        durationMs: Math.max(0, this.performanceNow() - startedAt),
+        fallbackReason:
+          name === 'get_window_state' && result.images.length > 0
+            ? 'screenshot_required'
+            : 'none',
+        operation: name,
+        route: this.routeForTool(name, result.images.length > 0),
+        screenshotAttached: result.images.length > 0,
+        status: result.isError ? 'error' : 'confirmed',
+      });
+      return result;
+    } catch (error) {
+      this.recordPerformance({
+        durationMs: Math.max(0, this.performanceNow() - startedAt),
+        fallbackReason: 'semantic_error',
+        operation: name,
+        route: this.routeForTool(name, false),
+        screenshotAttached: false,
+        status: 'error',
+      });
+      throw error;
+    }
+  }
+
+  private recordPerformance(metric: CuaPerformanceMetric): void {
+    console.info('[cua] performance', JSON.stringify(metric));
+    this.onPerformanceMetric?.(metric);
+  }
+
+  private routeForTool(
+    name: string,
+    screenshotAttached: boolean,
+  ): CuaPerformanceMetric['route'] {
+    if (name.startsWith('browser_') || name === 'get_browser_state') {
+      return 'browser_semantic';
+    }
+    return screenshotAttached ? 'window_vision' : 'window_accessibility';
   }
 
   private assertActiveSession(taskId: string): void {

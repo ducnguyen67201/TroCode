@@ -19,6 +19,7 @@ function normalizeRequest(request: string): string {
     .normalize('NFKD')
     .replace(/\p{M}/gu, '')
     .toLocaleLowerCase()
+    .replace(/đ/gu, 'd')
     .replace(/[\u2010-\u2015]/gu, '-');
 }
 
@@ -54,9 +55,28 @@ export function requestsGuidedWalkthrough(request: string): boolean {
         normalized,
       )) ||
     englishSpatialTour;
-  if (englishIntent) return true;
+  const englishSelfDirected =
+    /\b(?:myself|ourselves)\b/u.test(normalized) &&
+    /\b(?:do|complete|finish|solve|try|work\s+on)\b/u.test(normalized) &&
+    (/\b(?:help|guide|show|teach)\s+(?:me|us)\b/u.test(normalized) ||
+      /\blet\s+(?:me|us)\b/u.test(normalized) ||
+      /\b(?:i|we)\s+(?:need|want|would\s+like)\s+to\b/u.test(normalized));
+  if (englishIntent || englishSelfDirected) return true;
 
   const learner = '(?:toi|minh|em|chung toi|chung minh)';
+  const vietnameseSelfDirected =
+    new RegExp(
+      `\\b(?:giup|chi|day|huong\\s+dan)\\s+(?:cho\\s+)?${learner}\\s+tu\\s+(?:lam|giai|hoan\\s+thanh|thuc\\s+hien)\\b`,
+      'u',
+    ).test(normalized) ||
+    new RegExp(
+      `\\b(?:de|cho)\\s+${learner}\\s+tu\\s+(?:lam|giai|hoan\\s+thanh|thuc\\s+hien)\\b`,
+      'u',
+    ).test(normalized) ||
+    new RegExp(
+      `\\b${learner}\\s+muon\\s+tu\\s+(?:lam|giai|hoan\\s+thanh|thuc\\s+hien)\\b`,
+      'u',
+    ).test(normalized);
   const vietnameseSpatialTour =
     /^\s*(?:vui\s+long\s+)?(?:chi\s+vao|khoanh\s+vung|lam\s+noi\s+bat)\b/u.test(
       normalized,
@@ -72,6 +92,7 @@ export function requestsGuidedWalkthrough(request: string): boolean {
     (new RegExp(`\\b(?:chi|day)\\s+(?:cho\\s+)?${learner}\\b`, 'u').test(
       normalized,
     ) && /\b(?:tung\s+buoc|cach\s+lam)\b/u.test(normalized)) ||
+    vietnameseSelfDirected ||
     vietnameseSpatialTour
   );
 }

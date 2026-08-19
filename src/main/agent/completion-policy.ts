@@ -17,6 +17,16 @@ const VISUAL_ARTIFACT_PATTERN =
   /\b(?:document|email|form|google\s+sheets?|message|presentation|sheets?|slides?|spreadsheet|table|workbook|worksheet)\b|(?:^|\s)(?:bảng tính|biểu mẫu|tin nhắn|tài liệu|trang tính|trình chiếu)(?:$|[\s.,!?;:])/u;
 const NAVIGATION_FIRST_PATTERN =
   /^\s*(?:go\s+to|launch|navigate\s+to|open)\b|^\s*(?:mở|truy cập)(?:$|\s)/u;
+const VISIBLE_ACTION_DELEGATION_PATTERN =
+  /\b(?:add|build|change|complete|continue|create|do|edit|enter|fill|finish|fix|handle|help|make|select|solve|start|type|update|use|work\s+on)\b|(?:^|\s)(?:bắt đầu|chọn|điền|định dạng|giải|giúp|hoàn thành|làm|nhập|sửa|tạo|tiếp tục|thực hiện|xử lý)(?:$|[\s.,!?;:])/u;
+const VISIBLE_READING_OR_EXPLANATION_PATTERN =
+  /^\s*what(?:\s+is|'s)\b|\b(?:describe|explain|read|summarize)\b|(?:^|\s)(?:đọc|giải thích|mô tả|tóm tắt)(?:$|[\s.,!?;:])/u;
+const IMPLICIT_VISIBLE_ASSISTANCE_PATTERN =
+  /\b(?:complete|continue|do|finish|fix|help|solve|work\s+on)\b|(?:^|\s)(?:giải|giúp|hoàn thành|làm|sửa|tiếp tục|xử lý)(?:$|[\s.,!?;:])/u;
+const IMPLICIT_VISIBLE_WORK_PATTERN =
+  /\b(?:assignment|code|exercise|homework|problem|project|task|worksheet)\b|(?:^|\s)(?:bài|bài tập|câu hỏi|đề|đề bài|dự án|mã)(?:$|[\s.,!?;:])/u;
+const SHORT_CONTINUATION_PATTERN =
+  /^\s*(?:continue|go ahead|okay|right|yes|đúng rồi|làm tiếp|tiếp tục|ừ|vâng)(?:$|[\s,.;:!?])/u;
 
 function normalizeRequest(request: string): string {
   return request.normalize('NFKC').toLocaleLowerCase();
@@ -33,6 +43,34 @@ export function requestReferencesVisibleContext(request: string): boolean {
   );
 }
 
+/** Includes short, underspecified delegation that users naturally expect to be
+ * grounded in the application already on screen. */
+export function requestUsesCurrentSurfaceContext(request: string): boolean {
+  if (requestReferencesVisibleContext(request)) return true;
+  const normalized = normalizeRequest(request);
+  if (
+    normalized.length <= 160 &&
+    SHORT_CONTINUATION_PATTERN.test(normalized)
+  ) {
+    return true;
+  }
+  return (
+    IMPLICIT_VISIBLE_ASSISTANCE_PATTERN.test(normalized) &&
+    IMPLICIT_VISIBLE_WORK_PATTERN.test(normalized)
+  );
+}
+
+/** True when the user delegates progress on visible work instead of only asking
+ * to read or explain it. The host still applies normal action policy/approval. */
+export function requestsVisibleContextAction(request: string): boolean {
+  const normalized = normalizeRequest(request);
+  return (
+    requestUsesCurrentSurfaceContext(request) &&
+    !VISIBLE_READING_OR_EXPLANATION_PATTERN.test(normalized) &&
+    VISIBLE_ACTION_DELEGATION_PATTERN.test(normalized)
+  );
+}
+
 /**
  * Decides locally whether the first model sample needs current desktop evidence.
  * Keep this selective: direct answers and navigation-first work can choose a tool
@@ -41,7 +79,7 @@ export function requestReferencesVisibleContext(request: string): boolean {
 export function shouldCaptureInitialDesktopObservation(
   request: string,
 ): boolean {
-  if (requestReferencesVisibleContext(request)) return true;
+  if (requestUsesCurrentSurfaceContext(request)) return true;
   const normalized = normalizeRequest(request);
   if (NAVIGATION_FIRST_PATTERN.test(normalized)) return false;
   return (
@@ -63,7 +101,7 @@ export function decideCompletionReview(input: {
   request: string;
   resolvedToolCalls: number;
 }): CompletionReviewDecision {
-  if (requestReferencesVisibleContext(input.request)) {
+  if (requestUsesCurrentSurfaceContext(input.request)) {
     return { reason: 'visible_context', required: true };
   }
   const normalized = normalizeRequest(input.request);

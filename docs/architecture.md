@@ -69,9 +69,15 @@ return the final answer. This is a completion invariant, not a capability router
 it grants no tool, scope, or approval.
 
 Text-only work never creates a CUA session or a synthetic screenshot. Desktop
-observation starts CUA lazily. Coordinate actions must reference the latest
-observation ID, are mapped from normalized image coordinates, execute once, and
-return a fresh screenshot before another model sample.
+observation starts CUA lazily. When the pinned driver advertises the supported
+semantic contract, main first binds the current non-TroCode browser or native
+window and returns bounded accessibility/browser facts with task-scoped opaque
+element references. The same registry, policy, approval broker, dispatcher, and
+verification lifecycle handle semantic and coordinate actions. Ambiguous,
+unsupported, or visually rendered surfaces fall back from browser semantics to
+window accessibility, window vision, then full-desktop vision. Coordinate
+actions still reference the latest observation ID, execute once, and return a
+fresh observation before another model sample.
 
 Grounded guidance is deliberately paced. Main presents one visible target,
 issues a bounded narration handle, dispatches and records the guidance tool
@@ -104,6 +110,9 @@ Provider credentials, response bodies, and raw errors never cross that bridge.
 - Exact approvals bind target, payload, command, coordinates, observation ID,
   and observation fingerprint. A changed screen invalidates a held desktop
   approval.
+- Semantic references map to private driver tokens only in Electron main. A new
+  observation replaces the mapping, and approval revalidation requires the
+  same surface plus one uniquely matching element before rebinding.
 - Unknown action outcomes are returned with a fresh observation. An unknown
   approved consequence blocks and cleans up the task; safe unknowns retain an
   exact digest that cannot be dispatched again.

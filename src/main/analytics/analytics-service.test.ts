@@ -113,6 +113,40 @@ describe('FileAnalyticsIdentityStore', () => {
 });
 
 describe('AnalyticsService', () => {
+  it('captures only allowlisted content-free CUA performance fields', async () => {
+    const client = new RecordingAnalyticsClient();
+    const service = createService(
+      client,
+      new MemoryIdentityStore({
+        anonymousId: '28824655-b32f-41d3-ab2d-2f7df31363ef',
+      }),
+    );
+
+    await service.trackCuaPerformance({
+      durationMs: 24.6,
+      fallbackReason: 'none',
+      operation: 'get_window_state',
+      route: 'window_accessibility',
+      screenshotAttached: false,
+      status: 'confirmed',
+    });
+
+    expect(client.events.at(-1)).toEqual(
+      expect.objectContaining({
+        event: 'cua operation completed',
+        properties: expect.objectContaining({
+          duration_ms: 25,
+          fallback_reason: 'none',
+          operation: 'get_window_state',
+          route: 'window_accessibility',
+          screenshot_attached: false,
+          status: 'confirmed',
+        }),
+      }),
+    );
+    expect(JSON.stringify(client.events)).not.toContain('windowTitle');
+  });
+
   it('captures an application open without creating an anonymous person profile', async () => {
     const client = new RecordingAnalyticsClient();
     const service = createService(

@@ -20,6 +20,10 @@ const ROUTINE_DESKTOP_ACTIONS: ReadonlySet<ProposedAction['action']> = new Set([
 const SENSITIVE_CUE_PATTERN =
   /\b(?:approve|authorization|buy|checkout|credential|delete|install|log\s*in|password|pay|permission|purchase|send|submit|upload)\b/iu;
 
+function isComputerControl(action: ProposedAction): boolean {
+  return action.toolId === 'desktop.control' || action.toolId === 'computer.control';
+}
+
 function declaredConsequence(action: ProposedAction): string | undefined {
   const value = action.parameters?.declaredConsequence;
   return typeof value === 'string' ? value : undefined;
@@ -30,7 +34,9 @@ function riskText(action: ProposedAction): string {
     .filter(([name]) =>
       [
         'ariaLabel',
+        'application',
         'controlLabel',
+        'controlValue',
         'href',
         'role',
         'visibleText',
@@ -65,7 +71,7 @@ export function classifyActionRisk(
   }
 
   if (
-    action.toolId === 'desktop.control' &&
+    isComputerControl(action) &&
     ROUTINE_DESKTOP_ACTIONS.has(action.action) &&
     (goal.schemaVersion !== 5 || goal.autonomyMode === 'strict')
   ) {
@@ -76,7 +82,7 @@ export function classifyActionRisk(
   }
 
   if (
-    action.toolId === 'desktop.control' &&
+    isComputerControl(action) &&
     (action.parameters?.targetOpaque === 'true' ||
       action.parameters?.observationStale === 'true' ||
       SENSITIVE_CUE_PATTERN.test(riskText(action)))

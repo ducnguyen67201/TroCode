@@ -50,6 +50,14 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
   checks, task budgets, fresh observations, and exact approvals. A task does
   not gain authority from a keyword, domain label, or model-produced capability
   string.
+- Semantic browser/accessibility data is parsed and bounded in Electron main.
+  The model receives only normalized surface facts and observation-local opaque
+  references; raw process/window/tab IDs, driver tokens, snapshots, and the
+  generic CUA call surface never cross into preload or renderer.
+- Browser-profile attachment is never implicit. A one-use authorization broker
+  defaults to deny and grants only an already-approved exact session,
+  operation, and resource digest. Semantic approval revalidation can only
+  rebind a uniquely matching target on the unchanged surface.
 
 Workspace mode uses the authenticated TroCode backend; it never asks the user
 for a Codex login, ChatGPT subscription, or OpenAI API key. The trusted
@@ -89,6 +97,10 @@ explicit allowlist of application lifecycle, task phase, contract/runtime/profil
 labels, first-delta latency, tool ID/operation, and count fields. Voice events
 contain only character count. Partial text, command text, arguments, paths, and
 approval descriptions are excluded.
+CUA performance events contain only the fixed route, operation name, bounded
+duration, screenshot-present boolean, fallback enum, and effect status. They do
+not include titles, URLs, code, visible text, typed text, filesystem paths,
+identifiers, resources, screenshots, or raw arguments.
 Anonymous activity uses a random local installation ID without a person
 profile. Email and display name are sent only after successful Google
 authentication.

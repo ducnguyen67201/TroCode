@@ -23,6 +23,27 @@ const AnalyticsUserSchema = z.object({
   loginMethod: z.enum(['email', 'oauth', 'sso', 'unknown']).default('unknown'),
 });
 
+const CuaPerformanceMetricSchema = z
+  .object({
+    durationMs: z.number().finite().nonnegative(),
+    fallbackReason: z.enum([
+      'none',
+      'semantic_unavailable',
+      'semantic_error',
+      'screenshot_required',
+    ]),
+    operation: z.string().trim().min(1).max(100),
+    route: z.enum([
+      'browser_semantic',
+      'window_accessibility',
+      'window_vision',
+      'desktop_vision',
+    ]),
+    screenshotAttached: z.boolean(),
+    status: z.enum(['confirmed', 'error', 'not_executed', 'unknown']),
+  })
+  .strict();
+
 const TRACKED_PHASES: ReadonlySet<TaskSnapshot['phase']> = new Set([
   'clarifying',
   'ready',
@@ -272,6 +293,23 @@ export class AnalyticsService {
       return;
     }
     this.captureFirstDelta(activity.data.taskId, deltaAt);
+  }
+
+  async trackCuaPerformance(input: unknown): Promise<void> {
+    if (!this.client) return;
+    const metric = CuaPerformanceMetricSchema.safeParse(input);
+    if (!metric.success) return;
+    await this.start();
+    if (!this.identity) return;
+
+    this.capture('cua operation completed', {
+      duration_ms: Math.round(metric.data.durationMs),
+      fallback_reason: metric.data.fallbackReason,
+      operation: metric.data.operation,
+      route: metric.data.route,
+      screenshot_attached: metric.data.screenshotAttached,
+      status: metric.data.status,
+    });
   }
 
   private captureFirstDelta(taskId: string, deltaAt: number): void {

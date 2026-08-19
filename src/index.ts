@@ -14,9 +14,11 @@ import {
 } from 'electron';
 import path from 'node:path';
 
+import type { ActionPreview } from './main/agent/action-preview-policy';
 import { AgentActivityService } from './main/agent/agent-activity-service';
 import { AgentRuntimeFactory } from './main/agent/agent-runtime-factory';
 import { approvalObservationMatches } from './main/agent/approval-observation';
+import { createCuaSemanticToolDefinitions } from './main/agent/cua-semantic-agent-tools';
 import {
   DesktopObservationSchema,
   type DesktopCommand,
@@ -33,6 +35,10 @@ import {
 } from './main/agent/global-guidance-shortcuts';
 import { registerGlobalTaskCancelShortcut } from './main/agent/global-task-cancel-shortcut';
 import { OpenAIAgentsRuntime } from './main/agent/openai-agents-runtime';
+import {
+  defaultRuntimeToolDefinitions,
+  RuntimeToolRegistry,
+} from './main/agent/runtime-tool-registry';
 import { TaskRuntime } from './main/agent/task-runtime';
 import { requestsGuidedWalkthrough } from './main/agent/walkthrough-policy';
 import { FileAnalyticsIdentityStore } from './main/analytics/analytics-identity-store';
@@ -168,6 +174,7 @@ const hasSingleInstanceLock = initializeSingleInstance(app, () => {
 });
 
 const taskRuntime = new TaskRuntime();
+let analyticsService: AnalyticsService | null = null;
 const agentActivityService = new AgentActivityService();
 const companionResponseController = new CompanionResponseController();
 const databaseUrl = process.env.DATABASE_URL?.trim() ?? '';
@@ -204,7 +211,19 @@ const membershipService = new MembershipService({
   }),
   store: new EncryptedMembershipActivationStore(),
 });
-const cuaService = new CuaService();
+const cuaService = new CuaService({
+  onPerformanceMetric: (metric) => {
+    void analyticsService?.trackCuaPerformance(metric);
+  },
+});
+const runtimeToolRegistry = new RuntimeToolRegistry([
+  ...defaultRuntimeToolDefinitions(),
+  ...createCuaSemanticToolDefinitions({
+    browserPrepareAvailable: () =>
+      cuaService.semanticCapabilities().browserPrepare,
+    semanticAvailable: () => cuaService.supportsSemanticFastPath(),
+  }),
+]);
 const appPreferencesService = new AppPreferencesService(
   new FileAppPreferencesStore(
     path.join(app.getPath('userData'), 'app-preferences.json'),
@@ -249,6 +268,17 @@ const agentRuntimeFactory = new AgentRuntimeFactory({
   openaiAgents: agentRuntime,
 });
 const executionCoordinator = new TaskExecutionCoordinator({
+  actionPreviewLanguage: async () => {
+    try {
+      const preferences = await appPreferencesService.get();
+      return preferences.primaryLanguage === 'vi' ||
+        preferences.appLanguage === 'vi'
+        ? 'vi'
+        : 'en';
+    } catch {
+      return 'en';
+    }
+  },
   agentRuntimeFactory,
   approvalObservationMatches: (approved, current, command) =>
     approvalObservationMatches(approved, current, command, (data) => {
@@ -267,6 +297,7 @@ const executionCoordinator = new TaskExecutionCoordinator({
   onGuidanceWaitEnd: deactivateGlobalGuidanceShortcuts,
   onGuidanceWaitStart: activateGlobalGuidanceShortcuts,
   runtime: taskRuntime,
+  toolRegistry: runtimeToolRegistry,
   openExternal: async (url) => shell.openExternal(url, { activate: true }),
   prepareDesktop: async () => {
     const window = mainWindow;
@@ -314,6 +345,7 @@ const executionCoordinator = new TaskExecutionCoordinator({
       },
     ),
   presentAction: presentCompanionAction,
+  presentActionPreview: presentCompanionActionPreview,
 });
 const taskApplicationService = new TaskApplicationService(
   taskRuntime,
@@ -375,7 +407,6 @@ let desktopControlIndicatorWindow: BrowserWindow | null = null;
 let guidanceWindow: BrowserWindow | null = null;
 let guidanceTargetWindow: BrowserWindow | null = null;
 let voiceIslandWindow: BrowserWindow | null = null;
-let analyticsService: AnalyticsService | null = null;
 let companionState: CompanionState = 'idle';
 let activeCompanionVoiceActivity: CompanionVoiceActivity | null = null;
 const activeDesktopControlTasks = new Set<string>();
@@ -921,6 +952,8 @@ function showGuidanceCallout(
     COMPANION_SIZE,
   );
   activeCompanionGuidance = CompanionGuidanceSchema.parse({
+    kind: presentation.kind ?? 'guidance',
+    ...(presentation.language ? { language: presentation.language } : {}),
     message: presentation.message,
     playback: guidancePlaybackPaused ? 'paused' : 'playing',
     ...(presentation.shortcuts ? { shortcuts: presentation.shortcuts } : {}),
@@ -976,8 +1009,10 @@ async function presentCompanionAction(
   signal: AbortSignal,
   presentation?: DesktopPresentation,
 ): Promise<GuidancePresentationHandle | void> {
-  const isGuidancePoint = command.kind === 'point';
-  if (isGuidancePoint) hideGuidanceTargetMarker();
+  const isPointPresentation = command.kind === 'point';
+  const isGuidancePoint =
+    isPointPresentation && presentation?.kind !== 'action_preview';
+  if (isPointPresentation) hideGuidanceTargetMarker();
   const previousCompanionState = companionState;
   const to = companionTargetForCommand(command, presentation);
   if (!to || !companionWindow || companionWindow.isDestroyed()) {
@@ -1005,7 +1040,7 @@ async function presentCompanionAction(
   if (pointEqual(from, to)) {
     companionPinnedPosition = to;
     positionCompanion();
-    if (isGuidancePoint) {
+    if (isPointPresentation) {
       return showGuidancePresentation(command, presentation, signal);
     }
     return;
@@ -1027,9 +1062,55 @@ async function presentCompanionAction(
     positionCompanion();
   });
 
-  if (isGuidancePoint) {
+  if (isPointPresentation) {
     return showGuidancePresentation(command, presentation, signal);
   }
+}
+
+async function presentCompanionActionPreview(
+  preview: ActionPreview,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const point = preview.screenPoint ?? screen.getCursorScreenPoint();
+  const handle = await presentCompanionAction(
+    { kind: 'point', x: point.x, y: point.y },
+    signal,
+    {
+      kind: 'action_preview',
+      language: preview.language,
+      message: preview.message,
+      screenPoint: point,
+      screenRegion: preview.screenRegion ?? {
+        x: point.x - 32,
+        y: point.y - 24,
+        width: 64,
+        height: 48,
+      },
+      taskId: preview.taskId,
+      ...(preview.target ? { target: preview.target } : {}),
+    },
+  );
+  if (!handle) return false;
+  await waitForActionPreviewDwell(preview.dwellMs, signal);
+  return true;
+}
+
+function waitForActionPreviewDwell(
+  dwellMs: number,
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted) throw createAbortError();
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', handleAbort);
+      resolve();
+    }, dwellMs);
+    const handleAbort = (): void => {
+      clearTimeout(timer);
+      reject(createAbortError());
+    };
+    signal.addEventListener('abort', handleAbort, { once: true });
+  });
 }
 
 function showGuidancePresentation(

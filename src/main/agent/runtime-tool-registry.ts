@@ -667,7 +667,7 @@ function defineTool<T>(
   return definition as RuntimeToolDefinition;
 }
 
-function defaultTools(): RuntimeToolDefinition[] {
+export function defaultRuntimeToolDefinitions(): RuntimeToolDefinition[] {
   const observeSchema = z.object({
     reason: z.string().trim().min(1).max(500),
   });
@@ -741,7 +741,7 @@ function defaultTools(): RuntimeToolDefinition[] {
       id: 'desktop.control',
       modelName: 'control_desktop',
       description:
-        'Execute one atomic action grounded in the latest desktop observation. All visual coordinates use normalized 0-1000 image space, never raw screenshot pixels. Use paste_table for rectangular spreadsheet data so rows and columns fill separate cells.',
+        'Execute one atomic action grounded in the latest desktop observation. All visual coordinates use normalized 0-1000 image space, never raw screenshot pixels. Set description to one concise user-facing sentence stating what will happen; the host shows it immediately before execution. Use paste_table for rectangular spreadsheet data so rows and columns fill separate cells.',
       operations: [
         'click',
         'drag',
@@ -799,7 +799,8 @@ function defaultTools(): RuntimeToolDefinition[] {
     defineTool({
       id: 'browser.navigate',
       modelName: 'open_url',
-      description: 'Open one public HTTPS URL in the user browser.',
+      description:
+        'Open one public HTTPS URL in the user browser. Set reason to one concise user-facing sentence stating what will open; the host shows it immediately before execution.',
       operations: ['open_url'],
       parameters: objectSchema(
         {
@@ -972,7 +973,9 @@ export class RuntimeToolRegistry {
 
   private readonly resolvedCallIds = new Set<string>();
 
-  constructor(definitions: readonly RuntimeToolDefinition[] = defaultTools()) {
+  constructor(
+    definitions: readonly RuntimeToolDefinition[] = defaultRuntimeToolDefinitions(),
+  ) {
     for (const definition of definitions) {
       const id = RuntimeToolIdSchema.parse(definition.id);
       if (this.toolsById.has(id)) {

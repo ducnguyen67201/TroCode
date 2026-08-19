@@ -200,7 +200,7 @@ describe('OpenAIAgentsRuntime', () => {
     await runtime.end(taskId);
   });
 
-  it('attaches a trusted initial desktop observation to the first model request', async () => {
+  it('attaches a trusted initial computer observation to the first model request', async () => {
     const fetchImpl = vi.fn<typeof fetch>(hostedRejectedProviderResponse);
     const runtime = new OpenAIAgentsRuntime({
       accessTokenProvider: vi.fn(async () => 'hosted-access-token'),
@@ -212,6 +212,7 @@ describe('OpenAIAgentsRuntime', () => {
       observationId: randomUUID(),
       taskId,
       capturedAt: '2026-08-18T00:00:00.000Z',
+      route: 'desktop_vision' as const,
       text: 'A blank Google Sheet is open.',
       degraded: false,
       fingerprint: 'a'.repeat(64),
@@ -242,11 +243,14 @@ describe('OpenAIAgentsRuntime', () => {
     );
 
     const [, request] = modelRequest(fetchImpl) ?? [];
-    const body = JSON.parse(String(request?.body)) as { input: unknown };
+    const body = JSON.parse(String(request?.body)) as {
+      input: unknown;
+      instructions: string;
+    };
     const serializedInput = JSON.stringify(body.input);
     expect(serializedInput).toContain('Create a money tracker in this sheet.');
     expect(serializedInput).toContain(
-      'Trusted host initial desktop observation',
+      'Trusted host initial computer observation',
     );
     expect(serializedInput).toContain(
       'normalized 0-1000 image coordinates',
@@ -256,6 +260,21 @@ describe('OpenAIAgentsRuntime', () => {
     );
     expect(serializedInput).toContain(initialObservation.observationId);
     expect(serializedInput).toContain('data:image/png;base64,aGVsbG8=');
+    expect(body.instructions).toContain(
+      'Trusted host visible-context mode is active.',
+    );
+    expect(body.instructions).toContain(
+      'never tell the user to upload a screenshot',
+    );
+    expect(body.instructions).toContain(
+      'tutorial Next button',
+    );
+    expect(body.instructions).toContain(
+      'The user delegated visible work to you.',
+    );
+    expect(body.instructions).toContain(
+      'Bias toward making progress',
+    );
     await runtime.end(taskId);
   });
 

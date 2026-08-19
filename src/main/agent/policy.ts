@@ -27,9 +27,17 @@ const INTERNAL_APPROVAL_LABEL_PATTERN =
 const TROCODE_PATTERN = /\btro\s*code\b/iu;
 
 function isTroCodeApprovalUiAction(action: ProposedAction): boolean {
-  if (action.toolId !== 'desktop.control') return false;
+  if (action.toolId !== 'desktop.control' && action.toolId !== 'computer.control') {
+    return false;
+  }
 
-  const actionText = [action.description, action.target]
+  const actionText = [
+    action.description,
+    action.target,
+    typeof action.parameters?.application === 'string'
+      ? action.parameters.application
+      : undefined,
+  ]
     .filter((value): value is string => Boolean(value))
     .join(' ');
   const referencesApprovalControl = APPROVAL_PATTERN.test(actionText);

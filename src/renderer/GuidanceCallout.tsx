@@ -71,6 +71,32 @@ function friendlyError(error: unknown): string {
     : 'TroCode could not send that response. Try again.';
 }
 
+export function guidanceStatusLabel(
+  guidance: CompanionGuidance,
+  audioStatus: GuidanceAudioStatus | null,
+): string {
+  const vietnamese = guidance.language === 'vi';
+  if (guidance.playback === 'paused' || audioStatus === 'paused') {
+    return vietnamese ? 'Tạm dừng' : 'Paused';
+  }
+  if (audioStatus === 'loading') {
+    return vietnamese ? 'Đang tải giọng nói' : 'Loading voice';
+  }
+  if (audioStatus === 'fallback') {
+    return vietnamese ? 'Giọng nói dự phòng' : 'Fallback voice';
+  }
+  if (audioStatus === 'speaking') {
+    return vietnamese ? 'Đang nói' : 'Speaking';
+  }
+  if (guidance.kind === 'result') {
+    return vietnamese ? 'Hoàn tất' : 'Completed';
+  }
+  if (guidance.kind === 'action_preview') {
+    return vietnamese ? 'Sắp thực hiện' : 'Up next';
+  }
+  return vietnamese ? 'Đang hướng dẫn' : 'Guiding';
+}
+
 export function GuidanceCallout() {
   const [answer, setAnswer] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -471,17 +497,7 @@ export function GuidanceCallout() {
             <span className="guidance-callout__avatar">T</span>
             <span className="guidance-callout__name">TroCode</span>
             <span className="guidance-callout__status">
-              {guidance.playback === 'paused' || audioStatus === 'paused'
-                ? 'Paused'
-                : audioStatus === 'loading'
-                  ? 'Loading voice'
-                  : audioStatus === 'fallback'
-                    ? 'Fallback voice'
-                    : audioStatus === 'speaking'
-                      ? 'Speaking'
-                      : guidance.kind === 'result'
-                        ? 'Completed'
-                        : 'Guiding'}
+              {guidanceStatusLabel(guidance, audioStatus)}
             </span>
           </div>
           <p>{guidance.message}</p>

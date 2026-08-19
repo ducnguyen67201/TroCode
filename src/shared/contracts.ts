@@ -794,7 +794,8 @@ export const CompanionGuidanceShortcutsSchema = z.object({
 });
 
 export const CompanionGuidanceSchema = z.object({
-  kind: z.enum(['guidance', 'result']).default('guidance'),
+  kind: z.enum(['action_preview', 'guidance', 'result']).default('guidance'),
+  language: AppLanguageSchema.optional(),
   message: z.string().trim().min(1).max(240),
   playback: z.enum(['playing', 'paused']).default('playing'),
   shortcuts: CompanionGuidanceShortcutsSchema.optional(),

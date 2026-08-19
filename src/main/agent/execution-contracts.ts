@@ -50,6 +50,40 @@ export const DesktopCoordinateSpaceSchema = z.object({
   screenshotWidth: z.number().int().positive().max(100_000),
 });
 
+export const ComputerObservationRouteSchema = z.enum([
+  'browser_semantic',
+  'window_accessibility',
+  'window_vision',
+  'desktop_vision',
+]);
+
+export const SurfaceBoundsSchema = z.object({
+  x: z.number().int().min(-100_000).max(100_000),
+  y: z.number().int().min(-100_000).max(100_000),
+  width: z.number().int().positive().max(100_000),
+  height: z.number().int().positive().max(100_000),
+});
+
+export const SurfaceDescriptorSchema = z.object({
+  kind: z.enum(['browser', 'code_editor', 'native_app', 'desktop']),
+  application: z.string().trim().min(1).max(120),
+  title: z.string().max(500).optional(),
+  url: z.string().max(8_000).optional(),
+  bounds: SurfaceBoundsSchema.optional(),
+  deepAccess: z.enum(['ready', 'available_requires_approval', 'unavailable']).optional(),
+});
+
+export const SurfaceElementSchema = z.object({
+  ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u),
+  role: z.string().max(120),
+  name: z.string().max(2_000),
+  value: z.string().max(8_000).optional(),
+  href: z.string().max(8_000).optional(),
+  bounds: SurfaceBoundsSchema.optional(),
+  disabled: z.boolean().optional(),
+  selected: z.boolean().optional(),
+});
+
 export const DesktopObservationSchema = z.object({
   observationId: z.string().uuid(),
   taskId: z.string().uuid(),
@@ -63,8 +97,44 @@ export const DesktopObservationSchema = z.object({
     })
     .optional(),
   coordinateSpace: DesktopCoordinateSpaceSchema.optional(),
+  route: ComputerObservationRouteSchema.default('desktop_vision'),
+  surface: SurfaceDescriptorSchema.optional(),
+  elements: z.array(SurfaceElementSchema).max(400).optional(),
   degraded: z.boolean(),
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+});
+
+export const SurfaceCommandSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('click_element'),
+    ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u),
+    button: z.enum(['left', 'right']).default('left'),
+    count: z.number().int().min(1).max(2).default(1),
+  }),
+  z.object({
+    kind: z.literal('type_text'),
+    ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u),
+    text: z.string().max(100_000),
+    replace: z.boolean().default(false),
+  }),
+  z.object({
+    kind: z.literal('press_key'),
+    ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u).nullable(),
+    key: z.string().trim().min(1).max(40),
+    modifiers: z.array(z.string().trim().min(1).max(40)).max(8).default([]),
+  }),
+  z.object({
+    kind: z.literal('scroll'),
+    ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u).nullable(),
+    direction: z.enum(['up', 'down', 'left', 'right']),
+    amount: z.number().int().min(1).max(20).default(3),
+  }),
+]);
+
+export const SurfaceActionOutcomeSchema = z.object({
+  status: z.enum(['confirmed', 'unknown', 'failed', 'not_executed']),
+  summary: z.string().min(1).max(2_000),
+  observation: z.lazy(() => DesktopObservationSchema).optional(),
 });
 
 export const DesktopCommandSchema = z.discriminatedUnion('kind', [
@@ -133,6 +203,14 @@ export type DesktopCoordinateSpace = z.infer<
   typeof DesktopCoordinateSpaceSchema
 >;
 export type DesktopObservation = z.infer<typeof DesktopObservationSchema>;
+export type ComputerObservationRoute = z.infer<
+  typeof ComputerObservationRouteSchema
+>;
+export type SurfaceActionOutcome = z.infer<typeof SurfaceActionOutcomeSchema>;
+export type SurfaceBounds = z.infer<typeof SurfaceBoundsSchema>;
+export type SurfaceCommand = z.infer<typeof SurfaceCommandSchema>;
+export type SurfaceDescriptor = z.infer<typeof SurfaceDescriptorSchema>;
+export type SurfaceElement = z.infer<typeof SurfaceElementSchema>;
 
 export function tableRowsToTsv(rows: readonly (readonly string[])[]): string {
   return rows
