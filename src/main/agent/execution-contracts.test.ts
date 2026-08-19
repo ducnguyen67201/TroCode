@@ -26,6 +26,36 @@ describe('desktop execution contracts', () => {
     ).toEqual({ x: 990, y: 714 });
   });
 
+  it('adds the captured desktop origin when mapping overlay coordinates', () => {
+    const offsetCoordinateSpace = {
+      ...coordinateSpace,
+      screenX: -1_440,
+      screenY: -100,
+    };
+
+    expect(
+      mapScreenshotPointToDesktop(
+        { x: 1_980, y: 1_428 },
+        offsetCoordinateSpace,
+      ),
+    ).toEqual({ x: -450, y: 614 });
+    expect(
+      mapScreenshotRegionToDesktop(
+        { x: 864, y: 223, width: 1_728, height: 670 },
+        offsetCoordinateSpace,
+      ),
+    ).toEqual({ x: -1_008, y: 12, width: 864, height: 335 });
+  });
+
+  it('keeps CUA screenshot pixels independent from the desktop origin', () => {
+    expect(
+      mapNormalizedPointToScreenshot(
+        { x: 580, y: 150 },
+        { ...coordinateSpace, screenX: -1_440, screenY: -100 },
+      ),
+    ).toEqual({ x: 2_004, y: 335 });
+  });
+
   it('maps model-normalized coordinates into CUA screenshot pixels', () => {
     expect(
       mapNormalizedPointToScreenshot({ x: 580, y: 150 }, coordinateSpace),

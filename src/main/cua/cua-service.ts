@@ -20,6 +20,8 @@ import {
 const DesktopStateMetadataSchema = z.object({
   screen_height: z.number().int().positive(),
   screen_width: z.number().int().positive(),
+  screen_x: z.number().int().min(-100_000).max(100_000).optional(),
+  screen_y: z.number().int().min(-100_000).max(100_000).optional(),
   screenshot_height: z.number().int().positive(),
   screenshot_width: z.number().int().positive(),
 }).passthrough();
@@ -95,6 +97,12 @@ function coordinateSpaceFromDesktopState(
     return DesktopCoordinateSpaceSchema.parse({
       screenHeight: metadata.data.screen_height,
       screenWidth: metadata.data.screen_width,
+      ...(metadata.data.screen_x !== undefined
+        ? { screenX: metadata.data.screen_x }
+        : {}),
+      ...(metadata.data.screen_y !== undefined
+        ? { screenY: metadata.data.screen_y }
+        : {}),
       screenshotHeight: metadata.data.screenshot_height,
       screenshotWidth: metadata.data.screenshot_width,
     });

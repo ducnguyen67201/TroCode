@@ -248,6 +248,12 @@ describe('OpenAIAgentsRuntime', () => {
     expect(serializedInput).toContain(
       'Trusted host initial desktop observation',
     );
+    expect(serializedInput).toContain(
+      'normalized 0-1000 image coordinates',
+    );
+    expect(serializedInput).toContain(
+      'never raw screenshot pixels',
+    );
     expect(serializedInput).toContain(initialObservation.observationId);
     expect(serializedInput).toContain('data:image/png;base64,aGVsbG8=');
     await runtime.end(taskId);

@@ -39,9 +39,13 @@ const DirectToolInputSchema = z
 
 export const NORMALIZED_COORDINATE_MAX = 1_000;
 
+const ScreenOriginSchema = z.number().int().min(-100_000).max(100_000);
+
 export const DesktopCoordinateSpaceSchema = z.object({
   screenHeight: z.number().int().positive().max(100_000),
   screenWidth: z.number().int().positive().max(100_000),
+  screenX: ScreenOriginSchema.optional(),
+  screenY: ScreenOriginSchema.optional(),
   screenshotHeight: z.number().int().positive().max(100_000),
   screenshotWidth: z.number().int().positive().max(100_000),
 });
@@ -163,16 +167,20 @@ export function mapScreenshotPointToDesktop(
   if (!coordinateSpace) return { x: point.x, y: point.y };
 
   return {
-    x: mapScreenshotAxis(
-      point.x,
-      coordinateSpace.screenshotWidth,
-      coordinateSpace.screenWidth,
-    ),
-    y: mapScreenshotAxis(
-      point.y,
-      coordinateSpace.screenshotHeight,
-      coordinateSpace.screenHeight,
-    ),
+    x:
+      (coordinateSpace.screenX ?? 0) +
+      mapScreenshotAxis(
+        point.x,
+        coordinateSpace.screenshotWidth,
+        coordinateSpace.screenWidth,
+      ),
+    y:
+      (coordinateSpace.screenY ?? 0) +
+      mapScreenshotAxis(
+        point.y,
+        coordinateSpace.screenshotHeight,
+        coordinateSpace.screenHeight,
+      ),
   };
 }
 
@@ -230,11 +238,16 @@ export function mapScreenshotRegionToDesktop(
   coordinateSpace: DesktopCoordinateSpace | undefined,
 ): DesktopRegion {
   if (!coordinateSpace) return { ...region };
-  return mapRegion(
+  const mapped = mapRegion(
     region,
     coordinateSpace.screenshotWidth,
     coordinateSpace.screenshotHeight,
     coordinateSpace.screenWidth,
     coordinateSpace.screenHeight,
   );
+  return {
+    ...mapped,
+    x: mapped.x + (coordinateSpace.screenX ?? 0),
+    y: mapped.y + (coordinateSpace.screenY ?? 0),
+  };
 }

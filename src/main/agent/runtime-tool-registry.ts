@@ -458,11 +458,21 @@ const nullableTargetModelSchema = {
   anyOf: [{ type: 'string', maxLength: 8_000 }, { type: 'null' }],
 };
 
+const normalizedCoordinateDescription =
+  'Normalized image coordinate from 0 to 1000; do not use screenshot pixels.';
+
+const normalizedCoordinateModelSchema = {
+  type: 'integer',
+  minimum: 0,
+  maximum: NORMALIZED_COORDINATE_MAX,
+  description: normalizedCoordinateDescription,
+};
+
 const clickCommandModelSchema = objectSchema(
   {
     kind: { type: 'string', const: 'click' },
-    x: { type: 'integer', minimum: 0, maximum: 1_000 },
-    y: { type: 'integer', minimum: 0, maximum: 1_000 },
+    x: normalizedCoordinateModelSchema,
+    y: normalizedCoordinateModelSchema,
     button: { type: 'string', enum: ['left', 'right', 'middle'] },
     count: { type: 'integer', minimum: 1, maximum: 2 },
   },
@@ -472,10 +482,10 @@ const clickCommandModelSchema = objectSchema(
 const dragCommandModelSchema = objectSchema(
   {
     kind: { type: 'string', const: 'drag' },
-    fromX: { type: 'integer', minimum: 0, maximum: 1_000 },
-    fromY: { type: 'integer', minimum: 0, maximum: 1_000 },
-    toX: { type: 'integer', minimum: 0, maximum: 1_000 },
-    toY: { type: 'integer', minimum: 0, maximum: 1_000 },
+    fromX: normalizedCoordinateModelSchema,
+    fromY: normalizedCoordinateModelSchema,
+    toX: normalizedCoordinateModelSchema,
+    toY: normalizedCoordinateModelSchema,
     durationMs: { type: 'integer', minimum: 50, maximum: 10_000 },
     button: { type: 'string', enum: ['left', 'right', 'middle'] },
   },
@@ -524,8 +534,8 @@ const keypressCommandModelSchema = objectSchema(
 const scrollCommandModelSchema = objectSchema(
   {
     kind: { type: 'string', const: 'scroll' },
-    x: { type: 'integer', minimum: 0, maximum: 1_000 },
-    y: { type: 'integer', minimum: 0, maximum: 1_000 },
+    x: normalizedCoordinateModelSchema,
+    y: normalizedCoordinateModelSchema,
     direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
     amount: { type: 'integer', minimum: 1, maximum: 20 },
   },
@@ -731,7 +741,7 @@ function defaultTools(): RuntimeToolDefinition[] {
       id: 'desktop.control',
       modelName: 'control_desktop',
       description:
-        'Execute one atomic action grounded in the latest desktop observation. Use paste_table for rectangular spreadsheet data so rows and columns fill separate cells.',
+        'Execute one atomic action grounded in the latest desktop observation. All visual coordinates use normalized 0-1000 image space, never raw screenshot pixels. Use paste_table for rectangular spreadsheet data so rows and columns fill separate cells.',
       operations: [
         'click',
         'drag',
@@ -820,7 +830,7 @@ function defaultTools(): RuntimeToolDefinition[] {
       id: 'task.guidance',
       modelName: 'show_guidance',
       description:
-        'Point at and highlight exactly one visible target, then speak one concise instruction (240 characters maximum). Supply a tight region when the target occupies an area, otherwise null. Do not click or change the application. The host waits for the user to use playback controls before continuing.',
+        'Point at and highlight exactly one visible target, then speak one concise instruction (240 characters maximum). All visual coordinates use normalized 0-1000 image space, never raw screenshot pixels. Supply a tight region when the target occupies an area, otherwise null. Do not click or change the application. The host waits for the user to use playback controls before continuing.',
       operations: ['show'],
       parameters: objectSchema(
         {
@@ -833,18 +843,24 @@ function defaultTools(): RuntimeToolDefinition[] {
             anyOf: [
               objectSchema(
                 {
-                  x: { type: 'integer', minimum: 0, maximum: 1_000 },
-                  y: { type: 'integer', minimum: 0, maximum: 1_000 },
-                  width: { type: 'integer', minimum: 1, maximum: 1_000 },
-                  height: { type: 'integer', minimum: 1, maximum: 1_000 },
+                  x: normalizedCoordinateModelSchema,
+                  y: normalizedCoordinateModelSchema,
+                  width: {
+                    ...normalizedCoordinateModelSchema,
+                    minimum: 1,
+                  },
+                  height: {
+                    ...normalizedCoordinateModelSchema,
+                    minimum: 1,
+                  },
                 },
                 ['x', 'y', 'width', 'height'],
               ),
               { type: 'null' },
             ],
           },
-          x: { type: 'integer', minimum: 0, maximum: 1_000 },
-          y: { type: 'integer', minimum: 0, maximum: 1_000 },
+          x: normalizedCoordinateModelSchema,
+          y: normalizedCoordinateModelSchema,
         },
         ['observationId', 'description', 'target', 'region', 'x', 'y'],
       ),

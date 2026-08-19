@@ -754,13 +754,13 @@ html.voice-island-mode #root {
 
 .desktop-control-indicator__border {
   position: absolute;
-  inset: 4px;
-  border: 4px solid #5b8def;
-  border-radius: 12px;
+  inset: 3px;
+  border: 3px solid rgba(242, 201, 76, 0.68);
+  border-radius: 10px;
   box-shadow:
-    inset 0 0 18px rgba(91, 141, 239, 0.22),
-    0 0 0 2px rgba(255, 255, 255, 0.88),
-    0 0 22px rgba(91, 141, 239, 0.7);
+    inset 0 0 20px rgba(242, 201, 76, 0.1),
+    0 0 0 1px rgba(44, 35, 0, 0.2),
+    0 0 14px rgba(242, 201, 76, 0.3);
   animation: desktop-control-pulse 1.5s ease-in-out infinite;
 }
 
@@ -772,9 +772,9 @@ html.voice-island-mode #root {
   align-items: center;
   gap: 8px;
   padding: 7px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(242, 201, 76, 0.58);
   border-radius: 999px;
-  background: rgba(22, 33, 54, 0.92);
+  background: rgba(44, 35, 0, 0.82);
   box-shadow: 0 8px 24px rgba(12, 25, 48, 0.24);
   color: #fff;
   font-size: 12px;
@@ -787,8 +787,8 @@ html.voice-island-mode #root {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #78a6ff;
-  box-shadow: 0 0 0 4px rgba(120, 166, 255, 0.18);
+  background: #f2c94c;
+  box-shadow: 0 0 0 4px rgba(242, 201, 76, 0.18);
 }
 
 @keyframes desktop-control-pulse {
