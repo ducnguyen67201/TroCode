@@ -79,6 +79,13 @@ import { TaskHistoryService } from './main/history/task-history-service';
 import { PostgresTaskHistoryStore } from './main/history/task-history-store';
 import { resizeObservationForModel } from './main/inference/image-evidence';
 import { registerIpcHandlers } from './main/ipc/register-ipc';
+import { ActivityContextService } from './main/knowledge/activity-context-service';
+import { ActivityProgressReporter } from './main/knowledge/activity-progress-reporter';
+import { createActivityToolAdapters } from './main/knowledge/activity-tool-adapters';
+import { ActivityWorkspacePreparationService } from './main/knowledge/activity-workspace-preparation-service';
+import { FileSelectionService } from './main/knowledge/file-selection-service';
+import { KnowledgeSpaceClient } from './main/knowledge/knowledge-space-client';
+import { KnowledgeUploadOrchestrator } from './main/knowledge/knowledge-upload-service';
 import { EncryptedMembershipActivationStore } from './main/membership/membership-activation-store';
 import {
   MembershipService,
@@ -212,6 +219,16 @@ const membershipService = new MembershipService({
   }),
   store: new EncryptedMembershipActivationStore(),
 });
+const knowledgeSpaceClient = new KnowledgeSpaceClient(
+  trocodeApiBaseUrl,
+  () => authService.getAccessToken(),
+);
+const activityContextService = new ActivityContextService(knowledgeSpaceClient);
+const activityProgressReporter = new ActivityProgressReporter(knowledgeSpaceClient);
+const reportActivityProgress = (value: unknown): void => {
+  void activityProgressReporter.report(TaskUpdateSchema.parse(value));
+};
+taskRuntime.on('task-update', reportActivityProgress);
 const cuaService = new CuaService({
   onPerformanceMetric: (metric) => {
     void analyticsService?.trackCuaPerformance(metric);
@@ -244,6 +261,38 @@ const workspaceSelectionService = new WorkspaceSelectionService(
       return result.canceled ? null : (result.filePaths[0] ?? null);
     },
   },
+);
+const fileSelectionService = new FileSelectionService({
+  pick: async (selectionKind) => {
+    const options: OpenDialogOptions = selectionKind === 'folder'
+      ? { properties: ['openDirectory'], title: 'Select a Knowledge Space folder snapshot' }
+      : {
+          properties: ['openFile', 'multiSelections'],
+          title: 'Select Knowledge Space files',
+          filters: [{
+            name: 'Supported content',
+            extensions: [
+              'txt', 'md', 'markdown', 'pdf', 'c', 'cc', 'cpp', 'cs', 'css',
+              'csv', 'go', 'h', 'hpp', 'html', 'ini', 'java', 'js', 'json',
+              'jsx', 'kt', 'mjs', 'py', 'rb', 'rs', 'sh', 'sql', 'toml',
+              'ts', 'tsx', 'xml', 'yaml', 'yml',
+            ],
+          }],
+        };
+    const window = mainWindow;
+    const result = window && !window.isDestroyed()
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options);
+    return result.canceled ? [] : result.filePaths;
+  },
+});
+const knowledgeUploadOrchestrator = new KnowledgeUploadOrchestrator(
+  fileSelectionService,
+  knowledgeSpaceClient,
+);
+const activityWorkspacePreparationService = new ActivityWorkspacePreparationService(
+  knowledgeSpaceClient,
+  workspaceSelectionService,
 );
 const systemAudioDuckingService = createSystemAudioDuckingService();
 const voiceCredentialStore = new EncryptedVoiceCredentialStore();
@@ -280,6 +329,7 @@ const executionCoordinator = new TaskExecutionCoordinator({
       return 'en';
     }
   },
+  additionalToolAdapters: createActivityToolAdapters(knowledgeSpaceClient),
   agentRuntimeFactory,
   approvalObservationMatches: (approved, current, command) =>
     approvalObservationMatches(approved, current, command, (data) => {
@@ -351,7 +401,12 @@ const executionCoordinator = new TaskExecutionCoordinator({
 const taskApplicationService = new TaskApplicationService(
   taskRuntime,
   executionCoordinator,
-  { appPreferencesService, workspaceSelectionService },
+  {
+    activityContextService,
+    activityProgressReporter,
+    appPreferencesService,
+    workspaceSelectionService,
+  },
 );
 const presentationCoordinator = new PresentationCoordinator(
   new ElectronPresentationPresenter(
@@ -1298,6 +1353,9 @@ function prepareApplicationShutdown(): Promise<void> {
   agentActivityService.off('activity', trackAgentActivityAnalytics);
   agentActivityService.off('activity', coordinateCompanionResponseActivity);
   taskRuntime.off('task-update', coordinateTaskPresentation);
+  taskRuntime.off('task-update', reportActivityProgress);
+  fileSelectionService.clear();
+  activityProgressReporter.clear();
 
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
   if (companionWindow && !companionWindow.isDestroyed()) companionWindow.hide();
@@ -1885,15 +1943,20 @@ const createWindow = (): void => {
 
   unregisterIpcHandlers?.();
   unregisterIpcHandlers = registerIpcHandlers(nextMainWindow, {
+    activityProgressReporter,
+    activityWorkspacePreparationService,
     agentActivityService,
     appPreferencesService,
     appUpdateService,
     authService,
     cuaService,
     executionCoordinator,
+    fileSelectionService,
     getCompanionInteractionWindow: () => guidanceWindow,
     handleCompanionResponseAction,
     membershipService,
+    knowledgeSpaceClient,
+    knowledgeUploadOrchestrator,
     onAuthSignedIn: async (user) => {
       await identifyAnalyticsUser(user);
       enableAuthenticatedAuxiliaryWindows();

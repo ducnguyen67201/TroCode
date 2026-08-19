@@ -72,6 +72,7 @@ export const ProposedActionSchema = z.object({
       'scroll',
       'drag',
       'read_file',
+      'record_activity_signal',
     ]),
   ),
   toolId: RuntimeToolIdSchema.optional(),
@@ -201,6 +202,101 @@ export const AgentTaskContractV5Schema = z
     }
   });
 
+export const ActivityGuidancePolicySchema = z.object({
+  answerReveal: z.enum(['allowed', 'after_attempt', 'never']),
+  hintMode: z.enum(['direct', 'guided', 'socratic']),
+  maxHintLevel: z.number().int().min(0).max(5),
+});
+
+export const ActivityCriterionSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  title: z.string().trim().min(1).max(240),
+  description: z.string().trim().max(2_000),
+  tags: z.array(z.string().trim().min(1).max(80)).max(20),
+});
+
+export const ActivityContextSchema = z.object({
+  attemptId: z.string().uuid(),
+  workSessionId: z.string().uuid(),
+  activityVersionId: z.string().uuid(),
+  runId: z.string().uuid(),
+  space: z.object({
+    id: z.string().uuid(),
+    name: z.string().trim().min(1).max(240),
+  }),
+  activity: z.object({
+    title: z.string().trim().min(1).max(240),
+    objective: z.string().trim().min(1).max(4_000),
+    instructions: z.string().trim().min(1).max(24_000),
+    launchTarget: z.enum(['none', 'workspace', 'current_surface']),
+    guidancePolicy: ActivityGuidancePolicySchema,
+    criteria: z.array(ActivityCriterionSchema).max(40),
+    completionPolicy: z.object({
+      requiresSubmission: z.boolean(),
+      requiresFacilitatorConfirmation: z.boolean(),
+    }),
+  }),
+  insightPolicy: z.enum(['explicit_and_operational', 'evidence_candidates']),
+  insightPolicyVersion: z.string().trim().min(1).max(64),
+  policyAcknowledged: z.boolean(),
+  sourceCatalog: z.array(z.object({
+    title: z.string().trim().min(1).max(255),
+    role: z.enum(['reference', 'instructions', 'rubric', 'starter']),
+  })).max(200),
+  priorProgress: z.object({
+    completedCriterionIds: z.array(z.string().trim().min(1).max(80)).max(40),
+    sessionCount: z.number().int().nonnegative().max(10_000),
+    summary: z.string().trim().min(1).max(4_000),
+  }),
+});
+
+export const AgentTaskContractV6Schema = z
+  .object({
+    schemaVersion: z.literal(6),
+    id: z.string().uuid(),
+    originalRequest: z.string().min(2).max(8_000),
+    runtimeKind: AgentRuntimeKindSchema,
+    executionProfile: ExecutionProfileSchema,
+    autonomyMode: AutonomyModeSchema,
+    workspace: WorkspaceIdentitySchema.nullable(),
+    activity: ActivityContextSchema.nullable(),
+    approvalPolicy: z.object({
+      alwaysConfirm: z.array(SensitiveActionSchema),
+    }),
+    limits: AgentTaskContractV4Schema.shape.limits,
+  })
+  .superRefine((contract, context) => {
+    const workspaceProfile = contract.executionProfile === 'workspace';
+    if (workspaceProfile !== Boolean(contract.workspace)) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Workspace profile and trusted workspace identity must be selected together.',
+        path: ['workspace'],
+      });
+    }
+    if (
+      contract.activity?.activity.launchTarget === 'workspace' &&
+      !workspaceProfile
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Workspace Activities require a trusted workspace.',
+        path: ['activity', 'activity', 'launchTarget'],
+      });
+    }
+    if (
+      contract.activity?.activity.launchTarget === 'current_surface' &&
+      workspaceProfile
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Current-surface Activities cannot claim Workspace authority.',
+        path: ['activity', 'activity', 'launchTarget'],
+      });
+    }
+  });
+
 function normalizeLegacyGoal(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
   const goal = value as Record<string, unknown>;
@@ -226,6 +322,7 @@ export const TaskContractSchema = z.preprocess(
     AgentTaskContractV3Schema,
     AgentTaskContractV4Schema,
     AgentTaskContractV5Schema,
+    AgentTaskContractV6Schema,
   ]),
 );
 
@@ -491,6 +588,7 @@ export const SubmitTaskRequestSchema = z.object({
   text: z.string().trim().min(2).max(8_000),
   executionProfile: ExecutionProfileSchema.default('everyday'),
   workspaceSelectionId: z.string().uuid().nullable().default(null),
+  activityAttemptId: z.string().uuid().nullable().default(null),
 }).superRefine((request, context) => {
   if (
     (request.executionProfile === 'workspace') !==
@@ -502,6 +600,223 @@ export const SubmitTaskRequestSchema = z.object({
       path: ['workspaceSelectionId'],
     });
   }
+});
+
+export const KnowledgeCapabilitiesSchema = z.object({
+  knowledgeSpaces: z.object({
+    enabled: z.boolean(),
+    contractVersion: z.literal(1),
+  }),
+});
+export const KnowledgeSpaceSummarySchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(240),
+  description: z.string().max(4_000),
+  purposeLabel: z.string().max(120).nullable(),
+  role: z.enum(['owner', 'facilitator', 'participant']),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export const KnowledgeSpaceListSchema = z.object({
+  items: z.array(KnowledgeSpaceSummarySchema).max(500),
+  nextCursor: z.object({ createdAt: z.string().datetime(), id: z.string().uuid() }).nullable(),
+});
+export const CreateKnowledgeSpaceRequestSchema = z.object({
+  clientId: z.string().uuid(),
+  name: z.string().trim().min(1).max(240),
+  description: z.string().trim().max(4_000).default(''),
+  purposeLabel: z.string().trim().max(120).nullable().default(null),
+});
+export const CreateKnowledgeSpaceResponseSchema = z.object({
+  newlyCreated: z.boolean(),
+  space: KnowledgeSpaceSummarySchema,
+});
+export const KnowledgeGroupSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(240),
+  participantCount: z.number().int().nonnegative().optional().default(0),
+  createdAt: z.string().datetime(),
+});
+export const KnowledgeGroupListSchema = z.object({
+  items: z.array(KnowledgeGroupSchema).max(500),
+});
+export const CreateKnowledgeGroupRequestSchema = z.object({
+  spaceId: z.string().uuid(),
+  clientId: z.string().uuid(),
+  name: z.string().trim().min(1).max(240),
+});
+export const CreateKnowledgeInviteRequestSchema = z.object({
+  spaceId: z.string().uuid(),
+  clientId: z.string().uuid(),
+  groupId: z.string().uuid().nullable(),
+  role: z.enum(['facilitator', 'participant']),
+  maxUses: z.number().int().min(1).max(10_000),
+  expiresAt: z.string().datetime().nullable(),
+});
+export const KnowledgeInviteSchema = z.object({
+  id: z.string().uuid(),
+  code: z.string().trim().min(8).max(128),
+  role: z.enum(['facilitator', 'participant']),
+  maxUses: z.number().int().positive(),
+  expiresAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+});
+export const RedeemKnowledgeInviteRequestSchema = z.object({
+  code: z.string().trim().min(8).max(128),
+});
+export const RedeemKnowledgeInviteResponseSchema = z.object({
+  spaceId: z.string().uuid(),
+  role: z.enum(['owner', 'facilitator', 'participant']),
+});
+export const KnowledgeSourceSummarySchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string().trim().min(1).max(255),
+  relativePath: z.string().trim().min(1).max(2_000),
+  role: z.enum(['reference', 'instructions', 'rubric', 'starter', 'submission']),
+  createdAt: z.string().datetime(),
+  latestVersion: z.object({
+    id: z.string().uuid(),
+    state: z.enum(['pending_upload', 'processing', 'ready', 'failed']),
+    mediaType: z.enum(['text/plain', 'text/markdown', 'application/pdf']),
+    byteSize: z.number().int().positive(),
+    createdAt: z.string().datetime(),
+    errorCode: z.string().max(80).nullable(),
+  }).nullable(),
+});
+export const KnowledgeSourceListSchema = z.object({ items: z.array(KnowledgeSourceSummarySchema).max(1_000) });
+
+export const SelectKnowledgeFilesRequestSchema = z.object({
+  role: z.enum(['reference', 'instructions', 'rubric', 'starter', 'submission']),
+  selectionKind: z.enum(['files', 'folder']),
+});
+export const KnowledgeFilePreviewSchema = z.object({
+  displayName: z.string().trim().min(1).max(255),
+  relativePath: z.string().trim().min(1).max(2_000),
+  mediaType: z.enum(['text/plain', 'text/markdown', 'application/pdf']),
+  byteSize: z.number().int().positive().max(25 * 1024 * 1024),
+});
+export const KnowledgeFileSelectionSchema = z.object({
+  selectionId: z.string().uuid(),
+  role: z.enum(['reference', 'instructions', 'rubric', 'starter', 'submission']),
+  files: z.array(KnowledgeFilePreviewSchema).min(1).max(100),
+  totalBytes: z.number().int().positive().max(250 * 1024 * 1024),
+});
+export const UploadKnowledgeSelectionRequestSchema = z.object({
+  spaceId: z.string().uuid(),
+  selectionId: z.string().uuid(),
+});
+export const SubmitKnowledgeSelectionRequestSchema = z.object({
+  attemptId: z.string().uuid(),
+  selectionId: z.string().uuid(),
+});
+export const KnowledgeUploadResultSchema = z.object({
+  uploaded: z.number().int().nonnegative(),
+  processing: z.number().int().nonnegative(),
+  cancelled: z.boolean(),
+});
+export const SaveKnowledgeActivityRequestSchema = z.object({
+  spaceId: z.string().uuid(),
+  clientId: z.string().uuid(),
+  definition: z.object({
+    title: z.string().trim().min(1).max(240),
+    objective: z.string().trim().min(1).max(4_000),
+    instructions: z.string().trim().min(1).max(24_000),
+    launchTarget: z.enum(['none', 'workspace', 'current_surface']),
+    guidancePolicy: ActivityGuidancePolicySchema,
+    criteria: z.array(ActivityCriterionSchema).max(40),
+    completionPolicy: z.object({ requiresSubmission: z.boolean(), requiresFacilitatorConfirmation: z.boolean() }),
+  }),
+  sourceVersionIds: z.array(z.string().uuid()).max(200),
+});
+export const KnowledgeActivityDraftSchema = z.object({
+  id: z.string().uuid(), state: z.enum(['draft', 'published', 'archived']),
+  definition: SaveKnowledgeActivityRequestSchema.shape.definition,
+  updatedAt: z.string().datetime(),
+});
+export const PublishKnowledgeActivityRequestSchema = z.object({
+  spaceId: z.string().uuid(), activityId: z.string().uuid(), clientId: z.string().uuid(),
+});
+export const KnowledgeActivityVersionSchema = z.object({
+  id: z.string().uuid(), versionNumber: z.number().int().positive(), publishedAt: z.string().datetime(), newlyCreated: z.boolean(),
+});
+export const CreateKnowledgeRunRequestSchema = z.object({
+  spaceId: z.string().uuid(), clientId: z.string().uuid(), activityVersionId: z.string().uuid(),
+  mode: z.enum(['live', 'async', 'hybrid']), opensAt: z.string().datetime().nullable(), closesAt: z.string().datetime().nullable(),
+  target: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('group'), groupId: z.string().uuid() }),
+    z.object({ kind: z.literal('participants'), userIds: z.array(z.string().trim().min(1).max(255)).min(1).max(2_000) }),
+  ]),
+  insightPolicy: z.enum(['explicit_and_operational', 'evidence_candidates']),
+});
+export const KnowledgeRunSchema = z.object({
+  id: z.string().uuid(), state: z.enum(['draft', 'open', 'closed', 'archived']), assignmentCount: z.number().int().nonnegative().optional(), newlyCreated: z.boolean().optional(),
+});
+export const AssignedActivitySchema = z.object({
+  attemptId: z.string().uuid(), state: z.enum(['assigned', 'in_progress', 'blocked', 'submitted', 'completed', 'withdrawn']), updatedAt: z.string().datetime(),
+  run: z.object({ id: z.string().uuid(), mode: z.enum(['live', 'async', 'hybrid']), opensAt: z.string().datetime().nullable(), closesAt: z.string().datetime().nullable() }),
+  activity: z.object({ title: z.string().max(240), objective: z.string().max(4_000) }),
+  space: z.object({ id: z.string().uuid(), name: z.string().max(240) }),
+});
+export const AssignedActivityListSchema = z.object({ items: z.array(AssignedActivitySchema).max(500) });
+export const HostedAttemptContextSchema = z.object({
+  attemptId: z.string().uuid(), userId: z.string().min(1).max(255),
+  state: z.enum(['assigned', 'in_progress', 'blocked', 'submitted', 'completed', 'withdrawn']), acknowledgedPolicyVersion: z.string().max(64).nullable(),
+  run: z.object({ id: z.string().uuid(), state: z.enum(['draft', 'open', 'closed', 'archived']), mode: z.enum(['live', 'async', 'hybrid']), opensAt: z.string().datetime().nullable(), closesAt: z.string().datetime().nullable(), insightPolicy: z.enum(['explicit_and_operational', 'evidence_candidates']), insightPolicyVersion: z.string().max(64) }),
+  space: z.object({ id: z.string().uuid(), name: z.string().max(240) }), activityVersionId: z.string().uuid(),
+  definition: SaveKnowledgeActivityRequestSchema.shape.definition,
+  sourceCatalog: z.array(z.object({
+    title: z.string().trim().min(1).max(255),
+    role: z.enum(['reference', 'instructions', 'rubric', 'starter']),
+  })).max(200),
+  starterAvailable: z.boolean(),
+  priorProgress: z.object({
+    completedCriterionIds: z.array(z.string().trim().min(1).max(80)).max(40),
+    sessionCount: z.number().int().nonnegative().max(10_000),
+    summary: z.string().trim().min(1).max(4_000),
+  }),
+});
+export const PrepareActivityStarterRequestSchema = z.object({
+  attemptId: z.string().uuid(),
+});
+export const KnowledgeDashboardSchema = z.object({
+  kind: z.enum(['snapshot', 'delta']), maxSequence: z.number().int().nonnegative(),
+  participants: z.array(z.object({ id: z.string().max(255), attemptId: z.string().uuid(), state: z.string().max(40), updatedAt: z.string().datetime(), sessionCount: z.number().int().nonnegative(), evidenceCount: z.number().int().nonnegative(), helpRequestedAt: z.string().datetime().nullable() })).max(500).optional(),
+  events: z.array(z.object({ sequence: z.number().int().nonnegative(), type: z.string().max(80), payload: z.record(z.string(), z.unknown()), createdAt: z.string().datetime() })).max(1_000).optional(),
+  counts: z.record(z.string(), z.number().int().nonnegative()).optional(),
+  helpQueue: z.array(z.object({
+    id: z.string().max(255), attemptId: z.string().uuid(), state: z.string().max(40),
+    updatedAt: z.string().datetime(), sessionCount: z.number().int().nonnegative(),
+    evidenceCount: z.number().int().nonnegative(), helpRequestedAt: z.string().datetime().nullable(),
+  })).max(500).optional(),
+  patterns: z.array(z.object({
+    criterionId: z.string().max(80), participantCount: z.number().int().nonnegative(),
+    corroboratedCount: z.number().int().nonnegative(), agentCandidateCount: z.number().int().nonnegative(),
+  })).max(100).optional(),
+  suggestions: z.array(z.union([
+    z.object({ kind: z.literal('individual_follow_up'), participantId: z.string().max(255), reason: z.enum(['explicit_help_request', 'repeated_blocked_sessions']) }),
+    z.object({ kind: z.literal('group_clarification'), criterionId: z.string().max(80), participantCount: z.number().int().nonnegative(), activeParticipants: z.number().int().nonnegative(), confidence: z.enum(['moderate', 'high']) }),
+    z.object({ kind: z.literal('review_evidence'), criterionId: z.string().max(80) }),
+  ])).max(500).optional(),
+});
+export const KnowledgeSpaceIdRequestSchema = z.object({ spaceId: z.string().uuid() });
+export const KnowledgeAttemptIdRequestSchema = z.object({ attemptId: z.string().uuid() });
+export const AcknowledgeKnowledgeAttemptRequestSchema = z.object({
+  attemptId: z.string().uuid(),
+  policyVersion: z.string().trim().min(1).max(64),
+});
+export const RequestKnowledgeAttemptHelpSchema = z.object({
+  attemptId: z.string().uuid(),
+  clientId: z.string().uuid(),
+});
+export const SetKnowledgeRunStateRequestSchema = z.object({
+  spaceId: z.string().uuid(),
+  runId: z.string().uuid(),
+  state: z.enum(['open', 'closed']),
+});
+export const GetKnowledgeDashboardRequestSchema = z.object({
+  spaceId: z.string().uuid(),
+  runId: z.string().uuid(),
+  sinceSequence: z.number().int().nonnegative().optional(),
 });
 
 export const WorkspaceRuntimeAvailabilitySchema = z.object({
@@ -1077,7 +1392,8 @@ export type GetUsageBudgetRequest = z.infer<
   typeof GetUsageBudgetRequestSchema
 >;
 export type TaskContract = z.infer<typeof TaskContractSchema>;
-export type AgentTaskContract = z.infer<typeof AgentTaskContractV5Schema>;
+export type AgentTaskContract = z.infer<typeof AgentTaskContractV6Schema>;
+export type ActivityContext = z.infer<typeof ActivityContextSchema>;
 export type AgentRuntimeKind = z.infer<typeof AgentRuntimeKindSchema>;
 export type ExecutionProfile = z.infer<typeof ExecutionProfileSchema>;
 export type InteractionMode = z.infer<typeof InteractionModeSchema>;
@@ -1123,6 +1439,40 @@ export type WorkspaceRuntimeAvailability = z.infer<
   typeof WorkspaceRuntimeAvailabilitySchema
 >;
 export type WorkspaceSelection = z.infer<typeof WorkspaceSelectionSchema>;
+export type KnowledgeCapabilities = z.infer<typeof KnowledgeCapabilitiesSchema>;
+export type KnowledgeGroup = z.infer<typeof KnowledgeGroupSchema>;
+export type KnowledgeGroupList = z.infer<typeof KnowledgeGroupListSchema>;
+export type CreateKnowledgeGroupRequest = z.infer<typeof CreateKnowledgeGroupRequestSchema>;
+export type CreateKnowledgeInviteRequest = z.infer<typeof CreateKnowledgeInviteRequestSchema>;
+export type KnowledgeInvite = z.infer<typeof KnowledgeInviteSchema>;
+export type RedeemKnowledgeInviteRequest = z.infer<typeof RedeemKnowledgeInviteRequestSchema>;
+export type RedeemKnowledgeInviteResponse = z.infer<typeof RedeemKnowledgeInviteResponseSchema>;
+export type KnowledgeSpaceSummary = z.infer<typeof KnowledgeSpaceSummarySchema>;
+export type KnowledgeSpaceList = z.infer<typeof KnowledgeSpaceListSchema>;
+export type CreateKnowledgeSpaceRequest = z.infer<typeof CreateKnowledgeSpaceRequestSchema>;
+export type CreateKnowledgeSpaceResponse = z.infer<typeof CreateKnowledgeSpaceResponseSchema>;
+export type KnowledgeSourceList = z.infer<typeof KnowledgeSourceListSchema>;
+export type SelectKnowledgeFilesRequest = z.infer<typeof SelectKnowledgeFilesRequestSchema>;
+export type KnowledgeFileSelection = z.infer<typeof KnowledgeFileSelectionSchema>;
+export type UploadKnowledgeSelectionRequest = z.infer<typeof UploadKnowledgeSelectionRequestSchema>;
+export type KnowledgeUploadResult = z.infer<typeof KnowledgeUploadResultSchema>;
+export type SaveKnowledgeActivityRequest = z.infer<typeof SaveKnowledgeActivityRequestSchema>;
+export type KnowledgeActivityDraft = z.infer<typeof KnowledgeActivityDraftSchema>;
+export type PublishKnowledgeActivityRequest = z.infer<typeof PublishKnowledgeActivityRequestSchema>;
+export type KnowledgeActivityVersion = z.infer<typeof KnowledgeActivityVersionSchema>;
+export type CreateKnowledgeRunRequest = z.infer<typeof CreateKnowledgeRunRequestSchema>;
+export type KnowledgeRun = z.infer<typeof KnowledgeRunSchema>;
+export type AssignedActivityList = z.infer<typeof AssignedActivityListSchema>;
+export type HostedAttemptContext = z.infer<typeof HostedAttemptContextSchema>;
+export type KnowledgeDashboard = z.infer<typeof KnowledgeDashboardSchema>;
+export type KnowledgeSpaceIdRequest = z.infer<typeof KnowledgeSpaceIdRequestSchema>;
+export type KnowledgeAttemptIdRequest = z.infer<typeof KnowledgeAttemptIdRequestSchema>;
+export type AcknowledgeKnowledgeAttemptRequest = z.infer<typeof AcknowledgeKnowledgeAttemptRequestSchema>;
+export type SetKnowledgeRunStateRequest = z.infer<typeof SetKnowledgeRunStateRequestSchema>;
+export type GetKnowledgeDashboardRequest = z.infer<typeof GetKnowledgeDashboardRequestSchema>;
+export type PrepareActivityStarterRequest = z.infer<typeof PrepareActivityStarterRequestSchema>;
+export type SubmitKnowledgeSelectionRequest = z.infer<typeof SubmitKnowledgeSelectionRequestSchema>;
+export type RequestKnowledgeAttemptHelp = z.infer<typeof RequestKnowledgeAttemptHelpSchema>;
 export type VoiceSegmentTranscription = z.infer<
   typeof VoiceSegmentTranscriptionSchema
 >;

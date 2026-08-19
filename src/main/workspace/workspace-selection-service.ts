@@ -34,7 +34,16 @@ export class WorkspaceSelectionService {
   async select(): Promise<WorkspaceSelection | null> {
     const selectedPath = await this.picker.pickDirectory();
     if (!selectedPath) return null;
-    const canonicalPath = await this.canonicalDirectory(selectedPath);
+    return this.registerTrustedDirectory(selectedPath);
+  }
+
+  async selectTrustedParent(): Promise<string | null> {
+    const selectedPath = await this.picker.pickDirectory();
+    return selectedPath ? this.canonicalDirectory(selectedPath) : null;
+  }
+
+  async registerTrustedDirectory(candidate: string): Promise<WorkspaceSelection> {
+    const canonicalPath = await this.canonicalDirectory(candidate);
     const identity: WorkspaceIdentity = {
       selectionId: randomUUID(),
       canonicalPath,

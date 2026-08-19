@@ -86,6 +86,17 @@ a least-privilege database role, access controls, and an explicit retention
 policy. Rich screenshot or document trajectory storage remains out of scope and
 should be opt-in and encrypted.
 
+Knowledge Spaces are the intentional exception for user-uploaded reusable
+Source content and structured Activity/evidence data. Source bytes are stored in
+a private S3-compatible bucket and extracted bounded chunks in PostgreSQL.
+Signed object URLs, object keys, checksums, local canonical paths, and Source
+bytes stay in trusted main/API memory and never cross the renderer bridge.
+Folder imports reject symlinks and expose only reviewed relative paths. A
+participant's local Workspace, screen, unsaved editor state, and ordinary task
+conversation are never uploaded. Submission always requires a separate exact
+file preview and user action. Agent evidence is policy-acknowledged, allowlisted,
+bounded, provenance-labeled, and cannot grade or change state.
+
 Local PostgreSQL binds only to `127.0.0.1:54320`, receives its generated
 password from Doppler at container startup, and persists data in a named Docker
 volume. The password and `DATABASE_URL` are not committed or compiled into the

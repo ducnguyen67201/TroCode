@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import {
   AgentTaskContractV5Schema,
+  AgentTaskContractV6Schema,
   AutonomyModeSchema,
   ExecutionProfileSchema,
   HOST_ALWAYS_CONFIRM_ACTIONS,
@@ -44,7 +45,7 @@ function currentApprovalPolicy() {
   return { alwaysConfirm: [...HOST_ALWAYS_CONFIRM_ACTIONS] };
 }
 
-function repairTransitionalV5(value: unknown): AgentTaskContract {
+function repairV5(value: unknown): AgentTaskContract {
   const goal = record(value);
   const limits = record(goal.limits);
   const workspace = goal.workspace === undefined
@@ -52,7 +53,7 @@ function repairTransitionalV5(value: unknown): AgentTaskContract {
     : WorkspaceIdentitySchema.nullable().parse(goal.workspace);
   const workspaceRuntime = workspace !== null;
 
-  return AgentTaskContractV5Schema.parse({
+  const v5 = AgentTaskContractV5Schema.parse({
     ...goal,
     approvalPolicy: goal.approvalPolicy ?? currentApprovalPolicy(),
     autonomyMode: AutonomyModeSchema.parse(goal.autonomyMode ?? 'balanced'),
@@ -79,13 +80,20 @@ function repairTransitionalV5(value: unknown): AgentTaskContract {
     schemaVersion: 5,
     workspace,
   });
+  return AgentTaskContractV6Schema.parse({
+    ...v5,
+    activity: null,
+    schemaVersion: 6,
+  });
 }
 
 function migrateGoal(value: unknown): GoalSpec {
   const goal = record(value);
   if (goal.schemaVersion === 5) {
-    const current = AgentTaskContractV5Schema.safeParse(goal);
-    return current.success ? current.data : repairTransitionalV5(goal);
+    return repairV5(goal);
+  }
+  if (goal.schemaVersion === 6) {
+    return AgentTaskContractV6Schema.parse(goal);
   }
   return TaskContractSchema.parse(goal);
 }

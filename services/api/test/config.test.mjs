@@ -74,3 +74,28 @@ test('loadConfig validates transcription duration pricing', () => {
     7_000,
   );
 });
+
+test('Knowledge Spaces defaults off and validates exact boolean values', () => {
+  assert.deepEqual(loadConfig(VALID_ENVIRONMENT).knowledgeSpaces, {
+    enabled: false,
+    objectStore: null,
+  });
+  assert.throws(
+    () => loadConfig({ ...VALID_ENVIRONMENT, TROCODE_KNOWLEDGE_SPACES_ENABLED: 'yes' }),
+    /must be true or false/u,
+  );
+  assert.throws(
+    () => loadConfig({ ...VALID_ENVIRONMENT, TROCODE_KNOWLEDGE_SPACES_ENABLED: 'true' }),
+    /TROCODE_KNOWLEDGE_S3_ACCESS_KEY_ID is required/u,
+  );
+  const enabled = loadConfig({
+    ...VALID_ENVIRONMENT,
+    TROCODE_KNOWLEDGE_SPACES_ENABLED: 'true',
+    TROCODE_KNOWLEDGE_S3_ACCESS_KEY_ID: 'key',
+    TROCODE_KNOWLEDGE_S3_BUCKET: 'private-content',
+    TROCODE_KNOWLEDGE_S3_REGION: 'us-east-1',
+    TROCODE_KNOWLEDGE_S3_SECRET_ACCESS_KEY: 'secret',
+  });
+  assert.equal(enabled.knowledgeSpaces.enabled, true);
+  assert.equal(enabled.knowledgeSpaces.objectStore.bucket, 'private-content');
+});

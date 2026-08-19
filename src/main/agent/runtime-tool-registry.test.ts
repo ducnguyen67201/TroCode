@@ -5,6 +5,34 @@ import { describe, expect, it } from 'vitest';
 import type { RuntimeToolDefinition } from './runtime-tool-registry';
 import { RuntimeToolRegistry } from './runtime-tool-registry';
 
+function activityGoal(insightPolicy: 'explicit_and_operational' | 'evidence_candidates') {
+  return {
+    schemaVersion: 6 as const,
+    id: randomUUID(),
+    originalRequest: 'Help with the Activity',
+    runtimeKind: 'openai_agents' as const,
+    executionProfile: 'everyday' as const,
+    autonomyMode: 'balanced' as const,
+    workspace: null,
+    activity: {
+      attemptId: randomUUID(), workSessionId: randomUUID(), activityVersionId: randomUUID(), runId: randomUUID(),
+      space: { id: randomUUID(), name: 'Incident response' },
+      activity: {
+        title: 'Triage drill', objective: 'Find the fault', instructions: 'Inspect safely.', launchTarget: 'none' as const,
+        guidancePolicy: { answerReveal: 'allowed' as const, hintMode: 'direct' as const, maxHintLevel: 3 },
+        criteria: [{ id: 'triage', title: 'Triage', description: '', tags: ['logs'] }],
+        completionPolicy: { requiresSubmission: false, requiresFacilitatorConfirmation: false },
+      },
+      insightPolicy,
+      insightPolicyVersion: '1', policyAcknowledged: insightPolicy === 'evidence_candidates',
+      sourceCatalog: [{ title: 'Runbook', role: 'reference' as const }],
+      priorProgress: { completedCriterionIds: [], sessionCount: 0, summary: 'No prior Work Sessions.' },
+    },
+    approvalPolicy: { alwaysConfirm: [] },
+    limits: { maxImages: 20, maxMicroUsd: 500_000, maxMinutes: 10, maxModelSamples: 40, maxToolCalls: 30 },
+  };
+}
+
 describe('RuntimeToolRegistry', () => {
   it('advertises only concrete host-installed model tools', () => {
     const registry = new RuntimeToolRegistry();
@@ -17,6 +45,19 @@ describe('RuntimeToolRegistry', () => {
       'request_user_input',
     ]);
     expect(registry.modelVisibleSpecs().every((tool) => tool.strict)).toBe(true);
+  });
+
+  it('exposes knowledge and evidence tools only for the trusted Activity policy', () => {
+    const registry = new RuntimeToolRegistry();
+    const normal = registry.modelVisibleSpecs({ taskId: randomUUID() }).map((tool) => tool.name);
+    const explicit = registry.modelVisibleSpecs({ goal: activityGoal('explicit_and_operational'), taskId: randomUUID() }).map((tool) => tool.name);
+    const evidence = registry.modelVisibleSpecs({ goal: activityGoal('evidence_candidates'), taskId: randomUUID() }).map((tool) => tool.name);
+    expect(normal).not.toContain('search_activity_knowledge');
+    expect(normal).not.toContain('record_activity_signal');
+    expect(explicit).toContain('search_activity_knowledge');
+    expect(explicit).not.toContain('record_activity_signal');
+    expect(evidence).toContain('search_activity_knowledge');
+    expect(evidence).toContain('record_activity_signal');
   });
 
   it('bounds each narrated guidance step to one concise 240-character instruction', () => {

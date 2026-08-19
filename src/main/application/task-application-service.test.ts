@@ -30,14 +30,17 @@ describe('TaskApplicationService', () => {
     expect(order).toEqual(['submit', 'start']);
     expect(runtime.submit).toHaveBeenCalledWith(
       {
+        activityAttemptId: null,
         executionProfile: 'everyday',
         text: 'Do useful work.',
         workspaceSelectionId: null,
       },
       {
+        activity: null,
         autonomyMode: 'balanced',
         executionProfile: 'everyday',
         runtimeKind: 'openai_agents',
+        taskId: expect.any(String),
         workspace: null,
       },
     );
@@ -79,12 +82,53 @@ describe('TaskApplicationService', () => {
 
     expect(resolve).toHaveBeenCalledWith(workspace.selectionId);
     expect(runtime.submit).toHaveBeenCalledWith(
-      expect.objectContaining({ executionProfile: 'workspace' }),
+      expect.objectContaining({ activityAttemptId: null, executionProfile: 'workspace' }),
       expect.objectContaining({
+        activity: null,
         autonomyMode: 'strict',
         runtimeKind: 'openai_agents',
+        taskId: expect.any(String),
         workspace,
       }),
     );
+  });
+
+  it('creates the hosted Work Session before compiling a trusted Activity contract', async () => {
+    const attemptId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const taskId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const activity = { workSessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' };
+    const order: string[] = [];
+    const inspect = vi.fn(async () => ({
+      attemptId,
+      definition: { launchTarget: 'current_surface' as const },
+    }));
+    const create = vi.fn(async (_attempt, allocatedTaskId) => {
+      order.push('create');
+      expect(allocatedTaskId).toMatch(/[0-9a-f-]{36}/u);
+      return activity;
+    });
+    const bind = vi.fn();
+    const runtime = {
+      submit: vi.fn((_request, options) => {
+        order.push('submit');
+        return { taskId: options.taskId };
+      }),
+    } as unknown as TaskRuntime;
+    const execution = {
+      start: vi.fn(({ taskId: allocatedTaskId }) => ({ taskId: allocatedTaskId, phase: 'planning' })),
+    } as unknown as TaskExecutionCoordinator;
+    const service = new TaskApplicationService(runtime, execution, {
+      activityContextService: { create, inspect } as never,
+      activityProgressReporter: { bind },
+    });
+    const result = await service.submitAndStart({
+      activityAttemptId: attemptId,
+      text: 'Why does this fail?',
+    });
+    expect(result.phase).toBe('planning');
+    expect(inspect).toHaveBeenCalledWith(attemptId);
+    expect(order).toEqual(['create', 'submit']);
+    expect(bind).toHaveBeenCalledWith(result.taskId, activity.workSessionId);
+    expect(result.taskId).not.toBe(taskId);
   });
 });

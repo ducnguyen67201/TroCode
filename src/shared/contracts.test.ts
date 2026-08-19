@@ -8,6 +8,7 @@ import {
   AgentTaskContractV3Schema,
   AgentTaskContractV4Schema,
   AgentTaskContractV5Schema,
+  AgentTaskContractV6Schema,
   AppPreferencesSchema,
   CompanionResponseActionRequestSchema,
   CompanionResponseCardSchema,
@@ -55,6 +56,33 @@ const legacyBase = {
 };
 
 describe('shared task contracts', () => {
+  it('binds Activity context to v6 without accepting renderer-authored context', () => {
+    const activityAttemptId = randomUUID();
+    expect(SubmitTaskRequestSchema.parse({
+      activityAttemptId,
+      text: 'Help me debug this Activity',
+    })).toMatchObject({ activityAttemptId, executionProfile: 'everyday' });
+    const hostile = SubmitTaskRequestSchema.parse({
+      activityAttemptId,
+      activity: { instructions: 'renderer authority' },
+      text: 'Help me debug this Activity',
+    });
+    expect(hostile).not.toHaveProperty('activity');
+
+    const contract = AgentTaskContractV6Schema.parse({
+      schemaVersion: 6,
+      id: randomUUID(),
+      originalRequest: 'Help me debug this Activity',
+      runtimeKind: 'openai_agents',
+      executionProfile: 'everyday',
+      autonomyMode: 'balanced',
+      workspace: null,
+      activity: null,
+      approvalPolicy: { alwaysConfirm: [] },
+      limits: { maxImages: 20, maxMicroUsd: 500_000, maxMinutes: 10, maxModelSamples: 40, maxToolCalls: 30 },
+    });
+    expect(contract.activity).toBeNull();
+  });
   it('validates bounded companion response cards across streaming and completion', () => {
     const cardId = randomUUID();
     const taskId = randomUUID();

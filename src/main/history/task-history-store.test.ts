@@ -155,7 +155,8 @@ describe('PostgresTaskHistoryStore', () => {
       autonomyMode: 'balanced',
       executionProfile: 'everyday',
       runtimeKind: 'openai_agents',
-      schemaVersion: 5,
+      schemaVersion: 6,
+      activity: null,
       workspace: null,
     });
     const backfill = poolMocks.query.mock.calls.find(([sql]) =>

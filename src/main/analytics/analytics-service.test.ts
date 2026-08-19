@@ -219,7 +219,7 @@ describe('AnalyticsService', () => {
     expect(serializedEvents).not.toContain('/Users/example');
     expect(client.events.at(-1)?.properties).toMatchObject({
       autonomy_mode: 'balanced',
-      contract_version: 5,
+      contract_version: 6,
       execution_profile: 'workspace',
       runtime_kind: 'openai_agents',
     });

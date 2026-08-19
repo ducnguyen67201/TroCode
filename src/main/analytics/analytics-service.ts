@@ -205,7 +205,7 @@ export class AnalyticsService {
     const goalProperties: AnalyticsProperties = snapshot.goal
       ? {
           contract_version: snapshot.goal.schemaVersion,
-          ...(snapshot.goal.schemaVersion === 5
+          ...(snapshot.goal.schemaVersion === 5 || snapshot.goal.schemaVersion === 6
             ? {
                 autonomy_mode: snapshot.goal.autonomyMode,
                 execution_profile: snapshot.goal.executionProfile,

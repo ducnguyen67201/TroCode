@@ -42,6 +42,40 @@ import {
   VoiceStatusSchema,
   WorkspaceRuntimeAvailabilitySchema,
   WorkspaceSelectionSchema,
+  KnowledgeCapabilitiesSchema,
+  KnowledgeSpaceListSchema,
+  CreateKnowledgeSpaceRequestSchema,
+  CreateKnowledgeSpaceResponseSchema,
+  KnowledgeSpaceSummarySchema,
+  KnowledgeSourceListSchema,
+  KnowledgeSpaceIdRequestSchema,
+  SelectKnowledgeFilesRequestSchema,
+  KnowledgeFileSelectionSchema,
+  UploadKnowledgeSelectionRequestSchema,
+  KnowledgeUploadResultSchema,
+  SaveKnowledgeActivityRequestSchema,
+  KnowledgeActivityDraftSchema,
+  PublishKnowledgeActivityRequestSchema,
+  KnowledgeActivityVersionSchema,
+  CreateKnowledgeRunRequestSchema,
+  KnowledgeRunSchema,
+  SetKnowledgeRunStateRequestSchema,
+  AssignedActivityListSchema,
+  KnowledgeAttemptIdRequestSchema,
+  HostedAttemptContextSchema,
+  AcknowledgeKnowledgeAttemptRequestSchema,
+  GetKnowledgeDashboardRequestSchema,
+  KnowledgeDashboardSchema,
+  PrepareActivityStarterRequestSchema,
+  SubmitKnowledgeSelectionRequestSchema,
+  KnowledgeGroupListSchema,
+  CreateKnowledgeGroupRequestSchema,
+  KnowledgeGroupSchema,
+  CreateKnowledgeInviteRequestSchema,
+  KnowledgeInviteSchema,
+  RedeemKnowledgeInviteRequestSchema,
+  RedeemKnowledgeInviteResponseSchema,
+  RequestKnowledgeAttemptHelpSchema,
 } from './shared/contracts';
 import {
   IPC_CHANNELS,
@@ -50,6 +84,151 @@ import {
 } from './shared/desktop-api';
 
 const desktopApi: DesktopApi = {
+  async getKnowledgeCapabilities() {
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.getKnowledgeCapabilities);
+    return KnowledgeCapabilitiesSchema.parse(response);
+  },
+
+  async listKnowledgeSpaces() {
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.listKnowledgeSpaces);
+    return KnowledgeSpaceListSchema.parse(response);
+  },
+
+  async createKnowledgeSpace(input) {
+    const request = CreateKnowledgeSpaceRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.createKnowledgeSpace, request);
+    return CreateKnowledgeSpaceResponseSchema.parse(response);
+  },
+
+  async getKnowledgeSpace(spaceId) {
+    const request = KnowledgeSpaceIdRequestSchema.parse({ spaceId });
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.getKnowledgeSpace, request);
+    return KnowledgeSpaceSummarySchema.parse(response);
+  },
+
+  async listKnowledgeSources(spaceId) {
+    const request = KnowledgeSpaceIdRequestSchema.parse({ spaceId });
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.listKnowledgeSources, request);
+    return KnowledgeSourceListSchema.parse(response);
+  },
+
+  async selectKnowledgeFiles(input) {
+    const request = SelectKnowledgeFilesRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.selectKnowledgeFiles, request);
+    return response === null ? null : KnowledgeFileSelectionSchema.parse(response);
+  },
+
+  async uploadKnowledgeSelection(input) {
+    const request = UploadKnowledgeSelectionRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.uploadKnowledgeSelection, request);
+    return KnowledgeUploadResultSchema.parse(response);
+  },
+
+  async saveKnowledgeActivity(input) {
+    const request = SaveKnowledgeActivityRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.saveKnowledgeActivity, request);
+    return KnowledgeActivityDraftSchema.parse(response);
+  },
+
+  async publishKnowledgeActivity(input) {
+    const request = PublishKnowledgeActivityRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.publishKnowledgeActivity, request);
+    return KnowledgeActivityVersionSchema.parse(response);
+  },
+
+  async createKnowledgeRun(input) {
+    const request = CreateKnowledgeRunRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.createKnowledgeRun, request);
+    return KnowledgeRunSchema.parse(response);
+  },
+
+  async setKnowledgeRunState(input) {
+    const request = SetKnowledgeRunStateRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.setKnowledgeRunState, request);
+    return KnowledgeRunSchema.parse(response);
+  },
+
+  async listAssignedActivities() {
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.listAssignedActivities);
+    return AssignedActivityListSchema.parse(response);
+  },
+
+  async getHostedAttempt(attemptId) {
+    const request = KnowledgeAttemptIdRequestSchema.parse({ attemptId });
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.getHostedAttempt, request);
+    return HostedAttemptContextSchema.parse(response);
+  },
+
+  async acknowledgeHostedAttempt(input) {
+    const request = AcknowledgeKnowledgeAttemptRequestSchema.parse(input);
+    await ipcRenderer.invoke(IPC_CHANNELS.acknowledgeHostedAttempt, request);
+  },
+
+  async getKnowledgeDashboard(input) {
+    const request = GetKnowledgeDashboardRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(IPC_CHANNELS.getKnowledgeDashboard, request);
+    return KnowledgeDashboardSchema.parse(response);
+  },
+
+  async prepareActivityStarter(input) {
+    const request = PrepareActivityStarterRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.prepareActivityStarter,
+      request,
+    );
+    return response === null ? null : WorkspaceSelectionSchema.parse(response);
+  },
+
+  async submitKnowledgeSelection(input) {
+    const request = SubmitKnowledgeSelectionRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.submitKnowledgeSelection,
+      request,
+    );
+    return KnowledgeUploadResultSchema.parse(response);
+  },
+
+  async listKnowledgeGroups(spaceId) {
+    const request = KnowledgeSpaceIdRequestSchema.parse({ spaceId });
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.listKnowledgeGroups,
+      request,
+    );
+    return KnowledgeGroupListSchema.parse(response);
+  },
+
+  async createKnowledgeGroup(input) {
+    const request = CreateKnowledgeGroupRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.createKnowledgeGroup,
+      request,
+    );
+    return KnowledgeGroupSchema.parse(response);
+  },
+
+  async createKnowledgeInvite(input) {
+    const request = CreateKnowledgeInviteRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.createKnowledgeInvite,
+      request,
+    );
+    return KnowledgeInviteSchema.parse(response);
+  },
+
+  async redeemKnowledgeInvite(input) {
+    const request = RedeemKnowledgeInviteRequestSchema.parse(input);
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.redeemKnowledgeInvite,
+      request,
+    );
+    return RedeemKnowledgeInviteResponseSchema.parse(response);
+  },
+
+  async requestKnowledgeAttemptHelp(input) {
+    const request = RequestKnowledgeAttemptHelpSchema.parse(input);
+    await ipcRenderer.invoke(IPC_CHANNELS.requestKnowledgeAttemptHelp, request);
+  },
+
   onAgentActivity(listener) {
     const eventHandler = (
       _event: Electron.IpcRendererEvent,

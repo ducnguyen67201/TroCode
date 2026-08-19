@@ -892,6 +892,356 @@ html.voice-island-mode #root {
   }
 }
 
+.knowledge-page {
+  width: min(1180px, calc(100% - 64px));
+  margin: 0 auto;
+  padding: 46px 0 80px;
+}
+
+.knowledge-heading,
+.section-heading-row,
+.knowledge-actions,
+.workspace-launch-options,
+.attempt-support-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.knowledge-heading {
+  margin-bottom: 28px;
+}
+
+.knowledge-heading h1 {
+  margin: 4px 0 8px;
+  font-size: clamp(30px, 4vw, 48px);
+  letter-spacing: -0.04em;
+}
+
+.knowledge-heading p,
+.space-panel > p,
+.knowledge-empty p,
+.attempt-support-action span {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.knowledge-create,
+.space-panel,
+.attempt-instructions,
+.submission-panel,
+.policy-disclosure,
+.attempt-sources,
+.dashboard-insight {
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.knowledge-create {
+  display: grid;
+  margin-bottom: 18px;
+  align-items: end;
+  gap: 10px;
+  grid-template-columns: minmax(180px, 1fr) auto;
+}
+
+.knowledge-create label {
+  grid-column: 1 / -1;
+}
+
+.knowledge-page label,
+.knowledge-actions label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.knowledge-page input,
+.knowledge-page select,
+.knowledge-page textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+.knowledge-page input[type="checkbox"] {
+  width: auto;
+}
+
+.space-grid,
+.assignment-list,
+.group-list,
+.dashboard-insight ul,
+.attempt-sources ul,
+.upload-preview ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.space-grid,
+.assignment-list {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.space-grid button,
+.assignment-list button {
+  display: grid;
+  width: 100%;
+  min-height: 170px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--text);
+  gap: 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.space-grid button:hover,
+.assignment-list button:hover {
+  border-color: var(--accent-strong);
+  transform: translateY(-1px);
+}
+
+.space-role,
+.knowledge-status,
+.workspace-selection-chip {
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.knowledge-status--ready {
+  background: #deeedb;
+  color: #295f2f;
+}
+
+.space-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.space-tabs button[aria-selected="true"] {
+  border-color: var(--accent-strong);
+  background: var(--accent);
+}
+
+.space-panel {
+  margin-top: 14px;
+}
+
+.section-heading-row h2,
+.space-panel h2,
+.attempt-instructions h2,
+.submission-panel h2 {
+  margin: 4px 0 8px;
+}
+
+.knowledge-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.knowledge-table {
+  width: 100%;
+  margin-top: 18px;
+  border-collapse: collapse;
+}
+
+.knowledge-table th,
+.knowledge-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.knowledge-table td small,
+.knowledge-table td strong {
+  display: block;
+}
+
+.knowledge-empty,
+.upload-preview,
+.invite-code {
+  margin-top: 18px;
+  padding: 22px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface-soft);
+}
+
+.upload-preview li,
+.group-list li,
+.attempt-sources li,
+.dashboard-insight li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.activity-form-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.activity-form-wide,
+.source-picker {
+  grid-column: 1 / -1;
+}
+
+.source-picker {
+  display: grid;
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  gap: 8px;
+}
+
+.source-picker label {
+  display: flex;
+}
+
+.back-link {
+  margin-bottom: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.attempt-instructions,
+.attempt-policy,
+.policy-disclosure,
+.attempt-sources,
+.workspace-launch-options,
+.submission-panel,
+.launch-prompt,
+.attempt-support-action {
+  margin-bottom: 16px;
+}
+
+.attempt-instructions p {
+  white-space: pre-wrap;
+}
+
+.attempt-policy {
+  display: grid;
+  margin-top: 0;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.attempt-policy div,
+.dashboard-lanes div {
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.attempt-policy dt,
+.attempt-policy dd {
+  margin: 0;
+}
+
+.attempt-policy dt {
+  margin-bottom: 6px;
+  color: var(--subtle);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.policy-disclosure {
+  display: flex !important;
+  align-items: flex-start;
+}
+
+.policy-disclosure strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.dashboard-lanes {
+  display: grid;
+  margin: 18px 0;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+.dashboard-lanes strong,
+.dashboard-lanes span {
+  display: block;
+}
+
+.dashboard-lanes strong {
+  font-size: 28px;
+}
+
+.dashboard-insight {
+  margin: 12px 0;
+  box-shadow: none;
+}
+
+.invite-code code {
+  display: block;
+  margin-top: 8px;
+  font-size: 18px;
+  user-select: all;
+}
+
+.activity-context-chip {
+  display: grid;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent-strong);
+  background: var(--surface-soft);
+}
+
+.activity-context-chip span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 1100px) {
+  .knowledge-page {
+    width: calc(100% - 48px);
+  }
+
+  .space-grid,
+  .assignment-list,
+  .activity-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .attempt-policy {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .guidance-target-marker {
   position: relative;
   width: 100%;

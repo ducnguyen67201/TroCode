@@ -16,11 +16,21 @@ import { PostgresRateLimiter } from './rate-limit-repository.mjs';
 import { createApiHandler } from './server.mjs';
 import { PostgresSessionRepository } from './session-repository.mjs';
 import { PostgresUsageRepository } from './usage-repository.mjs';
+import { PostgresKnowledgeSpaceRepository } from './knowledge-space-repository.mjs';
+import { PostgresKnowledgeSourceRepository } from './knowledge-source-repository.mjs';
+import { PostgresActivityRepository } from './activity-repository.mjs';
+import { S3ObjectStore } from './s3-object-store.mjs';
+import { KnowledgeUploadService } from './knowledge-upload-service.mjs';
+import { KnowledgeSpaceService } from './knowledge-space-service.mjs';
+import { ActivityService } from './activity-service.mjs';
+import { KnowledgeSearchService } from './knowledge-search-service.mjs';
+import { InsightService } from './insight-service.mjs';
+import { KnowledgeSpaceHttpController } from './knowledge-space-http-controller.mjs';
 
 const config = loadConfig();
 const pool = new pg.Pool({
   connectionString: config.databaseUrl,
-  max: 10,
+  max: config.databasePoolMax,
   ssl:
     process.env.NODE_ENV === 'production'
       ? { rejectUnauthorized: false }
@@ -56,6 +66,40 @@ const transcriptionService = new OpenAiTranscriptionService({
   budgetService,
   openAiApiKey: config.openAiApiKey,
 });
+const spaceRepository = new PostgresKnowledgeSpaceRepository(pool);
+const sourceRepository = new PostgresKnowledgeSourceRepository(pool);
+const activityRepository = new PostgresActivityRepository(pool);
+const objectStore = config.knowledgeSpaces.enabled
+  ? new S3ObjectStore(config.knowledgeSpaces.objectStore)
+  : null;
+const uploadService = objectStore
+  ? new KnowledgeUploadService({ objectStore, sourceRepository })
+  : null;
+const spaceService = uploadService
+  ? new KnowledgeSpaceService({
+      hmacKey: config.sessionTokenHmacKey,
+      sourceRepository,
+      spaceRepository,
+      uploadService,
+    })
+  : null;
+const activityService = spaceService
+  ? new ActivityService({ activityRepository, objectStore, spaceService, uploadService })
+  : null;
+const knowledgeController = new KnowledgeSpaceHttpController({
+  accessCodeRepository,
+  activityService,
+  enabled: config.knowledgeSpaces.enabled,
+  insightService: activityService
+    ? new InsightService({ activityRepository, spaceService })
+    : null,
+  rateLimiter,
+  searchService: config.knowledgeSpaces.enabled
+    ? new KnowledgeSearchService(pool)
+    : null,
+  sessionRepository,
+  spaceService,
+});
 const handler = createApiHandler({
   accessCodeRepository,
   agentTurnService,
@@ -69,6 +113,7 @@ const handler = createApiHandler({
       return false;
     }
   },
+  knowledgeController,
   rateLimiter,
   sessionRepository,
   transcriptionService,

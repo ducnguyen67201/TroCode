@@ -301,6 +301,7 @@ export function createApiHandler({
   config,
   fetchImpl = fetch,
   healthCheck,
+  knowledgeController = null,
   rateLimiter,
   sessionRepository,
   transcriptionService,
@@ -334,6 +335,13 @@ export function createApiHandler({
           database: ready ? 'ok' : 'unavailable',
           status: ready ? 'ok' : 'degraded',
         });
+        return;
+      }
+
+      if (
+        knowledgeController &&
+        (await knowledgeController.handle({ request, response, url }))
+      ) {
         return;
       }
 

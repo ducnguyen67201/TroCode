@@ -41,7 +41,10 @@ import {
 } from './execution-contracts';
 import { GuidancePlaybackController } from './guidance-playback';
 import { evaluateAction } from './policy';
-import { RuntimeToolDispatcher } from './runtime-tool-dispatcher';
+import {
+  RuntimeToolDispatcher,
+  type RuntimeToolExecutionAdapter,
+} from './runtime-tool-dispatcher';
 import {
   defaultRuntimeToolRegistry,
   type DesktopControlToolInput,
@@ -67,6 +70,7 @@ import {
 
 interface ExecutionCoordinatorOptions {
   actionPreviewLanguage?: () => AppLanguage | Promise<AppLanguage>;
+  additionalToolAdapters?: readonly RuntimeToolExecutionAdapter[];
   approvalObservationMatches?: (
     approved: DesktopObservation,
     current: DesktopObservation,
@@ -346,13 +350,13 @@ function resultOutput(
   observation?: DesktopObservation,
 ): AgentToolOutput {
   const resultObservation = observation ?? result.observation;
-  const rawData = result.data ? JSON.stringify(result.data) : undefined;
-  const safeData =
-    rawData && rawData.length <= 100_000 ? result.data : undefined;
+  const serializedData = result.data ? JSON.stringify(result.data) : '';
   const description = JSON.stringify({
     status: result.status,
     summary: result.summary,
-    ...(safeData ? { data: safeData } : {}),
+    ...(serializedData.length > 0 && serializedData.length <= 12_000
+      ? { data: result.data }
+      : {}),
     ...(resultObservation
       ? {
           observationId: resultObservation.observationId,
@@ -547,6 +551,7 @@ export class TaskExecutionCoordinator {
 
   constructor({
     actionPreviewLanguage = () => 'en',
+    additionalToolAdapters = [],
     agent,
     agentRuntimeFactory,
     approvalObservationMatches = (approved, current) =>
@@ -655,6 +660,7 @@ export class TaskExecutionCoordinator {
             );
           },
         },
+        ...additionalToolAdapters,
       ]);
   }
 
@@ -830,7 +836,7 @@ export class TaskExecutionCoordinator {
     const signal = context.controller.signal;
     const snapshot = this.runtime.getSnapshot(taskId);
     if (!snapshot.goal) throw new Error('Task has no agent contract.');
-    if (snapshot.goal.schemaVersion !== 5) {
+    if (snapshot.goal.schemaVersion !== 6) {
       throw new Error('Persisted legacy tasks cannot be resumed after the runtime cutover.');
     }
     if (context.initialized) return;
@@ -967,7 +973,8 @@ export class TaskExecutionCoordinator {
     if (
       snapshot.goal.executionProfile !== 'workspace' &&
       !context.walkthrough.enabled &&
-      shouldCaptureInitialDesktopObservation(snapshot.request)
+      (snapshot.goal.activity?.activity.launchTarget === 'current_surface' ||
+        shouldCaptureInitialDesktopObservation(snapshot.request))
     ) {
       const semanticObservationAvailable = this.toolRegistry
         .modelVisibleSpecs()
@@ -1014,7 +1021,11 @@ export class TaskExecutionCoordinator {
       emitActivity: (activity) => this.onActivity(taskId, activity),
       signal,
       taskId,
-      tools: this.toolRegistry.modelVisibleSpecs(),
+      tools: this.toolRegistry.modelVisibleSpecs({
+        goal: snapshot.goal,
+        taskId,
+        latestObservation: context.latestObservation,
+      }),
     });
     if (context.walkthrough.enabled && context.walkthrough.completedSteps === 0) {
       this.runtime.resumePlanning(
@@ -1764,7 +1775,7 @@ export class TaskExecutionCoordinator {
     const snapshot = this.runtime.getSnapshot(taskId);
     if (!snapshot.goal) throw new Error('Task has no agent contract.');
     const maxImages =
-      snapshot.goal.schemaVersion === 4 || snapshot.goal.schemaVersion === 5
+      snapshot.goal.schemaVersion === 4 || snapshot.goal.schemaVersion === 5 || snapshot.goal.schemaVersion === 6
         ? snapshot.goal.limits.maxImages
         : 20;
     await this.ensureDesktopSession(taskId, context);

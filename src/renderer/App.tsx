@@ -27,16 +27,19 @@ import type {
   VoiceStatus,
   WorkspaceRuntimeAvailability,
   WorkspaceSelection,
+  SubmitTaskRequest,
 } from '../shared/contracts';
 import { VOICE_TRANSCRIPTION_MODEL } from '../shared/contracts';
 
 import { acceptAgentActivity } from './agent-activity-projection';
 import { appLanguageLabel, translate } from './app-language';
+import { navigationTitle, type ActiveView } from './app-navigation';
 import { approvalDetails } from './approval-details';
 import { AppUpdateButton } from './AppUpdateButton';
 import { BrandMark } from './BrandMark';
 import { HistoryPage } from './HistoryPage';
 import { InsightsPage } from './InsightsPage';
+import { KnowledgeHubPage } from './KnowledgeHubPage';
 import {
   isPrimaryLanguageSetupComplete,
   primaryLanguageLabel,
@@ -105,8 +108,6 @@ const STEERABLE_PHASES = new Set([
   'blocked',
 ]);
 
-type ActiveView = 'agent' | 'history' | 'insights' | 'settings';
-
 function appendUniqueEvent(
   currentEvents: TaskEvent[],
   event: TaskEvent,
@@ -151,7 +152,7 @@ function mergeTaskEvents(
 function NavigationIcon({
   name,
 }: {
-  name: 'activity' | 'agent' | 'history' | 'insights' | 'settings';
+  name: 'activity' | 'agent' | 'assigned' | 'history' | 'insights' | 'settings' | 'spaces';
 }) {
   if (name === 'agent') {
     return (
@@ -178,6 +179,14 @@ function NavigationIcon({
         <circle cx="18.5" cy="14.5" r="4" />
       </svg>
     );
+  }
+
+  if (name === 'spaces') {
+    return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6.5h7l2 2h9v10H3z" /><path d="M3 10h18" /></svg>;
+  }
+
+  if (name === 'assigned') {
+    return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 3h12v18H6z" /><path d="m9 12 2 2 4-5M9 7h6" /></svg>;
   }
 
   if (name === 'settings') {
@@ -416,7 +425,7 @@ function LiveTaskRail({
           <span>
             {goal?.schemaVersion === 2
               ? formatLabel(goal.behavior, appLanguage)
-              : goal?.schemaVersion === 5
+              : goal?.schemaVersion === 5 || goal?.schemaVersion === 6
                 ? goal.executionProfile === 'workspace'
                   ? t('Workspace agent')
                   : t('Everyday agent')
@@ -465,6 +474,12 @@ function LiveTaskRail({
           <details className="live-task-details">
             <summary>{t('Task details')}</summary>
             <div className="live-task-details__content">
+              {goal.schemaVersion === 6 && goal.activity && (
+                <div className="activity-context-chip">
+                  <span>{goal.activity.space.name}</span>
+                  <strong>{goal.activity.activity.title}</strong>
+                </div>
+              )}
               <div>
                 <span className="field-label">{t('Execution')}</span>
                 <p>
@@ -761,6 +776,7 @@ export function App({
   onSignOut: () => void;
 }) {
   const [activeView, setActiveView] = useState<ActiveView>('agent');
+  const [knowledgeSpacesEnabled, setKnowledgeSpacesEnabled] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [input, setInput] = useState('');
   const [voiceTranscript, setVoiceTranscript] = useState('');
@@ -1004,6 +1020,13 @@ export function App({
       .getUsageBudget()
       .then(setUsageBudget)
       .catch(() => undefined);
+
+    void window.tro
+      .getKnowledgeCapabilities()
+      .then((capabilities) => {
+        setKnowledgeSpacesEnabled(capabilities.knowledgeSpaces.enabled);
+      })
+      .catch(() => setKnowledgeSpacesEnabled(false));
 
     void window.tro
       .getTaskHistory()
@@ -1406,6 +1429,7 @@ export function App({
           setStreamingDraft('');
           recordSnapshot(null);
           nextSnapshot = await window.tro.submitTask({
+            activityAttemptId: null,
             executionProfile,
             text: normalizedRequest,
             workspaceSelectionId:
@@ -1441,6 +1465,45 @@ export function App({
       snapshot,
       workspaceSelection,
     ],
+  );
+
+  const launchKnowledgeActivity = useCallback(
+    async (request: SubmitTaskRequest) => {
+      if (isSubmitting || isSendingRef.current) return;
+
+      isSendingRef.current = true;
+      clearError();
+      setIsSubmitting(true);
+      try {
+        const activeSnapshot = latestSnapshotRef.current;
+        if (activeSnapshot && !TERMINAL_PHASES.has(activeSnapshot.phase)) {
+          recordSnapshot(await window.tro.cancelTask(activeSnapshot.taskId));
+        }
+
+        activeTaskIdRef.current = null;
+        setEvents([]);
+        setAgentActivities([]);
+        setAgentActivity(null);
+        setStreamingDraft('');
+        recordSnapshot(null);
+
+        const nextSnapshot = await window.tro.submitTask(request);
+        activeTaskIdRef.current = nextSnapshot.taskId;
+        recordSnapshot(nextSnapshot);
+        setActiveView('agent');
+      } catch (launchError) {
+        reportError(
+          launchError instanceof Error
+            ? launchError.message
+            : 'The Activity could not be started.',
+        );
+        throw launchError;
+      } finally {
+        isSendingRef.current = false;
+        setIsSubmitting(false);
+      }
+    },
+    [clearError, isSubmitting, recordSnapshot, reportError],
   );
 
   const decideApproval = useCallback(
@@ -1851,6 +1914,44 @@ export function App({
             <NavigationIcon name="agent" />
             <span className="sidebar-item-label">{t('Agent')}</span>
           </button>
+          {knowledgeSpacesEnabled && (
+            <>
+              <button
+                aria-label={t('Knowledge Spaces')}
+                aria-current={activeView === 'spaces' ? 'page' : undefined}
+                className={`nav-item ${
+                  activeView === 'spaces' ? 'nav-item--active' : ''
+                }`}
+                onClick={() => setActiveView('spaces')}
+                title={
+                  isSidebarCollapsed ? t('Knowledge Spaces') : undefined
+                }
+                type="button"
+              >
+                <NavigationIcon name="spaces" />
+                <span className="sidebar-item-label">
+                  {t('Knowledge Spaces')}
+                </span>
+              </button>
+              <button
+                aria-label={t('Assigned Activities')}
+                aria-current={activeView === 'assigned' ? 'page' : undefined}
+                className={`nav-item ${
+                  activeView === 'assigned' ? 'nav-item--active' : ''
+                }`}
+                onClick={() => setActiveView('assigned')}
+                title={
+                  isSidebarCollapsed ? t('Assigned Activities') : undefined
+                }
+                type="button"
+              >
+                <NavigationIcon name="assigned" />
+                <span className="sidebar-item-label">
+                  {t('Assigned Activities')}
+                </span>
+              </button>
+            </>
+          )}
           <button
             aria-label={t('History')}
             aria-current={activeView === 'history' ? 'page' : undefined}
@@ -1884,7 +1985,7 @@ export function App({
           <nav aria-label={t('Observe')}>
             <span className="nav-label">{t('Observe')}</span>
             <button
-              aria-label={t('Live activity')}
+              aria-label={t('Current task')}
               className="nav-item"
               onClick={() => {
                 setActiveView('agent');
@@ -1896,11 +1997,11 @@ export function App({
                   0,
                 );
               }}
-              title={isSidebarCollapsed ? t('Live activity') : undefined}
+              title={isSidebarCollapsed ? t('Current task') : undefined}
               type="button"
             >
               <NavigationIcon name="activity" />
-              <span className="sidebar-item-label">{t('Live activity')}</span>
+              <span className="sidebar-item-label">{t('Current task')}</span>
               <span className="nav-count">{events.length}</span>
             </button>
           </nav>
@@ -1937,13 +2038,7 @@ export function App({
         <header className="topbar">
           <div className="topbar-title">
             <span className="topbar-kicker">
-              {activeView === 'agent'
-                ? t('General-purpose agent')
-                : activeView === 'history'
-                  ? t('Session task record')
-                : activeView === 'insights'
-                  ? t('Private on-device summary')
-                  : t('Personal preferences')}
+              {navigationTitle(activeView, appLanguageDraft).kicker}
             </span>
             <strong>
               {activeView === 'agent'
@@ -1955,9 +2050,7 @@ export function App({
                         : '{count} finished tasks',
                       { count: historyTaskCount },
                     )
-                : activeView === 'insights'
-                  ? t('Insights overview')
-                  : t('Language & settings')}
+                  : navigationTitle(activeView, appLanguageDraft).title}
             </strong>
           </div>
           <div className="topbar-actions">
@@ -1999,7 +2092,13 @@ export function App({
           </div>
         </header>
 
-        {activeView === 'history' ? (
+        {activeView === 'spaces' || activeView === 'assigned' ? (
+          <KnowledgeHubPage
+            appLanguage={appLanguageDraft}
+            mode={activeView}
+            onLaunch={launchKnowledgeActivity}
+          />
+        ) : activeView === 'history' ? (
           <HistoryPage
             appLanguage={appLanguageDraft}
             events={sessionEvents}

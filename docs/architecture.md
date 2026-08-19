@@ -11,7 +11,7 @@ parsers, policy metadata, adapters, cancellation, and budgets.
 flowchart LR
     UI["Sandboxed React renderer"] -->|"Narrow DesktopApi"| PRELOAD["Validated preload"]
     PRELOAD -->|"Authenticated IPC"| MAIN["Electron main"]
-    MAIN --> RUNTIME["Task runtime v5 supervisor"]
+    MAIN --> RUNTIME["Task runtime v6 supervisor"]
     RUNTIME --> FACTORY{"Host-selected profile"}
     FACTORY -->|"Everyday or Workspace"| AGENT["OpenAI Agents SDK Runner + bounded Session"]
     AGENT -->|"Workspace only; exact approval"| WORKSPACE["Local shell + apply_patch in selected root"]
@@ -22,6 +22,10 @@ flowchart LR
     API --> ELEVEN["Optional ElevenLabs TTS"]
     MAIN -->|"One-time trocode-audio ticket"| PRELOAD
     API --> SESSIONS["PostgreSQL sessions"]
+    API --> SPACES["PostgreSQL Knowledge Spaces"]
+    API --> OBJECTS["Private S3-compatible Source bytes"]
+    WORKER["Separate ingestion worker"] --> OBJECTS
+    WORKER --> SPACES
     AGENT -->|"Assistant candidate"| REVIEW["One completion checkpoint when contextual"]
     REVIEW -->|"Complete"| DONE["Task complete"]
     REVIEW -->|"More work"| AGENT
@@ -33,10 +37,14 @@ flowchart LR
 
 ## Assistant-or-tool loop
 
-A new request creates a host-owned `TaskContract` v5 containing the original
+A new request creates a host-owned `TaskContract` v6 containing the original
 request, explicit runtime kind, execution profile, autonomy preference, optional
 trusted workspace identity, fixed exact-approval policy, and resource ceilings.
 It contains no model-authored authority. Both profiles map to OpenAI Agents.
+The optional Activity field is host-resolved from a private Attempt and pins an
+immutable definition, evidence policy, compact source catalog, and bounded prior
+progress. Normal tasks carry `activity: null` and receive no knowledge/evidence
+tools. See [Knowledge Spaces](knowledge-spaces.md).
 Workspace additionally receives local tools only after the main-process
 directory picker canonicalizes and records the selected root. Patch operations
 are root-confined; the explicitly approved local shell starts at that root but
@@ -173,7 +181,7 @@ installed clients and can be removed after the legacy client window closes.
 
 ## Persistence and analytics
 
-PostgreSQL stores validated snapshots and lifecycle events. Persisted v1-v4
+PostgreSQL stores validated snapshots and lifecycle events. Persisted v1-v5
 contracts remain readable as legacy history but cannot resume through the new
 runtime; new tasks emit v5 contracts and tool-call progress. Transitional v5
 and former Codex Workspace snapshots are repaired onto the backend SDK runtime,
@@ -198,5 +206,7 @@ its matching target.
 
 The local PostgreSQL task-history adapter remains a development foundation. The
 hosted PostgreSQL database stores users, revocable device-session digests, cost
-reservations, and sanitized immutable usage events. It does not receive task
-history, prompts, model outputs, screenshots, or desktop action payloads.
+reservations, sanitized immutable usage events, and intentional Knowledge Space
+metadata/content indexes. Uploaded Source bytes live in a private object store.
+The hosted service still does not receive ordinary task history, prompts, model
+outputs, screenshots, unsaved buffers, or desktop action payloads.
