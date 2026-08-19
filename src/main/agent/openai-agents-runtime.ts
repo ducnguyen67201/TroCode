@@ -125,6 +125,11 @@ function initialRunInput(input: AgentRuntimeStart): string | AgentInputItem[] {
     observationId: observation.observationId,
     capturedAt: observation.capturedAt,
     degraded: observation.degraded,
+    coordinateSystem: {
+      units: 'normalized 0-1000 image coordinates',
+      rule:
+        'Measure x from left to right and y from top to bottom; never raw screenshot pixels.',
+    },
     text: observation.text,
     structuredState: observation.structuredState,
   });
