@@ -8,8 +8,8 @@ plan file was used.
 ## User journeys
 
 1. As a local developer, I can use TroCode without membership setup.
-2. As a hosted packaged-app user, I finish login and permissions, enter a
-   shared access code, and reach the workspace only if capacity remains.
+2. As a hosted packaged-app user, I finish login, immediately see the shared
+   access-code field, and reach permission onboarding only after activation.
 3. As the administrator, I can create `CODEA` with a ten-account limit without
    writing database rows manually or storing plaintext codes.
 4. As the product owner, I need each Google account tied to one code and need
@@ -37,6 +37,11 @@ plan file was used.
 - RED: code creation required manual database knowledge.
 - GREEN: `npm run access-code:create` applies migrations and stores only the
   normalized keyed HMAC digest plus its user limit.
+- RED: a fresh packaged install delayed membership lookup and the access-code
+  field until language and Windows permission onboarding completed.
+- GREEN: membership lookup now starts immediately after Google sign-in, the
+  membership gate takes precedence, and CUA permission inspection stays idle
+  until access is active.
 
 ## Test specification
 
@@ -56,6 +61,7 @@ plan file was used.
 | 12 | A code at its user limit rejects new accounts while existing accounts remain active | `server.test.mjs` | Integration | PASS |
 | 13 | Hosted model, realtime, and speech proxies deny authenticated users without a redemption | `server.test.mjs` | Integration/security | PASS |
 | 14 | All checked-in SQL migrations run in order | `migrate.test.mjs` | Unit | PASS |
+| 15 | A signed-in user sees membership before first-run language and permission onboarding | `membership.test.ts` | Unit/regression | PASS |
 
 ## Coverage and known gaps
 

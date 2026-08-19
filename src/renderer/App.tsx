@@ -41,7 +41,7 @@ import {
   isPrimaryLanguageSetupComplete,
   primaryLanguageLabel,
 } from './language-options';
-import { membershipAllowsAccess } from './membership';
+import { appEntryGate } from './membership';
 import { MembershipGate } from './MembershipGate';
 import {
   createPermissionChecklist,
@@ -858,6 +858,13 @@ export function App({
     ) => translate(appLanguageDraft, message, replacements),
     [appLanguageDraft],
   );
+  const languageSetupComplete =
+    isPrimaryLanguageSetupComplete(appPreferences, preferencesLoaded);
+  const entryGate = appEntryGate({
+    languageSetupComplete,
+    membershipStatus,
+  });
+  const membershipAccessAllowed = entryGate !== 'membership';
 
   const clearError = useCallback(() => {
     dispatchTransientCursorError({ type: 'cleared' });
@@ -1086,6 +1093,8 @@ export function App({
   }, [appLanguageDraft]);
 
   useEffect(() => {
+    if (!membershipAccessAllowed) return;
+
     const handleWindowFocus = (): void => {
       queueMicrotask(() => void refreshPermissions());
     };
@@ -1102,7 +1111,7 @@ export function App({
       window.removeEventListener('focus', handleWindowFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [refreshPermissions]);
+  }, [membershipAccessAllowed, refreshPermissions]);
 
   const pendingInteraction = snapshot?.pendingInteraction ?? null;
   const pendingClarification =
@@ -1176,9 +1185,6 @@ export function App({
       ),
     [computerStatus, computerStatusLoaded, microphonePermission],
   );
-  const languageSetupComplete =
-    isPrimaryLanguageSetupComplete(appPreferences, preferencesLoaded);
-  const membershipAccessAllowed = membershipAllowsAccess(membershipStatus);
   const agentReady = voiceProviderStatus.state === 'ready';
   const selectedTaskRuntimeReady = agentReady;
   const voiceReady =
@@ -1212,8 +1218,6 @@ export function App({
   }, []);
 
   useEffect(() => {
-    if (!languageSetupComplete) return;
-
     const handleWindowFocus = (): void => {
       void refreshMembership();
     };
@@ -1223,7 +1227,7 @@ export function App({
       membershipRefreshIdRef.current += 1;
       window.removeEventListener('focus', handleWindowFocus);
     };
-  }, [languageSetupComplete, refreshMembership]);
+  }, [refreshMembership]);
 
   useEffect(() => {
     if (membershipStatus?.state !== 'active' || !membershipStatus.expiresAt) {
@@ -1746,7 +1750,23 @@ export function App({
     return () => window.removeEventListener('keydown', handleEscape, true);
   }, [stopTask]);
 
-  if (!languageSetupComplete) {
+  if (entryGate === 'membership') {
+    return (
+      <MembershipGate
+        appLanguage={appLanguageDraft}
+        error={membershipError}
+        isActivating={isActivatingMembership}
+        isChecking={isCheckingMembership}
+        isSigningOut={isSigningOut}
+        onActivate={(code) => void activateMembership(code)}
+        onRefresh={() => void refreshMembership()}
+        onSignOut={onSignOut}
+        status={membershipStatus}
+      />
+    );
+  }
+
+  if (entryGate === 'permissions') {
     return (
       <PermissionOnboarding
         appLanguage={appLanguageDraft}
@@ -1763,22 +1783,6 @@ export function App({
         }
         onRefresh={() => void refreshPermissions()}
         primaryLanguage={languageDraft}
-      />
-    );
-  }
-
-  if (!membershipAccessAllowed) {
-    return (
-      <MembershipGate
-        appLanguage={appLanguageDraft}
-        error={membershipError}
-        isActivating={isActivatingMembership}
-        isChecking={isCheckingMembership}
-        isSigningOut={isSigningOut}
-        onActivate={(code) => void activateMembership(code)}
-        onRefresh={() => void refreshMembership()}
-        onSignOut={onSignOut}
-        status={membershipStatus}
       />
     );
   }

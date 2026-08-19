@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { MembershipStatus } from '../shared/contracts';
 
 import {
+  appEntryGate,
   formatMembershipExpiry,
   membershipAllowsAccess,
 } from './membership';
@@ -21,6 +22,27 @@ function membershipStatus(
 }
 
 describe('membership presentation policy', () => {
+  it('shows membership before first-run language and permission onboarding', () => {
+    expect(
+      appEntryGate({
+        languageSetupComplete: false,
+        membershipStatus: membershipStatus({ state: 'inactive' }),
+      }),
+    ).toBe('membership');
+    expect(
+      appEntryGate({
+        languageSetupComplete: false,
+        membershipStatus: membershipStatus({ state: 'active' }),
+      }),
+    ).toBe('permissions');
+    expect(
+      appEntryGate({
+        languageSetupComplete: true,
+        membershipStatus: membershipStatus({ state: 'active' }),
+      }),
+    ).toBe('workspace');
+  });
+
   it('admits active production memberships and local development bypasses', () => {
     expect(
       membershipAllowsAccess(membershipStatus({ state: 'active' })),
