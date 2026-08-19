@@ -57,6 +57,49 @@ describe('RuntimeToolRegistry', () => {
     expect(region?.anyOf?.[1]).toEqual({ type: 'null' });
   });
 
+  it('defines every visual coordinate in one explicit normalized image space', () => {
+    const tools = new RuntimeToolRegistry().modelVisibleSpecs();
+    const guidance = tools.find((tool) => tool.name === 'show_guidance');
+    const control = tools.find((tool) => tool.name === 'control_desktop');
+    const coordinateDescription =
+      'Normalized image coordinate from 0 to 1000; do not use screenshot pixels.';
+    const guidanceProperties = guidance?.parameters.properties as
+      | Record<string, Record<string, unknown>>
+      | undefined;
+    const guidanceRegion = guidanceProperties?.region as
+      | {
+          anyOf?: Array<{
+            properties?: Record<string, Record<string, unknown>>;
+          }>;
+        }
+      | undefined;
+    const controlVariants = (
+      control?.parameters.properties.command as {
+        anyOf?: Array<{
+          properties?: Record<string, Record<string, unknown>>;
+        }>;
+      }
+    ).anyOf;
+
+    expect(guidance?.description).toContain('normalized 0-1000 image space');
+    expect(control?.description).toContain('normalized 0-1000 image space');
+    expect(guidanceProperties?.x?.description).toBe(coordinateDescription);
+    expect(guidanceProperties?.y?.description).toBe(coordinateDescription);
+    for (const axis of ['x', 'y', 'width', 'height']) {
+      expect(guidanceRegion?.anyOf?.[0]?.properties?.[axis]?.description).toBe(
+        coordinateDescription,
+      );
+    }
+    for (const variant of controlVariants ?? []) {
+      const properties = variant.properties ?? {};
+      for (const axis of ['x', 'y', 'fromX', 'fromY', 'toX', 'toY']) {
+        if (properties[axis]) {
+          expect(properties[axis]?.description).toBe(coordinateDescription);
+        }
+      }
+    }
+  });
+
   it('publishes provider-compatible strict command variants that correlate consequences', () => {
     const controlTool = new RuntimeToolRegistry()
       .modelVisibleSpecs()
