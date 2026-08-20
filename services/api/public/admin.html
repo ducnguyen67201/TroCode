@@ -215,6 +215,7 @@
                     <th scope="col">Label</th>
                     <th scope="col">Plan</th>
                     <th scope="col">Usage</th>
+                    <th scope="col">Who&rsquo;s using it</th>
                     <th scope="col">Created</th>
                     <th scope="col">Status</th>
                   </tr>
@@ -299,6 +300,29 @@
         <div class="dialog-actions">
           <button class="button button--secondary" id="done-results" type="button">Done</button>
           <button class="button button--primary" id="copy-codes" type="button">Copy all</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog class="code-users-dialog" id="code-users-dialog" aria-labelledby="code-users-title">
+      <div class="dialog-card">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Access activity</p>
+            <h2 id="code-users-title">Who&rsquo;s using it</h2>
+          </div>
+          <button class="icon-button" id="close-code-users-dialog" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="dialog-copy" id="code-users-summary">Loading users…</p>
+        <div class="code-users-list" id="code-users-list" aria-live="polite"></div>
+        <div class="code-users-empty" id="code-users-empty" hidden>
+          <span class="empty-icon" aria-hidden="true">◎</span>
+          <h3>No users yet</h3>
+          <p>This code has not been redeemed.</p>
+        </div>
+        <div class="dialog-actions">
+          <button class="button button--secondary" id="close-code-users" type="button">Close</button>
+          <button class="button button--primary" id="load-more-code-users" type="button" hidden>Load more</button>
         </div>
       </div>
     </dialog>

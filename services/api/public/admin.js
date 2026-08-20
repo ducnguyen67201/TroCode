@@ -8,6 +8,9 @@
     codeLoading: false,
     codeSearch: '',
     codeStatus: '',
+    codeUsers: [],
+    codeUsersLoading: false,
+    codeUsersTotal: 0,
     codeSummary: {
       availableCodes: 0,
       fullCodes: 0,
@@ -37,6 +40,8 @@
     availableCodes: byId('available-codes'),
     blockedUsers: byId('blocked-users'),
     cancelCodeDialog: byId('cancel-code-dialog'),
+    closeCodeUsers: byId('close-code-users'),
+    closeCodeUsersDialog: byId('close-code-users-dialog'),
     closeCodeDialog: byId('close-code-dialog'),
     closeResultDialog: byId('close-result-dialog'),
     codeDialog: byId('code-dialog'),
@@ -50,12 +55,17 @@
     codesEmptyState: byId('codes-empty-state'),
     codesLoadMore: byId('codes-load-more'),
     codeStatusFilter: byId('code-status-filter'),
+    codeUsersDialog: byId('code-users-dialog'),
+    codeUsersEmpty: byId('code-users-empty'),
+    codeUsersList: byId('code-users-list'),
+    codeUsersSummary: byId('code-users-summary'),
     copyCodes: byId('copy-codes'),
     doneResults: byId('done-results'),
     emptyState: byId('empty-state'),
     fullCodes: byId('full-codes'),
     generateCodes: byId('generate-codes'),
     loadMore: byId('load-more'),
+    loadMoreCodeUsers: byId('load-more-code-users'),
     lockDashboard: byId('lock-dashboard'),
     loginError: byId('login-error'),
     loginForm: byId('login-form'),
@@ -214,6 +224,19 @@
       'usage-cell',
       `${item.redeemedUsers.toLocaleString()} / ${item.maxUsers.toLocaleString()}`,
     );
+    const usersCell = document.createElement('td');
+    if (item.redeemedUsers === 0) {
+      usersCell.append(element('span', 'code-users-none', 'No users'));
+    } else {
+      const viewUsers = element(
+        'button',
+        'row-action row-action--users',
+        `View ${item.redeemedUsers.toLocaleString()} user${item.redeemedUsers === 1 ? '' : 's'}`,
+      );
+      viewUsers.type = 'button';
+      viewUsers.addEventListener('click', () => openCodeUsersDialog(item));
+      usersCell.append(viewUsers);
+    }
     const createdCell = element('td', '', dateLabel(item.createdAt));
     const statusCell = document.createElement('td');
     statusCell.append(
@@ -223,8 +246,95 @@
         item.status,
       ),
     );
-    row.append(codeCell, labelCell, planCell, usageCell, createdCell, statusCell);
+    row.append(
+      codeCell,
+      labelCell,
+      planCell,
+      usageCell,
+      usersCell,
+      createdCell,
+      statusCell,
+    );
     return row;
+  }
+
+  function codeUserRow(user) {
+    const row = element('article', 'code-user-row');
+    const identity = element('div', 'user-cell');
+    identity.append(
+      element('span', 'avatar', initials(user.name || '', user.email)),
+    );
+    const identityText = document.createElement('span');
+    identityText.append(
+      element('span', 'user-name', user.name || 'Unnamed user'),
+      element('span', 'user-email', user.email),
+    );
+    identity.append(identityText);
+    const details = element('div', 'code-user-details');
+    details.append(
+      element('span', 'code-user-redeemed', `Redeemed ${dateLabel(user.redeemedAt)}`),
+      element(
+        'span',
+        `status-badge status-badge--${user.status}`,
+        user.status,
+      ),
+    );
+    row.append(identity, details);
+    return row;
+  }
+
+  function renderCodeUsers(code) {
+    elements.codeUsersSummary.textContent = `${code.label || 'Unlabelled code'} · ${code.plan} plan · ${state.codeUsersTotal.toLocaleString()} of ${code.maxUsers.toLocaleString()} seats used`;
+    elements.codeUsersList.replaceChildren(...state.codeUsers.map(codeUserRow));
+    elements.codeUsersEmpty.hidden =
+      state.codeUsers.length > 0 || state.codeUsersLoading;
+    elements.loadMoreCodeUsers.hidden =
+      state.codeUsers.length >= state.codeUsersTotal;
+    elements.loadMoreCodeUsers.disabled = state.codeUsersLoading;
+  }
+
+  async function loadCodeUsers(code, { append = false } = {}) {
+    if (state.codeUsersLoading) return;
+    state.codeUsersLoading = true;
+    elements.loadMoreCodeUsers.disabled = true;
+    const offset = append ? state.codeUsers.length : 0;
+    const parameters = new URLSearchParams({
+      limit: String(PAGE_SIZE),
+      offset: String(offset),
+    });
+    try {
+      const result = await request(
+        `/v1/admin/access-codes/${encodeURIComponent(code.id)}/users?${parameters}`,
+      );
+      state.codeUsers = append
+        ? [...state.codeUsers, ...result.items]
+        : result.items;
+      state.codeUsersTotal = result.page.total;
+      renderCodeUsers(result.code);
+    } finally {
+      state.codeUsersLoading = false;
+      elements.loadMoreCodeUsers.disabled = false;
+    }
+  }
+
+  function openCodeUsersDialog(code) {
+    state.codeUsers = [];
+    state.codeUsersTotal = code.redeemedUsers;
+    elements.codeUsersList.replaceChildren();
+    elements.codeUsersEmpty.hidden = true;
+    elements.codeUsersSummary.textContent = 'Loading users…';
+    elements.codeUsersDialog.dataset.codeId = code.id;
+    elements.codeUsersDialog.showModal();
+    loadCodeUsers(code).catch((error) => {
+      elements.codeUsersSummary.textContent = error.message;
+      elements.codeUsersEmpty.hidden = false;
+    });
+  }
+
+  function closeCodeUsersDialog() {
+    state.codeUsers = [];
+    state.codeUsersTotal = 0;
+    elements.codeUsersDialog.close();
   }
 
   function render() {
@@ -442,6 +552,9 @@
   }
 
   function showLogin() {
+    for (const dialog of document.querySelectorAll('dialog[open]')) {
+      dialog.close();
+    }
     state.token = '';
     state.users = [];
     state.accessCodes = [];
@@ -514,6 +627,18 @@
   elements.copyCodes.addEventListener('click', copyCodes);
   elements.closeResultDialog.addEventListener('click', closeResultDialog);
   elements.doneResults.addEventListener('click', closeResultDialog);
+  elements.closeCodeUsersDialog.addEventListener('click', closeCodeUsersDialog);
+  elements.closeCodeUsers.addEventListener('click', closeCodeUsersDialog);
+  elements.loadMoreCodeUsers.addEventListener('click', () => {
+    const code = state.accessCodes.find(
+      (item) => item.id === elements.codeUsersDialog.dataset.codeId,
+    );
+    if (code) {
+      loadCodeUsers(code, { append: true }).catch((error) =>
+        showToast(error.message),
+      );
+    }
+  });
   elements.statusFilter.addEventListener('change', () => {
     state.status = elements.statusFilter.value;
     loadUsers().catch((error) => showToast(error.message));

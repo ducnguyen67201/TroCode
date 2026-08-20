@@ -59,6 +59,16 @@ function publicAccessCode(row, hmacKey) {
   };
 }
 
+function publicAccessCodeUser(row) {
+  return {
+    email: row.email,
+    id: row.id,
+    name: row.name,
+    redeemedAt: iso(row.redeemed_at),
+    status: row.blocked_at ? 'blocked' : 'active',
+  };
+}
+
 function assertCreateInput({ count, label, maxUsers, plan }) {
   if (!Number.isInteger(count) || count < 1 || count > MAX_CODES_PER_BATCH) {
     throw new Error(`count must be an integer from 1 to ${MAX_CODES_PER_BATCH}.`);
@@ -274,6 +284,50 @@ export class PostgresAdminRepository {
         totalCodes: Number(summary.total_codes ?? 0),
         totalRedemptions: Number(summary.total_redemptions ?? 0),
       },
+    };
+  }
+
+  async listAccessCodeUsers(codeId, { limit, offset }) {
+    const codeResult = await this.pool.query(
+      `SELECT codes.id,
+              codes.label,
+              codes.max_users,
+              codes.plan,
+              COUNT(redemptions.user_id)::INTEGER AS redeemed_users
+       FROM access_codes AS codes
+       LEFT JOIN access_code_redemptions AS redemptions
+         ON redemptions.access_code_id = codes.id
+       WHERE codes.id = $1
+       GROUP BY codes.id, codes.label, codes.max_users, codes.plan`,
+      [codeId],
+    );
+    const code = codeResult.rows[0];
+    if (!code) return null;
+
+    const usersResult = await this.pool.query(
+      `SELECT users.id,
+              users.email,
+              users.name,
+              users.blocked_at,
+              redemptions.redeemed_at
+       FROM access_code_redemptions AS redemptions
+       INNER JOIN users ON users.id = redemptions.user_id
+       WHERE redemptions.access_code_id = $1
+       ORDER BY redemptions.redeemed_at DESC, users.id
+       LIMIT $2 OFFSET $3`,
+      [codeId, limit, offset],
+    );
+    const redeemedUsers = Number(code.redeemed_users ?? 0);
+    return {
+      code: {
+        id: code.id,
+        label: code.label ?? null,
+        maxUsers: Number(code.max_users),
+        plan: code.plan,
+        redeemedUsers,
+      },
+      items: usersResult.rows.map(publicAccessCodeUser),
+      page: { limit, offset, total: redeemedUsers },
     };
   }
 

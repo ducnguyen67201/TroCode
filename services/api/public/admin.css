@@ -603,6 +603,16 @@ tbody tr:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.code-users-none {
+  color: #909991;
+  font-size: 11px;
+}
+
+.row-action--users {
+  min-width: 88px;
+  color: #315d3c;
+}
+
 .row-action {
   min-width: 67px;
   min-height: 30px;
@@ -778,6 +788,57 @@ dialog::backdrop {
   color: #7d887f;
   font-size: 10px;
   text-transform: capitalize;
+}
+
+.code-users-dialog {
+  width: min(calc(100% - 32px), 660px);
+}
+
+.code-users-list {
+  display: grid;
+  max-height: 390px;
+  gap: 8px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.code-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid #e2e6df;
+  border-radius: 12px;
+  background: #fafbf8;
+  padding: 12px 13px;
+}
+
+.code-user-details {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.code-user-redeemed {
+  color: #7d887f;
+  font-size: 10px;
+}
+
+.code-users-empty {
+  padding: 28px 16px 12px;
+  text-align: center;
+}
+
+.code-users-empty h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.code-users-empty p {
+  margin: 0;
+  color: #8a948c;
+  font-size: 12px;
 }
 
 .toast {
@@ -970,6 +1031,35 @@ dialog::backdrop {
     max-width: calc(100vw - 170px);
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .access-codes-table tbody tr {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .access-codes-table tbody td:nth-child(3),
+  .access-codes-table tbody td:nth-child(4),
+  .access-codes-table tbody td:nth-child(6) {
+    display: none;
+  }
+
+  .access-codes-table tbody td:nth-child(5) {
+    display: block;
+  }
+
+  .access-codes-table tbody td:nth-child(7) {
+    justify-self: end;
+  }
+
+  .code-user-row,
+  .code-user-details {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .code-user-details {
+    gap: 7px;
+    padding-left: 47px;
   }
 }
 

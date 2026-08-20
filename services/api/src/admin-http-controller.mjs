@@ -36,6 +36,8 @@ const ADMIN_FAVICON = readFileSync(
 );
 const USER_ACCESS_PATH =
   /^\/v1\/admin\/users\/(?<userId>[^/]{1,768})\/access$/u;
+const ACCESS_CODE_USERS_PATH =
+  /^\/v1\/admin\/access-codes\/(?<codeId>[^/]{1,128})\/users$/u;
 
 const UserAccessSchema = z
   .object({ blocked: z.boolean() })
@@ -282,6 +284,30 @@ export class AdminHttpController {
           ...(status ? { status } : {}),
         }),
       );
+      return true;
+    }
+
+    const accessCodeUsersMatch = ACCESS_CODE_USERS_PATH.exec(path);
+    if (request.method === 'GET' && accessCodeUsersMatch?.groups?.codeId) {
+      const codeId = parse(
+        z.string().uuid(),
+        accessCodeUsersMatch.groups.codeId,
+      );
+      const limit = positiveInteger(url.searchParams.get('limit'), 50, {
+        max: 100,
+        min: 1,
+      });
+      const offset = positiveInteger(url.searchParams.get('offset'), 0, {
+        max: 100_000,
+      });
+      const result = await this.repository.listAccessCodeUsers(codeId, {
+        limit,
+        offset,
+      });
+      if (!result) {
+        throw new HttpError(404, 'Access code not found.', 'code_not_found');
+      }
+      sendJson(response, 200, result);
       return true;
     }
 
