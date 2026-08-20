@@ -1,0 +1,47 @@
+[package]
+name = "tro-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "tro_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+keyring.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tauri.workspace = true
+tauri-plugin-dialog.workspace = true
+tauri-plugin-global-shortcut.workspace = true
+tauri-plugin-opener.workspace = true
+tauri-plugin-process.workspace = true
+tauri-plugin-single-instance.workspace = true
+tauri-plugin-stronghold.workspace = true
+tauri-plugin-updater.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tro-agent.workspace = true
+tro-contracts.workspace = true
+tro-cua.workspace = true
+tro-desktop-core.workspace = true
+tro-domain.workspace = true
+uuid.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

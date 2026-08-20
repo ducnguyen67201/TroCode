@@ -1,0 +1,11 @@
+[build]
+target-dir = "target"
+
+[target.'cfg(target_os = "macos")']
+# The native CUA SDK links Swift concurrency through @rpath. Point macOS
+# binaries at the OS-provided Swift runtime so tests and packaged apps do not
+# depend on an Xcode installation at runtime.
+rustflags = ["-C", "link-arg=-Wl,-rpath,/usr/lib/swift"]
+
+[term]
+color = "always"

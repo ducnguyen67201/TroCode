@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Tro",
+  "version": "0.1.6",
+  "identifier": "com.trocode.app",
+  "build": {
+    "beforeDevCommand": "npm run dev:renderer",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build:renderer",
+    "frontendDist": "../dist-renderer"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; media-src 'self' asset: http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost"
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "Tro",
+        "width": 1180,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 620,
+        "center": true,
+        "resizable": true,
+        "visible": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "category": "Productivity",
+    "copyright": "Copyright © 2026 Duc Ng",
+    "shortDescription": "A general-purpose, goal-driven desktop agent.",
+    "targets": "all",
+    "icon": [
+      "../src/assets/trocode-app-icon.png",
+      "../src/assets/trocode-app-icon.ico",
+      "../src/assets/trocode-app-icon.icns"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "entitlements": "Entitlements.plist"
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" }
+    }
+  }
+}

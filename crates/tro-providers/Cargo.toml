@@ -1,0 +1,23 @@
+[package]
+name = "tro-providers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+bytes.workspace = true
+futures-util.workspace = true
+http.workspace = true
+mime.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tro-domain.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

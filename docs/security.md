@@ -1,171 +1,79 @@
 # Security model
 
-TroCode has unusually powerful local permissions. The model is treated as an untrusted tool chooser operating inside a trusted host policy.
+Tro treats the renderer, model output, screen content, websites, source files,
+provider responses, and network errors as untrusted.
 
-## Trust boundaries
+## Desktop boundary
 
-- The React renderer is sandboxed and unprivileged.
-- The preload exposes a fixed, typed API rather than raw Electron IPC.
-- The main process validates the sending renderer and parses all payloads.
-- Only trusted main-process code creates and destroys the CUA runtime.
-- A model cannot register a tool, approve an action, alter host limits, or make
-  a private/local browser target admissible.
-- A model cannot select a runtime, choose or expand a workspace, change the
-  trusted root, grant itself an approval, or operate TroCode approval controls.
+- Tauri runs with Node integration absent. The renderer uses only the narrow
+  `DesktopApi` adapter.
+- Capabilities are scoped per window and every Rust command checks its invoking
+  window label and validates bounded input again.
+- OAuth uses loopback PKCE, state, and nonce. The Rust host exchanges the Google
+  token for an opaque device session and never exposes either token to React.
+- Device credentials are encrypted in a Stronghold snapshot. A random 256-bit
+  Stronghold master secret is kept by Keychain, Windows Credential Manager, or
+  the Linux Secret Service through the Rust keyring adapter. Existing Electron
+  secrets are not decrypted or copied; the first Tauri upgrade requires one
+  new sign-in.
+- Preferences are atomically stored in the app config directory with owner-only
+  permissions on Unix. Provider secrets never enter desktop builds.
 
-## Default behavior
+## Agent and local actions
 
-- Google sign-in opens in the system browser and uses a random loopback port,
-  state, nonce, and PKCE. The main process verifies the ID token signature,
-  issuer, audience, timestamps, nonce, and verified-email claim.
-- The renderer receives only an allowlisted user ID, email, display name, and
-  sign-in status. OAuth codes and tokens never cross the preload boundary. For
-  hosted builds, the Railway API independently verifies the Google ID token and
-  exchanges it for a random opaque device token. Electron `safeStorage`
-  encrypts that token locally; PostgreSQL stores only its HMAC digest. Sign-out
-  revokes the server session and deletes the local copy.
-- On macOS, launch checks Accessibility and Screen Recording state without
-  prompting. Text work does not require microphone or CUA permissions.
-  Push-to-talk requests microphone access when used; desktop work pauses until
-  the user clicks Connect computer. Model output cannot open System Settings.
-- Packaged builds without a hosted API require an active membership after language setup.
-  The renderer can inspect and submit membership codes only through narrow,
-  schema-validated IPC. The main process verifies an Ed25519 signature, binds
-  the signed payload to a reference derived from the verified Google user ID,
-  checks its expiry, and rechecks membership before task and voice operations.
-  Local development bypasses this gate; legacy packaged builds fail closed if
-  the public verification key is absent. Hosted builds authorize access through
-  the revocable Google-backed device session instead of an offline activation.
-- Assistant text and tool calls share one model session. A model tool call is a
-  proposal, not permission or proof that an effect occurred.
-- Consequential actions require explicit approval. Balanced autonomy permits
-  routine click, drag, text entry, keypress, and scroll while the action remains
-  grounded and in scope. The pure host classifier can raise risk from normalized
-  action identity, declared consequence, opaque/stale state, and visible
-  destructive, financial, credential, submission, or permission cues. Strict
-  autonomy additionally confirms routine desktop mutations. Untrusted content
-  can raise risk but can never lower it or satisfy approval.
-- Remote navigation and creation of unexpected Electron windows are denied.
-- Current actions are bounded by registered tool operations, public-target
-  checks, task budgets, fresh observations, and exact approvals. A task does
-  not gain authority from a keyword, domain label, or model-produced capability
-  string.
-- Semantic browser/accessibility data is parsed and bounded in Electron main.
-  The model receives only normalized surface facts and observation-local opaque
-  references; raw process/window/tab IDs, driver tokens, snapshots, and the
-  generic CUA call surface never cross into preload or renderer.
-- Browser-profile attachment is never implicit. A one-use authorization broker
-  defaults to deny and grants only an already-approved exact session,
-  operation, and resource digest. Semantic approval revalidation can only
-  rebind a uniquely matching target on the unchanged surface.
+- The host owns tool registration, consequence classification, workspace roots,
+  budgets, lifecycle state, and approval digests.
+- A model tool call is a proposal, not authority. Consequential actions require
+  approval of the exact argument digest; changing arguments invalidates it.
+- Tro's own windows cannot self-approve. Approval denial is returned to the
+  model as a denial and does not execute the action.
+- CUA commands require a fresh observation identifier and fingerprint.
+- Workspace paths reject absolute paths, parent traversal, and symlink escape.
+  Reads and output are bounded; writes are staged; delete/write/command actions
+  require exact approval.
+- Public navigation accepts HTTPS only and rejects credentials, IP literals,
+  localhost, private, link-local, `.local`, and `.internal` targets.
+- An uncertain consequential result is terminal and is never retried blindly.
 
-Workspace mode uses the authenticated TroCode backend; it never asks the user
-for a Codex login, ChatGPT subscription, or OpenAI API key. The trusted
-main-process picker canonicalizes one directory and returns only an opaque
-selection ID to the renderer. SDK patch operations resolve paths against that
-canonical root, reject lexical and symlink escapes, bound file and patch sizes,
-and require a single-use exact approval. SDK shell operations start in the root,
-receive only an allowlisted OS environment, and require exact approval for the
-full bounded command list. TroCode, provider, database, analytics, and release
-secrets are not inherited. A command is host code after the user approves it,
-so the approval card displays the full command or patch and is the permission
-boundary rather than an implicit session-wide grant. The shell is not an OS
-sandbox: it starts in the selected directory, but an approved command can use
-absolute paths or the network. Patch operations, unlike shell commands, are
-structurally confined to the selected root.
+## Hosted boundary
 
-## Sensitive data
+- Axum applies request IDs, security headers, content/body bounds, origin
+  policy, generic public errors, authentication/access gates, and rate limits.
+- PostgreSQL calls use bound parameters through one SeaORM-owned pool. Locks and
+  transaction boundaries preserve idempotency, quota, spend, invite, run, and
+  worker correctness.
+- Paid provider calls reserve integer micro-USD budget before dispatch and
+  settle, release, or mark uncertainty after the result. Provider errors and
+  payloads are not returned verbatim.
+- Knowledge objects are private. Tickets name exact objects and expire quickly;
+  completion reconciles size, media type, and checksum using HEAD before work is
+  admitted.
+- The worker revalidates downloaded bytes and keeps extracted source content out
+  of logs.
+- Admin API requests require either the configured bearer secret or a signed,
+  30-day `HttpOnly`, `Secure`, `SameSite=Strict` session cookie plus a
+  same-origin browser request. Blocking an account atomically records an audit
+  event and revokes every active device session.
+- Access-code lookup remains a keyed HMAC. New retrievable copies are sealed
+  with AES-256-GCM, bind the digest as associated data, and use a distinct
+  production encryption key. Legacy digest-only rows remain valid and are never
+  fabricated into plaintext.
 
-Screenshots, URLs, document text, file paths, typed input, voice transcripts,
-model reasoning, and raw tool arguments may contain private data. Do not write
-them to analytics logs. Task-history persistence is enabled only when the operator configures
-`DATABASE_URL`. It stores task requests, conversations, goal scope, and
-lifecycle outcomes under the verified Google user ID, but not raw screenshots,
-OAuth tokens, or model-provider credentials. Hosted connections must use TLS,
-a least-privilege database role, access controls, and an explicit retention
-policy. Rich screenshot or document trajectory storage remains out of scope and
-should be opt-in and encrypted.
+## Logs and analytics
 
-Knowledge Spaces are the intentional exception for user-uploaded reusable
-Source content and structured Activity/evidence data. Source bytes are stored in
-a private S3-compatible bucket and extracted bounded chunks in PostgreSQL.
-Signed object URLs, object keys, checksums, local canonical paths, and Source
-bytes stay in trusted main/API memory and never cross the renderer bridge.
-Folder imports reject symlinks and expose only reviewed relative paths. A
-participant's local Workspace, screen, unsaved editor state, and ordinary task
-conversation are never uploaded. Submission always requires a separate exact
-file preview and user action. Agent evidence is policy-acknowledged, allowlisted,
-bounded, provenance-labeled, and cannot grade or change state.
+Rust processes use structured `tracing` with allowlisted IDs, enums, counts,
+latency, and public error codes. Do not log prompts, responses, transcripts,
+screenshots, file contents or paths, URLs, commands, tool arguments, object keys,
+signed URLs, tokens, cookies, credentials, or database connection strings.
 
-Local PostgreSQL binds only to `127.0.0.1:54320`, receives its generated
-password from Doppler at container startup, and persists data in a named Docker
-volume. The password and `DATABASE_URL` are not committed or compiled into the
-application. Production database credentials and network policy are deliberately
-separate from this development setup.
+The previous PostHog backend integration was removed during the migration. No
+desktop behavioral analytics are emitted by the Rust host in this release.
 
-PostHog runs only in the trusted Electron main process. Its event surface is an
-explicit allowlist of application lifecycle, task phase, contract/runtime/profile
-labels, first-delta latency, tool ID/operation, and count fields. Voice events
-contain only character count. Partial text, command text, arguments, paths, and
-approval descriptions are excluded.
-CUA performance events contain only the fixed route, operation name, bounded
-duration, screenshot-present boolean, fallback enum, and effect status. They do
-not include titles, URLs, code, visible text, typed text, filesystem paths,
-identifiers, resources, screenshots, or raw arguments.
-Anonymous activity uses a random local installation ID without a person
-profile. Email and display name are sent only after successful Google
-authentication.
+## Production secrets
 
-Do not ship a shared model-provider API key inside the renderer, Electron main,
-or application bundle. Production OpenAI and optional ElevenLabs keys are
-injected into the Railway API only. Electron sends its opaque device session to
-fixed, HTTPS provider-proxy endpoints; provider credentials never reach the
-desktop. Responses streaming is SDK-driven behind the host broker. Voice audio
-crosses the narrow preload boundary only as a schema-bounded base64 PCM WAV
-segment with UUIDs, sequence, and claimed duration. The hosted API parses mono,
-16 kHz, PCM16 WAV structure and authoritative duration before reserving spend;
-raw audio and transcript text are never persisted or added to structured logs.
-MP3 bytes stream through a `trocode-audio://speech/<UUID>` protocol handler
-owned by Electron main. Tickets are short-lived, one-use, bounded, and served
-with `Cache-Control: no-store`; they contain no session or provider credential.
-Playback reports are fixed-enum payloads accepted only from the current guidance
-renderer main frame. Timing logs contain IDs, counts, status, and fixed reasons,
-not guidance text, provider bodies, credentials, or audio bytes.
-
-The Tro device credential is deliberately not a JWT. Tokens contain no user
-claims and are useful only through the API; PostgreSQL-backed digest lookup
-supports immediate revocation and rotation. Public endpoints reject browser
-origins, validate content types and body sizes, apply rate limits, return
-generic errors, and emit logs without identity tokens, provider keys, task text,
-or model output.
-
-Every hosted paid request is bound to an authenticated user, request UUID, task
-UUID, server-owned price-catalog version, and transactional reservation before
-provider dispatch. The client cannot provide prices, usage, limits, or
-settlement state. Explicit pre-inference rejection may release a reservation;
-an ambiguous dispatch retains it and is never retried automatically. Usage rows
-contain IDs, lane/model, counts, integer micro-USD, disposition, and timestamps
-only—never prompts, outputs, screenshots, base64, URLs, recipients, file paths,
-secrets, or raw tool arguments.
-
-The membership signing private key is an administrative secret and must never
-be added to the repository, Doppler application runtime, analytics, or a
-release bundle. Only the Ed25519 public key is compiled into packaged builds.
-Offline activation codes support account binding and expiry but not immediate
-revocation or authoritative time; those require an authenticated backend.
-
-Every nonterminal task exposes a renderer **Stop task** control, and the trusted
-main process registers **Escape** system-wide while work is active. Cancelling
-does not widen authority or bypass exact-action approvals.
-
-## Release requirements
-
-Before distributing the application:
-
-1. Define a strict Content Security Policy without development localhost exceptions.
-2. Generate per-skill CUA capability manifests.
-3. Add approval UI with exact target and consequence descriptions.
-4. Sign and notarize macOS builds.
-5. Sign Windows installers.
-6. Run dependency, secret, and packaged-application security checks.
-7. Test permission upgrades, revocation, and app restarts on clean machines.
+Keep `OPENAI_API_KEY`, ElevenLabs credentials, PostgreSQL credentials, the admin
+access token, session HMAC key, access-code encryption key, and S3 credentials
+in Railway/Doppler only. Tauri signing keys,
+Apple credentials, Windows certificates, and the updater public/private key pair
+belong in the release secret store. Never put production provider keys in the
+renderer, desktop environment, repository, or updater metadata.

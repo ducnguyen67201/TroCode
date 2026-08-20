@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import './index.css';
+import './renderer/backend';
 import { AuthGate } from './renderer/AuthGate';
 import { BrandMark } from './renderer/BrandMark';
 import { CursorCompanion } from './renderer/CursorCompanion';
