@@ -11,7 +11,7 @@ test('runs every checked-in SQL migration in filename order', async () => {
     },
   });
 
-  assert.equal(statements.length, 10);
+  assert.equal(statements.length, 11);
   assert.match(statements[0], /CREATE TABLE IF NOT EXISTS users/u);
   assert.match(statements[1], /CREATE TABLE IF NOT EXISTS access_codes/u);
   assert.match(statements[2], /CREATE TABLE IF NOT EXISTS model_budget_reservations/u);
@@ -25,4 +25,5 @@ test('runs every checked-in SQL migration in filename order', async () => {
   assert.match(statements[7], /knowledge_spaces[\s\S]+knowledge_space_invites/u);
   assert.match(statements[8], /knowledge_sources[\s\S]+knowledge_ingestion_jobs/u);
   assert.match(statements[9], /knowledge_activities[\s\S]+knowledge_activity_run_events/u);
+  assert.match(statements[10], /blocked_at[\s\S]+admin_audit_events/u);
 });

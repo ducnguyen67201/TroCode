@@ -121,7 +121,7 @@ function memoryAccessCodes(
 
 async function withApi(
   run,
-  { accessCodeLimits, configOverride = {}, fetchImpl, rateLimiter } = {},
+  { accessCodeLimits, adminController, configOverride = {}, fetchImpl, rateLimiter } = {},
 ) {
   const sessions = memorySessions();
   const accessCodes = memoryAccessCodes(accessCodeLimits);
@@ -211,6 +211,7 @@ async function withApi(
   });
   const handler = createApiHandler({
     accessCodeRepository: accessCodes,
+    adminController,
     agentTurnService,
     budgetService,
     config: {
@@ -330,6 +331,30 @@ test('health and readiness endpoints are public and hardened', async () => {
     const ready = await fetch(`${baseUrl}/readyz`);
     assert.deepEqual(await ready.json(), { database: 'ok', status: 'ok' });
   });
+});
+
+test('browser-origin admin requests are delegated before the desktop API origin guard', async () => {
+  const adminController = {
+    handle: async ({ request, response, url }) => {
+      if (request.method !== 'GET' || url.pathname !== '/v1/admin/users') {
+        return false;
+      }
+      response.statusCode = 200;
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ items: [] }));
+      return true;
+    },
+  };
+  await withApi(
+    async ({ baseUrl }) => {
+      const response = await fetch(`${baseUrl}/v1/admin/users`, {
+        headers: { Origin: baseUrl },
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { items: [] });
+    },
+    { adminController },
+  );
 });
 
 test('Google exchange creates an opaque session and rejects invalid tokens', async () => {
