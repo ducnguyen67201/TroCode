@@ -200,6 +200,41 @@ describe('OpenAIAgentsRuntime', () => {
     await runtime.end(taskId);
   });
 
+  it('uses the selected Vietnamese language for all user-facing model output', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(hostedRejectedProviderResponse);
+    const responseLanguageProvider = vi.fn(async () => 'vi' as const);
+    const runtime = new OpenAIAgentsRuntime({
+      accessTokenProvider: vi.fn(async () => 'hosted-access-token'),
+      apiBaseUrl: 'https://api.trocode.test/',
+      fetchImpl,
+      responseLanguageProvider,
+    });
+    const taskId = randomUUID();
+
+    await expect(
+      runtime.runTask({
+        callbacks: {
+          billableUserTurnIds: () => [TEST_CLIENT_TURN_ID],
+          beforeModel: () => [],
+          executeTool: async () => 'unused',
+        },
+        contract: createTaskContract('Mở YouTube.'),
+        maxTurns: 4,
+        request: 'Mở YouTube.',
+        taskId,
+        tools: [],
+      }),
+    ).rejects.toThrow('Rejected before inference');
+
+    const [, request] = modelRequest(fetchImpl) ?? [];
+    const body = JSON.parse(String(request?.body)) as { instructions: string };
+    expect(responseLanguageProvider).toHaveBeenCalledOnce();
+    expect(body.instructions).toContain(
+      'Use Vietnamese for every user-facing response',
+    );
+    await runtime.end(taskId);
+  });
+
   it('attaches a trusted initial computer observation to the first model request', async () => {
     const fetchImpl = vi.fn<typeof fetch>(hostedRejectedProviderResponse);
     const runtime = new OpenAIAgentsRuntime({

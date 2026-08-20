@@ -7,6 +7,7 @@ import type { CuaStatus } from '../../shared/contracts';
 import {
   CuaService,
   getCuaModuleSpecifier,
+  isWindowsBottomEdgeClick,
   pasteShortcutForPlatform,
   shouldAutoConnect,
 } from './cua-service';
@@ -330,6 +331,110 @@ describe('CUA task sessions', () => {
       undefined,
     );
     expect(actionOrder).toEqual(['escalate', 'move', 'click']);
+  });
+
+  it('reveals Windows bottom-edge UI and requires a fresh observation before clicking', async () => {
+    const taskId = randomUUID();
+    const driver = {
+      isAvailable: vi.fn(() => true),
+      startSession: vi.fn(async () => startedWindowSession()),
+      escalateSession: vi.fn(async () => escalatedDesktopSession()),
+      getDesktopState: vi.fn(async () => ({
+        text: 'Desktop with an auto-hidden taskbar.',
+        images: [{ mimeType: 'image/png', dataBase64: 'aW1hZ2U=' }],
+        structuredJson: JSON.stringify({
+          screen_height: 1_080,
+          screen_width: 1_920,
+          screenshot_height: 1_080,
+          screenshot_width: 1_920,
+        }),
+        isError: false,
+        degraded: false,
+        rawJson: '{}',
+      })),
+      moveCursor: vi.fn(async () => ({
+        text: 'Pointer moved.',
+        images: [],
+        isError: false,
+        action: { effect: 0 },
+        degraded: false,
+        rawJson: '{}',
+      })),
+      click: vi.fn(async () => ({
+        text: 'Clicked.',
+        images: [],
+        isError: false,
+        action: { effect: 0 },
+        degraded: false,
+        rawJson: '{}',
+      })),
+    };
+    const service = new CuaService({
+      now: () => 1_000,
+      platform: 'win32',
+      waitForSystemUiReveal: vi.fn(async () => undefined),
+    });
+    Reflect.set(service, 'cuaModule', fakeCuaModule());
+    Reflect.set(service, 'driver', driver);
+
+    await service.startTaskSession(taskId);
+    await service.observe(taskId);
+    const command = {
+      kind: 'click' as const,
+      x: 540,
+      y: 1_054,
+      button: 'left' as const,
+      count: 1 as const,
+    };
+
+    await expect(service.executeCommand(taskId, command)).resolves.toEqual({
+      status: 'not_executed',
+      summary:
+        'Tro moved the pointer to the Windows bottom edge to reveal auto-hidden system UI. No click was performed; use the fresh observation before clicking.',
+    });
+    expect(driver.moveCursor).toHaveBeenLastCalledWith(
+      { session: taskId, scope: 0, x: 540, y: 1_079 },
+      undefined,
+    );
+    expect(driver.click).not.toHaveBeenCalled();
+
+    await service.observe(taskId);
+    await expect(service.executeCommand(taskId, command)).resolves.toEqual({
+      status: 'confirmed',
+      summary: 'Clicked.',
+    });
+    expect(driver.click).toHaveBeenCalledOnce();
+  });
+
+  it('only treats clicks within the Windows bottom-edge reveal zone as system UI', () => {
+    const coordinateSpace = {
+      screenHeight: 1_080,
+      screenWidth: 1_920,
+      screenshotHeight: 1_080,
+      screenshotWidth: 1_920,
+    };
+
+    expect(
+      isWindowsBottomEdgeClick(
+        'win32',
+        { kind: 'click', x: 540, y: 1_054, button: 'left', count: 1 },
+        coordinateSpace,
+      ),
+    ).toBe(true);
+    expect(
+      isWindowsBottomEdgeClick(
+        'win32',
+        { kind: 'click', x: 540, y: 900, button: 'left', count: 1 },
+        coordinateSpace,
+      ),
+    ).toBe(false);
+    expect(
+      isWindowsBottomEdgeClick(
+        'darwin',
+        { kind: 'click', x: 540, y: 1_054, button: 'left', count: 1 },
+        coordinateSpace,
+      ),
+    ).toBe(false);
   });
 
   it('dispatches a bounded drag through the typed CUA driver contract', async () => {

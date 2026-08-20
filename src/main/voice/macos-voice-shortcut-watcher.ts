@@ -25,8 +25,9 @@ export function parseMacOSVoiceShortcutOutput(
   const events: VoiceShortcutEvent[] = [];
 
   for (const line of lines) {
-    if (line === 'pressed' || line === 'released') {
-      events.push({ action: line, source: 'global' });
+    const eventName = line.endsWith('\r') ? line.slice(0, -1) : line;
+    if (eventName === 'pressed' || eventName === 'released') {
+      events.push({ action: eventName, source: 'global' });
     }
   }
 

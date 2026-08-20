@@ -35,7 +35,7 @@ export function pushToTalkShortcutName(platform: PushToTalkPlatform): string {
 export function globalPushToTalkShortcutName(
   platform: PushToTalkPlatform,
 ): string | null {
-  if (platform === 'windows') return 'Ctrl + Alt + Space';
+  if (platform === 'windows') return 'left Alt + left Control';
   if (platform === 'macos') return 'Command + Control';
   return null;
 }

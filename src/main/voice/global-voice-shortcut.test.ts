@@ -23,6 +23,44 @@ function deferred<T>(): {
 }
 
 describe('registerGlobalVoiceShortcut', () => {
+  it('forwards modifier-only Windows shortcut events from the system watcher', () => {
+    const registry = {
+      register: vi.fn(),
+      unregister: vi.fn(),
+    };
+    const send = vi.fn();
+    const stopWatching = vi.fn();
+    let listener: ((event: VoiceShortcutEvent) => void) | undefined;
+    const unregister = registerGlobalVoiceShortcut({
+      getTarget: () => ({
+        isDestroyed: () => false,
+        isFocused: () => false,
+        webContents: { send },
+      }),
+      platform: 'win32',
+      registry,
+      watchForWindowsShortcut: (nextListener) => {
+        listener = nextListener;
+        return stopWatching;
+      },
+    });
+
+    listener?.({ action: 'pressed', source: 'global' });
+    listener?.({ action: 'released', source: 'global' });
+
+    expect(registry.register).not.toHaveBeenCalled();
+    expect(send).toHaveBeenNthCalledWith(1, IPC_CHANNELS.voiceShortcut, {
+      action: 'pressed',
+      source: 'global',
+    });
+    expect(send).toHaveBeenNthCalledWith(2, IPC_CHANNELS.voiceShortcut, {
+      action: 'released',
+      source: 'global',
+    });
+    unregister();
+    expect(stopWatching).toHaveBeenCalledOnce();
+  });
+
   it('sends one global voice press, ignores repeats, and sends release when keys are up', async () => {
     const callbacks = new Map<string, () => void>();
     const release = deferred<void>();

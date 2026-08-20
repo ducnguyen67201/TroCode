@@ -9,6 +9,7 @@ import { detectPushToTalkPlatform, isPushToTalkChord, pushToTalkShortcutName, ty
 import { openVoiceCapture, type VoiceCapturePipeline } from './voice-capture';
 import {
   encodePcm16Wav,
+  normalizeVoiceSamples,
   OrderedTranscriptAssembler,
   SegmentUploadQueue,
   VoiceSegmenter,
@@ -405,7 +406,15 @@ export function usePushToTalk({
         async (segment) => {
           let encoded;
           try {
-            encoded = encodePcm16Wav(segment.samples, segment.sampleRate);
+            const normalized = normalizeVoiceSamples(segment.samples);
+            encoded = encodePcm16Wav(normalized.samples, segment.sampleRate);
+            voiceTurnDiagnostic('segment-normalized', {
+              gain: Number(normalized.gain.toFixed(2)),
+              inputDbfs: Number(
+                (20 * Math.log10(Math.max(normalized.inputRms, 0.000_001))).toFixed(1),
+              ),
+              sequence: segment.sequence,
+            });
           } catch (error) {
             if (activeTurnRef.current === turn && !turn.cancelled) {
               assembler.addFailure(
@@ -498,7 +507,7 @@ export function usePushToTalk({
       chordHeldRef.current = true;
       setIsHolding(true);
       setStatus('requesting_permission');
-      voiceTurnDiagnostic('started', { attempt, platform });
+      voiceTurnDiagnostic('started', { activationMode, attempt, platform });
 
       try {
         const capture = await openVoiceCapture({

@@ -27,4 +27,16 @@ describe('parseMacOSVoiceShortcutOutput', () => {
       remainder: '',
     });
   });
+
+  it('accepts Windows CRLF shortcut events', () => {
+    expect(
+      parseMacOSVoiceShortcutOutput('', 'pressed\r\nreleased\r\n'),
+    ).toEqual({
+      events: [
+        { action: 'pressed', source: 'global' },
+        { action: 'released', source: 'global' },
+      ],
+      remainder: '',
+    });
+  });
 });

@@ -12,6 +12,7 @@ import {
   type ToolOutputText,
 } from '@openai/agents';
 
+import type { PrimaryLanguage } from '../../shared/contracts';
 import {
   countCurrentImages,
   prepareContextWindow,
@@ -42,6 +43,29 @@ import {
 
 const DEFAULT_MODEL = 'gpt-5.6-luna';
 
+const RESPONSE_LANGUAGE_NAMES: Record<PrimaryLanguage, string> = {
+  ar: 'Arabic',
+  de: 'German',
+  en: 'English',
+  es: 'Spanish',
+  fr: 'French',
+  hi: 'Hindi',
+  id: 'Indonesian',
+  it: 'Italian',
+  ja: 'Japanese',
+  ko: 'Korean',
+  ms: 'Malay',
+  nl: 'Dutch',
+  pl: 'Polish',
+  pt: 'Portuguese',
+  ru: 'Russian',
+  th: 'Thai',
+  tr: 'Turkish',
+  uk: 'Ukrainian',
+  vi: 'Vietnamese',
+  zh: 'Chinese',
+};
+
 const SYSTEM_INSTRUCTIONS = [
   'You are Tro, a general-purpose assistant that can answer directly or use the concrete tools supplied by the trusted host.',
   'Solve text work directly when no tool is needed. Use only supplied tools.',
@@ -65,6 +89,7 @@ const SYSTEM_INSTRUCTIONS = [
 
 export interface OpenAIAgentsRuntimeOptions extends OpenAIClientFactoryOptions {
   model?: string;
+  responseLanguageProvider?: () => Promise<PrimaryLanguage>;
 }
 
 interface ActiveAgentSession {
@@ -198,8 +223,14 @@ function runtimeTools(
     );
 }
 
-function instructionsFor(input: AgentRuntimeStart): string {
+function instructionsFor(
+  input: AgentRuntimeStart,
+  responseLanguage: PrimaryLanguage,
+): string {
   const instructions = [SYSTEM_INSTRUCTIONS];
+  instructions.push(
+    `Use ${RESPONSE_LANGUAGE_NAMES[responseLanguage]} for every user-facing response, clarification, guidance message, action description, and final answer. Preserve literal names, URLs, code, and any output language explicitly requested by the user.`,
+  );
   if (
     input.initialObservation &&
     requestUsesCurrentSurfaceContext(input.request)
@@ -280,6 +311,8 @@ export class OpenAIAgentsRuntime implements AgentRuntime {
 
   private readonly model: string;
 
+  private readonly responseLanguageProvider: () => Promise<PrimaryLanguage>;
+
   private readonly sessions = new Map<string, ActiveAgentSession>();
 
   constructor(options: OpenAIAgentsRuntimeOptions) {
@@ -288,6 +321,8 @@ export class OpenAIAgentsRuntime implements AgentRuntime {
       options.model?.trim() ||
       process.env.TROCODE_AGENT_MODEL?.trim() ||
       DEFAULT_MODEL;
+    this.responseLanguageProvider =
+      options.responseLanguageProvider ?? (async () => 'en');
   }
 
   async runTask(input: AgentRuntimeStart): Promise<string> {
@@ -305,6 +340,7 @@ export class OpenAIAgentsRuntime implements AgentRuntime {
     }
     if (input.signal?.aborted) throw abortError();
     const hostedClient = await this.clientFactory.create(input.taskId);
+    const responseLanguage = await this.responseLanguageProvider();
     const provider = new OpenAIProvider({
       openAIClient: hostedClient.client,
       useResponses: true,
@@ -336,7 +372,7 @@ export class OpenAIAgentsRuntime implements AgentRuntime {
       : undefined;
     const agent = new Agent({
       name: 'Tro',
-      instructions: instructionsFor(input),
+      instructions: instructionsFor(input, responseLanguage),
       model: this.model,
       modelSettings: {
         maxTokens: 4_000,

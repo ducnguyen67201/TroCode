@@ -23,13 +23,13 @@ export interface VoiceSegmentationPolicy {
 export const DEFAULT_VOICE_SEGMENTATION_POLICY: Readonly<VoiceSegmentationPolicy> = Object.freeze({
   frameMs: 20,
   speechStartFrames: 3,
-  absoluteStartRms: 0.015,
-  absoluteContinueRms: 0.01,
-  startNoiseMultiplier: 3,
-  continueNoiseMultiplier: 1.8,
-  initialNoiseFloorRms: 0.005,
-  maximumNoiseFloorRms: 0.025,
-  noiseFloorAlpha: 0.05,
+  absoluteStartRms: 0.0035,
+  absoluteContinueRms: 0.0025,
+  startNoiseMultiplier: 1.6,
+  continueNoiseMultiplier: 1.25,
+  initialNoiseFloorRms: 0.0015,
+  maximumNoiseFloorRms: 0.015,
+  noiseFloorAlpha: 0.03,
   minimumSpeechMs: 300,
   preRollMs: 300,
   trailingSpeechPaddingMs: 200,
@@ -188,14 +188,18 @@ export class VoiceSegmenter {
 
     const emitted: FinalizedVoiceSegment[] = [];
     if (!this.#speechStarted) {
-      this.#noiseFloorRms = Math.min(
-        this.#policy.maximumNoiseFloorRms,
-        (1 - this.#policy.noiseFloorAlpha) * this.#noiseFloorRms +
-          this.#policy.noiseFloorAlpha * energy,
-      );
-      this.#candidateSpeechFrames =
-        energy >= startThreshold ? this.#candidateSpeechFrames + 1 : 0;
-      this.#preRoll.push({ samples, speech: energy >= startThreshold });
+      const isCandidateSpeech = energy >= startThreshold;
+      if (!isCandidateSpeech) {
+        this.#noiseFloorRms = Math.min(
+          this.#policy.maximumNoiseFloorRms,
+          (1 - this.#policy.noiseFloorAlpha) * this.#noiseFloorRms +
+            this.#policy.noiseFloorAlpha * energy,
+        );
+      }
+      this.#candidateSpeechFrames = isCandidateSpeech
+        ? this.#candidateSpeechFrames + 1
+        : 0;
+      this.#preRoll.push({ samples, speech: isCandidateSpeech });
       this.#trimPreRoll();
 
       if (this.#candidateSpeechFrames >= this.#policy.speechStartFrames) {
@@ -383,6 +387,35 @@ export interface EncodedPcm16Wav {
   bytes: Uint8Array;
   durationMs: number;
   sampleRate: 16_000;
+}
+
+export interface NormalizedVoiceSamples {
+  gain: number;
+  inputRms: number;
+  samples: Float32Array;
+}
+
+export function normalizeVoiceSamples(
+  samples: Float32Array,
+  targetRms = 0.08,
+  maximumGain = 8,
+): NormalizedVoiceSamples {
+  const inputRms = rms(samples);
+  let peak = 0;
+  for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
+  if (samples.length === 0 || inputRms < 0.000_01 || peak === 0) {
+    return { gain: 1, inputRms, samples: samples.slice() };
+  }
+  const gain = Math.max(
+    1,
+    Math.min(maximumGain, targetRms / inputRms, 0.95 / peak),
+  );
+  if (gain === 1) return { gain, inputRms, samples: samples.slice() };
+  return {
+    gain,
+    inputRms,
+    samples: Float32Array.from(samples, (sample) => sample * gain),
+  };
 }
 
 export function encodePcm16Wav(

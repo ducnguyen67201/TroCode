@@ -118,6 +118,7 @@ import {
 import { createSystemAudioDuckingService } from './main/voice/system-audio-ducking-service';
 import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-store';
 import { VoiceService } from './main/voice/voice-service';
+import { watchWindowsGlobalVoiceShortcut } from './main/voice/windows-voice-shortcut-watcher';
 import { WorkspaceSelectionService } from './main/workspace/workspace-selection-service';
 import {
   AgentActivityUpdateSchema,
@@ -196,7 +197,10 @@ taskRuntime.on('task-update', taskHistoryService.recordTaskUpdate);
 const oauthBrowserFlow = new LocalOAuthBrowserFlow({
   openExternal: async (url) => shell.openExternal(url, { activate: true }),
 });
-const trocodeApiBaseUrl = process.env.TROCODE_API_BASE_URL?.trim() ?? '';
+const trocodeApiBaseUrl =
+  process.env.TROCODE_API_BASE_URL?.trim() ||
+  process.env.TRO_API_BASE_URL?.trim() ||
+  '';
 const authSessionStore = new EncryptedAuthSessionStore();
 const authService = new GoogleAuthService({
   apiBaseUrl: trocodeApiBaseUrl,
@@ -313,6 +317,14 @@ const companionNarrationService = new CompanionNarrationService({
 const agentRuntime = new OpenAIAgentsRuntime({
   accessTokenProvider: () => authService.getAccessToken(),
   apiBaseUrl: trocodeApiBaseUrl,
+  responseLanguageProvider: async () => {
+    try {
+      const preferences = await appPreferencesService.get();
+      return preferences.primaryLanguage ?? preferences.appLanguage;
+    } catch {
+      return 'en';
+    }
+  },
 });
 const agentRuntimeFactory = new AgentRuntimeFactory({
   openaiAgents: agentRuntime,
@@ -1714,6 +1726,16 @@ function ensureGlobalVoiceShortcut(): void {
               onEvent: listener,
             })
         : undefined,
+    watchForWindowsShortcut:
+      process.platform === 'win32'
+        ? (listener) =>
+            watchWindowsGlobalVoiceShortcut({
+              onEvent: (event) => {
+                console.info('[voice] Windows global shortcut event.', event);
+                listener(event);
+              },
+            })
+        : undefined,
   });
 }
 
@@ -1910,6 +1932,7 @@ const createWindow = (): void => {
   }
 
   const nextMainWindow = new BrowserWindow({
+    autoHideMenuBar: process.platform === 'win32',
     backgroundColor: '#f3f3ef',
     height: 820,
     icon: runtimeAppIconPath(),
@@ -1922,7 +1945,16 @@ const createWindow = (): void => {
           titleBarStyle: 'hiddenInset' as const,
           trafficLightPosition: { x: 16, y: 17 },
         }
-      : {}),
+      : process.platform === 'win32'
+        ? {
+            titleBarOverlay: {
+              color: '#f1f0eb',
+              height: 48,
+              symbolColor: '#5d5e57',
+            },
+            titleBarStyle: 'hidden' as const,
+          }
+        : {}),
     width: 1280,
     webPreferences: {
       backgroundThrottling: false,

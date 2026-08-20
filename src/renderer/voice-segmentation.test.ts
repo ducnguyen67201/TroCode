@@ -4,6 +4,7 @@ import {
   DEFAULT_VOICE_SEGMENTATION_POLICY,
   encodePcm16Wav,
   joinTranscriptSegments,
+  normalizeVoiceSamples,
   OrderedTranscriptAssembler,
   SegmentUploadQueue,
   VoiceSegmenter,
@@ -72,6 +73,13 @@ describe('VoiceSegmenter', () => {
     expect(segmenter.finish().segments).toHaveLength(1);
   });
 
+  it('detects quiet speech without learning its onset as background noise', () => {
+    const segmenter = new VoiceSegmenter();
+    pushMs(segmenter, 1_000, 0.002);
+    pushMs(segmenter, 400, 0.005);
+    expect(segmenter.finish().segments).toHaveLength(1);
+  });
+
   it('hard-splits continuous speech and carries exactly 300 ms overlap', () => {
     const segmenter = new VoiceSegmenter();
     const segments = pushMs(segmenter, 24_100, 0.1);
@@ -116,6 +124,16 @@ describe('VoiceSegmenter', () => {
 });
 
 describe('encodePcm16Wav', () => {
+  it('amplifies quiet speech with a bounded gain and leaves loud speech unchanged', () => {
+    const quiet = normalizeVoiceSamples(pcm(400, 16_000, 0.005));
+    expect(quiet.gain).toBe(8);
+    expect(Math.max(...quiet.samples)).toBeCloseTo(0.04, 3);
+
+    const loud = normalizeVoiceSamples(pcm(400, 16_000, 0.2));
+    expect(loud.gain).toBe(1);
+    expect(loud.samples).toEqual(pcm(400, 16_000, 0.2));
+  });
+
   it('resamples and writes canonical mono 16 kHz PCM16 headers', () => {
     const encoded = encodePcm16Wav(
       new Float32Array([-2, -1, 0, 0.5, 1, 2]),
