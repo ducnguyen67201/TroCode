@@ -6,7 +6,7 @@ import { AdminHttpController } from '../src/admin-http-controller.mjs';
 
 const ADMIN_TOKEN = 'test-admin-token-that-is-longer-than-thirty-two-characters';
 
-async function withAdmin(run) {
+async function withAdmin(run, { now } = {}) {
   const calls = [];
   const repository = {
     createAccessCodes: async (input) => {
@@ -70,6 +70,7 @@ async function withAdmin(run) {
   };
   const controller = new AdminHttpController({
     accessToken: ADMIN_TOKEN,
+    now,
     rateLimiter: {
       consume: async ({ limit }) => ({
         allowed: true,
@@ -125,6 +126,60 @@ test('serves the separate admin dashboard with a strict self-only CSP', async ()
     const script = await fetch(`${baseUrl}/source/admin/assets/admin.js`);
     assert.equal(script.status, 200);
     assert.match(script.headers.get('content-type'), /javascript/u);
+    const javascript = await script.text();
+    assert.match(javascript, /restoreSession/u);
+    assert.match(javascript, /\/v1\/admin\/session/u);
+    assert.match(html, /signed in for 30 days/u);
+  });
+});
+
+test('keeps the administrator signed in with a hardened browser session', async () => {
+  let now = Date.parse('2026-08-20T08:45:00.000Z');
+  await withAdmin(async ({ baseUrl, calls }) => {
+    const login = await fetch(`${baseUrl}/v1/admin/session`, {
+      headers: adminHeaders(baseUrl),
+      method: 'POST',
+    });
+    const setCookie = login.headers.get('set-cookie');
+
+    assert.equal(login.status, 204);
+    assert.match(setCookie, /trocode_admin_session=/u);
+    assert.match(setCookie, /HttpOnly/u);
+    assert.match(setCookie, /Secure/u);
+    assert.match(setCookie, /SameSite=Strict/u);
+    assert.match(setCookie, /Max-Age=2592000/u);
+    assert.doesNotMatch(setCookie, new RegExp(ADMIN_TOKEN, 'u'));
+
+    const cookie = setCookie.split(';', 1)[0];
+    const restored = await fetch(`${baseUrl}/v1/admin/users`, {
+      headers: { Cookie: cookie, Origin: baseUrl },
+    });
+    assert.equal(restored.status, 200);
+    assert.equal(calls.at(-1).method, 'listUsers');
+
+    now += 2_592_000_001;
+    const expired = await fetch(`${baseUrl}/v1/admin/users`, {
+      headers: { Cookie: cookie, Origin: baseUrl },
+    });
+    assert.equal(expired.status, 401);
+  }, { now: () => now });
+});
+
+test('locking the dashboard clears the persistent browser session', async () => {
+  await withAdmin(async ({ baseUrl }) => {
+    const login = await fetch(`${baseUrl}/v1/admin/session`, {
+      headers: adminHeaders(baseUrl),
+      method: 'POST',
+    });
+    const cookie = login.headers.get('set-cookie').split(';', 1)[0];
+    const logout = await fetch(`${baseUrl}/v1/admin/session`, {
+      headers: { Cookie: cookie, Origin: baseUrl },
+      method: 'DELETE',
+    });
+
+    assert.equal(logout.status, 204);
+    assert.match(logout.headers.get('set-cookie'), /Max-Age=0/u);
+    assert.equal(logout.headers.get('cache-control'), 'no-store');
   });
 });
 
