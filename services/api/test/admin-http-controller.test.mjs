@@ -24,6 +24,33 @@ async function withAdmin(run) {
         ],
       };
     },
+    listAccessCodes: async (input) => {
+      calls.push({ input, method: 'listAccessCodes' });
+      return {
+        items: [
+          {
+            code: 'TRO-RETRIEVABLE-CODE',
+            createdAt: '2026-08-20T05:00:00.000Z',
+            id: 'code-1',
+            label: 'Launch',
+            maxUsers: 3,
+            plan: 'pro',
+            redeemedUsers: 1,
+            remainingUsers: 2,
+            retrievable: true,
+            status: 'available',
+          },
+        ],
+        page: { limit: input.limit, offset: input.offset, total: 1 },
+        summary: {
+          availableCodes: 1,
+          fullCodes: 0,
+          retrievableCodes: 1,
+          totalCodes: 1,
+          totalRedemptions: 1,
+        },
+      };
+    },
     listUsers: async (input) => {
       calls.push({ input, method: 'listUsers' });
       return {
@@ -92,11 +119,36 @@ test('serves the separate admin dashboard with a strict self-only CSP', async ()
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-security-policy'), /script-src 'self'/u);
     assert.match(html, /<h1[^>]*>Users<\/h1>/u);
+    assert.match(html, /<h1[^>]*>Access codes<\/h1>/u);
     assert.doesNotMatch(html, new RegExp(ADMIN_TOKEN, 'u'));
 
     const script = await fetch(`${baseUrl}/source/admin/assets/admin.js`);
     assert.equal(script.status, 200);
     assert.match(script.headers.get('content-type'), /javascript/u);
+  });
+});
+
+test('lists access codes with bounded filters and prevents response caching', async () => {
+  await withAdmin(async ({ baseUrl, calls }) => {
+    const response = await fetch(
+      `${baseUrl}/v1/admin/access-codes?limit=25&offset=50&search=launch&status=available`,
+      { headers: adminHeaders(baseUrl) },
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(calls, [
+      {
+        input: {
+          limit: 25,
+          offset: 50,
+          search: 'launch',
+          status: 'available',
+        },
+        method: 'listAccessCodes',
+      },
+    ]);
+    assert.equal((await response.json()).items[0].code, 'TRO-RETRIEVABLE-CODE');
   });
 });
 

@@ -106,7 +106,77 @@ test('blocking a user also revokes every active device session', async () => {
   assert.equal(client.released, true);
 });
 
-test('bulk code creation returns plaintext once and stores only digests', async () => {
+test('lists access codes with capacity, retrieval, and legacy metadata', async () => {
+  const { pool, queries } = sequencedPool([
+    {
+      rows: [
+        {
+          available_codes: 1,
+          full_codes: 1,
+          retrievable_codes: 1,
+          total_codes: 2,
+          total_redemptions: 3,
+        },
+      ],
+    },
+    {
+      rows: [
+        {
+          code_ciphertext: null,
+          code_digest: Buffer.alloc(32, 1),
+          created_at: new Date('2026-08-19T05:10:00.000Z'),
+          filtered_total: 1,
+          id: 'legacy-code-id',
+          label: 'Founding cohort',
+          max_users: 5,
+          plan: 'pro',
+          redeemed_users: 2,
+        },
+      ],
+    },
+  ]);
+  const repository = new PostgresAdminRepository(pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(
+    await repository.listAccessCodes({
+      limit: 50,
+      offset: 0,
+      search: 'Founding',
+      status: 'available',
+    }),
+    {
+      items: [
+        {
+          code: null,
+          createdAt: '2026-08-19T05:10:00.000Z',
+          id: 'legacy-code-id',
+          label: 'Founding cohort',
+          maxUsers: 5,
+          plan: 'pro',
+          redeemedUsers: 2,
+          remainingUsers: 3,
+          retrievable: false,
+          status: 'available',
+        },
+      ],
+      page: { limit: 50, offset: 0, total: 1 },
+      summary: {
+        availableCodes: 1,
+        fullCodes: 1,
+        retrievableCodes: 1,
+        totalCodes: 2,
+        totalRedemptions: 3,
+      },
+    },
+  );
+  assert.match(queries[1].sql, /code_ciphertext/u);
+  assert.match(queries[1].sql, /LIMIT \$4 OFFSET \$5/u);
+  assert.equal(queries[1].parameters[1], '%Founding%');
+});
+
+test('bulk code creation returns plaintext and stores a digest plus encrypted copy', async () => {
   const generated = ['TRO-CODE-ONE', 'TRO-CODE-TWO'];
   const { client, pool, queries } = sequencedPool([
     { rows: [] },
@@ -165,6 +235,11 @@ test('bulk code creation returns plaintext once and stores only digests', async 
   );
   assert.equal(inserts.length, 2);
   assert.ok(Buffer.isBuffer(inserts[0].parameters[0]));
+  assert.ok(Buffer.isBuffer(inserts[0].parameters[1]));
+  assert.equal(
+    inserts[0].parameters[1].includes(Buffer.from('TRO-CODE-ONE')),
+    false,
+  );
   assert.equal(inserts[0].parameters.includes('TRO-CODE-ONE'), false);
   assert.equal(queries.at(-1).sql, 'COMMIT');
   assert.equal(client.released, true);
