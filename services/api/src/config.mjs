@@ -50,6 +50,12 @@ export function loadConfig(environment = process.env) {
     environment.TROCODE_KNOWLEDGE_SPACES_ENABLED,
     false,
   );
+  const adminAccessToken = environment.TROCODE_ADMIN_ACCESS_TOKEN?.trim() || null;
+  if (adminAccessToken && adminAccessToken.length < MIN_SECRET_LENGTH) {
+    throw new Error(
+      `TROCODE_ADMIN_ACCESS_TOKEN must be at least ${MIN_SECRET_LENGTH} characters.`,
+    );
+  }
   const knowledgeObjectStore = knowledgeSpacesEnabled
     ? {
         accessKeyId: required('TROCODE_KNOWLEDGE_S3_ACCESS_KEY_ID', environment),
@@ -69,6 +75,10 @@ export function loadConfig(environment = process.env) {
     : null;
 
   return {
+    admin: {
+      accessToken: adminAccessToken,
+      enabled: Boolean(adminAccessToken),
+    },
     costGuard: {
       dailyMicroUsd: positiveInteger(
         'TROCODE_DAILY_BUDGET_MICRO_USD',

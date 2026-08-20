@@ -25,6 +25,28 @@ test('loadConfig validates required production secrets', () => {
   );
 });
 
+test('admin dashboard is opt-in and requires a strong access token', () => {
+  assert.deepEqual(loadConfig(VALID_ENVIRONMENT).admin, {
+    accessToken: null,
+    enabled: false,
+  });
+  assert.throws(
+    () =>
+      loadConfig({
+        ...VALID_ENVIRONMENT,
+        TROCODE_ADMIN_ACCESS_TOKEN: 'too-short',
+      }),
+    /TROCODE_ADMIN_ACCESS_TOKEN must be at least 32 characters/u,
+  );
+  assert.deepEqual(
+    loadConfig({
+      ...VALID_ENVIRONMENT,
+      TROCODE_ADMIN_ACCESS_TOKEN: 'a'.repeat(32),
+    }).admin,
+    { accessToken: 'a'.repeat(32), enabled: true },
+  );
+});
+
 test('loadConfig restricts requests to configured models', () => {
   const config = loadConfig({
     ...VALID_ENVIRONMENT,

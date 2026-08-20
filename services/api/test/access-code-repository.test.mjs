@@ -78,6 +78,33 @@ test('returns the Free plan for an account without an access code', async () => 
   });
 });
 
+test('returns an inactive status for a blocked account', async () => {
+  const { pool } = sequencedPool([
+    {
+      rows: [
+        {
+          blocked_at: new Date('2026-08-20T05:00:00.000Z'),
+          max_users: 10,
+          plan: 'pro',
+          used_users: 3,
+        },
+      ],
+    },
+  ]);
+  const repository = new PostgresAccessCodeRepository(pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(await repository.getStatus('blocked-user'), {
+    maxUsers: 10,
+    newlyRedeemed: false,
+    plan: 'pro',
+    state: 'inactive',
+    summary: 'This account has been blocked by an administrator.',
+    usedUsers: 3,
+  });
+});
+
 test('redeems a code while holding user and code row locks', async () => {
   const { client, pool, queries } = sequencedPool([
     { rows: [] },

@@ -31,8 +31,12 @@ function activeStatus(row, newlyRedeemed = false) {
     maxUsers,
     newlyRedeemed,
     plan: row.plan,
-    state: 'active',
-    summary: hasAccessCode ? 'Access code accepted.' : 'Free plan active.',
+    state: row.blocked_at ? 'inactive' : 'active',
+    summary: row.blocked_at
+      ? 'This account has been blocked by an administrator.'
+      : hasAccessCode
+        ? 'Access code accepted.'
+        : 'Free plan active.',
     usedUsers,
   };
 }
@@ -46,6 +50,7 @@ export class PostgresAccessCodeRepository {
   async getStatus(userId) {
     const result = await this.pool.query(
       `SELECT users.plan,
+              users.blocked_at,
               codes.max_users,
               COUNT(usage.user_id)::INTEGER AS used_users
        FROM users
@@ -56,7 +61,7 @@ export class PostgresAccessCodeRepository {
        LEFT JOIN access_code_redemptions AS usage
          ON usage.access_code_id = codes.id
        WHERE users.id = $1
-       GROUP BY users.id, users.plan, codes.id, codes.max_users`,
+       GROUP BY users.id, users.plan, users.blocked_at, codes.id, codes.max_users`,
       [userId],
     );
     const row = result.rows[0];
@@ -81,11 +86,15 @@ export class PostgresAccessCodeRepository {
       await client.query('BEGIN');
 
       const lockedUser = await client.query(
-        'SELECT id FROM users WHERE id = $1 FOR UPDATE',
+        'SELECT id, blocked_at FROM users WHERE id = $1 FOR UPDATE',
         [userId],
       );
       if (!lockedUser.rows[0]) {
         throw new Error('Authenticated user is missing from the database.');
+      }
+      if (lockedUser.rows[0].blocked_at) {
+        await client.query('ROLLBACK');
+        return { kind: 'account_blocked' };
       }
 
       const existing = await client.query(
