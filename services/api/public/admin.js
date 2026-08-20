@@ -475,6 +475,7 @@
     try {
       await request('/v1/admin/session', { method: 'POST' });
       state.token = '';
+      elements.loginForm.reset();
       await loadUsers();
       elements.loginShell.hidden = true;
       elements.appShell.hidden = false;
