@@ -65,6 +65,7 @@ export const ProposedActionSchema = z.object({
       'answer',
       'guide',
       'observe_screen',
+      'open_application',
       'open_url',
       'click_element',
       'type_text',
