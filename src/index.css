@@ -2754,6 +2754,10 @@ textarea:focus-visible {
   -webkit-app-region: no-drag;
 }
 
+.windows-platform .topbar-actions {
+  margin-right: 124px;
+}
+
 .stop-task-button {
   display: inline-flex;
   align-items: center;

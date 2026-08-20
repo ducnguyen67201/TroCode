@@ -32,7 +32,7 @@ describe('push-to-talk shortcuts', () => {
     ).toBe(false);
     expect(pushToTalkShortcutName('windows')).toBe('left Alt + left Control');
     expect(globalPushToTalkShortcutName('windows')).toBe(
-      'Ctrl + Alt + Space',
+      'left Alt + left Control',
     );
     expect(globalPushToTalkShortcutName('macos')).toBe('Command + Control');
   });

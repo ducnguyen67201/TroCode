@@ -47,6 +47,10 @@ const isAuxiliaryWindow =
   isTargetMarkerWindow ||
   isVoiceIslandWindow;
 
+if (/win/i.test(`${navigator.platform} ${navigator.userAgent}`)) {
+  document.documentElement.classList.add('windows-platform');
+}
+
 if (!rootElement) throw new Error('The application root element is missing.');
 
 if (isCompanionWindow) document.documentElement.classList.add('companion-mode');

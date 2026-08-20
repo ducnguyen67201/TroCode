@@ -55,6 +55,7 @@ interface GlobalVoiceShortcutOptions {
   registry: GlobalShortcutRegistry;
   waitForRelease?: VoiceShortcutReleaseWatcher;
   watchForMacOSShortcut?: VoiceShortcutWatcher;
+  watchForWindowsShortcut?: VoiceShortcutWatcher;
 }
 
 type VoiceShortcutReleaseWatcher = (signal: AbortSignal) => Promise<void>;
@@ -128,6 +129,7 @@ export function registerGlobalVoiceShortcut({
   registry,
   waitForRelease = waitForWindowsGlobalVoiceShortcutRelease,
   watchForMacOSShortcut,
+  watchForWindowsShortcut,
 }: GlobalVoiceShortcutOptions): () => void {
   const sendVoiceShortcutEvent = (
     event: VoiceShortcutEvent,
@@ -155,6 +157,14 @@ export function registerGlobalVoiceShortcut({
   }
 
   if (platform !== 'win32') return () => undefined;
+
+  if (watchForWindowsShortcut) {
+    return watchForWindowsShortcut((event) => {
+      sendVoiceShortcutEvent(event, {
+        allowFocused: event.action === 'released',
+      });
+    });
+  }
 
   let releaseController: AbortController | null = null;
 

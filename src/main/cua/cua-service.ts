@@ -16,6 +16,7 @@ import {
   type SurfaceCommand,
   type DesktopActionOutcome,
   type DesktopCommand,
+  type DesktopCoordinateSpace,
   type DesktopObservation,
   tableRowsToTsv,
 } from '../agent/execution-contracts';
@@ -78,7 +79,47 @@ export interface CuaPerformanceMetric {
 export interface CuaServiceOptions {
   now?: () => number;
   onPerformanceMetric?: (metric: CuaPerformanceMetric) => void;
+  platform?: NodeJS.Platform;
   performanceNow?: () => number;
+  waitForSystemUiReveal?: (signal?: AbortSignal) => Promise<void>;
+}
+
+const WINDOWS_BOTTOM_EDGE_READY_MS = 15_000;
+
+function defaultSystemUiRevealWait(signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error('The desktop action was cancelled.'));
+      return;
+    }
+
+    const finish = () => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    };
+    const timer = setTimeout(finish, 450);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new Error('The desktop action was cancelled.'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+export function isWindowsBottomEdgeClick(
+  platform: NodeJS.Platform,
+  command: DesktopCommand,
+  coordinateSpace: DesktopCoordinateSpace | undefined,
+): command is Extract<DesktopCommand, { kind: 'click' }> {
+  if (platform !== 'win32' || command.kind !== 'click' || !coordinateSpace) {
+    return false;
+  }
+
+  const revealZoneHeight = Math.max(
+    64,
+    Math.ceil(coordinateSpace.screenshotHeight * 0.06),
+  );
+  return command.y >= coordinateSpace.screenshotHeight - revealZoneHeight;
 }
 
 const CUA_PACKAGE_ENTRY_PARTS = [
@@ -227,16 +268,34 @@ export class CuaService {
 
   private readonly desktopScopeSessions = new Set<string>();
 
+  private readonly latestCoordinateSpaces = new Map<
+    string,
+    DesktopCoordinateSpace
+  >();
+
+  private readonly windowsBottomEdgeReadyUntil = new Map<string, number>();
+
+  private readonly windowsBottomEdgeAwaitingObservation = new Set<string>();
+
   private readonly now: () => number;
 
   private readonly onPerformanceMetric?: (metric: CuaPerformanceMetric) => void;
 
+  private readonly platform: NodeJS.Platform;
+
   private readonly performanceNow: () => number;
+
+  private readonly waitForSystemUiReveal: (
+    signal?: AbortSignal,
+  ) => Promise<void>;
 
   constructor(options: CuaServiceOptions = {}) {
     this.now = options.now ?? Date.now;
     this.onPerformanceMetric = options.onPerformanceMetric;
+    this.platform = options.platform ?? process.platform;
     this.performanceNow = options.performanceNow ?? performance.now.bind(performance);
+    this.waitForSystemUiReveal =
+      options.waitForSystemUiReveal ?? defaultSystemUiRevealWait;
   }
 
   semanticCapabilities(): CuaSemanticCapabilities {
@@ -388,6 +447,17 @@ export class CuaService {
     const coordinateSpace = coordinateSpaceFromDesktopState(
       result.structuredJson,
     );
+    if (coordinateSpace) {
+      this.latestCoordinateSpaces.set(taskId, coordinateSpace);
+    } else {
+      this.latestCoordinateSpaces.delete(taskId);
+    }
+    if (this.windowsBottomEdgeAwaitingObservation.delete(taskId)) {
+      this.windowsBottomEdgeReadyUntil.set(
+        taskId,
+        this.now() + WINDOWS_BOTTOM_EDGE_READY_MS,
+      );
+    }
     console.info(
       '[cua] observation.captured',
       JSON.stringify({
@@ -532,6 +602,77 @@ export class CuaService {
       logCuaResult('pointer.move-result', taskId, command, movement);
       return movement;
     };
+
+    const coordinateSpace = this.latestCoordinateSpaces.get(taskId);
+    const bottomEdgeClick = isWindowsBottomEdgeClick(
+      this.platform,
+      command,
+      coordinateSpace,
+    );
+    if (!bottomEdgeClick) {
+      this.windowsBottomEdgeAwaitingObservation.delete(taskId);
+      this.windowsBottomEdgeReadyUntil.delete(taskId);
+    } else if (
+      (this.windowsBottomEdgeReadyUntil.get(taskId) ?? 0) <= this.now()
+    ) {
+      const movement = await movePointer(
+        command.x,
+        coordinateSpace!.screenshotHeight - 1,
+      );
+      if (
+        movement.isError ||
+        movement.action?.effect === cua.ActionEffect.Refused
+      ) {
+        const outcome = DesktopActionOutcomeSchema.parse({
+          status: 'failed',
+          summary:
+            movement.text ||
+            movement.errorCode ||
+            'CUA could not move the pointer to reveal Windows system UI.',
+        });
+        this.recordPerformance({
+          durationMs: Math.max(0, this.performanceNow() - startedAt),
+          fallbackReason: 'semantic_unavailable',
+          operation: command.kind,
+          route: 'desktop_vision',
+          screenshotAttached: false,
+          status: 'error',
+        });
+        return outcome;
+      }
+
+      await this.waitForSystemUiReveal(signal);
+      this.windowsBottomEdgeReadyUntil.delete(taskId);
+      this.windowsBottomEdgeAwaitingObservation.add(taskId);
+      console.info(
+        '[cua] windows.system-ui-revealed',
+        JSON.stringify({
+          taskId,
+          requestedX: command.x,
+          requestedY: command.y,
+          revealY: coordinateSpace!.screenshotHeight - 1,
+        }),
+      );
+      const outcome = DesktopActionOutcomeSchema.parse({
+        status: 'not_executed',
+        summary:
+          'Tro moved the pointer to the Windows bottom edge to reveal auto-hidden system UI. No click was performed; use the fresh observation before clicking.',
+      });
+      this.recordPerformance({
+        durationMs: Math.max(0, this.performanceNow() - startedAt),
+        fallbackReason: 'semantic_unavailable',
+        operation: command.kind,
+        route: 'desktop_vision',
+        screenshotAttached: false,
+        status: 'not_executed',
+      });
+      return outcome;
+    } else {
+      this.windowsBottomEdgeReadyUntil.set(
+        taskId,
+        this.now() + WINDOWS_BOTTOM_EDGE_READY_MS,
+      );
+    }
 
     const result = await (async () => {
       switch (command.kind) {
@@ -725,6 +866,9 @@ export class CuaService {
   async endTaskSession(taskId: string, signal?: AbortSignal): Promise<void> {
     this.surfaceRouter?.clearTask(taskId);
     this.desktopScopeSessions.delete(taskId);
+    this.latestCoordinateSpaces.delete(taskId);
+    this.windowsBottomEdgeAwaitingObservation.delete(taskId);
+    this.windowsBottomEdgeReadyUntil.delete(taskId);
     if (!this.activeSessions.delete(taskId)) return;
     const cua = await this.loadModule();
     await this.requireDriver().endSession(
