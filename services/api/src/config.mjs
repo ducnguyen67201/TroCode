@@ -45,6 +45,29 @@ export function loadConfig(environment = process.env) {
     environment.TROCODE_AGENT_MODEL?.trim() ||
     'gpt-5.6-luna';
 
+  const knowledgeSpacesEnabled = booleanValue(
+    'TROCODE_KNOWLEDGE_SPACES_ENABLED',
+    environment.TROCODE_KNOWLEDGE_SPACES_ENABLED,
+    false,
+  );
+  const knowledgeObjectStore = knowledgeSpacesEnabled
+    ? {
+        accessKeyId: required('TROCODE_KNOWLEDGE_S3_ACCESS_KEY_ID', environment),
+        bucket: required('TROCODE_KNOWLEDGE_S3_BUCKET', environment),
+        endpoint: environment.TROCODE_KNOWLEDGE_S3_ENDPOINT?.trim() || null,
+        forcePathStyle: booleanValue(
+          'TROCODE_KNOWLEDGE_S3_FORCE_PATH_STYLE',
+          environment.TROCODE_KNOWLEDGE_S3_FORCE_PATH_STYLE,
+          false,
+        ),
+        region: required('TROCODE_KNOWLEDGE_S3_REGION', environment),
+        secretAccessKey: required(
+          'TROCODE_KNOWLEDGE_S3_SECRET_ACCESS_KEY',
+          environment,
+        ),
+      }
+    : null;
+
   return {
     costGuard: {
       dailyMicroUsd: positiveInteger(
@@ -100,11 +123,20 @@ export function loadConfig(environment = process.env) {
       ),
     },
     databaseUrl: required('DATABASE_URL', environment),
+    databasePoolMax: positiveInteger(
+      'TROCODE_DATABASE_POOL_MAX',
+      environment.TROCODE_DATABASE_POOL_MAX,
+      10,
+    ),
     elevenLabsApiKey: environment.ELEVENLABS_API_KEY?.trim() || null,
     elevenLabsModelId:
       environment.ELEVENLABS_MODEL_ID?.trim() || 'eleven_flash_v2_5',
     elevenLabsVoiceId: environment.ELEVENLABS_VOICE_ID?.trim() || null,
     googleClientId: required('GOOGLE_OAUTH_CLIENT_ID', environment),
+    knowledgeSpaces: {
+      enabled: knowledgeSpacesEnabled,
+      objectStore: knowledgeObjectStore,
+    },
     openAiApiKey: required('OPENAI_API_KEY', environment),
     openAiModels: new Set([primaryModel]),
     port: positiveInteger('PORT', environment.PORT, 8080),

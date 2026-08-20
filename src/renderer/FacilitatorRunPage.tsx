@@ -1,0 +1,17 @@
+import { useEffect, useRef, useState } from 'react';
+
+import type { AppLanguage, KnowledgeDashboard } from '../shared/contracts';
+
+import { translate } from './app-language';
+
+export function FacilitatorRunPage({ appLanguage, runId, spaceId }: { appLanguage: AppLanguage; runId: string; spaceId: string }) {
+  const [dashboard, setDashboard] = useState<KnowledgeDashboard | null>(null); const [error, setError] = useState<string | null>(null); const sequence = useRef<number | undefined>(undefined); const t = (message: string) => translate(appLanguage, message);
+  useEffect(() => {
+    let active = true; let timer: number | null = null;
+    const snapshot = async () => { const next = await window.tro.getKnowledgeDashboard({ spaceId, runId }); if (active) { sequence.current = next.maxSequence; setDashboard(next); setError(null); } };
+    const poll = async () => { if (document.visibilityState !== 'visible') return; try { if (sequence.current === undefined) { await snapshot(); return; } const delta = await window.tro.getKnowledgeDashboard({ spaceId, runId, sinceSequence: sequence.current }); sequence.current = delta.maxSequence; if ((delta.events?.length ?? 0) > 0) await snapshot(); } catch (cause) { if (active) setError(cause instanceof Error ? cause.message : translate(appLanguage, 'Dashboard is unavailable.')); } };
+    void poll(); timer = window.setInterval(() => void poll(), 5000);
+    return () => { active = false; if (timer !== null) window.clearInterval(timer); };
+  }, [appLanguage, runId, spaceId]);
+  return <section className="space-panel"><div className="section-heading-row"><div><p className="eyebrow">{t('Observable evidence')}</p><h2>{t('Facilitator dashboard')}</h2></div><span className="event-count">{dashboard?.participants?.length ?? 0}</span></div><p>{t('Statuses and suggestions are based on explicit help, operational progress, and provenance-labeled evidence—not inferred mental state.')}</p>{error && <p role="alert">{error}</p>}<div className="dashboard-lanes">{Object.entries(dashboard?.counts ?? {}).map(([state, count]) => <div key={state}><strong>{count}</strong><span>{t(state)}</span></div>)}</div>{(dashboard?.helpQueue?.length ?? 0) > 0 && <section className="dashboard-insight"><h3>{t('Help queue')}</h3><ul>{dashboard?.helpQueue?.map((row) => <li key={row.attemptId}><strong>{row.id}</strong><span>{t('Explicit help request')}</span></li>)}</ul></section>}{(dashboard?.patterns?.length ?? 0) > 0 && <section className="dashboard-insight"><h3>{t('Evidence patterns')}</h3><ul>{dashboard?.patterns?.map((pattern) => <li key={pattern.criterionId}><strong>{pattern.criterionId}</strong><span>{pattern.participantCount} {t('participants')} · {pattern.corroboratedCount} {t('provenance types')}</span></li>)}</ul></section>}{(dashboard?.suggestions?.length ?? 0) > 0 && <section className="dashboard-insight"><h3>{t('Suggested support')}</h3><ul>{dashboard?.suggestions?.map((suggestion, index) => <li key={`${suggestion.kind}:${index}`}><strong>{t(suggestion.kind)}</strong><span>{suggestion.kind === 'individual_follow_up' ? suggestion.participantId : suggestion.criterionId}</span></li>)}</ul></section>}{dashboard?.participants && <table className="knowledge-table"><thead><tr><th>{t('Participant')}</th><th>{t('Status')}</th><th>{t('Sessions')}</th><th>{t('Evidence')}</th></tr></thead><tbody>{dashboard.participants.map((row) => <tr key={row.attemptId}><td>{row.id}</td><td>{t(row.state)}</td><td>{row.sessionCount}</td><td>{row.evidenceCount}</td></tr>)}</tbody></table>}</section>;
+}

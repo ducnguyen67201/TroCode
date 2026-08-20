@@ -73,7 +73,8 @@ export function classifyActionRisk(
   if (
     isComputerControl(action) &&
     ROUTINE_DESKTOP_ACTIONS.has(action.action) &&
-    (goal.schemaVersion !== 5 || goal.autonomyMode === 'strict')
+    ((goal.schemaVersion !== 5 && goal.schemaVersion !== 6) ||
+      goal.autonomyMode === 'strict')
   ) {
     return {
       level: 'sensitive',

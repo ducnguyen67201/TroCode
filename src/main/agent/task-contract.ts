@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
-  AgentTaskContractV5Schema,
+  AgentTaskContractV6Schema,
   HOST_ALWAYS_CONFIRM_ACTIONS,
   type AgentTaskContract,
   type AgentRuntimeKind,
@@ -11,6 +11,7 @@ import {
   type SensitiveAction,
   type TaskBehavior,
   type WorkspaceIdentity,
+  type ActivityContext,
 } from '../../shared/contracts';
 
 export const HOST_APPROVAL_POLICY: readonly SensitiveAction[] =
@@ -23,10 +24,12 @@ export const DEFAULT_MAX_IMAGES = 20;
 export const DEFAULT_MAX_TASK_MICRO_USD = 500_000;
 
 export interface CreateTaskContractOptions {
+  activity?: ActivityContext | null;
   autonomyMode?: AutonomyMode;
   executionProfile?: ExecutionProfile;
   runtimeKind?: AgentRuntimeKind;
   workspace?: WorkspaceIdentity | null;
+  taskId?: string;
 }
 
 /**
@@ -39,14 +42,15 @@ export function createTaskContract(
 ): AgentTaskContract {
   const executionProfile = options.executionProfile ?? 'everyday';
   const runtimeKind = options.runtimeKind ?? 'openai_agents';
-  return AgentTaskContractV5Schema.parse({
-    schemaVersion: 5,
+  return AgentTaskContractV6Schema.parse({
+    schemaVersion: 6,
     id: randomUUID(),
     originalRequest,
     autonomyMode: options.autonomyMode ?? 'balanced',
     executionProfile,
     runtimeKind,
     workspace: options.workspace ?? null,
+    activity: options.activity ?? null,
     approvalPolicy: { alwaysConfirm: [...HOST_APPROVAL_POLICY] },
     limits: {
       maxToolCalls: DEFAULT_MAX_TOOL_CALLS,
@@ -63,13 +67,13 @@ export function taskApprovalPolicy(): readonly SensitiveAction[] {
 }
 
 export function taskMaxToolCalls(goal: GoalSpec): number {
-  return goal.schemaVersion === 3 || goal.schemaVersion === 4 || goal.schemaVersion === 5
+  return goal.schemaVersion === 3 || goal.schemaVersion === 4 || goal.schemaVersion === 5 || goal.schemaVersion === 6
     ? goal.limits.maxToolCalls
     : goal.limits.maxSteps;
 }
 
 export function taskMaxModelSamples(goal: GoalSpec): number {
-  return goal.schemaVersion === 4 || goal.schemaVersion === 5
+  return goal.schemaVersion === 4 || goal.schemaVersion === 5 || goal.schemaVersion === 6
     ? goal.limits.maxModelSamples
     : DEFAULT_MAX_MODEL_SAMPLES;
 }

@@ -116,7 +116,8 @@ describe('migratePersistedTaskSnapshot', () => {
       autonomyMode: 'balanced',
       executionProfile: 'everyday',
       runtimeKind: 'openai_agents',
-      schemaVersion: 5,
+      schemaVersion: 6,
+      activity: null,
       workspace: null,
     });
   });
@@ -155,8 +156,10 @@ describe('migratePersistedTaskSnapshot', () => {
 
     expect(result.changed).toBe(true);
     expect(result.snapshot.goal).toMatchObject({
+      activity: null,
       executionProfile: 'workspace',
       runtimeKind: 'openai_agents',
+      schemaVersion: 6,
       workspace,
     });
     expect(result.snapshot.runtimeResume).toBeNull();

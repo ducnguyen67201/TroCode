@@ -36,6 +36,38 @@ import type {
   VoiceStatus,
   WorkspaceRuntimeAvailability,
   WorkspaceSelection,
+  KnowledgeCapabilities,
+  KnowledgeSpaceList,
+  KnowledgeSpaceSummary,
+  CreateKnowledgeSpaceRequest,
+  CreateKnowledgeSpaceResponse,
+  KnowledgeSourceList,
+  SelectKnowledgeFilesRequest,
+  KnowledgeFileSelection,
+  UploadKnowledgeSelectionRequest,
+  KnowledgeUploadResult,
+  SaveKnowledgeActivityRequest,
+  KnowledgeActivityDraft,
+  PublishKnowledgeActivityRequest,
+  KnowledgeActivityVersion,
+  CreateKnowledgeRunRequest,
+  KnowledgeRun,
+  AssignedActivityList,
+  HostedAttemptContext,
+  KnowledgeDashboard,
+  AcknowledgeKnowledgeAttemptRequest,
+  SetKnowledgeRunStateRequest,
+  GetKnowledgeDashboardRequest,
+  PrepareActivityStarterRequest,
+  SubmitKnowledgeSelectionRequest,
+  KnowledgeGroup,
+  KnowledgeGroupList,
+  CreateKnowledgeGroupRequest,
+  CreateKnowledgeInviteRequest,
+  KnowledgeInvite,
+  RedeemKnowledgeInviteRequest,
+  RedeemKnowledgeInviteResponse,
+  RequestKnowledgeAttemptHelp,
 } from './contracts';
 
 export const IPC_CHANNELS = {
@@ -86,6 +118,28 @@ export const IPC_CHANNELS = {
   taskComposerFocusRequested: 'task:composer-focus-requested',
   updateAppPreferences: 'preferences:update',
   voiceShortcut: 'voice:shortcut',
+  getKnowledgeCapabilities: 'knowledge:capabilities',
+  listKnowledgeSpaces: 'knowledge:spaces:list',
+  createKnowledgeSpace: 'knowledge:spaces:create',
+  getKnowledgeSpace: 'knowledge:spaces:get',
+  listKnowledgeSources: 'knowledge:sources:list',
+  selectKnowledgeFiles: 'knowledge:files:select',
+  uploadKnowledgeSelection: 'knowledge:files:upload',
+  saveKnowledgeActivity: 'knowledge:activity:save',
+  publishKnowledgeActivity: 'knowledge:activity:publish',
+  createKnowledgeRun: 'knowledge:run:create',
+  setKnowledgeRunState: 'knowledge:run:set-state',
+  listAssignedActivities: 'knowledge:assignments:list',
+  getHostedAttempt: 'knowledge:attempt:get',
+  acknowledgeHostedAttempt: 'knowledge:attempt:acknowledge',
+  getKnowledgeDashboard: 'knowledge:dashboard:get',
+  prepareActivityStarter: 'knowledge:starter:prepare',
+  submitKnowledgeSelection: 'knowledge:submission:upload',
+  listKnowledgeGroups: 'knowledge:groups:list',
+  createKnowledgeGroup: 'knowledge:groups:create',
+  createKnowledgeInvite: 'knowledge:invites:create',
+  redeemKnowledgeInvite: 'knowledge:invites:redeem',
+  requestKnowledgeAttemptHelp: 'knowledge:attempt:help',
 } as const;
 
 export interface DesktopApi {
@@ -109,6 +163,28 @@ export interface DesktopApi {
   getAuthStatus(): Promise<AuthStatus>;
   getVoiceStatus(): Promise<VoiceStatus>;
   getWorkspaceRuntimeAvailability(): Promise<WorkspaceRuntimeAvailability>;
+  getKnowledgeCapabilities(): Promise<KnowledgeCapabilities>;
+  listKnowledgeSpaces(): Promise<KnowledgeSpaceList>;
+  createKnowledgeSpace(request: CreateKnowledgeSpaceRequest): Promise<CreateKnowledgeSpaceResponse>;
+  getKnowledgeSpace(spaceId: string): Promise<KnowledgeSpaceSummary>;
+  listKnowledgeSources(spaceId: string): Promise<KnowledgeSourceList>;
+  selectKnowledgeFiles(request: SelectKnowledgeFilesRequest): Promise<KnowledgeFileSelection | null>;
+  uploadKnowledgeSelection(request: UploadKnowledgeSelectionRequest): Promise<KnowledgeUploadResult>;
+  saveKnowledgeActivity(request: SaveKnowledgeActivityRequest): Promise<KnowledgeActivityDraft>;
+  publishKnowledgeActivity(request: PublishKnowledgeActivityRequest): Promise<KnowledgeActivityVersion>;
+  createKnowledgeRun(request: CreateKnowledgeRunRequest): Promise<KnowledgeRun>;
+  setKnowledgeRunState(request: SetKnowledgeRunStateRequest): Promise<KnowledgeRun>;
+  listAssignedActivities(): Promise<AssignedActivityList>;
+  getHostedAttempt(attemptId: string): Promise<HostedAttemptContext>;
+  acknowledgeHostedAttempt(request: AcknowledgeKnowledgeAttemptRequest): Promise<void>;
+  getKnowledgeDashboard(request: GetKnowledgeDashboardRequest): Promise<KnowledgeDashboard>;
+  prepareActivityStarter(request: PrepareActivityStarterRequest): Promise<WorkspaceSelection | null>;
+  submitKnowledgeSelection(request: SubmitKnowledgeSelectionRequest): Promise<KnowledgeUploadResult>;
+  listKnowledgeGroups(spaceId: string): Promise<KnowledgeGroupList>;
+  createKnowledgeGroup(request: CreateKnowledgeGroupRequest): Promise<KnowledgeGroup>;
+  createKnowledgeInvite(request: CreateKnowledgeInviteRequest): Promise<KnowledgeInvite>;
+  redeemKnowledgeInvite(request: RedeemKnowledgeInviteRequest): Promise<RedeemKnowledgeInviteResponse>;
+  requestKnowledgeAttemptHelp(request: RequestKnowledgeAttemptHelp): Promise<void>;
   onTaskUpdate(listener: (update: TaskUpdate) => void): () => void;
   onTaskComposerFocusRequested(
     listener: (taskId: string) => void,

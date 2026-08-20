@@ -36,6 +36,7 @@ export class ToolExecutionBroker {
 
   preview(request: Omit<ResolveToolRequest, 'completedToolCalls' | 'maxToolCalls'>): ToolPolicyPreview {
     const invocation = this.registry.preview(request.call, {
+      goal: request.goal,
       taskId: request.taskId,
       latestObservation: request.latestObservation,
     });
@@ -50,6 +51,7 @@ export class ToolExecutionBroker {
       throw new Error('The task reached its tool-call limit.');
     }
     const invocation = this.registry.resolve(request.call, {
+      goal: request.goal,
       taskId: request.taskId,
       latestObservation: request.latestObservation,
     });

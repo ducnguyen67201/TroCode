@@ -117,6 +117,31 @@ export function evaluateAction(
     };
   }
 
+  if (action.toolId === 'activity.signal') {
+    const activity = goal.schemaVersion === 6 ? goal.activity : null;
+    const criterionId = action.parameters?.criterionId;
+    const tag = action.parameters?.tag;
+    const criterion = activity?.activity.criteria.find(
+      (item) => item.id === criterionId,
+    );
+    if (
+      !activity ||
+      activity.insightPolicy !== 'evidence_candidates' ||
+      !activity.policyAcknowledged ||
+      action.operation !== 'record' ||
+      action.action !== 'record_activity_signal' ||
+      action.target !== activity.attemptId ||
+      typeof tag !== 'string' ||
+      !criterion?.tags.includes(tag)
+    ) {
+      return {
+        status: 'denied',
+        summary: 'Activity evidence is outside the pinned Attempt policy.',
+        nextActions: ['Continue without recording inferred evidence.'],
+      };
+    }
+  }
+
   if (!isTargetAdmissible(action)) {
     return {
       status: 'denied',

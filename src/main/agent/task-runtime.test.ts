@@ -5,7 +5,7 @@ import { TaskUpdateSchema } from '../../shared/contracts';
 import { TaskRuntime } from './task-runtime';
 
 describe('TaskRuntime', () => {
-  it('submits a ready v5 task synchronously', () => {
+  it('submits a ready v6 task synchronously', () => {
     const runtime = new TaskRuntime();
     const listener = vi.fn();
     runtime.on('task-update', listener);
@@ -14,7 +14,8 @@ describe('TaskRuntime', () => {
 
     expect(snapshot.phase).toBe('ready');
     expect(snapshot.goal).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
+      activity: null,
       autonomyMode: 'balanced',
       executionProfile: 'everyday',
       runtimeKind: 'openai_agents',

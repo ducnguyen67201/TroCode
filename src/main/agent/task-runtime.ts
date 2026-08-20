@@ -127,7 +127,7 @@ export class TaskRuntime extends EventEmitter {
     const timestamp = this.timestamp();
     const contract = createTaskContract(request.text, contractOptions);
     const idle: TaskSnapshot = {
-      taskId: randomUUID(),
+      taskId: contractOptions.taskId ?? randomUUID(),
       request: request.text,
       phase: 'idle',
       goal: contract,

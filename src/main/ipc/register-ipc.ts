@@ -25,6 +25,23 @@ import {
   type RecordVoiceTranscriptRequest,
   type SystemPermission,
   type UsageBudgetSnapshot,
+  CreateKnowledgeSpaceRequestSchema,
+  KnowledgeSpaceIdRequestSchema,
+  SelectKnowledgeFilesRequestSchema,
+  UploadKnowledgeSelectionRequestSchema,
+  SaveKnowledgeActivityRequestSchema,
+  PublishKnowledgeActivityRequestSchema,
+  CreateKnowledgeRunRequestSchema,
+  SetKnowledgeRunStateRequestSchema,
+  KnowledgeAttemptIdRequestSchema,
+  AcknowledgeKnowledgeAttemptRequestSchema,
+  GetKnowledgeDashboardRequestSchema,
+  PrepareActivityStarterRequestSchema,
+  SubmitKnowledgeSelectionRequestSchema,
+  CreateKnowledgeGroupRequestSchema,
+  CreateKnowledgeInviteRequestSchema,
+  RedeemKnowledgeInviteRequestSchema,
+  RequestKnowledgeAttemptHelpSchema,
 } from '../../shared/contracts';
 import { IPC_CHANNELS } from '../../shared/desktop-api';
 import type { AgentActivityService } from '../agent/agent-activity-service';
@@ -35,6 +52,11 @@ import type { GoogleAuthService } from '../auth/google-auth-service';
 import type { UsageBudgetService } from '../budget/usage-budget-service';
 import type { CuaService } from '../cua/cua-service';
 import type { TaskHistoryService } from '../history/task-history-service';
+import type { ActivityProgressReporter } from '../knowledge/activity-progress-reporter';
+import type { ActivityWorkspacePreparationService } from '../knowledge/activity-workspace-preparation-service';
+import type { FileSelectionService } from '../knowledge/file-selection-service';
+import type { KnowledgeSpaceClient } from '../knowledge/knowledge-space-client';
+import type { KnowledgeUploadOrchestrator } from '../knowledge/knowledge-upload-service';
 import type { MembershipService } from '../membership/membership-service';
 import type { AppPreferencesService } from '../preferences/app-preferences-service';
 import type { AppUpdateService } from '../update/app-update-service';
@@ -85,6 +107,11 @@ interface IpcServices {
   voiceService: VoiceService;
   usageBudgetService: UsageBudgetService;
   workspaceSelectionService: WorkspaceSelectionService;
+  fileSelectionService: FileSelectionService;
+  knowledgeSpaceClient: KnowledgeSpaceClient;
+  knowledgeUploadOrchestrator: KnowledgeUploadOrchestrator;
+  activityProgressReporter: Pick<ActivityProgressReporter, 'clear'>;
+  activityWorkspacePreparationService: Pick<ActivityWorkspacePreparationService, 'prepare'>;
 }
 
 async function assertAuthorizedSender(
@@ -207,6 +234,28 @@ export function registerIpcHandlers(
     IPC_CHANNELS.submitTask,
     IPC_CHANNELS.selectWorkspace,
     IPC_CHANNELS.updateAppPreferences,
+    IPC_CHANNELS.getKnowledgeCapabilities,
+    IPC_CHANNELS.listKnowledgeSpaces,
+    IPC_CHANNELS.createKnowledgeSpace,
+    IPC_CHANNELS.getKnowledgeSpace,
+    IPC_CHANNELS.listKnowledgeSources,
+    IPC_CHANNELS.selectKnowledgeFiles,
+    IPC_CHANNELS.uploadKnowledgeSelection,
+    IPC_CHANNELS.saveKnowledgeActivity,
+    IPC_CHANNELS.publishKnowledgeActivity,
+    IPC_CHANNELS.createKnowledgeRun,
+    IPC_CHANNELS.setKnowledgeRunState,
+    IPC_CHANNELS.listAssignedActivities,
+    IPC_CHANNELS.getHostedAttempt,
+    IPC_CHANNELS.acknowledgeHostedAttempt,
+    IPC_CHANNELS.getKnowledgeDashboard,
+    IPC_CHANNELS.prepareActivityStarter,
+    IPC_CHANNELS.submitKnowledgeSelection,
+    IPC_CHANNELS.listKnowledgeGroups,
+    IPC_CHANNELS.createKnowledgeGroup,
+    IPC_CHANNELS.createKnowledgeInvite,
+    IPC_CHANNELS.redeemKnowledgeInvite,
+    IPC_CHANNELS.requestKnowledgeAttemptHelp,
   ];
 
   for (const channel of channels) ipcMain.removeHandler(channel);
@@ -242,6 +291,8 @@ export function registerIpcHandlers(
     assertTrustedSender(event, mainWindow);
     services.executionCoordinator.cancelActiveTasks();
     const status = await services.authService.signOut();
+    services.fileSelectionService?.clear();
+    services.activityProgressReporter?.clear();
     await services.onAuthSignedOut?.();
     return status;
   });
@@ -271,6 +322,138 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.getAppPreferences, async (event) => {
     await assertAuthorizedSender(event, mainWindow, services.authService);
     return services.appPreferencesService.get();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getKnowledgeCapabilities, async (event) => {
+    await assertAuthorizedSender(event, mainWindow, services.authService);
+    return services.knowledgeSpaceClient.capabilities();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.listKnowledgeSpaces, async (event) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    return services.knowledgeSpaceClient.listSpaces();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.createKnowledgeSpace, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    return services.knowledgeSpaceClient.createSpace(CreateKnowledgeSpaceRequestSchema.parse(input));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getKnowledgeSpace, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    const request = KnowledgeSpaceIdRequestSchema.parse(input);
+    return services.knowledgeSpaceClient.getSpace(request.spaceId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.listKnowledgeSources, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    const request = KnowledgeSpaceIdRequestSchema.parse(input);
+    return services.knowledgeSpaceClient.listSources(request.spaceId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.selectKnowledgeFiles, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    return services.fileSelectionService.select(SelectKnowledgeFilesRequestSchema.parse(input));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.uploadKnowledgeSelection, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    const request = UploadKnowledgeSelectionRequestSchema.parse(input);
+    return services.knowledgeUploadOrchestrator.upload(request.spaceId, request.selectionId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.saveKnowledgeActivity, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    return services.knowledgeSpaceClient.saveActivity(SaveKnowledgeActivityRequestSchema.parse(input));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.publishKnowledgeActivity, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    return services.knowledgeSpaceClient.publishActivity(PublishKnowledgeActivityRequestSchema.parse(input));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.createKnowledgeRun, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    return services.knowledgeSpaceClient.createRun(CreateKnowledgeRunRequestSchema.parse(input));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.setKnowledgeRunState, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    const request = SetKnowledgeRunStateRequestSchema.parse(input);
+    return services.knowledgeSpaceClient.setRunState(request.spaceId, request.runId, request.state);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.listAssignedActivities, async (event) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    return services.knowledgeSpaceClient.listAssigned();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getHostedAttempt, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    const request = KnowledgeAttemptIdRequestSchema.parse(input);
+    return services.knowledgeSpaceClient.getAttempt(request.attemptId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.acknowledgeHostedAttempt, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    const request = AcknowledgeKnowledgeAttemptRequestSchema.parse(input);
+    await services.knowledgeSpaceClient.acknowledgeAttempt(request.attemptId, request.policyVersion);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getKnowledgeDashboard, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    const request = GetKnowledgeDashboardRequestSchema.parse(input);
+    return services.knowledgeSpaceClient.dashboard(request.spaceId, request.runId, request.sinceSequence);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.prepareActivityStarter, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    const request = PrepareActivityStarterRequestSchema.parse(input);
+    return services.activityWorkspacePreparationService.prepare(request.attemptId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.submitKnowledgeSelection, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    const request = SubmitKnowledgeSelectionRequestSchema.parse(input);
+    return services.knowledgeUploadOrchestrator.submit(
+      request.attemptId,
+      request.selectionId,
+    );
+  });
+
+  ipcMain.handle(IPC_CHANNELS.listKnowledgeGroups, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    const request = KnowledgeSpaceIdRequestSchema.parse(input);
+    return services.knowledgeSpaceClient.listGroups(request.spaceId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.createKnowledgeGroup, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    return services.knowledgeSpaceClient.createGroup(
+      CreateKnowledgeGroupRequestSchema.parse(input),
+    );
+  });
+
+  ipcMain.handle(IPC_CHANNELS.createKnowledgeInvite, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    return services.knowledgeSpaceClient.createInvite(
+      CreateKnowledgeInviteRequestSchema.parse(input),
+    );
+  });
+
+  ipcMain.handle(IPC_CHANNELS.redeemKnowledgeInvite, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    const request = RedeemKnowledgeInviteRequestSchema.parse(input);
+    return services.knowledgeSpaceClient.redeemInvite(request.code);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.requestKnowledgeAttemptHelp, async (event, input: unknown) => {
+    await assertMembershipAuthorizedSender(event, mainWindow, services);
+    const request = RequestKnowledgeAttemptHelpSchema.parse(input);
+    await services.knowledgeSpaceClient.requestHelp(
+      request.attemptId,
+      request.clientId,
+    );
   });
 
   ipcMain.handle(

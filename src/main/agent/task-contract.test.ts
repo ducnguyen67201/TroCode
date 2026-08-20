@@ -11,11 +11,12 @@ import {
 } from './task-contract';
 
 describe('task contract', () => {
-  it('creates a host-owned v5 Everyday contract with cost ceilings and no semantic grants', () => {
+  it('creates a host-owned v6 Everyday contract with cost ceilings and no semantic grants', () => {
     const contract = createTaskContract('Create a simple beat in GarageBand.');
 
     expect(contract).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
+      activity: null,
       autonomyMode: 'balanced',
       executionProfile: 'everyday',
       originalRequest: 'Create a simple beat in GarageBand.',
@@ -66,7 +67,7 @@ describe('task contract', () => {
   it('rejects malformed or unknown future contract versions', () => {
     expect(() =>
       TaskContractSchema.parse({
-        schemaVersion: 6,
+        schemaVersion: 7,
         id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         originalRequest: 'Complete a future task',
         approvalPolicy: { alwaysConfirm: [] },
@@ -88,7 +89,8 @@ describe('task contract', () => {
         workspace,
       }),
     ).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
+      activity: null,
       executionProfile: 'workspace',
       runtimeKind: 'openai_agents',
       workspace,

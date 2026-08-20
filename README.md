@@ -5,13 +5,20 @@ Workspace tasks run through the OpenAI Agents SDK and Tro's authenticated
 backend. Both stay behind the same trusted host policy and activity stream.
 
 Read the [privacy policy](PRIVACY.md), [code signing policy](CODE_SIGNING_POLICY.md),
-and [security model](docs/security.md).
+the [security model](docs/security.md), and the
+[Knowledge Spaces guide](docs/knowledge-spaces.md).
 
 The desktop application uses Electron, React, TypeScript, and [CUA Driver](https://github.com/trycua/cua). It is domain-agnostic: requests are not placed into a Gold domain/capability grant before execution. The host still enforces concrete tool availability, public HTTPS targets, fresh observations, exact consequential-action approvals, cancellation, and task limits.
 
 ## Current status
 
 Implemented:
+
+- Feature-flagged Knowledge Spaces with a private versioned Library, reusable
+  Activities, groups and expiring join codes, live/async/hybrid Runs, private
+  Attempts, starter Workspaces, scoped source search, explicit submissions,
+  and evidence-based facilitator dashboards. PostgreSQL is authoritative; no
+  manifest or Firebase is required.
 
 - Secure Electron main/preload/renderer separation.
 - One persistent OpenAI Agents SDK loop for multilingual reasoning, writing,
