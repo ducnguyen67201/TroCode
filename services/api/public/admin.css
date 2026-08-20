@@ -580,6 +580,11 @@ tbody tr:hover {
   color: #9b4b3b;
 }
 
+.status-badge--paused {
+  background: #f6eddc;
+  color: #8c622f;
+}
+
 .access-code-cell {
   display: flex;
   align-items: center;
@@ -632,6 +637,25 @@ tbody tr:hover {
 .row-action--block:hover:not(:disabled) {
   border-color: #e1bcb2;
   color: #994636;
+}
+
+.code-actions {
+  display: flex;
+  gap: 7px;
+}
+
+.row-action--danger {
+  color: #994636;
+}
+
+.row-action--danger:hover:not(:disabled) {
+  border-color: #e1bcb2;
+  background: #fff8f6;
+}
+
+.row-action--danger:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
 }
 
 .table-footer {
@@ -1048,6 +1072,11 @@ dialog::backdrop {
   }
 
   .access-codes-table tbody td:nth-child(7) {
+    justify-self: end;
+  }
+
+  .access-codes-table tbody td:nth-child(8) {
+    grid-column: 1 / -1;
     justify-self: end;
   }
 

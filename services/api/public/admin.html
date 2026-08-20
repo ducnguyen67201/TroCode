@@ -179,9 +179,9 @@
               <span class="summary-foot summary-foot--warning">User limit reached</span>
             </article>
             <article class="summary-card">
-              <span class="summary-label">Viewable</span>
-              <strong id="retrievable-codes">—</strong>
-              <span class="summary-foot">Encrypted, admin-readable codes</span>
+              <span class="summary-label">Paused</span>
+              <strong id="paused-codes">—</strong>
+              <span class="summary-foot">Not accepting new users</span>
             </article>
           </section>
 
@@ -203,6 +203,7 @@
                     <option value="">All statuses</option>
                     <option value="available">Available</option>
                     <option value="full">Full</option>
+                    <option value="paused">Paused</option>
                   </select>
                 </label>
               </div>
@@ -218,6 +219,7 @@
                     <th scope="col">Who&rsquo;s using it</th>
                     <th scope="col">Created</th>
                     <th scope="col">Status</th>
+                    <th scope="col">Actions</th>
                   </tr>
                 </thead>
                 <tbody id="codes-body"></tbody>

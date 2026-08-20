@@ -115,7 +115,7 @@ test('lists access codes with capacity, retrieval, and legacy metadata', async (
           full_codes: 1,
           retrievable_codes: 1,
           paused_codes: 1,
-          total_codes: 2,
+          total_codes: 3,
           total_redemptions: 3,
         },
       ],
@@ -170,7 +170,7 @@ test('lists access codes with capacity, retrieval, and legacy metadata', async (
         fullCodes: 1,
         pausedCodes: 1,
         retrievableCodes: 1,
-        totalCodes: 2,
+        totalCodes: 3,
         totalRedemptions: 3,
       },
     },
@@ -185,7 +185,16 @@ test('pauses an access code and records the admin action atomically', async () =
   const pausedAt = new Date('2026-08-20T08:00:00.000Z');
   const { client, pool, queries } = sequencedPool([
     { rows: [] },
-    { rows: [{ id: codeId, paused_at: pausedAt }] },
+    {
+      rows: [
+        {
+          id: codeId,
+          max_users: 5,
+          paused_at: pausedAt,
+          redeemed_users: 2,
+        },
+      ],
+    },
     { rows: [] },
     { rows: [] },
   ]);
@@ -207,6 +216,39 @@ test('pauses an access code and records the admin action atomically', async () =
   ]);
   assert.equal(queries.at(-1).sql, 'COMMIT');
   assert.equal(client.released, true);
+});
+
+test('resumes a full access code without misreporting it as available', async () => {
+  const codeId = '11111111-1111-4111-8111-111111111111';
+  const { pool, queries } = sequencedPool([
+    { rows: [] },
+    {
+      rows: [
+        {
+          id: codeId,
+          max_users: 1,
+          paused_at: null,
+          redeemed_users: 1,
+        },
+      ],
+    },
+    { rows: [] },
+    { rows: [] },
+  ]);
+  const repository = new PostgresAdminRepository(pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(await repository.setAccessCodePaused(codeId, false), {
+    id: codeId,
+    pausedAt: null,
+    status: 'full',
+  });
+  assert.deepEqual(queries[2].parameters, [
+    'access_codes.resumed',
+    JSON.stringify({ accessCodeId: codeId }),
+  ]);
+  assert.equal(queries.at(-1).sql, 'COMMIT');
 });
 
 test('deletes an unused access code while preserving codes with redemptions', async () => {

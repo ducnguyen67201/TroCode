@@ -457,6 +457,12 @@ export function createApiHandler({
             'This access code has reached its user limit.',
           );
         }
+        if (result.kind === 'code_paused') {
+          throw new HttpError(
+            409,
+            'This access code is temporarily paused.',
+          );
+        }
         if (result.kind === 'account_already_linked') {
           throw new HttpError(
             409,

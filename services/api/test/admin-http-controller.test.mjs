@@ -311,6 +311,25 @@ test('pauses an access code with a strict validated request', async () => {
     ]);
     assert.equal((await response.json()).status, 'paused');
 
+    const resumed = await fetch(
+      `${baseUrl}/v1/admin/access-codes/${codeId}`,
+      {
+        body: JSON.stringify({ paused: false }),
+        headers: {
+          ...adminHeaders(baseUrl),
+          'Content-Type': 'application/json',
+        },
+        method: 'PATCH',
+      },
+    );
+    assert.equal(resumed.status, 200);
+    assert.equal((await resumed.json()).status, 'available');
+    assert.deepEqual(calls.at(-1), {
+      id: codeId,
+      method: 'setAccessCodePaused',
+      paused: false,
+    });
+
     const invalid = await fetch(
       `${baseUrl}/v1/admin/access-codes/${codeId}`,
       {

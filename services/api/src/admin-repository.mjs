@@ -37,6 +37,7 @@ function publicUser(row) {
 function publicAccessCode(row, hmacKey) {
   const redeemedUsers = Number(row.redeemed_users ?? 0);
   const maxUsers = Number(row.max_users);
+  const pausedAt = iso(row.paused_at);
   let code = null;
   if (row.code_ciphertext) {
     try {
@@ -51,11 +52,16 @@ function publicAccessCode(row, hmacKey) {
     id: row.id,
     label: row.label ?? null,
     maxUsers,
+    pausedAt,
     plan: row.plan,
     redeemedUsers,
     remainingUsers: Math.max(0, maxUsers - redeemedUsers),
     retrievable: code !== null,
-    status: redeemedUsers >= maxUsers ? 'full' : 'available',
+    status: pausedAt
+      ? 'paused'
+      : redeemedUsers >= maxUsers
+        ? 'full'
+        : 'available',
   };
 }
 
@@ -213,19 +219,26 @@ export class PostgresAdminRepository {
          SELECT codes.id,
                 codes.max_users,
                 codes.code_ciphertext,
+                codes.paused_at,
                 COUNT(redemptions.user_id)::INTEGER AS redeemed_users
          FROM access_codes AS codes
          LEFT JOIN access_code_redemptions AS redemptions
            ON redemptions.access_code_id = codes.id
-         GROUP BY codes.id, codes.max_users, codes.code_ciphertext
+         GROUP BY codes.id,
+                  codes.max_users,
+                  codes.code_ciphertext,
+                  codes.paused_at
        )
        SELECT COUNT(*)::INTEGER AS total_codes,
               COUNT(*) FILTER (
-                WHERE redeemed_users < max_users
+                WHERE paused_at IS NULL AND redeemed_users < max_users
               )::INTEGER AS available_codes,
               COUNT(*) FILTER (
-                WHERE redeemed_users >= max_users
+                WHERE paused_at IS NULL AND redeemed_users >= max_users
               )::INTEGER AS full_codes,
+              COUNT(*) FILTER (
+                WHERE paused_at IS NOT NULL
+              )::INTEGER AS paused_codes,
               COUNT(*) FILTER (
                 WHERE code_ciphertext IS NOT NULL
               )::INTEGER AS retrievable_codes,
@@ -239,6 +252,7 @@ export class PostgresAdminRepository {
                 codes.code_ciphertext,
                 codes.label,
                 codes.max_users,
+                codes.paused_at,
                 codes.plan,
                 codes.created_at,
                 COUNT(redemptions.user_id)::INTEGER AS redeemed_users
@@ -250,6 +264,7 @@ export class PostgresAdminRepository {
                   codes.code_ciphertext,
                   codes.label,
                   codes.max_users,
+                  codes.paused_at,
                   codes.plan,
                   codes.created_at
        )
@@ -257,8 +272,9 @@ export class PostgresAdminRepository {
        FROM usage
        WHERE (
          $1 = ''
-         OR ($1 = 'available' AND redeemed_users < max_users)
-         OR ($1 = 'full' AND redeemed_users >= max_users)
+         OR ($1 = 'available' AND paused_at IS NULL AND redeemed_users < max_users)
+         OR ($1 = 'full' AND paused_at IS NULL AND redeemed_users >= max_users)
+         OR ($1 = 'paused' AND paused_at IS NOT NULL)
        )
          AND (
            $2 = ''
@@ -280,11 +296,114 @@ export class PostgresAdminRepository {
       summary: {
         availableCodes: Number(summary.available_codes ?? 0),
         fullCodes: Number(summary.full_codes ?? 0),
+        pausedCodes: Number(summary.paused_codes ?? 0),
         retrievableCodes: Number(summary.retrievable_codes ?? 0),
         totalCodes: Number(summary.total_codes ?? 0),
         totalRedemptions: Number(summary.total_redemptions ?? 0),
       },
     };
+  }
+
+  async setAccessCodePaused(codeId, paused) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        `WITH updated AS (
+           UPDATE access_codes
+           SET paused_at = CASE
+                 WHEN $2 THEN COALESCE(paused_at, NOW())
+                 ELSE NULL
+               END
+           WHERE id = $1
+           RETURNING id, max_users, paused_at
+         )
+         SELECT updated.id,
+                updated.max_users,
+                updated.paused_at,
+                COUNT(redemptions.user_id)::INTEGER AS redeemed_users
+         FROM updated
+         LEFT JOIN access_code_redemptions AS redemptions
+           ON redemptions.access_code_id = updated.id
+         GROUP BY updated.id, updated.max_users, updated.paused_at`,
+        [codeId, paused],
+      );
+      const row = result.rows[0];
+      if (!row) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      await client.query(
+        `INSERT INTO admin_audit_events (action, detail)
+         VALUES ($1, $2::JSONB)`,
+        [
+          paused ? 'access_codes.paused' : 'access_codes.resumed',
+          JSON.stringify({ accessCodeId: codeId }),
+        ],
+      );
+      await client.query('COMMIT');
+      const pausedAt = iso(row.paused_at);
+      const redeemedUsers = Number(row.redeemed_users ?? 0);
+      const maxUsers = Number(row.max_users);
+      return {
+        id: row.id,
+        pausedAt,
+        status: pausedAt
+          ? 'paused'
+          : redeemedUsers >= maxUsers
+            ? 'full'
+            : 'available',
+      };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async deleteAccessCode(codeId) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const codeResult = await client.query(
+        `SELECT id
+         FROM access_codes
+         WHERE id = $1
+         FOR UPDATE`,
+        [codeId],
+      );
+      if (!codeResult.rows[0]) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      const usageResult = await client.query(
+        `SELECT COUNT(*)::INTEGER AS redeemed_users
+         FROM access_code_redemptions
+         WHERE access_code_id = $1`,
+        [codeId],
+      );
+      const redeemedUsers = Number(
+        usageResult.rows[0]?.redeemed_users ?? 0,
+      );
+      if (redeemedUsers > 0) {
+        await client.query('ROLLBACK');
+        return { id: codeId, kind: 'in_use', redeemedUsers };
+      }
+      await client.query('DELETE FROM access_codes WHERE id = $1', [codeId]);
+      await client.query(
+        `INSERT INTO admin_audit_events (action, detail)
+         VALUES ('access_codes.deleted', $1::JSONB)`,
+        [JSON.stringify({ accessCodeId: codeId })],
+      );
+      await client.query('COMMIT');
+      return { id: codeId, kind: 'deleted' };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listAccessCodeUsers(codeId, { limit, offset }) {

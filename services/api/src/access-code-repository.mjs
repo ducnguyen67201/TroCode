@@ -120,7 +120,7 @@ export class PostgresAccessCodeRepository {
       }
 
       const codeResult = await client.query(
-        `SELECT id, max_users, plan
+        `SELECT id, max_users, paused_at, plan
          FROM access_codes
          WHERE code_digest = $1
          FOR UPDATE`,
@@ -130,6 +130,10 @@ export class PostgresAccessCodeRepository {
       if (!code) {
         await client.query('ROLLBACK');
         return { kind: 'invalid_code' };
+      }
+      if (code.paused_at) {
+        await client.query('ROLLBACK');
+        return { kind: 'code_paused' };
       }
 
       const usageResult = await client.query(

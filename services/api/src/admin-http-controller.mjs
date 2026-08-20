@@ -38,6 +38,8 @@ const USER_ACCESS_PATH =
   /^\/v1\/admin\/users\/(?<userId>[^/]{1,768})\/access$/u;
 const ACCESS_CODE_USERS_PATH =
   /^\/v1\/admin\/access-codes\/(?<codeId>[^/]{1,128})\/users$/u;
+const ACCESS_CODE_PATH =
+  /^\/v1\/admin\/access-codes\/(?<codeId>[^/]{1,128})$/u;
 
 const UserAccessSchema = z
   .object({ blocked: z.boolean() })
@@ -50,6 +52,7 @@ const BulkCodeSchema = z
     plan: z.enum(PLAN_IDS),
   })
   .strict();
+const AccessCodeStateSchema = z.object({ paused: z.boolean() }).strict();
 
 function sendAsset(response, body, contentType) {
   response.statusCode = 200;
@@ -271,7 +274,7 @@ export class AdminHttpController {
         throw new HttpError(400, 'Search is too long.', 'invalid_request');
       }
       const status = url.searchParams.get('status');
-      if (status !== null && !['available', 'full'].includes(status)) {
+      if (status !== null && !['available', 'full', 'paused'].includes(status)) {
         throw new HttpError(400, 'Status filter is invalid.', 'invalid_request');
       }
       sendJson(
@@ -285,6 +288,60 @@ export class AdminHttpController {
         }),
       );
       return true;
+    }
+
+    if (
+      request.method === 'POST' &&
+      path === '/v1/admin/access-codes/bulk'
+    ) {
+      const body = parse(BulkCodeSchema, await readJson(request, 8_192));
+      sendJson(
+        response,
+        201,
+        await this.repository.createAccessCodes({
+          ...body,
+          label: body.label || null,
+        }),
+      );
+      return true;
+    }
+
+    const accessCodeMatch = ACCESS_CODE_PATH.exec(path);
+    if (
+      accessCodeMatch?.groups?.codeId &&
+      ['DELETE', 'PATCH'].includes(request.method)
+    ) {
+      const codeId = parse(z.string().uuid(), accessCodeMatch.groups.codeId);
+      if (request.method === 'PATCH') {
+        const body = parse(
+          AccessCodeStateSchema,
+          await readJson(request, 4_096),
+        );
+        const result = await this.repository.setAccessCodePaused(
+          codeId,
+          body.paused,
+        );
+        if (!result) {
+          throw new HttpError(404, 'Access code not found.', 'code_not_found');
+        }
+        sendJson(response, 200, result);
+        return true;
+      }
+      if (request.method === 'DELETE') {
+        const result = await this.repository.deleteAccessCode(codeId);
+        if (!result) {
+          throw new HttpError(404, 'Access code not found.', 'code_not_found');
+        }
+        if (result.kind === 'in_use') {
+          throw new HttpError(
+            409,
+            'Access codes with redemptions cannot be deleted.',
+            'code_in_use',
+          );
+        }
+        sendJson(response, 200, result);
+        return true;
+      }
     }
 
     const accessCodeUsersMatch = ACCESS_CODE_USERS_PATH.exec(path);
@@ -326,22 +383,6 @@ export class AdminHttpController {
       const result = await this.repository.setUserBlocked(userId, body.blocked);
       if (!result) throw new HttpError(404, 'User not found.', 'user_not_found');
       sendJson(response, 200, result);
-      return true;
-    }
-
-    if (
-      request.method === 'POST' &&
-      path === '/v1/admin/access-codes/bulk'
-    ) {
-      const body = parse(BulkCodeSchema, await readJson(request, 8_192));
-      sendJson(
-        response,
-        201,
-        await this.repository.createAccessCodes({
-          ...body,
-          label: body.label || null,
-        }),
-      );
       return true;
     }
 

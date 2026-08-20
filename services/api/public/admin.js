@@ -14,6 +14,7 @@
     codeSummary: {
       availableCodes: 0,
       fullCodes: 0,
+      pausedCodes: 0,
       retrievableCodes: 0,
       totalCodes: 0,
       totalRedemptions: 0,
@@ -72,10 +73,10 @@
     loginShell: byId('login-shell'),
     openCodeButton: byId('open-code-button'),
     openCodeButtonCodes: byId('open-code-button-codes'),
+    pausedCodes: byId('paused-codes'),
     rangeLabel: byId('range-label'),
     resultDialog: byId('result-dialog'),
     resultSummary: byId('result-summary'),
-    retrievableCodes: byId('retrievable-codes'),
     statusFilter: byId('status-filter'),
     toast: byId('toast'),
     totalCodes: byId('total-codes'),
@@ -246,6 +247,29 @@
         item.status,
       ),
     );
+    const actionsCell = document.createElement('td');
+    const actions = element('div', 'code-actions');
+    const isPaused = item.status === 'paused';
+    const pause = element(
+      'button',
+      'row-action',
+      isPaused ? 'Resume' : 'Pause',
+    );
+    pause.type = 'button';
+    pause.addEventListener('click', () => pauseAccessCode(item, pause));
+    const remove = element(
+      'button',
+      'row-action row-action--danger',
+      'Delete',
+    );
+    remove.type = 'button';
+    remove.disabled = item.redeemedUsers > 0;
+    if (remove.disabled) {
+      remove.title = 'Codes with redemptions cannot be deleted.';
+    }
+    remove.addEventListener('click', () => deleteAccessCode(item, remove));
+    actions.append(pause, remove);
+    actionsCell.append(actions);
     row.append(
       codeCell,
       labelCell,
@@ -254,8 +278,51 @@
       usersCell,
       createdCell,
       statusCell,
+      actionsCell,
     );
     return row;
+  }
+
+  async function pauseAccessCode(item, button) {
+    const paused = item.status !== 'paused';
+    button.disabled = true;
+    button.textContent = paused ? 'Pausing…' : 'Resuming…';
+    try {
+      await request(`/v1/admin/access-codes/${encodeURIComponent(item.id)}`, {
+        body: JSON.stringify({ paused }),
+        method: 'PATCH',
+      });
+      await loadAccessCodes();
+      showToast(
+        `${item.label || 'Access code'} was ${paused ? 'paused' : 'resumed'}.`,
+      );
+    } catch (error) {
+      showToast(error.message);
+      button.disabled = false;
+      button.textContent = paused ? 'Pause' : 'Resume';
+    }
+  }
+
+  async function deleteAccessCode(item, button) {
+    if (item.redeemedUsers > 0) {
+      showToast('Codes with redemptions cannot be deleted. Pause this code instead.');
+      return;
+    }
+    const label = item.label || 'this access code';
+    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+    button.disabled = true;
+    button.textContent = 'Deleting…';
+    try {
+      await request(`/v1/admin/access-codes/${encodeURIComponent(item.id)}`, {
+        method: 'DELETE',
+      });
+      await loadAccessCodes();
+      showToast(`${label} was deleted.`);
+    } catch (error) {
+      showToast(error.message);
+      button.disabled = false;
+      button.textContent = 'Delete';
+    }
   }
 
   function codeUserRow(user) {
@@ -356,9 +423,7 @@
     elements.totalCodes.textContent = String(state.codeSummary.totalCodes);
     elements.availableCodes.textContent = String(state.codeSummary.availableCodes);
     elements.fullCodes.textContent = String(state.codeSummary.fullCodes);
-    elements.retrievableCodes.textContent = String(
-      state.codeSummary.retrievableCodes,
-    );
+    elements.pausedCodes.textContent = String(state.codeSummary.pausedCodes);
     elements.codeCountLabel.textContent = `${state.codeTotal.toLocaleString()} matching code${state.codeTotal === 1 ? '' : 's'} · ${state.codeSummary.totalRedemptions.toLocaleString()} redemption${state.codeSummary.totalRedemptions === 1 ? '' : 's'}`;
     elements.codesBody.replaceChildren(
       ...state.accessCodes.map(accessCodeRow),
