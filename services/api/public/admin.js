@@ -29,6 +29,20 @@
     summary: { activeUsers: 0, blockedUsers: 0, totalUsers: 0 },
     token: '',
     total: 0,
+    usage: [],
+    usageLane: '',
+    usageLoaded: false,
+    usageLoading: false,
+    usageRange: '7d',
+    usageSearch: '',
+    usageSeries: { granularity: 'day', items: [] },
+    usageSummary: {
+      activeUsers: 0,
+      totalRequests: 0,
+      totalSpendMicroUsd: 0,
+      totalTokens: 0,
+    },
+    usageTotal: 0,
     users: [],
   };
 
@@ -75,12 +89,30 @@
     openCodeButtonCodes: byId('open-code-button-codes'),
     pausedCodes: byId('paused-codes'),
     rangeLabel: byId('range-label'),
+    refreshUsage: byId('refresh-usage'),
     resultDialog: byId('result-dialog'),
     resultSummary: byId('result-summary'),
     statusFilter: byId('status-filter'),
     toast: byId('toast'),
     totalCodes: byId('total-codes'),
     totalUsers: byId('total-users'),
+    usageActiveUsers: byId('usage-active-users'),
+    usageBody: byId('usage-body'),
+    usageChart: byId('usage-chart'),
+    usageChartSummary: byId('usage-chart-summary'),
+    usageChartTotal: byId('usage-chart-total'),
+    usageCountLabel: byId('usage-count-label'),
+    usageEmptyState: byId('usage-empty-state'),
+    usageLaneFilter: byId('usage-lane-filter'),
+    usageLoadMore: byId('usage-load-more'),
+    usageNav: byId('usage-nav'),
+    usagePage: byId('usage-page'),
+    usageRangeFilter: byId('usage-range-filter'),
+    usageRangeLabel: byId('usage-range-label'),
+    usageSearch: byId('usage-search'),
+    usageTotalRequests: byId('usage-total-requests'),
+    usageTotalSpend: byId('usage-total-spend'),
+    usageTotalTokens: byId('usage-total-tokens'),
     userCountLabel: byId('user-count-label'),
     userSearch: byId('user-search'),
     usersBody: byId('users-body'),
@@ -91,6 +123,8 @@
   let codeSearchTimer = null;
   let searchTimer = null;
   let toastTimer = null;
+  let usageReloadQueued = false;
+  let usageSearchTimer = null;
 
   async function request(path, options = {}) {
     const response = await fetch(path, {
@@ -130,6 +164,67 @@
         ? undefined
         : 'numeric',
     }).format(new Date(value));
+  }
+
+  function dateTimeLabel(value) {
+    if (!value) return 'Unknown';
+    return new Intl.DateTimeFormat(undefined, {
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      month: 'short',
+      year: new Date(value).getFullYear() === new Date().getFullYear()
+        ? undefined
+        : 'numeric',
+    }).format(new Date(value));
+  }
+
+  function moneyLabel(microUsd) {
+    const amount = Number(microUsd || 0) / 1_000_000;
+    if (amount > 0 && amount < 0.01) return `$${amount.toFixed(4)}`;
+    return new Intl.NumberFormat(undefined, {
+      currency: 'USD',
+      currencyDisplay: 'narrowSymbol',
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2,
+      style: 'currency',
+    }).format(amount);
+  }
+
+  function compactNumber(value) {
+    return new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 1,
+      notation: Number(value) >= 10_000 ? 'compact' : 'standard',
+    }).format(Number(value || 0));
+  }
+
+  function chartMoneyLabel(microUsd) {
+    const amount = Number(microUsd || 0) / 1_000_000;
+    if (amount === 0) return '$0';
+    if (amount < 0.01) return `$${amount.toFixed(4)}`;
+    if (amount < 0.1) return `$${amount.toFixed(3)}`;
+    if (amount < 1) return `$${amount.toFixed(2)}`;
+    return `$${amount.toFixed(1)}`;
+  }
+
+  function chartDateLabel(value, granularity) {
+    const options = granularity === 'hour'
+      ? { day: 'numeric', hour: 'numeric', month: 'short' }
+      : granularity === 'month'
+        ? { month: 'short', year: '2-digit' }
+        : { day: 'numeric', month: 'short' };
+    return new Intl.DateTimeFormat(undefined, options).format(new Date(value));
+  }
+
+  const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
+  function svgElement(tag, attributes = {}, text) {
+    const node = document.createElementNS(SVG_NAMESPACE, tag);
+    for (const [name, value] of Object.entries(attributes)) {
+      node.setAttribute(name, String(value));
+    }
+    if (text !== undefined) node.textContent = text;
+    return node;
   }
 
   function element(tag, className, text) {
@@ -183,6 +278,111 @@
       lastSeenCell,
       statusCell,
       actionCell,
+    );
+    return row;
+  }
+
+  const usageLaneLabels = {
+    realtime_transcription: 'Live voice',
+    responses: 'Agent task',
+    speech: 'Spoken reply',
+    transcription: 'Voice transcription',
+  };
+
+  function shortIdentifier(value) {
+    return String(value || '').slice(0, 8);
+  }
+
+  function durationLabel(milliseconds) {
+    const seconds = Number(milliseconds || 0) / 1_000;
+    if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+    return `${(seconds / 60).toFixed(1)}m`;
+  }
+
+  function usageMetric(item) {
+    if (item.lane === 'responses') {
+      const cached = item.cachedInputTokens
+        ? `${compactNumber(item.cachedInputTokens)} cached`
+        : `${durationLabel(item.durationMs)} duration`;
+      return {
+        detail: cached,
+        primary: `${compactNumber(item.inputTokens)} in · ${compactNumber(item.outputTokens)} out`,
+      };
+    }
+    if (item.lane === 'speech') {
+      return {
+        detail: `${durationLabel(item.durationMs)} duration`,
+        primary: `${compactNumber(item.characterCount)} characters`,
+      };
+    }
+    return {
+      detail: `${durationLabel(item.durationMs)} processing`,
+      primary: `${durationLabel(item.audioDurationMs)} audio`,
+    };
+  }
+
+  function usageRow(item) {
+    const row = document.createElement('tr');
+    const identityCell = document.createElement('td');
+    const identity = element('div', 'user-cell');
+    identity.append(
+      element('span', 'avatar', initials(item.user.name || '', item.user.email)),
+    );
+    const identityText = document.createElement('span');
+    identityText.append(
+      element('span', 'user-name', item.user.name || 'Unnamed user'),
+      element('span', 'user-email', item.user.email),
+    );
+    identity.append(identityText);
+    identityCell.append(identity);
+
+    const activityCell = document.createElement('td');
+    const activity = element('div', 'activity-cell');
+    activity.append(
+      element(
+        'span',
+        `activity-icon activity-icon--${item.lane}`,
+        item.lane === 'responses' ? '↗' : item.lane === 'speech' ? '◖' : '⌁',
+      ),
+    );
+    const activityText = document.createElement('span');
+    const laneLabel = usageLaneLabels[item.lane] || 'Model activity';
+    activityText.append(
+      element('span', 'activity-name', item.activityTitle || laneLabel),
+      element(
+        'span',
+        'activity-meta',
+        `${item.activityTitle ? `${laneLabel} · ` : ''}Task ${shortIdentifier(item.taskId)}`,
+      ),
+    );
+    activity.append(activityText);
+    activityCell.append(activity);
+
+    const modelCell = document.createElement('td');
+    modelCell.append(element('code', 'model-name', item.model));
+    const metric = usageMetric(item);
+    const metricCell = document.createElement('td');
+    const metricWrap = element('span', 'usage-metric');
+    metricWrap.append(
+      element('span', 'usage-metric__primary', metric.primary),
+      element('span', 'usage-metric__detail', metric.detail),
+    );
+    metricCell.append(metricWrap);
+    const costCell = document.createElement('td');
+    const cost = element('span', 'cost-value');
+    cost.append(
+      element('span', 'cost-value__amount', moneyLabel(item.amountMicroUsd)),
+      element('span', 'cost-value__source', item.usageSource),
+    );
+    costCell.append(cost);
+    const createdCell = element('td', 'usage-time', dateTimeLabel(item.createdAt));
+    row.append(
+      identityCell,
+      activityCell,
+      modelCell,
+      metricCell,
+      costCell,
+      createdCell,
     );
     return row;
   }
@@ -438,6 +638,176 @@
       : 'No access codes to show';
   }
 
+  function renderUsageChart() {
+    const { granularity, items } = state.usageSeries;
+    const totalRequests = state.usageSummary.totalRequests;
+    const rangeLabel =
+      elements.usageRangeFilter.selectedOptions[0]?.textContent || 'Selected period';
+    const laneLabel =
+      elements.usageLaneFilter.selectedOptions[0]?.textContent || 'All activity';
+    elements.usageChartSummary.textContent = `${rangeLabel} · ${laneLabel} · ${compactNumber(totalRequests)} model call${totalRequests === 1 ? '' : 's'}`;
+    elements.usageChartTotal.textContent = moneyLabel(
+      state.usageSummary.totalSpendMicroUsd,
+    );
+    elements.usageChart.replaceChildren();
+    elements.usageChart.setAttribute(
+      'aria-label',
+      `Usage graph for ${rangeLabel}. ${moneyLabel(state.usageSummary.totalSpendMicroUsd)} spent across ${totalRequests} model calls.`,
+    );
+
+    if (!items.length || totalRequests === 0) {
+      elements.usageChart.append(
+        element('div', 'usage-chart-empty', 'No usage to graph for these filters.'),
+      );
+      return;
+    }
+
+    const width = 960;
+    const height = 260;
+    const padding = { bottom: 36, left: 58, right: 18, top: 18 };
+    const plotWidth = width - padding.left - padding.right;
+    const plotHeight = height - padding.top - padding.bottom;
+    const bottom = padding.top + plotHeight;
+    const maxSpend = Math.max(...items.map((item) => item.spendMicroUsd), 1);
+    const yMaximum = Math.ceil(maxSpend * 1.12);
+    const points = items.map((item, index) => ({
+      item,
+      x: items.length === 1
+        ? padding.left + plotWidth / 2
+        : padding.left + (index / (items.length - 1)) * plotWidth,
+      y: bottom - (item.spendMicroUsd / yMaximum) * plotHeight,
+    }));
+    const svg = svgElement('svg', {
+      'aria-label': `Spend over time, grouped by ${granularity}.`,
+      role: 'img',
+      viewBox: `0 0 ${width} ${height}`,
+    });
+    const definitions = svgElement('defs');
+    const gradient = svgElement('linearGradient', {
+      id: 'usage-chart-gradient',
+      x1: '0',
+      x2: '0',
+      y1: '0',
+      y2: '1',
+    });
+    gradient.append(
+      svgElement('stop', { offset: '0%', 'stop-color': '#8fc58f', 'stop-opacity': '0.42' }),
+      svgElement('stop', { offset: '100%', 'stop-color': '#8fc58f', 'stop-opacity': '0.04' }),
+    );
+    definitions.append(gradient);
+    svg.append(definitions);
+
+    for (let index = 0; index <= 4; index += 1) {
+      const y = padding.top + (index / 4) * plotHeight;
+      const value = yMaximum * (1 - index / 4);
+      svg.append(
+        svgElement('line', {
+          class: 'chart-grid-line',
+          x1: padding.left,
+          x2: width - padding.right,
+          y1: y,
+          y2: y,
+        }),
+        svgElement(
+          'text',
+          {
+            class: 'chart-axis-label',
+            'text-anchor': 'end',
+            x: padding.left - 10,
+            y: y + 4,
+          },
+          chartMoneyLabel(value),
+        ),
+      );
+    }
+
+    if (points.length > 1) {
+      const areaPath = [
+        `M ${points[0].x} ${bottom}`,
+        ...points.map((point) => `L ${point.x} ${point.y}`),
+        `L ${points.at(-1).x} ${bottom}`,
+        'Z',
+      ].join(' ');
+      svg.append(svgElement('path', { class: 'chart-area', d: areaPath }));
+    }
+    const linePath = points
+      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
+      .join(' ');
+    svg.append(svgElement('path', { class: 'chart-line', d: linePath }));
+
+    for (const point of points) {
+      const circle = svgElement('circle', {
+        class: 'chart-point',
+        cx: point.x,
+        cy: point.y,
+        r: 5,
+      });
+      circle.append(
+        svgElement(
+          'title',
+          {},
+          `${chartDateLabel(point.item.startedAt, granularity)}: ${moneyLabel(point.item.spendMicroUsd)}, ${point.item.requests} call${point.item.requests === 1 ? '' : 's'}, ${compactNumber(point.item.tokens)} tokens`,
+        ),
+      );
+      svg.append(circle);
+    }
+
+    const labelCount = Math.min(6, items.length);
+    const labelIndexes = new Set(
+      Array.from({ length: labelCount }, (_, index) =>
+        Math.round((index / Math.max(1, labelCount - 1)) * (items.length - 1))),
+    );
+    for (const index of labelIndexes) {
+      const point = points[index];
+      svg.append(
+        svgElement(
+          'text',
+          {
+            class: 'chart-axis-label',
+            'text-anchor': index === 0
+              ? 'start'
+              : index === items.length - 1
+                ? 'end'
+                : 'middle',
+            x: point.x,
+            y: height - 10,
+          },
+          chartDateLabel(point.item.startedAt, granularity),
+        ),
+      );
+    }
+    const accessibleSummary = element('div', 'sr-only');
+    accessibleSummary.textContent = items
+      .map((item) =>
+        `${chartDateLabel(item.startedAt, granularity)}: ${moneyLabel(item.spendMicroUsd)}, ${item.requests} calls.`)
+      .join(' ');
+    elements.usageChart.append(svg, accessibleSummary);
+  }
+
+  function renderUsage() {
+    elements.usageTotalSpend.textContent = moneyLabel(
+      state.usageSummary.totalSpendMicroUsd,
+    );
+    elements.usageActiveUsers.textContent = compactNumber(
+      state.usageSummary.activeUsers,
+    );
+    elements.usageTotalRequests.textContent = compactNumber(
+      state.usageSummary.totalRequests,
+    );
+    elements.usageTotalTokens.textContent = compactNumber(
+      state.usageSummary.totalTokens,
+    );
+    elements.usageCountLabel.textContent = `${state.usageTotal.toLocaleString()} matching activit${state.usageTotal === 1 ? 'y' : 'ies'}`;
+    elements.usageBody.replaceChildren(...state.usage.map(usageRow));
+    elements.usageEmptyState.hidden = state.usage.length > 0;
+    elements.usageLoadMore.hidden = state.usage.length >= state.usageTotal;
+    elements.usageLoadMore.disabled = state.usageLoading;
+    elements.usageRangeLabel.textContent = state.usage.length
+      ? `Showing 1–${state.usage.length} of ${state.usageTotal}`
+      : 'No activity to show';
+    renderUsageChart();
+  }
+
   async function loadUsers({ append = false } = {}) {
     if (state.loading) return;
     state.loading = true;
@@ -490,17 +860,72 @@
     }
   }
 
+  async function loadUsage({ append = false } = {}) {
+    if (state.usageLoading) {
+      if (!append) usageReloadQueued = true;
+      return;
+    }
+    state.usageLoading = true;
+    elements.usageCountLabel.textContent = 'Loading activity…';
+    elements.usageLoadMore.disabled = true;
+    elements.refreshUsage.disabled = true;
+    elements.usageChart.classList.add('usage-chart--loading');
+    const offset = append ? state.usage.length : 0;
+    const parameters = new URLSearchParams({
+      limit: String(PAGE_SIZE),
+      offset: String(offset),
+      range: state.usageRange,
+    });
+    if (state.usageSearch) parameters.set('search', state.usageSearch);
+    if (state.usageLane) parameters.set('lane', state.usageLane);
+    try {
+      const result = await request(`/v1/admin/usage?${parameters}`);
+      state.usage = append
+        ? [...state.usage, ...result.items]
+        : result.items;
+      state.usageLoaded = true;
+      state.usageSeries = result.series;
+      state.usageTotal = result.page.total;
+      state.usageSummary = result.summary;
+      renderUsage();
+    } finally {
+      state.usageLoading = false;
+      elements.usageLoadMore.disabled = false;
+      elements.refreshUsage.disabled = false;
+      elements.usageChart.classList.remove('usage-chart--loading');
+      if (usageReloadQueued) {
+        usageReloadQueued = false;
+        loadUsage().catch((error) => showToast(error.message));
+      }
+    }
+  }
+
   function showPage(page) {
     state.currentPage = page;
     const showingUsers = page === 'users';
+    const showingUsage = page === 'usage';
+    const showingCodes = page === 'codes';
     elements.usersPage.hidden = !showingUsers;
-    elements.accessCodesPage.hidden = showingUsers;
+    elements.usagePage.hidden = !showingUsage;
+    elements.accessCodesPage.hidden = !showingCodes;
     elements.usersNav.classList.toggle('nav-item--active', showingUsers);
+    elements.usageNav.classList.toggle('nav-item--active', showingUsage);
     elements.accessCodesNav.classList.toggle(
       'nav-item--active',
-      !showingUsers,
+      showingCodes,
     );
-    if (!showingUsers && !state.accessCodesLoaded) {
+    for (const [nav, active] of [
+      [elements.usersNav, showingUsers],
+      [elements.usageNav, showingUsage],
+      [elements.accessCodesNav, showingCodes],
+    ]) {
+      if (active) nav.setAttribute('aria-current', 'page');
+      else nav.removeAttribute('aria-current');
+    }
+    if (showingUsage && !state.usageLoaded) {
+      loadUsage().catch((error) => showToast(error.message));
+    }
+    if (showingCodes && !state.accessCodesLoaded) {
       loadAccessCodes().catch((error) => showToast(error.message));
     }
   }
@@ -624,6 +1049,10 @@
     state.users = [];
     state.accessCodes = [];
     state.accessCodesLoaded = false;
+    state.usage = [];
+    state.usageLoaded = false;
+    state.usageSeries = { granularity: 'day', items: [] };
+    state.usageTotal = 0;
     state.currentPage = 'users';
     showPage('users');
     elements.appShell.hidden = true;
@@ -685,7 +1114,14 @@
   elements.openCodeButton.addEventListener('click', openCodeDialog);
   elements.openCodeButtonCodes.addEventListener('click', openCodeDialog);
   elements.usersNav.addEventListener('click', () => showPage('users'));
+  elements.usageNav.addEventListener('click', () => showPage('usage'));
   elements.accessCodesNav.addEventListener('click', () => showPage('codes'));
+  elements.refreshUsage.addEventListener('click', () => {
+    loadUsage().catch((error) => showToast(error.message));
+  });
+  elements.usageLoadMore.addEventListener('click', () =>
+    loadUsage({ append: true }).catch((error) => showToast(error.message)),
+  );
   elements.closeCodeDialog.addEventListener('click', closeCodeDialog);
   elements.cancelCodeDialog.addEventListener('click', closeCodeDialog);
   elements.codeForm.addEventListener('submit', submitCodes);
@@ -712,6 +1148,14 @@
     state.codeStatus = elements.codeStatusFilter.value;
     loadAccessCodes().catch((error) => showToast(error.message));
   });
+  elements.usageLaneFilter.addEventListener('change', () => {
+    state.usageLane = elements.usageLaneFilter.value;
+    loadUsage().catch((error) => showToast(error.message));
+  });
+  elements.usageRangeFilter.addEventListener('change', () => {
+    state.usageRange = elements.usageRangeFilter.value;
+    loadUsage().catch((error) => showToast(error.message));
+  });
   elements.userSearch.addEventListener('input', () => {
     window.clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => {
@@ -724,6 +1168,13 @@
     codeSearchTimer = window.setTimeout(() => {
       state.codeSearch = elements.codeSearch.value.trim();
       loadAccessCodes().catch((error) => showToast(error.message));
+    }, 260);
+  });
+  elements.usageSearch.addEventListener('input', () => {
+    window.clearTimeout(usageSearchTimer);
+    usageSearchTimer = window.setTimeout(() => {
+      state.usageSearch = elements.usageSearch.value.trim();
+      loadUsage().catch((error) => showToast(error.message));
     }, 260);
   });
   void restoreSession();
