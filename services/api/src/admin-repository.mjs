@@ -1,5 +1,9 @@
 import { randomBytes } from 'node:crypto';
 
+import {
+  openAccessCode,
+  sealAccessCode,
+} from './access-code-cipher.mjs';
 import { digestAccessCode } from './access-code-repository.mjs';
 import { PLAN_IDS, planFor } from './plan-catalog.mjs';
 
@@ -27,6 +31,31 @@ function publicUser(row) {
     name: row.name,
     plan: row.plan,
     status: blockedAt ? 'blocked' : 'active',
+  };
+}
+
+function publicAccessCode(row, hmacKey) {
+  const redeemedUsers = Number(row.redeemed_users ?? 0);
+  const maxUsers = Number(row.max_users);
+  let code = null;
+  if (row.code_ciphertext) {
+    try {
+      code = openAccessCode(row.code_ciphertext, hmacKey, row.code_digest);
+    } catch {
+      code = null;
+    }
+  }
+  return {
+    code,
+    createdAt: iso(row.created_at),
+    id: row.id,
+    label: row.label ?? null,
+    maxUsers,
+    plan: row.plan,
+    redeemedUsers,
+    remainingUsers: Math.max(0, maxUsers - redeemedUsers),
+    retrievable: code !== null,
+    status: redeemedUsers >= maxUsers ? 'full' : 'available',
   };
 }
 
@@ -166,6 +195,88 @@ export class PostgresAdminRepository {
     }
   }
 
+  async listAccessCodes({ limit, offset, search, status = 'all' }) {
+    const pattern = search ? `%${search}%` : '';
+    const searchDigest = search ? digestAccessCode(search, this.hmacKey) : null;
+    const summaryResult = await this.pool.query(
+      `WITH usage AS (
+         SELECT codes.id,
+                codes.max_users,
+                codes.code_ciphertext,
+                COUNT(redemptions.user_id)::INTEGER AS redeemed_users
+         FROM access_codes AS codes
+         LEFT JOIN access_code_redemptions AS redemptions
+           ON redemptions.access_code_id = codes.id
+         GROUP BY codes.id, codes.max_users, codes.code_ciphertext
+       )
+       SELECT COUNT(*)::INTEGER AS total_codes,
+              COUNT(*) FILTER (
+                WHERE redeemed_users < max_users
+              )::INTEGER AS available_codes,
+              COUNT(*) FILTER (
+                WHERE redeemed_users >= max_users
+              )::INTEGER AS full_codes,
+              COUNT(*) FILTER (
+                WHERE code_ciphertext IS NOT NULL
+              )::INTEGER AS retrievable_codes,
+              COALESCE(SUM(redeemed_users), 0)::INTEGER AS total_redemptions
+       FROM usage`,
+    );
+    const codesResult = await this.pool.query(
+      `WITH usage AS (
+         SELECT codes.id,
+                codes.code_digest,
+                codes.code_ciphertext,
+                codes.label,
+                codes.max_users,
+                codes.plan,
+                codes.created_at,
+                COUNT(redemptions.user_id)::INTEGER AS redeemed_users
+         FROM access_codes AS codes
+         LEFT JOIN access_code_redemptions AS redemptions
+           ON redemptions.access_code_id = codes.id
+         GROUP BY codes.id,
+                  codes.code_digest,
+                  codes.code_ciphertext,
+                  codes.label,
+                  codes.max_users,
+                  codes.plan,
+                  codes.created_at
+       )
+       SELECT *, COUNT(*) OVER()::INTEGER AS filtered_total
+       FROM usage
+       WHERE (
+         $1 = ''
+         OR ($1 = 'available' AND redeemed_users < max_users)
+         OR ($1 = 'full' AND redeemed_users >= max_users)
+       )
+         AND (
+           $2 = ''
+           OR COALESCE(label, '') ILIKE $2
+           OR code_digest = $3
+         )
+       ORDER BY created_at DESC, id
+       LIMIT $4 OFFSET $5`,
+      [status === 'all' ? '' : status, pattern, searchDigest, limit, offset],
+    );
+    const summary = summaryResult.rows[0] ?? {};
+    return {
+      items: codesResult.rows.map((row) => publicAccessCode(row, this.hmacKey)),
+      page: {
+        limit,
+        offset,
+        total: Number(codesResult.rows[0]?.filtered_total ?? 0),
+      },
+      summary: {
+        availableCodes: Number(summary.available_codes ?? 0),
+        fullCodes: Number(summary.full_codes ?? 0),
+        retrievableCodes: Number(summary.retrievable_codes ?? 0),
+        totalCodes: Number(summary.total_codes ?? 0),
+        totalRedemptions: Number(summary.total_redemptions ?? 0),
+      },
+    };
+  }
+
   async createAccessCodes(input) {
     const normalized = {
       ...input,
@@ -180,16 +291,29 @@ export class PostgresAdminRepository {
         const code = this.generateCode();
         const codeDigest = digestAccessCode(code, this.hmacKey);
         if (!codeDigest) throw new Error('Generated access code is invalid.');
+        const codeCiphertext = sealAccessCode(code, this.hmacKey, codeDigest);
         const label = normalized.label
           ? normalized.count === 1
             ? normalized.label
             : `${normalized.label} ${index + 1}/${normalized.count}`
           : null;
         const result = await client.query(
-          `INSERT INTO access_codes (code_digest, label, max_users, plan)
-           VALUES ($1, $2, $3, $4)
+          `INSERT INTO access_codes (
+             code_digest,
+             code_ciphertext,
+             label,
+             max_users,
+             plan
+           )
+           VALUES ($1, $2, $3, $4, $5)
            RETURNING id, created_at`,
-          [codeDigest, label, normalized.maxUsers, normalized.plan],
+          [
+            codeDigest,
+            codeCiphertext,
+            label,
+            normalized.maxUsers,
+            normalized.plan,
+          ],
         );
         const row = result.rows[0];
         items.push({

@@ -329,6 +329,10 @@ select:focus {
   margin-bottom: 22px;
 }
 
+.summary-grid--codes {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .summary-card {
   display: grid;
   min-height: 132px;
@@ -564,6 +568,34 @@ tbody tr:hover {
   color: #9b4b3b;
 }
 
+.status-badge--full {
+  background: #f5e8e3;
+  color: #9b4b3b;
+}
+
+.access-code-cell {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.access-code-cell code {
+  color: #24452d;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.code-unavailable {
+  color: #8a6b56;
+  font-size: 11px;
+  font-style: italic;
+}
+
+.usage-cell {
+  font-variant-numeric: tabular-nums;
+}
+
 .row-action {
   min-width: 67px;
   min-height: 30px;
@@ -756,6 +788,12 @@ dialog::backdrop {
   font-weight: 650;
 }
 
+@media (max-width: 1200px) {
+  .summary-grid--codes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 74px minmax(0, 1fr);
@@ -914,6 +952,17 @@ dialog::backdrop {
   .user-name,
   .user-email {
     max-width: 180px;
+  }
+
+  .access-code-cell {
+    justify-content: space-between;
+  }
+
+  .access-code-cell code {
+    overflow: hidden;
+    max-width: calc(100vw - 170px);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

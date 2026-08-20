@@ -191,6 +191,7 @@ export class AdminHttpController {
     if (!path.startsWith('/v1/admin/')) return false;
 
     await this.authorize(request);
+    response.setHeader('Cache-Control', 'no-store');
     if (request.method === 'GET' && path === '/v1/admin/users') {
       const limit = positiveInteger(url.searchParams.get('limit'), 50, {
         max: 100,
@@ -211,6 +212,35 @@ export class AdminHttpController {
         response,
         200,
         await this.repository.listUsers({
+          limit,
+          offset,
+          search,
+          ...(status ? { status } : {}),
+        }),
+      );
+      return true;
+    }
+
+    if (request.method === 'GET' && path === '/v1/admin/access-codes') {
+      const limit = positiveInteger(url.searchParams.get('limit'), 50, {
+        max: 100,
+        min: 1,
+      });
+      const offset = positiveInteger(url.searchParams.get('offset'), 0, {
+        max: 100_000,
+      });
+      const search = (url.searchParams.get('search') ?? '').trim();
+      if (search.length > 200) {
+        throw new HttpError(400, 'Search is too long.', 'invalid_request');
+      }
+      const status = url.searchParams.get('status');
+      if (status !== null && !['available', 'full'].includes(status)) {
+        throw new HttpError(400, 'Status filter is invalid.', 'invalid_request');
+      }
+      sendJson(
+        response,
+        200,
+        await this.repository.listAccessCodes({
           limit,
           offset,
           search,

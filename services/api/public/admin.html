@@ -46,11 +46,11 @@
           <span>Tro</span>
         </div>
         <nav aria-label="Admin navigation">
-          <a class="nav-item nav-item--active" href="/source/admin">
+          <button class="nav-item nav-item--active" id="users-nav" type="button">
             <span class="nav-icon" aria-hidden="true">◎</span>
             Users
-          </a>
-          <button class="nav-item nav-item--button" id="open-code-nav" type="button">
+          </button>
+          <button class="nav-item" id="access-codes-nav" type="button">
             <span class="nav-icon" aria-hidden="true">⌁</span>
             Access codes
           </button>
@@ -63,85 +63,174 @@
       </aside>
 
       <main class="main-content">
-        <header class="page-header">
-          <div>
-            <p class="eyebrow">Workspace access</p>
-            <h1>Users</h1>
-            <p class="page-subtitle">Manage accounts, plans, and product access.</p>
-          </div>
-          <button class="button button--primary" id="open-code-button" type="button">
-            <span aria-hidden="true">＋</span>
-            New code
-          </button>
-        </header>
+        <section class="page-view" id="users-page">
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Workspace access</p>
+              <h1>Users</h1>
+              <p class="page-subtitle">Manage accounts, plans, and product access.</p>
+            </div>
+            <button class="button button--primary" id="open-code-button" type="button">
+              <span aria-hidden="true">＋</span>
+              New code
+            </button>
+          </header>
 
-        <section class="summary-grid" aria-label="User summary">
-          <article class="summary-card">
-            <span class="summary-label">Total users</span>
-            <strong id="total-users">—</strong>
-            <span class="summary-foot">All registered accounts</span>
-          </article>
-          <article class="summary-card">
-            <span class="summary-label">Active</span>
-            <strong id="active-users">—</strong>
-            <span class="summary-foot summary-foot--good">Can access Tro</span>
-          </article>
-          <article class="summary-card">
-            <span class="summary-label">Blocked</span>
-            <strong id="blocked-users">—</strong>
-            <span class="summary-foot summary-foot--warning">Access disabled</span>
-          </article>
+          <section class="summary-grid" aria-label="User summary">
+            <article class="summary-card">
+              <span class="summary-label">Total users</span>
+              <strong id="total-users">—</strong>
+              <span class="summary-foot">All registered accounts</span>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">Active</span>
+              <strong id="active-users">—</strong>
+              <span class="summary-foot summary-foot--good">Can access Tro</span>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">Blocked</span>
+              <strong id="blocked-users">—</strong>
+              <span class="summary-foot summary-foot--warning">Access disabled</span>
+            </article>
+          </section>
+
+          <section class="table-card" aria-labelledby="users-table-title">
+            <div class="table-toolbar">
+              <div>
+                <h2 id="users-table-title">All users</h2>
+                <p id="user-count-label">Loading accounts…</p>
+              </div>
+              <div class="toolbar-controls">
+                <label class="search-field">
+                  <span aria-hidden="true">⌕</span>
+                  <span class="sr-only">Search users</span>
+                  <input id="user-search" type="search" placeholder="Search name or email" />
+                </label>
+                <label class="filter-field">
+                  <span class="sr-only">Filter by status</span>
+                  <select id="status-filter">
+                    <option value="">All statuses</option>
+                    <option value="active">Active</option>
+                    <option value="blocked">Blocked</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">User</th>
+                    <th scope="col">Plan</th>
+                    <th scope="col">Access code</th>
+                    <th scope="col">Last seen</th>
+                    <th scope="col">Status</th>
+                    <th scope="col"><span class="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody id="users-body"></tbody>
+              </table>
+            </div>
+            <div class="empty-state" id="empty-state" hidden>
+              <span class="empty-icon" aria-hidden="true">◎</span>
+              <h3>No users found</h3>
+              <p>Try a different search or status filter.</p>
+            </div>
+            <div class="table-footer">
+              <span id="range-label"></span>
+              <button class="button button--secondary" id="load-more" type="button" hidden>
+                Load more
+              </button>
+            </div>
+          </section>
         </section>
 
-        <section class="table-card" aria-labelledby="users-table-title">
-          <div class="table-toolbar">
+        <section class="page-view" id="access-codes-page" hidden>
+          <header class="page-header">
             <div>
-              <h2 id="users-table-title">All users</h2>
-              <p id="user-count-label">Loading accounts…</p>
+              <p class="eyebrow">Workspace access</p>
+              <h1>Access codes</h1>
+              <p class="page-subtitle">Inspect every code, plan, and redemption from the Tro database.</p>
             </div>
-            <div class="toolbar-controls">
-              <label class="search-field">
-                <span aria-hidden="true">⌕</span>
-                <span class="sr-only">Search users</span>
-                <input id="user-search" type="search" placeholder="Search name or email" />
-              </label>
-              <label class="filter-field">
-                <span class="sr-only">Filter by status</span>
-                <select id="status-filter">
-                  <option value="">All statuses</option>
-                  <option value="active">Active</option>
-                  <option value="blocked">Blocked</option>
-                </select>
-              </label>
-            </div>
-          </div>
-
-          <div class="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">User</th>
-                  <th scope="col">Plan</th>
-                  <th scope="col">Access code</th>
-                  <th scope="col">Last seen</th>
-                  <th scope="col">Status</th>
-                  <th scope="col"><span class="sr-only">Actions</span></th>
-                </tr>
-              </thead>
-              <tbody id="users-body"></tbody>
-            </table>
-          </div>
-          <div class="empty-state" id="empty-state" hidden>
-            <span class="empty-icon" aria-hidden="true">◎</span>
-            <h3>No users found</h3>
-            <p>Try a different search or status filter.</p>
-          </div>
-          <div class="table-footer">
-            <span id="range-label"></span>
-            <button class="button button--secondary" id="load-more" type="button" hidden>
-              Load more
+            <button class="button button--primary" id="open-code-button-codes" type="button">
+              <span aria-hidden="true">＋</span>
+              New code
             </button>
-          </div>
+          </header>
+
+          <section class="summary-grid summary-grid--codes" aria-label="Access code summary">
+            <article class="summary-card">
+              <span class="summary-label">Total codes</span>
+              <strong id="total-codes">—</strong>
+              <span class="summary-foot">All database records</span>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">Available</span>
+              <strong id="available-codes">—</strong>
+              <span class="summary-foot summary-foot--good">Capacity remaining</span>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">Full</span>
+              <strong id="full-codes">—</strong>
+              <span class="summary-foot summary-foot--warning">User limit reached</span>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">Viewable</span>
+              <strong id="retrievable-codes">—</strong>
+              <span class="summary-foot">Encrypted, admin-readable codes</span>
+            </article>
+          </section>
+
+          <section class="table-card" aria-labelledby="codes-table-title">
+            <div class="table-toolbar">
+              <div>
+                <h2 id="codes-table-title">All access codes</h2>
+                <p id="code-count-label">Loading codes…</p>
+              </div>
+              <div class="toolbar-controls">
+                <label class="search-field">
+                  <span aria-hidden="true">⌕</span>
+                  <span class="sr-only">Search access codes</span>
+                  <input id="code-search" type="search" placeholder="Search label or exact code" />
+                </label>
+                <label class="filter-field">
+                  <span class="sr-only">Filter codes by status</span>
+                  <select id="code-status-filter">
+                    <option value="">All statuses</option>
+                    <option value="available">Available</option>
+                    <option value="full">Full</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table class="access-codes-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Access code</th>
+                    <th scope="col">Label</th>
+                    <th scope="col">Plan</th>
+                    <th scope="col">Usage</th>
+                    <th scope="col">Created</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="codes-body"></tbody>
+              </table>
+            </div>
+            <div class="empty-state" id="codes-empty-state" hidden>
+              <span class="empty-icon" aria-hidden="true">⌁</span>
+              <h3>No access codes found</h3>
+              <p>Create a code or try a different filter.</p>
+            </div>
+            <div class="table-footer">
+              <span id="code-range-label"></span>
+              <button class="button button--secondary" id="codes-load-more" type="button" hidden>
+                Load more
+              </button>
+            </div>
+          </section>
         </section>
       </main>
     </div>
@@ -183,7 +272,7 @@
         </div>
         <p class="security-note">
           <span aria-hidden="true">◇</span>
-          Codes are shown only once. Copy them before closing this window.
+          New codes are encrypted at rest and remain viewable in Access codes. Legacy digest-only codes cannot be recovered.
         </p>
         <p class="form-error" id="code-error" role="alert"></p>
         <div class="dialog-actions">
