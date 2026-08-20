@@ -240,15 +240,17 @@ function setup(
   };
   const registry = new RuntimeToolRegistry();
   const openExternal = vi.fn(async () => undefined);
+  const openApplication = vi.fn(async () => undefined);
   const coordinator = new TaskExecutionCoordinator({
     agent,
     cua,
+    openApplication,
     openExternal,
     runtime,
     toolRegistry: registry,
     ...options,
   });
-  return { agent, coordinator, cua, openExternal, runtime };
+  return { agent, coordinator, cua, openApplication, openExternal, runtime };
 }
 
 describe('TaskExecutionCoordinator', () => {
@@ -984,6 +986,36 @@ describe('TaskExecutionCoordinator', () => {
 
     expect(sequence).toEqual(['preview', 'dispatch']);
     expect(openExternal).toHaveBeenCalledWith('https://example.com/');
+  });
+
+  it('launches Chrome directly without starting a CUA session', async () => {
+    const sequence: string[] = [];
+    const presentActionPreview = vi.fn(async () => {
+      sequence.push('preview');
+      return true;
+    });
+    const { coordinator, cua, openApplication, runtime } = setup(
+      [
+        tool('call-open-chrome', 'open_application', {
+          application: 'chrome',
+          reason: 'Open Google Chrome.',
+        }),
+        assistant('Google Chrome is open.'),
+      ],
+      [],
+      { presentActionPreview },
+    );
+    openApplication.mockImplementationOnce(async () => {
+      sequence.push('dispatch');
+    });
+    const ready = runtime.submit({ text: 'Open Chrome.' });
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(sequence).toEqual(['preview', 'dispatch']);
+    expect(openApplication).toHaveBeenCalledWith('chrome');
+    expect(cua.startTaskSession).not.toHaveBeenCalled();
   });
 
   it('blocks promptly when post-action desktop verification stalls', async () => {

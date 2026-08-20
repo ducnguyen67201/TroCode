@@ -41,6 +41,7 @@ describe('RuntimeToolRegistry', () => {
       'observe_desktop',
       'control_desktop',
       'open_url',
+      'open_application',
       'show_guidance',
       'request_user_input',
     ]);
@@ -578,6 +579,35 @@ describe('RuntimeToolRegistry', () => {
         { taskId },
       ),
     ).toThrow('already resolved');
+  });
+
+  it('normalizes Chrome launch as a narrow direct host action', () => {
+    const registry = new RuntimeToolRegistry();
+    const invocation = registry.resolve(
+      {
+        callId: 'call-open-chrome',
+        name: 'open_application',
+        arguments: JSON.stringify({
+          application: 'chrome',
+          reason: 'Open Google Chrome.',
+        }),
+      },
+      { taskId: randomUUID() },
+    );
+
+    expect(invocation).toMatchObject({
+      callId: 'call-open-chrome',
+      input: { application: 'chrome' },
+      kind: 'direct',
+      operation: 'launch',
+      toolId: 'application.launch',
+    });
+    expect(invocation.action).toMatchObject({
+      action: 'open_application',
+      target: 'chrome',
+      operation: 'launch',
+      toolId: 'application.launch',
+    });
   });
 
   it('requires the latest observation for normalized desktop control', () => {
