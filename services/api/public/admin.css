@@ -127,7 +127,14 @@ a:focus-visible {
 }
 
 .login-copy {
-  margin: 16px 0 24px;
+  margin: 16px 0 10px;
+}
+
+.login-persistence {
+  margin: 0 0 24px;
+  color: #7f8a82;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 label {

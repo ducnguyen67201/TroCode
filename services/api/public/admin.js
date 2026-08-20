@@ -84,15 +84,18 @@
   async function request(path, options = {}) {
     const response = await fetch(path, {
       ...options,
+      credentials: 'same-origin',
       headers: {
-        Authorization: `Bearer ${state.token}`,
+        ...(state.token
+          ? { Authorization: `Bearer ${state.token}` }
+          : {}),
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),
         ...options.headers,
       },
     });
     const body = await response.json().catch(() => null);
     if (!response.ok) {
-      if (response.status === 401) lock();
+      if (response.status === 401) showLogin();
       throw new Error(body?.error || 'The admin request could not be completed.');
     }
     return body;
@@ -438,7 +441,7 @@
     }, 3600);
   }
 
-  function lock() {
+  function showLogin() {
     state.token = '';
     state.users = [];
     state.accessCodes = [];
@@ -451,6 +454,16 @@
     elements.loginForm.elements.token.focus();
   }
 
+  async function signOut() {
+    try {
+      await request('/v1/admin/session', { method: 'DELETE' });
+    } catch {
+      // The local lock state still wins if the session already expired.
+    } finally {
+      showLogin();
+    }
+  }
+
   async function login(event) {
     event.preventDefault();
     const token = String(new FormData(elements.loginForm).get('token') || '');
@@ -460,6 +473,8 @@
     submit.disabled = true;
     submit.textContent = 'Opening…';
     try {
+      await request('/v1/admin/session', { method: 'POST' });
+      state.token = '';
       await loadUsers();
       elements.loginShell.hidden = true;
       elements.appShell.hidden = false;
@@ -472,8 +487,18 @@
     }
   }
 
+  async function restoreSession() {
+    try {
+      await loadUsers();
+      elements.loginShell.hidden = true;
+      elements.appShell.hidden = false;
+    } catch {
+      showLogin();
+    }
+  }
+
   elements.loginForm.addEventListener('submit', login);
-  elements.lockDashboard.addEventListener('click', lock);
+  elements.lockDashboard.addEventListener('click', () => void signOut());
   elements.loadMore.addEventListener('click', () => loadUsers({ append: true }));
   elements.codesLoadMore.addEventListener('click', () =>
     loadAccessCodes({ append: true }),
@@ -510,4 +535,5 @@
       loadAccessCodes().catch((error) => showToast(error.message));
     }, 260);
   });
+  void restoreSession();
 })();

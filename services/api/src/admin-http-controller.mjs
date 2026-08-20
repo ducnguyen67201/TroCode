@@ -9,6 +9,13 @@ import {
   readJson,
   sendJson,
 } from './http-primitives.mjs';
+import {
+  adminSessionFromCookie,
+  clearAdminSessionCookie,
+  issueAdminSession,
+  setAdminSessionCookie,
+  verifyAdminSession,
+} from './admin-session.mjs';
 import { PLAN_IDS } from './plan-catalog.mjs';
 
 const ADMIN_HTML = readFileSync(
@@ -150,13 +157,14 @@ function assertSameOrigin(request) {
 }
 
 export class AdminHttpController {
-  constructor({ accessToken, rateLimiter, repository }) {
+  constructor({ accessToken, now = () => Date.now(), rateLimiter, repository }) {
     this.accessToken = accessToken;
+    this.now = now;
     this.rateLimiter = rateLimiter;
     this.repository = repository;
   }
 
-  async authorize(request) {
+  async authorize(request, { bearerOnly = false } = {}) {
     assertSameOrigin(request);
     const rate = await this.rateLimiter.consume({
       key: requestIp(request),
@@ -173,9 +181,13 @@ export class AdminHttpController {
       error.retryAfterSeconds = rate.retryAfterSeconds;
       throw error;
     }
-    if (!equalToken(bearerToken(request), this.accessToken)) {
-      throw new HttpError(401, 'Admin access token is invalid.', 'admin_required');
-    }
+    if (equalToken(bearerToken(request), this.accessToken)) return;
+    const session = adminSessionFromCookie(request.headers.cookie);
+    if (
+      !bearerOnly &&
+      verifyAdminSession(session, this.accessToken, { now: this.now() })
+    ) return;
+    throw new HttpError(401, 'Admin access token is invalid.', 'admin_required');
   }
 
   async handle({ request, response, url }) {
@@ -189,6 +201,29 @@ export class AdminHttpController {
     }
     if (request.method === 'GET' && sendAdminAsset(response, path)) return true;
     if (!path.startsWith('/v1/admin/')) return false;
+
+    if (request.method === 'POST' && path === '/v1/admin/session') {
+      await this.authorize(request, { bearerOnly: true });
+      response.setHeader('Cache-Control', 'no-store');
+      response.setHeader(
+        'Set-Cookie',
+        setAdminSessionCookie(
+          issueAdminSession(this.accessToken, { now: this.now() }),
+        ),
+      );
+      response.statusCode = 204;
+      response.end();
+      return true;
+    }
+
+    if (request.method === 'DELETE' && path === '/v1/admin/session') {
+      await this.authorize(request);
+      response.setHeader('Cache-Control', 'no-store');
+      response.setHeader('Set-Cookie', clearAdminSessionCookie());
+      response.statusCode = 204;
+      response.end();
+      return true;
+    }
 
     await this.authorize(request);
     response.setHeader('Cache-Control', 'no-store');
