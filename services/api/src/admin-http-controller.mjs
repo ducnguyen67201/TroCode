@@ -23,6 +23,10 @@ const ADMIN_JAVASCRIPT = readFileSync(
   new URL('../public/admin.js', import.meta.url),
   'utf8',
 );
+const ADMIN_FAVICON = readFileSync(
+  new URL('../public/admin-favicon.svg', import.meta.url),
+  'utf8',
+);
 const USER_ACCESS_PATH =
   /^\/v1\/admin\/users\/(?<userId>[^/]{1,768})\/access$/u;
 
@@ -58,6 +62,14 @@ function sendPage(response) {
 }
 
 function sendAdminAsset(response, path) {
+  if (path === '/source/admin/assets/favicon.svg') {
+    response.setHeader(
+      'Content-Security-Policy',
+      "default-src 'none'; frame-ancestors 'none'",
+    );
+    sendAsset(response, ADMIN_FAVICON, 'image/svg+xml; charset=utf-8');
+    return true;
+  }
   if (path === '/source/admin/assets/admin.css') {
     response.setHeader(
       'Content-Security-Policy',

@@ -862,6 +862,59 @@ dialog::backdrop {
   .form-grid {
     grid-template-columns: 1fr;
   }
+
+  .table-scroll {
+    overflow: visible;
+    padding: 10px;
+  }
+
+  table,
+  tbody {
+    display: block;
+  }
+
+  thead {
+    display: none;
+  }
+
+  tbody tr {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    border: 1px solid #e4e8e0;
+    border-radius: 12px;
+    padding: 13px;
+  }
+
+  tbody tr:last-child {
+    margin-bottom: 0;
+  }
+
+  tbody td {
+    padding: 0;
+    border: 0;
+  }
+
+  tbody td:first-child {
+    grid-column: 1 / -1;
+    margin-bottom: 5px;
+  }
+
+  tbody td:nth-child(3),
+  tbody td:nth-child(4) {
+    display: none;
+  }
+
+  tbody td:nth-child(6) {
+    justify-self: end;
+  }
+
+  .user-name,
+  .user-email {
+    max-width: 180px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
