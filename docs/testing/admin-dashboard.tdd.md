@@ -151,6 +151,16 @@ same read-only checks against the current Tro database. The safe snapshot
 reported 2 codes, 1 redemption, and one active redeemer on the used code;
 tokens, code values, names, and emails were not printed.
 
+Access-code lifecycle controls were canary-deployed as
+`9cc6559e-8e24-4f57-bae8-d13cdc5539ff`. A temporary canary-only code completed
+create, pause, paused-filter, resume, and guarded delete checks, after which the
+canary code count returned to its original value. Production deployment
+`8e815a9d-4576-49b6-9f2f-a6f5e9b4ce81` then passed read-only health, readiness,
+anonymous denial, dashboard-asset, users, inventory, paused-filter, and
+migration-backed metadata checks. The current safe snapshot reported 6 users,
+3 codes, 1 redemption, and 0 paused codes; no production records were mutated
+and no tokens, code values, names, or emails were printed.
+
 ## Known gaps
 
 - The real PostgreSQL integration test remains environment-gated and was not
