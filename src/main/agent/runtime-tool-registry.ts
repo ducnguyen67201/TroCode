@@ -24,6 +24,7 @@ import {
   type DesktopObservation,
   type DesktopRegion,
 } from './execution-contracts';
+import type { LaunchableApplication } from '../application/desktop-application-launcher';
 
 export interface ToolResolutionContext {
   goal?: GoalSpec;
@@ -77,6 +78,11 @@ export interface InteractionToolInput {
 export interface OpenUrlToolInput {
   reason: string;
   url: string;
+}
+
+export interface OpenApplicationToolInput {
+  application: LaunchableApplication;
+  reason: string;
 }
 
 export interface KnowledgeSearchToolInput {
@@ -702,6 +708,10 @@ export function defaultRuntimeToolDefinitions(): RuntimeToolDefinition[] {
     url: z.string().url(),
     reason: z.string().trim().min(1).max(500),
   });
+  const openApplicationSchema = z.object({
+    application: z.literal('chrome'),
+    reason: z.string().trim().min(1).max(500),
+  });
   const guidanceSchema = normalizedPoint
     .extend({
       observationId: z.string().uuid(),
@@ -852,6 +862,40 @@ export function defaultRuntimeToolDefinitions(): RuntimeToolDefinition[] {
         modelName: call.name,
         operation: 'open_url',
         toolId: 'browser.navigate',
+      }),
+    }),
+    defineTool({
+      id: 'application.launch',
+      modelName: 'open_application',
+      description:
+        'Launch one supported desktop application directly. Use this when the user asks to open Google Chrome without naming a URL. The only supported application is chrome.',
+      operations: ['launch'],
+      parameters: objectSchema(
+        {
+          application: { type: 'string', enum: ['chrome'] },
+          reason: { type: 'string', maxLength: 500 },
+        },
+        ['application', 'reason'],
+      ),
+      parse: (value) => parseWith(openApplicationSchema, value),
+      normalize: (input, call) => ({
+        action: ProposedActionSchema.parse({
+          action: 'open_application',
+          toolId: 'application.launch',
+          operation: 'launch',
+          description: input.reason,
+          target: input.application,
+          parameters: {
+            application: input.application,
+            command: 'launch',
+          },
+        }),
+        callId: call.callId,
+        input,
+        kind: 'direct',
+        modelName: call.name,
+        operation: 'launch',
+        toolId: 'application.launch',
       }),
     }),
     defineTool({

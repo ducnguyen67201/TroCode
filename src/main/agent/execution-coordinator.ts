@@ -6,6 +6,7 @@ import type {
   TaskSnapshot,
 } from '../../shared/contracts';
 import type { CuaService } from '../cua/cua-service';
+import type { LaunchableApplication } from '../application/desktop-application-launcher';
 
 import { createActionDigest } from './action-approval';
 import {
@@ -50,6 +51,7 @@ import {
   type DesktopControlToolInput,
   type GuidanceToolInput,
   type InteractionToolInput,
+  type OpenApplicationToolInput,
   type OpenUrlToolInput,
   type RuntimeToolRegistry,
 } from './runtime-tool-registry';
@@ -103,6 +105,7 @@ interface ExecutionCoordinatorOptions {
     taskId: string,
     active: boolean,
   ) => Promise<void> | void;
+  openApplication?: (application: LaunchableApplication) => Promise<void>;
   openExternal?: (url: string) => Promise<void>;
   prepareDesktop?: () => Promise<DesktopObservationCleanup | void>;
   prepareObservation?: (
@@ -565,6 +568,9 @@ export class TaskExecutionCoordinator {
     onDesktopControlChange = () => undefined,
     onGuidanceWaitEnd = () => undefined,
     onGuidanceWaitStart = () => undefined,
+    openApplication = async () => {
+      throw new Error('Application launch is not configured.');
+    },
     openExternal = async () => {
       throw new Error('URL navigation is not configured.');
     },
@@ -604,6 +610,17 @@ export class TaskExecutionCoordinator {
     this.toolDispatcher =
       toolDispatcher ??
       new RuntimeToolDispatcher([
+        {
+          id: 'application.launch',
+          execute: async (invocation) => {
+            const input = invocation.input as OpenApplicationToolInput;
+            await openApplication(input.application);
+            return {
+              status: 'confirmed',
+              summary: 'The operating system accepted the application launch request.',
+            };
+          },
+        },
         {
           id: 'browser.navigate',
           execute: async (invocation) => {
@@ -1645,8 +1662,10 @@ export class TaskExecutionCoordinator {
     }
 
     if (
-      invocation.toolId === 'browser.navigate' &&
-      invocation.operation === 'open_url'
+      (invocation.toolId === 'browser.navigate' &&
+        invocation.operation === 'open_url') ||
+      (invocation.toolId === 'application.launch' &&
+        invocation.operation === 'launch')
     ) {
       context.latestObservation = undefined;
     }

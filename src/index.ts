@@ -44,6 +44,7 @@ import { requestsGuidedWalkthrough } from './main/agent/walkthrough-policy';
 import { FileAnalyticsIdentityStore } from './main/analytics/analytics-identity-store';
 import { AnalyticsService } from './main/analytics/analytics-service';
 import { TaskApplicationService } from './main/application/task-application-service';
+import { DesktopApplicationLauncher } from './main/application/desktop-application-launcher';
 import { EncryptedAuthSessionStore } from './main/auth/auth-session-store';
 import { GoogleAuthService } from './main/auth/google-auth-service';
 import { LocalOAuthBrowserFlow } from './main/auth/local-oauth-browser-flow';
@@ -185,6 +186,9 @@ const taskRuntime = new TaskRuntime();
 let analyticsService: AnalyticsService | null = null;
 const agentActivityService = new AgentActivityService();
 const companionResponseController = new CompanionResponseController();
+const desktopApplicationLauncher = new DesktopApplicationLauncher({
+  openPath: (target) => shell.openPath(target),
+});
 const databaseUrl = process.env.DATABASE_URL?.trim() ?? '';
 const taskHistoryService = new TaskHistoryService({
   onError: (error) => {
@@ -349,6 +353,8 @@ const executionCoordinator = new TaskExecutionCoordinator({
   onGuidanceWaitStart: activateGlobalGuidanceShortcuts,
   runtime: taskRuntime,
   toolRegistry: runtimeToolRegistry,
+  openApplication: (application) =>
+    desktopApplicationLauncher.launch(application),
   openExternal: async (url) => shell.openExternal(url, { activate: true }),
   prepareDesktop: async () => {
     const window = mainWindow;
