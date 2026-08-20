@@ -21,15 +21,20 @@ export class PostgresSessionRepository {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query(
+      const userResult = await client.query(
         `INSERT INTO users (id, email, name)
          VALUES ($1, $2, $3)
          ON CONFLICT (id) DO UPDATE SET
            email = EXCLUDED.email,
            name = EXCLUDED.name,
-           updated_at = NOW()`,
+           updated_at = NOW()
+         RETURNING blocked_at`,
         [user.id, user.email, user.name],
       );
+      if (userResult.rows[0]?.blocked_at) {
+        await client.query('ROLLBACK');
+        return null;
+      }
       const result = await client.query(
         `INSERT INTO device_sessions (user_id, token_digest, expires_at)
          VALUES ($1, $2, NOW() + ($3 * INTERVAL '1 day'))
@@ -60,6 +65,7 @@ export class PostgresSessionRepository {
        FROM users
        WHERE sessions.token_digest = $1
          AND sessions.user_id = users.id
+         AND users.blocked_at IS NULL
          AND sessions.revoked_at IS NULL
          AND sessions.expires_at > NOW()
        RETURNING sessions.id AS session_id,
@@ -93,9 +99,15 @@ export class PostgresSessionRepository {
     try {
       await client.query('BEGIN');
       const revoked = await client.query(
-        `UPDATE device_sessions SET revoked_at = NOW()
-         WHERE id = $1 AND revoked_at IS NULL AND expires_at > NOW()
-         RETURNING user_id`,
+        `UPDATE device_sessions AS sessions
+         SET revoked_at = NOW()
+         FROM users
+         WHERE sessions.id = $1
+           AND sessions.user_id = users.id
+           AND users.blocked_at IS NULL
+           AND sessions.revoked_at IS NULL
+           AND sessions.expires_at > NOW()
+         RETURNING sessions.user_id`,
         [session.sessionId],
       );
       if (!revoked.rows[0]) {

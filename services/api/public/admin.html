@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Tro Admin</title>
+    <link rel="stylesheet" href="/source/admin/assets/admin.css" />
+    <script src="/source/admin/assets/admin.js" defer></script>
+  </head>
+  <body>
+    <section class="login-shell" id="login-shell" aria-labelledby="login-title">
+      <div class="login-card">
+        <div class="brand-lockup" aria-label="Tro Admin">
+          <span class="brand-mark">T</span>
+          <span>Tro Admin</span>
+        </div>
+        <p class="eyebrow">Protected workspace</p>
+        <h2 id="login-title">Open the dashboard</h2>
+        <p class="login-copy">
+          Enter the server admin token. It stays in this tab's memory and is
+          never saved by the page.
+        </p>
+        <form id="login-form">
+          <label for="admin-token">Admin access token</label>
+          <input
+            id="admin-token"
+            name="token"
+            type="password"
+            autocomplete="off"
+            required
+          />
+          <p class="form-error" id="login-error" role="alert"></p>
+          <button class="button button--primary button--wide" type="submit">
+            Continue
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <div class="app-shell" id="app-shell" hidden>
+      <aside class="sidebar">
+        <div class="brand-lockup brand-lockup--sidebar">
+          <span class="brand-mark">T</span>
+          <span>Tro</span>
+        </div>
+        <nav aria-label="Admin navigation">
+          <a class="nav-item nav-item--active" href="/source/admin">
+            <span class="nav-icon" aria-hidden="true">◎</span>
+            Users
+          </a>
+          <button class="nav-item nav-item--button" id="open-code-nav" type="button">
+            <span class="nav-icon" aria-hidden="true">⌁</span>
+            Access codes
+          </button>
+        </nav>
+        <div class="sidebar-foot">
+          <span class="status-light" aria-hidden="true"></span>
+          <span>Admin API connected</span>
+          <button class="text-button" id="lock-dashboard" type="button">Lock</button>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">Workspace access</p>
+            <h1>Users</h1>
+            <p class="page-subtitle">Manage accounts, plans, and product access.</p>
+          </div>
+          <button class="button button--primary" id="open-code-button" type="button">
+            <span aria-hidden="true">＋</span>
+            New code
+          </button>
+        </header>
+
+        <section class="summary-grid" aria-label="User summary">
+          <article class="summary-card">
+            <span class="summary-label">Total users</span>
+            <strong id="total-users">—</strong>
+            <span class="summary-foot">All registered accounts</span>
+          </article>
+          <article class="summary-card">
+            <span class="summary-label">Active</span>
+            <strong id="active-users">—</strong>
+            <span class="summary-foot summary-foot--good">Can access Tro</span>
+          </article>
+          <article class="summary-card">
+            <span class="summary-label">Blocked</span>
+            <strong id="blocked-users">—</strong>
+            <span class="summary-foot summary-foot--warning">Access disabled</span>
+          </article>
+        </section>
+
+        <section class="table-card" aria-labelledby="users-table-title">
+          <div class="table-toolbar">
+            <div>
+              <h2 id="users-table-title">All users</h2>
+              <p id="user-count-label">Loading accounts…</p>
+            </div>
+            <div class="toolbar-controls">
+              <label class="search-field">
+                <span aria-hidden="true">⌕</span>
+                <span class="sr-only">Search users</span>
+                <input id="user-search" type="search" placeholder="Search name or email" />
+              </label>
+              <label class="filter-field">
+                <span class="sr-only">Filter by status</span>
+                <select id="status-filter">
+                  <option value="">All statuses</option>
+                  <option value="active">Active</option>
+                  <option value="blocked">Blocked</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">User</th>
+                  <th scope="col">Plan</th>
+                  <th scope="col">Access code</th>
+                  <th scope="col">Last seen</th>
+                  <th scope="col">Status</th>
+                  <th scope="col"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="users-body"></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="empty-state" hidden>
+            <span class="empty-icon" aria-hidden="true">◎</span>
+            <h3>No users found</h3>
+            <p>Try a different search or status filter.</p>
+          </div>
+          <div class="table-footer">
+            <span id="range-label"></span>
+            <button class="button button--secondary" id="load-more" type="button" hidden>
+              Load more
+            </button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="code-dialog" id="code-dialog" aria-labelledby="code-dialog-title">
+      <form class="dialog-card" id="code-form">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Instant access</p>
+            <h2 id="code-dialog-title">Create new codes</h2>
+          </div>
+          <button class="icon-button" id="close-code-dialog" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="dialog-copy">
+          Generate up to 100 codes at once. Each code inherits the plan and user limit below.
+        </p>
+        <div class="form-grid">
+          <label>
+            Number of codes
+            <input name="count" type="number" min="1" max="100" value="1" required />
+          </label>
+          <label>
+            Users per code
+            <input name="maxUsers" type="number" min="1" max="10000" value="1" required />
+          </label>
+          <label>
+            Plan
+            <select name="plan" required>
+              <option value="free">Free</option>
+              <option value="basic">Basic</option>
+              <option value="pro" selected>Pro</option>
+              <option value="max">Max</option>
+            </select>
+          </label>
+          <label>
+            Label prefix <span class="optional">Optional</span>
+            <input name="label" maxlength="80" placeholder="September cohort" />
+          </label>
+        </div>
+        <p class="security-note">
+          <span aria-hidden="true">◇</span>
+          Codes are shown only once. Copy them before closing this window.
+        </p>
+        <p class="form-error" id="code-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button class="button button--secondary" id="cancel-code-dialog" type="button">Cancel</button>
+          <button class="button button--primary" id="generate-codes" type="submit">Generate codes</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="result-dialog" id="result-dialog" aria-labelledby="result-title">
+      <div class="dialog-card">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Created successfully</p>
+            <h2 id="result-title">Copy your codes</h2>
+          </div>
+          <button class="icon-button" id="close-result-dialog" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="dialog-copy" id="result-summary"></p>
+        <div class="code-results" id="code-results"></div>
+        <div class="dialog-actions">
+          <button class="button button--secondary" id="done-results" type="button">Done</button>
+          <button class="button button--primary" id="copy-codes" type="button">Copy all</button>
+        </div>
+      </div>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

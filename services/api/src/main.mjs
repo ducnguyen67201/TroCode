@@ -3,6 +3,8 @@ import { createServer } from 'node:http';
 import pg from 'pg';
 
 import { PostgresAccessCodeRepository } from './access-code-repository.mjs';
+import { AdminHttpController } from './admin-http-controller.mjs';
+import { PostgresAdminRepository } from './admin-repository.mjs';
 import { PostgresAgentTurnRepository } from './agent-turn-repository.mjs';
 import { AgentTurnService } from './agent-turn-service.mjs';
 import { loadConfig } from './config.mjs';
@@ -57,6 +59,15 @@ const budgetService = new BudgetService(usageRepository, config.costGuard);
 const rateLimiter = new PostgresRateLimiter(pool, {
   hmacKey: config.sessionTokenHmacKey,
 });
+const adminController = config.admin.enabled
+  ? new AdminHttpController({
+      accessToken: config.admin.accessToken,
+      rateLimiter,
+      repository: new PostgresAdminRepository(pool, {
+        hmacKey: config.sessionTokenHmacKey,
+      }),
+    })
+  : null;
 const responsesService = new OpenAiResponsesService({
   budgetService,
   catalog: modelCatalog,
@@ -102,6 +113,7 @@ const knowledgeController = new KnowledgeSpaceHttpController({
 });
 const handler = createApiHandler({
   accessCodeRepository,
+  adminController,
   agentTurnService,
   budgetService,
   config,

@@ -296,6 +296,7 @@ function transcriptionSessionConfig(language) {
 
 export function createApiHandler({
   accessCodeRepository,
+  adminController = null,
   agentTurnService,
   budgetService,
   config,
@@ -315,11 +316,18 @@ export function createApiHandler({
     response.setHeader('X-Request-Id', requestId);
 
     try {
+      const url = new URL(request.url || '/', 'http://localhost');
+      const path = url.pathname;
+
+      if (
+        adminController &&
+        (await adminController.handle({ request, response, url }))
+      ) {
+        return;
+      }
       if (request.headers.origin) {
         throw new HttpError(403, 'Browser-origin requests are not allowed.');
       }
-      const url = new URL(request.url || '/', 'http://localhost');
-      const path = url.pathname;
 
       if (request.method === 'GET' && path === '/healthz') {
         sendJson(response, 200, {
@@ -370,6 +378,12 @@ export function createApiHandler({
           throw new HttpError(401, 'Google sign-in could not be verified.');
         }
         const session = await sessionRepository.issue(user);
+        if (!session) {
+          throw new HttpError(
+            403,
+            'This account has been blocked by an administrator.',
+          );
+        }
         sendJson(response, 201, session);
         return;
       }
@@ -447,6 +461,12 @@ export function createApiHandler({
           throw new HttpError(
             409,
             'This account is already linked to a different access code.',
+          );
+        }
+        if (result.kind === 'account_blocked') {
+          throw new HttpError(
+            403,
+            'This account has been blocked by an administrator.',
           );
         }
         sendJson(

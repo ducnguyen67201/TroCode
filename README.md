@@ -300,6 +300,20 @@ The API tier catalog is the pricing and entitlement source of truth:
 | Pro | $50 | 750 | $20 | 45 |
 | Max | $100 | 1,875 | $45 | 60 |
 
+#### Admin dashboard
+
+Set a unique, random `TROCODE_ADMIN_ACCESS_TOKEN` of at least 32 characters in
+the hosted API environment to enable the separate dashboard at
+`/source/admin`. The token is entered when the page opens and is held only in
+that browser tab's memory.
+
+The dashboard lists registered users, their current plans and access status,
+can block or unblock an account, and can generate 1–100 access codes in a
+single batch with a selected `free`, `basic`, `pro`, or `max` plan. Blocking an
+account immediately revokes all of its device sessions and prevents new
+sessions from being issued. Generated plaintext codes are returned once; the
+database stores only keyed HMAC digests.
+
 One agent message is one accepted user turn: the initial request, a clarification
 answer, or a steering message. The desktop sends its message UUID to
 `POST /v1/agent-turns`; the API atomically and idempotently reserves the weekly
