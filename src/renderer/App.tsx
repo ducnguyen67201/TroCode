@@ -2034,7 +2034,6 @@ export function App({
         ) : activeView === 'insights' ? (
           <InsightsPage
             appLanguage={appLanguageDraft}
-            budget={usageBudget}
             events={sessionEvents}
             persistence={taskPersistence}
             tasks={sessionTaskSnapshots}
