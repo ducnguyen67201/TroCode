@@ -58,10 +58,10 @@ file was used.
   repository query, protected route, and dashboard dialog.
 - Code-user detail GREEN checkpoint: commit `478faf3` passed all 17 focused
   tests after adding the bounded user-detail flow.
-- Access-code lifecycle RED checkpoint: commit `4d05c58` captured missing
+- Access-code lifecycle RED checkpoint: commit `211ba87` captured missing
   pause/resume, guarded-delete, paused-redemption, dashboard-action, and
   migration behavior in nine intended test failures.
-- Access-code lifecycle GREEN checkpoint: commit `1e4f2cf` passed all 47
+- Access-code lifecycle GREEN checkpoint: commit `249f551` passed all 47
   focused tests after adding transactional lifecycle controls and the
   forward-only migration.
 
