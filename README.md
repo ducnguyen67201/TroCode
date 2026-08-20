@@ -314,7 +314,10 @@ single batch with a selected `free`, `basic`, `pro`, or `max` plan. Blocking an
 account immediately revokes all of its device sessions and prevents new
 sessions from being issued. Access-code verification uses keyed HMAC digests;
 new codes also keep an AES-256-GCM encrypted copy for authenticated admin
-retrieval. Legacy digest-only codes remain valid but cannot be displayed.
+retrieval. Legacy digest-only codes remain valid but cannot be displayed. An
+administrator can pause or resume any code without changing existing users'
+access. Permanent deletion is limited to unused codes so redemption history
+cannot be removed accidentally.
 
 One agent message is one accepted user turn: the initial request, a clarification
 answer, or a steering message. The desktop sends its message UUID to
