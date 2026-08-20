@@ -1,87 +1,46 @@
 # Computer-use lifecycle
 
-Computer use is an optional tool inside the Everyday Agents SDK loop. A new task
-does not create a CUA session, infer a computer capability, or capture a
-screenshot.
+Computer use is an optional capability of the Rust agent loop. A text-only task
+does not capture the screen or initialize CUA.
 
-## Lazy flow
+## Grounded flow
 
 ```text
-model calls observe_surface (when the compatible CUA capability is available)
-  -> host checks/starts task-scoped CUA in Auto scope
-  -> if permission is absent, pause for user-clicked Connect computer
-  -> identify one current non-TroCode browser/native window
-  -> try browser semantics, window accessibility, window screenshot, then desktop screenshot
-  -> return bounded facts and opaque e1/e2 references to the same call ID
-  -> model may call control_surface using the latest observation ID and reference
-  -> host resolves the private token and records the declared consequence
-  -> host derives action identity and approval sensitivity from the command
-  -> policy allows, denies, or asks for exact approval
-  -> execute one atomic command
-  -> refresh the exact same bound surface and replace all old references
-  -> return outcome + fresh evidence to the same model session
+model -> observe_desktop
+  Rust CUA host -> frontmost on-screen window
+    -> bounded accessibility tree + screenshot
+    -> window screenshot when accessibility is unavailable
+    -> full-desktop screenshot when no truthful window capture exists
+  <- observation UUID, SHA-256 fingerprint, dimensions, opaque element refs
 
-If semantic capability is absent or the target is ambiguous, the existing
-observe_desktop/control_desktop coordinate flow is used unchanged. Auto is a
-hardcoded session invariant, not a user, environment, or model option. The host
-keeps the session window-scoped while semantic reading works and explicitly
-escalates it to desktop scope only when desktop vision or coordinate control is
-required.
+model -> control_desktop(observation UUID + fingerprint + one action)
+  Rust host -> exact-action approval when policy requires it
+  Rust host -> capture again
+    changed fingerprint -> execute nothing; return a recoverable rejection
+    same fingerprint -> uniquely rebind semantic identity or use approved pixels
+  CUA SDK -> dispatch exactly once
+  Rust host -> fresh observation and confirmed/no-effect result
 ```
 
-The model never receives CUA, Electron IPC, driver handles, process/window/tab
-IDs, browser targets, accessibility tokens, or snapshots. Semantic references
-are observation-local aliases held only in Electron main. Its normalized legacy
-coordinates are converted once into screenshot pixels; companion presentation
-coordinates are mapped separately into desktop points.
+Accessibility is preferred because its opaque element token is scoped to one
+driver snapshot and fails closed when stale. A held semantic action is rebound
+only when role and label identify one enabled element in an unchanged fresh
+observation. Pixel coordinates are normalized by the model and converted once
+to the fresh window or desktop screenshot dimensions.
 
-Before model input, wide screenshots are resized to at most 1,536 pixels and
-encoded as bounded JPEG evidence. Exactly one current screenshot may appear in
-a Responses request. After that model boundary its bytes are demoted from the
-bounded SDK session while textual observation facts remain. A later action must
-produce a newer observation; historical screenshots are never replayed.
+Only the newest screenshot enters model input, and screenshot/tool/session byte
+limits are enforced before provider dispatch. CUA handles and process authority
+never enter the renderer. Tro's approval windows are not a source of authority.
 
-## Freshness and approvals
+## Outcomes and cleanup
 
-Every control call must cite the latest observation UUID. The host includes the
-observation UUID and fingerprint in the normalized `ProposedAction` and approval
-digest. Before executing a held consequential desktop action, it captures the
-screen again. Any fingerprint change invalidates the grant, returns
-`not_executed` plus the new screenshot, and requires a newly grounded proposal.
-Opening a browser URL also invalidates the cached observation before any later
-coordinate action can be resolved.
+A validation rejection or stale element is known not to have executed, so the
+agent may observe again. An unknown post-dispatch result is terminal and is
+never retried. Cancellation interrupts model sampling and waits, clears pending
+approval/input channels, removes observations, and unregisters the global
+Escape shortcut after the last active task finishes.
 
-For semantic approval, the host refreshes the same application/window/tab and
-requires one unique match for the approved element's bounded semantic identity.
-It then rebinds the new private token to the held public reference. A surface
-change, missing target, or duplicate match discards the grant and executes
-nothing. Existing-profile browser attachment is a separate one-use
-`system_permission` approval; the authorization host denies every callback
-unless its session, operation, and resource digest match the armed grant.
-
-The model's declared consequence is retained for exact approval copy, but it
-cannot downgrade policy. Balanced autonomy allows routine grounded clicks,
-drags, text entry, keypresses, and scrolling. The host risk classifier raises
-sensitive cues, opaque targets, stale observations, and declared consequential
-effects to exact approval. Strict autonomy confirms routine desktop mutations
-too.
-
-## Outcomes
-
-Adapters return `confirmed`, `unknown`, `failed`, `denied`, or `not_executed`
-with bounded text and optional in-memory image evidence. A dispatched desktop
-action is followed by a fresh observation even when the driver reports an
-unknown outcome. The exact action digest is then placed on a do-not-dispatch
-list. If an approved consequential action has an unknown outcome, TroCode blocks
-and cleans up the task so neither the same action nor another consequential
-action can be dispatched from that session.
-
-## Cancellation and cleanup
-
-One serialized run is active per task. A newer observation invalidates prior
-semantic references. Cancellation aborts model sampling,
-permission work, observation, or adapter work. CUA is ended only if it was
-started, the in-memory model session is erased, and resolved call IDs are
-released. Reference bindings and armed authorization are cleared on task end,
-disconnect, and shutdown. A cancellation received after an atomic external
-effect does not undo or automatically retry that effect.
+The native voice shortcut is Command+Control+Space on macOS and
+Control+Alt+Space on Windows/Linux. Escape is registered globally only while a
+task is active so normal application Escape behavior is not intercepted while
+Tro is idle.

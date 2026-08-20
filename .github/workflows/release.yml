@@ -1,154 +1,55 @@
-name: Release
+name: Tauri desktop release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
 
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
-  validate-version:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Require the tag to match package.json
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: >-
-          node -e "const version = require('./package.json').version;
-          const tag = process.env.RELEASE_TAG;
-          if (tag !== 'v' + version) {
-            console.error('Expected tag v' + version + ', received ' + tag);
-            process.exit(1);
-          }"
-
-  publish-artifacts:
-    needs: validate-version
+  publish-tauri:
     strategy:
-      fail-fast: true
-      max-parallel: 1
+      fail-fast: false
       matrix:
         include:
-          - runner: macos-15
-            architecture: arm64
-          - runner: macos-15-intel
-            architecture: x64
-          - runner: windows-2025
-            architecture: x64
-    runs-on: ${{ matrix.runner }}
+          - platform: macos-15
+            args: --target aarch64-apple-darwin
+          - platform: macos-15-intel
+            args: --target x86_64-apple-darwin
+          - platform: windows-2025
+            args: --target x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-      - uses: dopplerhq/cli-action@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+          targets: aarch64-apple-darwin,x86_64-apple-darwin,x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
       - run: npm ci
-      - run: npm run check
-
-      - name: Configure macOS signing and notarization
-        if: runner.os == 'macOS'
-        shell: bash
+      - run: npm run build:renderer
+      - uses: tauri-apps/tauri-action@v0
         env:
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
-          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
-          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
-        run: |
-          required=(
-            APPLE_API_ISSUER
-            APPLE_API_KEY_ID
-            APPLE_API_KEY_P8_BASE64
-            MACOS_CERTIFICATE_P12_BASE64
-            MACOS_CERTIFICATE_PASSWORD
-            MACOS_SIGNING_IDENTITY
-          )
-          for name in "${required[@]}"; do
-            if [[ -z "${!name}" ]]; then
-              echo "::error::Missing required release secret: ${name}"
-              exit 1
-            fi
-          done
-
-          certificate_path="$RUNNER_TEMP/trocode-signing.p12"
-          api_key_path="$RUNNER_TEMP/trocode-notary-key.p8"
-          keychain_path="$RUNNER_TEMP/trocode-signing.keychain-db"
-          keychain_password="$(openssl rand -hex 24)"
-
-          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 -D > "$certificate_path"
-          printf '%s' "$APPLE_API_KEY_P8_BASE64" | base64 -D > "$api_key_path"
-          chmod 600 "$certificate_path" "$api_key_path"
-
-          security create-keychain -p "$keychain_password" "$keychain_path"
-          security set-keychain-settings -lut 21600 "$keychain_path"
-          security unlock-keychain -p "$keychain_password" "$keychain_path"
-          security import "$certificate_path" \
-            -k "$keychain_path" \
-            -P "$MACOS_CERTIFICATE_PASSWORD" \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security
-          security set-key-partition-list \
-            -S apple-tool:,apple: \
-            -s \
-            -k "$keychain_password" \
-            "$keychain_path"
-          security list-keychains -d user -s "$keychain_path"
-          security default-keychain -d user -s "$keychain_path"
-
-          printf 'TROCODE_MACOS_SIGNING_IDENTITY=%s\n' "$MACOS_SIGNING_IDENTITY" >> "$GITHUB_ENV"
-          printf 'TROCODE_APPLE_API_KEY=%s\n' "$api_key_path" >> "$GITHUB_ENV"
-          printf 'TROCODE_APPLE_API_KEY_ID=%s\n' "$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
-          printf 'TROCODE_APPLE_API_ISSUER=%s\n' "$APPLE_API_ISSUER" >> "$GITHUB_ENV"
-
-      - name: Configure Windows signing
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          if (-not $env:WINDOWS_CERTIFICATE_PFX_BASE64) {
-            Write-Error 'Missing required release secret: WINDOWS_CERTIFICATE_PFX_BASE64'
-            exit 1
-          }
-          if (-not $env:WINDOWS_CERTIFICATE_PASSWORD) {
-            Write-Error 'Missing required release secret: WINDOWS_CERTIFICATE_PASSWORD'
-            exit 1
-          }
-
-          $certificatePath = Join-Path $env:RUNNER_TEMP 'trocode-signing.pfx'
-          $certificateBytes = [Convert]::FromBase64String(
-            $env:WINDOWS_CERTIFICATE_PFX_BASE64
-          )
-          [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
-          "TROCODE_WINDOWS_CERTIFICATE_FILE=$certificatePath" >> $env:GITHUB_ENV
-
-      - name: Build, sign, and upload the platform artifacts
-        env:
-          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TROCODE_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: >-
-          doppler run
-          --preserve-env="GITHUB_TOKEN,TROCODE_MACOS_SIGNING_IDENTITY,TROCODE_APPLE_API_KEY,TROCODE_APPLE_API_KEY_ID,TROCODE_APPLE_API_ISSUER,TROCODE_WINDOWS_CERTIFICATE_FILE,TROCODE_WINDOWS_CERTIFICATE_PASSWORD"
-          --project tro-app
-          --config prd
-          -- npm exec -- electron-forge publish --arch=${{ matrix.architecture }}
-
-  publish-release:
-    needs: publish-artifacts
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Publish the completed draft release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release edit "$RELEASE_TAG" --draft=false --prerelease=false
+          APPLE_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TROCODE_UPDATE_PUBLIC_KEY: ${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}
+        with:
+          tagName: v__VERSION__
+          releaseName: Tro v__VERSION__
+          releaseBody: Rust/Tauri desktop release. See the checked-in cutover runbook for upgrade and rollback support.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

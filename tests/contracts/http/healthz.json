@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/healthz"
+  },
+  "response": {
+    "body": {
+      "status": "ok",
+      "version": "local"
+    },
+    "headers": {
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "status": 200
+  }
+}
