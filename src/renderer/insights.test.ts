@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { TaskEvent, TaskSnapshot } from '../shared/contracts';
 
-import { createInsightsSummary } from './insights';
+import { createInsightsSummary, createLearningFocus } from './insights';
 
 function createSnapshot(
   overrides: Partial<TaskSnapshot> & Pick<TaskSnapshot, 'phase' | 'taskId'>,
@@ -148,5 +148,84 @@ describe('createInsightsSummary', () => {
       { toolId: 'desktop.observe', count: 1, percentage: 100 },
     ]);
     expect(summary.legacyBehaviorUsage).toEqual([]);
+  });
+});
+
+describe('createLearningFocus', () => {
+  it('does not invent a learning challenge without academic evidence', () => {
+    const task = createSnapshot({
+      phase: 'failed',
+      request: 'Open the calendar and schedule a meeting',
+      taskId: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(createLearningFocus([task])).toBeNull();
+  });
+
+  it('does not treat an operational task failure as student difficulty', () => {
+    const task = createSnapshot({
+      phase: 'failed',
+      request: 'Submit my math assignment',
+      taskId: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(createLearningFocus([task])).toBeNull();
+  });
+
+  it('turns an academic help request into a practical learning focus', () => {
+    const task = createSnapshot({
+      phase: 'completed',
+      request: 'Help me understand quadratic equations for my math assignment',
+      taskId: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(createLearningFocus([task])).toEqual({
+      recommendation:
+        'Work through one smaller example step by step, explain why each operation is valid, then retry the assignment problem.',
+      topic: 'Help me understand quadratic equations for my math assignment',
+    });
+  });
+
+  it('recognizes a learning task that needed multiple support turns', () => {
+    const taskId = '11111111-1111-4111-8111-111111111111';
+    const task = createSnapshot({
+      messages: [
+        {
+          kind: 'clarification',
+          messageId: '22222222-2222-4222-8222-222222222222',
+          role: 'assistant',
+          taskId,
+          text: 'Which part of the essay is unclear?',
+          timestamp: '2026-08-15T08:01:00.000Z',
+        },
+        {
+          kind: 'answer',
+          messageId: '33333333-3333-4333-8333-333333333333',
+          role: 'user',
+          taskId,
+          text: 'I need to make the evidence support the thesis.',
+          timestamp: '2026-08-15T08:02:00.000Z',
+        },
+      ],
+      phase: 'completed',
+      request: 'Review my literature essay',
+      taskId,
+    });
+
+    expect(createLearningFocus([task])?.recommendation).toBe(
+      'Outline the claim, evidence, and explanation first; draft one paragraph, then revise it with feedback.',
+    );
+  });
+
+  it('keeps the displayed task topic concise', () => {
+    const task = createSnapshot({
+      phase: 'blocked',
+      request: `Help me with my chemistry assignment about ${'covalent bonding '.repeat(15)}`,
+      taskId: '11111111-1111-4111-8111-111111111111',
+    });
+
+    const focus = createLearningFocus([task]);
+    expect(focus?.topic.endsWith('…')).toBe(true);
+    expect(focus?.topic.length).toBeLessThanOrEqual(140);
   });
 });

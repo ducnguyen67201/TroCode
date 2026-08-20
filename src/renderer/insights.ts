@@ -7,6 +7,26 @@ import type {
 
 const ACTIVITY_DAY_COUNT = 42;
 const FINISHED_PHASES = new Set(['completed', 'failed', 'cancelled']);
+const LEARNING_TOPIC_MAX_LENGTH = 140;
+const ACADEMIC_CONTEXT_PATTERN =
+  /\b(assignment|homework|study|lesson|quiz|exam|essay|worksheet|problem set|equation|algebra|geometry|calculus|math|physics|chemistry|biology|science|history|literature|grammar|thesis|citation|research paper)\b/iu;
+const EXPLICIT_SUPPORT_PATTERN =
+  /\b(help|explain|understand|struggl\w*|stuck|confus\w*|difficult|hard time|review|check my)\b/iu;
+const QUANTITATIVE_TOPIC_PATTERN =
+  /\b(equation|algebra|geometry|calculus|math|physics|statistics|probability)\b/iu;
+const WRITING_TOPIC_PATTERN =
+  /\b(essay|writing|paragraph|thesis|citation|literature|grammar|research paper)\b/iu;
+const SCIENCE_TOPIC_PATTERN =
+  /\b(chemistry|biology|science|experiment|molecule|reaction|cell)\b/iu;
+
+const QUANTITATIVE_RECOMMENDATION =
+  'Work through one smaller example step by step, explain why each operation is valid, then retry the assignment problem.';
+const WRITING_RECOMMENDATION =
+  'Outline the claim, evidence, and explanation first; draft one paragraph, then revise it with feedback.';
+const SCIENCE_RECOMMENDATION =
+  'List what is known, name the concept or formula that connects it, and test it on one simpler example.';
+const GENERAL_RECOMMENDATION =
+  'Break the assignment into one smaller question, explain the first step in your own words, then practise a similar example.';
 
 export interface BehaviorUsage {
   behavior: TaskBehavior;
@@ -44,6 +64,11 @@ export interface InsightsSummary {
   toolUsage: ToolUsage[];
 }
 
+export interface LearningFocus {
+  recommendation: string;
+  topic: string;
+}
+
 function utcDateKey(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -64,6 +89,62 @@ function uniqueEvents(events: readonly TaskEvent[]): TaskEvent[] {
   const byEventId = new Map<string, TaskEvent>();
   for (const event of events) byEventId.set(event.eventId, event);
   return [...byEventId.values()];
+}
+
+function learningRecommendation(topic: string): string {
+  if (QUANTITATIVE_TOPIC_PATTERN.test(topic)) {
+    return QUANTITATIVE_RECOMMENDATION;
+  }
+  if (WRITING_TOPIC_PATTERN.test(topic)) return WRITING_RECOMMENDATION;
+  if (SCIENCE_TOPIC_PATTERN.test(topic)) return SCIENCE_RECOMMENDATION;
+  return GENERAL_RECOMMENDATION;
+}
+
+function conciseLearningTopic(request: string): string {
+  const normalized = request.replace(/\s+/gu, ' ').trim();
+  if (normalized.length <= LEARNING_TOPIC_MAX_LENGTH) return normalized;
+
+  const truncated = normalized.slice(0, LEARNING_TOPIC_MAX_LENGTH - 1);
+  const finalWordBoundary = truncated.lastIndexOf(' ');
+  const topic =
+    finalWordBoundary >= LEARNING_TOPIC_MAX_LENGTH * 0.65
+      ? truncated.slice(0, finalWordBoundary)
+      : truncated;
+  return `${topic}…`;
+}
+
+export function createLearningFocus(
+  taskSnapshots: readonly TaskSnapshot[],
+): LearningFocus | null {
+  const tasks = uniqueTasks(taskSnapshots);
+
+  const task = tasks
+    .filter((candidate) => {
+      if (!ACADEMIC_CONTEXT_PATTERN.test(candidate.request)) return false;
+
+      const conversation = [
+        candidate.request,
+        ...candidate.messages
+          .filter((message) => message.role === 'user')
+          .map((message) => message.text),
+      ].join(' ');
+      const supportTurns = candidate.messages.filter((message) =>
+        ['answer', 'clarification', 'steering'].includes(message.kind),
+      ).length;
+
+      return (
+        EXPLICIT_SUPPORT_PATTERN.test(conversation) ||
+        supportTurns >= 2
+      );
+    })
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+
+  if (!task) return null;
+
+  return {
+    recommendation: learningRecommendation(task.request),
+    topic: conciseLearningTopic(task.request),
+  };
 }
 
 function calculateLongestStreak(activeDates: ReadonlySet<string>): number {

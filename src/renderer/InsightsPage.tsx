@@ -5,11 +5,10 @@ import type {
   TaskEvent,
   TaskHistory,
   TaskSnapshot,
-  UsageBudgetSnapshot,
 } from '../shared/contracts';
 
 import { translate } from './app-language';
-import { createInsightsSummary } from './insights';
+import { createInsightsSummary, createLearningFocus } from './insights';
 
 function formatTool(value: string): string {
   return value
@@ -18,7 +17,11 @@ function formatTool(value: string): string {
     .join(' ');
 }
 
-function SummaryIcon({ name }: { name: 'checks' | 'events' | 'tasks' }) {
+function SummaryIcon({
+  name,
+}: {
+  name: 'checks' | 'events' | 'learning' | 'tasks';
+}) {
   if (name === 'tasks') {
     return (
       <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -32,6 +35,15 @@ function SummaryIcon({ name }: { name: 'checks' | 'events' | 'tasks' }) {
     return (
       <svg aria-hidden="true" viewBox="0 0 24 24">
         <path d="M5 19V9M12 19V4M19 19v-7" />
+      </svg>
+    );
+  }
+
+  if (name === 'learning') {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M4.5 5.5A3.5 3.5 0 0 1 8 4h4v15H8a3.5 3.5 0 0 0-3.5 1.5z" />
+        <path d="M19.5 5.5A3.5 3.5 0 0 0 16 4h-4v15h4a3.5 3.5 0 0 1 3.5 1.5z" />
       </svg>
     );
   }
@@ -63,13 +75,11 @@ function EmptyTools({ appLanguage }: { appLanguage: AppLanguage }) {
 
 export function InsightsPage({
   appLanguage,
-  budget,
   events,
   persistence,
   tasks,
 }: {
   appLanguage: AppLanguage;
-  budget: UsageBudgetSnapshot | null;
   events: readonly TaskEvent[];
   persistence: TaskHistory['persistence'];
   tasks: readonly TaskSnapshot[];
@@ -82,12 +92,11 @@ export function InsightsPage({
     () => createInsightsSummary(tasks, events),
     [events, tasks],
   );
+  const learningFocus = useMemo(
+    () => createLearningFocus(tasks),
+    [tasks],
+  );
   const weekdayLabels = summary.activityDays.slice(0, 7);
-  const formatUsd = (microUsd: number): string =>
-    new Intl.NumberFormat(appLanguage === 'vi' ? 'vi-VN' : 'en-US', {
-      currency: 'USD',
-      style: 'currency',
-    }).format(microUsd / 1_000_000);
 
   return (
     <div className="insights-page">
@@ -212,31 +221,42 @@ export function InsightsPage({
           </div>
         </article>
 
-        <article className="insight-card insight-card--tasks">
+        <article className="insight-card insight-card--learning">
           <div className="insight-card__header">
             <div className="insight-icon">
-              <SummaryIcon name="events" />
+              <SummaryIcon name="learning" />
             </div>
-            <span>{t('Model budget')}</span>
+            <span>{t('Learning focus')}</span>
           </div>
-          <strong className="insight-value">
-            {budget ? formatUsd(budget.actualMicroUsd) : '—'}
-          </strong>
-          <span className="insight-label">{t('SETTLED THIS MONTH')}</span>
-          <div className="insight-stat-list">
-            <div>
-              <span>{t('Remaining')}</span>
-              <strong>
-                {budget ? formatUsd(budget.monthly.remainingMicroUsd) : '—'}
+          {learningFocus ? (
+            <>
+              <strong className="learning-insight__state">
+                {t('May need more support')}
               </strong>
+              <span className="insight-label">
+                {t('RECENT LEARNING SIGNAL')}
+              </span>
+              <div className="learning-insight__body">
+                <div>
+                  <span>{t('What felt difficult')}</span>
+                  <p>{learningFocus.topic}</p>
+                </div>
+                <div>
+                  <span>{t('How to improve')}</span>
+                  <p>{t(learningFocus.recommendation)}</p>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="learning-insight__empty">
+              <strong>{t('No learning challenge identified yet')}</strong>
+              <p>
+                {t(
+                  'Complete an assignment with Tro to see learning guidance here.',
+                )}
+              </p>
             </div>
-            <div>
-              <span>{t('Pending estimate')}</span>
-              <strong>
-                {budget ? formatUsd(budget.estimatedMicroUsd) : '—'}
-              </strong>
-            </div>
-          </div>
+          )}
         </article>
       </section>
 

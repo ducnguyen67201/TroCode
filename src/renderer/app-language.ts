@@ -89,6 +89,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   completed: 'đã hoàn tất',
   'Completed, stopped, and unsuccessful tasks appear with their scope, conversation, and outcome.':
     'Các tác vụ đã hoàn thành, đã dừng hoặc chưa thành công sẽ xuất hiện cùng phạm vi, cuộc trò chuyện và kết quả.',
+  'Complete an assignment with Tro to see learning guidance here.':
+    'Hoàn thành một bài tập với Tro để xem hướng dẫn học tập tại đây.',
   'Computer use': 'Điều khiển máy tính',
   'Continue to Tro': 'Tiếp tục vào Tro',
   'Continue with access code': 'Tiếp tục bằng mã truy cập',
@@ -136,6 +138,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   guide: 'hướng dẫn',
   History: 'Lịch sử',
   'How Tro helped': 'Tro đã hỗ trợ như thế nào',
+  'How to improve': 'Cách cải thiện',
   'In motion': 'Đang thực hiện',
   Insights: 'Phân tích',
   'Insights overview': 'Tổng quan phân tích',
@@ -157,6 +160,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Lifecycle activity': 'Hoạt động vòng đời',
   'Lifecycle events per day for the last six weeks':
     'Sự kiện vòng đời mỗi ngày trong sáu tuần qua',
+  'Learning focus': 'Trọng tâm học tập',
   'Loading application update status…': 'Đang tải trạng thái cập nhật ứng dụng…',
   'Loading saved task history…': 'Đang tải lịch sử tác vụ đã lưu…',
   'Loading version…': 'Đang tải phiên bản…',
@@ -174,6 +178,9 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
     'Tắt âm thanh hệ thống khi bạn giữ phím tắt giọng nói, sau đó khôi phục trạng thái tắt tiếng trước đó khi bạn thả phím.',
   'New task': 'Tác vụ mới',
   'Needs attention': 'Cần chú ý',
+  'May need more support': 'Có thể cần hỗ trợ thêm',
+  'No learning challenge identified yet':
+    'Chưa xác định được nội dung học tập nào đang gây khó khăn',
   'No conversation was recorded.': 'Không có cuộc trò chuyện nào được ghi lại.',
   'No lifecycle activity was captured for this task.':
     'Không ghi nhận hoạt động vòng đời nào cho tác vụ này.',
@@ -217,6 +224,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Session task record': 'Bản ghi tác vụ phiên này',
   'Session only': 'Chỉ phiên này',
   'Session summary': 'Tóm tắt phiên',
+  'RECENT LEARNING SIGNAL': 'TÍN HIỆU HỌC TẬP GẦN ĐÂY',
   Settings: 'Cài đặt',
   latest: 'mới nhất',
   'Show me how to organize my Downloads folder':
@@ -304,6 +312,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   Transcribing: 'Đang phiên âm',
   Workspace: 'Không gian làm việc',
   'What language will you usually speak?': 'Bạn thường sẽ nói ngôn ngữ nào?',
+  'What felt difficult': 'Nội dung bạn có thể đang gặp khó khăn',
   'What should we accomplish?': 'Chúng ta cần hoàn thành điều gì?',
   'What should we do next?': 'Tiếp theo chúng ta nên làm gì?',
   'Why Tro stopped': 'Lý do Tro dừng lại',
@@ -423,6 +432,14 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
     'Nói hoặc nhập “có” không thể phê duyệt hành động này. Hãy dùng nút bên dưới.',
   verifying: 'đang xác minh',
   'View task trail': 'Xem dấu vết tác vụ',
+  'Work through one smaller example step by step, explain why each operation is valid, then retry the assignment problem.':
+    'Làm từng bước với một ví dụ nhỏ hơn, giải thích vì sao mỗi phép toán hợp lý, rồi thử lại bài tập.',
+  'Outline the claim, evidence, and explanation first; draft one paragraph, then revise it with feedback.':
+    'Trước tiên hãy lập dàn ý cho luận điểm, bằng chứng và phần giải thích; viết nháp một đoạn rồi chỉnh sửa theo phản hồi.',
+  'List what is known, name the concept or formula that connects it, and test it on one simpler example.':
+    'Liệt kê dữ kiện đã biết, xác định khái niệm hoặc công thức kết nối chúng, rồi kiểm tra bằng một ví dụ đơn giản hơn.',
+  'Break the assignment into one smaller question, explain the first step in your own words, then practise a similar example.':
+    'Chia bài tập thành một câu hỏi nhỏ hơn, tự giải thích bước đầu tiên, rồi luyện tập với một ví dụ tương tự.',
 };
 
 export function appLanguageLabel(language: AppLanguage): string {
