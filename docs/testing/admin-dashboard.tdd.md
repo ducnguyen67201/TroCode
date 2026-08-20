@@ -23,13 +23,16 @@ file was used.
 7. As an administrator, I can sign in once and keep this browser authenticated
    for 30 days without persisting the raw admin token in page-accessible
    storage; Lock signs the browser out.
+8. As an administrator, I can see how many seats each code has used and open a
+   paginated list of the users who redeemed it, including redemption date and
+   current active or blocked status.
 
 ## RED / GREEN report
 
 - RED: `npm --prefix services/api test` failed on the new admin imports,
   blocked-account behavior, admin configuration, migration count, and browser
   origin delegation. The failures were the intended missing-feature signal.
-- GREEN: `npm --prefix services/api test` passed 86 runnable tests with one
+- GREEN: `npm --prefix services/api test` passed 95 runnable tests with one
   PostgreSQL integration test skipped because `TEST_DATABASE_URL` was not set.
 - Repository gate: `npm run check` passed 96 Vitest files / 662 tests, 9 root
   Node tests, and the API suite.
@@ -47,6 +50,10 @@ file was used.
 - Persistent-session GREEN checkpoint: commit `2641158` passed the same 11
   focused tests after adding the signed HttpOnly session flow. Commit `36e4fa6`
   then cleared the raw token from the hidden login form after cookie issuance.
+- Code-user detail RED checkpoint: commit `3145598` captured the missing
+  repository query, protected route, and dashboard dialog.
+- Code-user detail GREEN checkpoint: commit `478faf3` passed all 17 focused
+  tests after adding the bounded user-detail flow.
 
 ## Test specification
 
@@ -72,6 +79,9 @@ file was used.
 | 18 | The persistent cookie contains no raw token and is `HttpOnly`, `Secure`, `SameSite=Strict`, path-scoped to `/`, and bounded by `Max-Age`. | `services/api/test/admin-session.test.mjs` | Security unit | PASS |
 | 19 | A bearer-token login issues the cookie, and the cookie alone authenticates a later request as it would after a reload. | `services/api/test/admin-http-controller.test.mjs` | Security integration | PASS |
 | 20 | Lock clears the cookie with `Max-Age=0` and no-store response semantics. | `services/api/test/admin-http-controller.test.mjs` | Security integration | PASS |
+| 21 | Each access code returns its redeemers in deterministic, parameterized, bounded pages with redemption dates and current active/blocked status. | `services/api/test/admin-repository.test.mjs` | Unit | PASS |
+| 22 | The code-user route validates UUID and pagination inputs, is protected by the common admin boundary, is non-cacheable, and returns 404 for missing codes. | `services/api/test/admin-http-controller.test.mjs` | Security integration | PASS |
+| 23 | The deployed dashboard includes a dedicated “Who’s using it” column and protected detail dialog. | `services/api/test/admin-http-controller.test.mjs` | Integration | PASS |
 
 ## Coverage and browser QA
 
@@ -85,6 +95,10 @@ suites.
 The persistent-session focused suite reported 92.22% line coverage for the
 session signer/verifier, 85.49% for the admin HTTP controller, and 86.60%
 aggregate line coverage across its transitive source files.
+
+The final 17-test admin-focused suite reported 90.89% aggregate line coverage
+across the admin controller, repository, and session modules; the controller
+and repository individually reported 86.57% and 94.32%.
 
 A local seeded preview was exercised in headless Chrome at 1440×1000 and
 390×844. Login, user rendering, block confirmation, summary refresh, bulk code
@@ -107,15 +121,23 @@ Production deployment `b15a8217-6223-449c-bc6a-ec05203dd5ff` passed the same
 flow, confirmed all hardening flags, confirmed the cookie did not contain the
 admin token, and retained access to all 6 current-database users.
 
+Code-user details were canary-deployed as
+`e95bc291-c358-48fb-b40a-89448bd18517`; health, readiness, anonymous denial,
+dashboard assets, inventory, and an empty bounded code-user result all passed.
+Production deployment `b7d637e6-b0b9-4cec-9f5d-ddb66572ab46` then passed the
+same read-only checks against the current Tro database. The safe snapshot
+reported 2 codes, 1 redemption, and one active redeemer on the used code;
+tokens, code values, names, and emails were not printed.
+
 ## Known gaps
 
 - The real PostgreSQL integration test remains environment-gated and was not
   run because `TEST_DATABASE_URL` was not configured.
-- The current production browser extension was unavailable for a new automated
-  click-through, so production verification used authenticated HTTP smoke
-  checks. Earlier seeded desktop/mobile browser QA covers the shared dashboard
-  shell; the new code inventory is covered by repository and HTTP integration
-  tests.
+- The browser automation extension was unavailable for a new automated
+  click-through, so visual regression for the new detail dialog is
+  **INCONCLUSIVE**. Production verification used authenticated, read-only HTTP
+  smoke checks; the interaction and data contracts are covered by repository
+  and HTTP integration tests.
 - The two access codes created before migration 012 contain only one-way
   digests. Their metadata remains visible, but their original plaintext cannot
   be reconstructed. New dashboard-generated codes are retrievable.
