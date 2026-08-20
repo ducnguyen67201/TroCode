@@ -111,6 +111,7 @@ function memoryAccessCodes(
       }
       const code = codes.get(normalized);
       if (!code) return { kind: 'invalid_code' };
+      if (code.paused) return { kind: 'code_paused' };
       if (code.users.size >= code.maxUsers) return { kind: 'code_full' };
       code.users.add(userId);
       assignments.set(userId, normalized);
@@ -453,6 +454,29 @@ test('access codes enforce one code per account and an atomic user limit', async
       });
     },
     { accessCodeLimits: { CODEA: 1, CODEB: 10 } },
+  );
+});
+
+test('paused access codes reject new redemptions', async () => {
+  await withApi(
+    async ({ baseUrl }) => {
+      const session = await signIn(baseUrl);
+      const response = await redeemAccessCode(
+        baseUrl,
+        session.accessToken,
+        'PAUSED',
+      );
+
+      assert.equal(response.status, 409);
+      assert.deepEqual(await response.json(), {
+        error: 'This access code is temporarily paused.',
+      });
+    },
+    {
+      accessCodeLimits: {
+        PAUSED: { maxUsers: 10, paused: true, plan: 'basic' },
+      },
+    },
   );
 });
 

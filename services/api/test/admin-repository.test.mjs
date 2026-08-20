@@ -114,6 +114,7 @@ test('lists access codes with capacity, retrieval, and legacy metadata', async (
           available_codes: 1,
           full_codes: 1,
           retrievable_codes: 1,
+          paused_codes: 1,
           total_codes: 2,
           total_redemptions: 3,
         },
@@ -129,6 +130,7 @@ test('lists access codes with capacity, retrieval, and legacy metadata', async (
           id: 'legacy-code-id',
           label: 'Founding cohort',
           max_users: 5,
+          paused_at: null,
           plan: 'pro',
           redeemed_users: 2,
         },
@@ -154,6 +156,7 @@ test('lists access codes with capacity, retrieval, and legacy metadata', async (
           id: 'legacy-code-id',
           label: 'Founding cohort',
           maxUsers: 5,
+          pausedAt: null,
           plan: 'pro',
           redeemedUsers: 2,
           remainingUsers: 3,
@@ -165,6 +168,7 @@ test('lists access codes with capacity, retrieval, and legacy metadata', async (
       summary: {
         availableCodes: 1,
         fullCodes: 1,
+        pausedCodes: 1,
         retrievableCodes: 1,
         totalCodes: 2,
         totalRedemptions: 3,
@@ -174,6 +178,80 @@ test('lists access codes with capacity, retrieval, and legacy metadata', async (
   assert.match(queries[1].sql, /code_ciphertext/u);
   assert.match(queries[1].sql, /LIMIT \$4 OFFSET \$5/u);
   assert.equal(queries[1].parameters[1], '%Founding%');
+});
+
+test('pauses an access code and records the admin action atomically', async () => {
+  const codeId = '11111111-1111-4111-8111-111111111111';
+  const pausedAt = new Date('2026-08-20T08:00:00.000Z');
+  const { client, pool, queries } = sequencedPool([
+    { rows: [] },
+    { rows: [{ id: codeId, paused_at: pausedAt }] },
+    { rows: [] },
+    { rows: [] },
+  ]);
+  const repository = new PostgresAdminRepository(pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(await repository.setAccessCodePaused(codeId, true), {
+    id: codeId,
+    pausedAt: '2026-08-20T08:00:00.000Z',
+    status: 'paused',
+  });
+  assert.match(queries[1].sql, /UPDATE access_codes/u);
+  assert.deepEqual(queries[1].parameters, [codeId, true]);
+  assert.match(queries[2].sql, /admin_audit_events/u);
+  assert.deepEqual(queries[2].parameters, [
+    'access_codes.paused',
+    JSON.stringify({ accessCodeId: codeId }),
+  ]);
+  assert.equal(queries.at(-1).sql, 'COMMIT');
+  assert.equal(client.released, true);
+});
+
+test('deletes an unused access code while preserving codes with redemptions', async () => {
+  const unusedId = '11111111-1111-4111-8111-111111111111';
+  const unused = sequencedPool([
+    { rows: [] },
+    { rows: [{ id: unusedId }] },
+    { rows: [{ redeemed_users: 0 }] },
+    { rows: [] },
+    { rows: [] },
+    { rows: [] },
+  ]);
+  const repository = new PostgresAdminRepository(unused.pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(await repository.deleteAccessCode(unusedId), {
+    id: unusedId,
+    kind: 'deleted',
+  });
+  assert.match(unused.queries[1].sql, /FOR UPDATE/u);
+  assert.match(unused.queries[3].sql, /DELETE FROM access_codes/u);
+  assert.equal(unused.queries.at(-1).sql, 'COMMIT');
+
+  const usedId = '22222222-2222-4222-8222-222222222222';
+  const used = sequencedPool([
+    { rows: [] },
+    { rows: [{ id: usedId }] },
+    { rows: [{ redeemed_users: 2 }] },
+    { rows: [] },
+  ]);
+  const usedRepository = new PostgresAdminRepository(used.pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(await usedRepository.deleteAccessCode(usedId), {
+    id: usedId,
+    kind: 'in_use',
+    redeemedUsers: 2,
+  });
+  assert.equal(
+    used.queries.some((query) => query.sql.includes('DELETE FROM access_codes')),
+    false,
+  );
+  assert.equal(used.queries.at(-1).sql, 'ROLLBACK');
 });
 
 test('lists the users who redeemed an access code with bounded pagination', async () => {

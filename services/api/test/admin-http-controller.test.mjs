@@ -24,6 +24,13 @@ async function withAdmin(run, { now } = {}) {
         ],
       };
     },
+    deleteAccessCode: async (id) => {
+      calls.push({ id, method: 'deleteAccessCode' });
+      if (id === '22222222-2222-4222-8222-222222222222') {
+        return { id, kind: 'in_use', redeemedUsers: 1 };
+      }
+      return { id, kind: 'deleted' };
+    },
     listAccessCodes: async (input) => {
       calls.push({ input, method: 'listAccessCodes' });
       return {
@@ -34,6 +41,7 @@ async function withAdmin(run, { now } = {}) {
             id: 'code-1',
             label: 'Launch',
             maxUsers: 3,
+            pausedAt: null,
             plan: 'pro',
             redeemedUsers: 1,
             remainingUsers: 2,
@@ -45,6 +53,7 @@ async function withAdmin(run, { now } = {}) {
         summary: {
           availableCodes: 1,
           fullCodes: 0,
+          pausedCodes: 0,
           retrievableCodes: 1,
           totalCodes: 1,
           totalRedemptions: 1,
@@ -88,6 +97,14 @@ async function withAdmin(run, { now } = {}) {
         blockedAt: blocked ? '2026-08-20T05:00:00.000Z' : null,
         id,
         status: blocked ? 'blocked' : 'active',
+      };
+    },
+    setAccessCodePaused: async (id, paused) => {
+      calls.push({ id, method: 'setAccessCodePaused', paused });
+      return {
+        id,
+        pausedAt: paused ? '2026-08-20T08:00:00.000Z' : null,
+        status: paused ? 'paused' : 'available',
       };
     },
   };
@@ -154,7 +171,10 @@ test('serves the separate admin dashboard with a strict self-only CSP', async ()
     const javascript = await script.text();
     assert.match(javascript, /restoreSession/u);
     assert.match(javascript, /\/v1\/admin\/session/u);
+    assert.match(javascript, /pauseAccessCode/u);
+    assert.match(javascript, /deleteAccessCode/u);
     assert.match(html, /signed in for 30 days/u);
+    assert.match(html, /<th scope="col">Actions<\/th>/u);
   });
 });
 
@@ -267,6 +287,65 @@ test('returns not found when an access code user list does not exist', async () 
     );
 
     assert.equal(response.status, 404);
+  });
+});
+
+test('pauses an access code with a strict validated request', async () => {
+  const codeId = '11111111-1111-4111-8111-111111111111';
+  await withAdmin(async ({ baseUrl, calls }) => {
+    const response = await fetch(
+      `${baseUrl}/v1/admin/access-codes/${codeId}`,
+      {
+        body: JSON.stringify({ paused: true }),
+        headers: {
+          ...adminHeaders(baseUrl),
+          'Content-Type': 'application/json',
+        },
+        method: 'PATCH',
+      },
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls, [
+      { id: codeId, method: 'setAccessCodePaused', paused: true },
+    ]);
+    assert.equal((await response.json()).status, 'paused');
+
+    const invalid = await fetch(
+      `${baseUrl}/v1/admin/access-codes/${codeId}`,
+      {
+        body: JSON.stringify({ paused: 'yes' }),
+        headers: {
+          ...adminHeaders(baseUrl),
+          'Content-Type': 'application/json',
+        },
+        method: 'PATCH',
+      },
+    );
+    assert.equal(invalid.status, 400);
+  });
+});
+
+test('deletes only unused access codes', async () => {
+  const unusedId = '11111111-1111-4111-8111-111111111111';
+  const usedId = '22222222-2222-4222-8222-222222222222';
+  await withAdmin(async ({ baseUrl, calls }) => {
+    const deleted = await fetch(
+      `${baseUrl}/v1/admin/access-codes/${unusedId}`,
+      { headers: adminHeaders(baseUrl), method: 'DELETE' },
+    );
+    assert.equal(deleted.status, 200);
+    assert.equal((await deleted.json()).kind, 'deleted');
+
+    const protectedHistory = await fetch(
+      `${baseUrl}/v1/admin/access-codes/${usedId}`,
+      { headers: adminHeaders(baseUrl), method: 'DELETE' },
+    );
+    assert.equal(protectedHistory.status, 409);
+    assert.deepEqual(calls, [
+      { id: unusedId, method: 'deleteAccessCode' },
+      { id: usedId, method: 'deleteAccessCode' },
+    ]);
   });
 });
 

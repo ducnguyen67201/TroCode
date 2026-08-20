@@ -161,6 +161,39 @@ test('rejects a full code without inserting a redemption', async () => {
   assert.equal(client.released, true);
 });
 
+test('rejects a paused code without inserting a redemption', async () => {
+  const { client, pool, queries } = sequencedPool([
+    { rows: [] },
+    { rows: [{ id: 'user-2' }] },
+    { rows: [] },
+    {
+      rows: [
+        {
+          id: 'code-1',
+          max_users: 10,
+          paused_at: new Date('2026-08-20T08:00:00.000Z'),
+          plan: 'basic',
+        },
+      ],
+    },
+    { rows: [] },
+  ]);
+  const repository = new PostgresAccessCodeRepository(pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(await repository.redeem('user-2', 'CODEA'), {
+    kind: 'code_paused',
+  });
+  assert.equal(
+    queries.some((query) => query.sql.includes('INSERT INTO access_code_redemptions')),
+    false,
+  );
+  assert.match(queries[3].sql, /paused_at/u);
+  assert.equal(queries.at(-1).sql, 'ROLLBACK');
+  assert.equal(client.released, true);
+});
+
 test('keeps an account linked to its first access code', async () => {
   const firstCodeDigest = digestAccessCode('CODEA', TEST_HMAC_KEY);
   const { pool, queries } = sequencedPool([
