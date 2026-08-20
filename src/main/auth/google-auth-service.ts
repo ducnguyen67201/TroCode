@@ -112,7 +112,7 @@ export class GoogleAuthService {
             state: 'signed_out',
             configured: true,
             user: null,
-            summary: 'Your TroCode session expired. Sign in again.',
+            summary: 'Your Tro session expired. Sign in again.',
           });
         }
       }
@@ -163,7 +163,7 @@ export class GoogleAuthService {
   async assertSignedIn(): Promise<AuthUser> {
     const status = await this.getStatus();
     if (status.state !== 'signed_in' || !status.user) {
-      throw new Error('Sign in with Google before using TroCode.');
+      throw new Error('Sign in with Google before using Tro.');
     }
     return status.user;
   }
@@ -234,7 +234,7 @@ export class GoogleAuthService {
       ? await this.exchangeHostedSession(tokens.id_token)
       : null;
     if (hostedSession && hostedSession.user.id !== user.id) {
-      throw new Error('TroCode sign-in returned a mismatched account.');
+      throw new Error('Tro sign-in returned a mismatched account.');
     }
     await this.options.sessionStore.write({
       ...(hostedSession
@@ -270,8 +270,8 @@ export class GoogleAuthService {
     if (!response.ok) {
       throw new Error(
         response.status === 401
-          ? 'TroCode could not verify this Google account.'
-          : 'TroCode sign-in service is temporarily unavailable.',
+          ? 'Tro could not verify this Google account.'
+          : 'Tro sign-in service is temporarily unavailable.',
       );
     }
     const hostedSession = HostedSessionResponseSchema.parse(

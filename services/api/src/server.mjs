@@ -269,7 +269,7 @@ async function requireSession(request, sessionRepository) {
 async function requireAccess(session, accessCodeRepository) {
   const status = await accessCodeRepository.getStatus(session.user.id);
   if (status.state !== 'active') {
-    throw new HttpError(403, 'Enter a valid access code to use TroCode.');
+    throw new HttpError(403, 'Enter a valid access code to use Tro.');
   }
   return status;
 }
@@ -578,7 +578,7 @@ export function createApiHandler({
           await budgetService.snapshot(
             session.user.id,
             taskId,
-            access.state === 'active' ? access.plan : 'basic',
+            access.state === 'active' ? access.plan : 'free',
           ),
         );
         return;

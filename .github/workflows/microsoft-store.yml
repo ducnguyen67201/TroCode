@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       upload_to_partner_center:
-        description: Upload the MSIX to the TroCode Partner Center draft
+        description: Upload the MSIX to the Tro Partner Center draft
         required: true
         type: boolean
         default: false
@@ -127,7 +127,7 @@ jobs:
             Write-Error "Unexpected package publisher: $publisher"
             exit 1
           }
-          if ($executable -ne 'app\TroCode.exe') {
+          if ($executable -ne 'app\Tro.exe') {
             Write-Error "Unexpected application executable: $executable"
             exit 1
           }
@@ -146,7 +146,7 @@ jobs:
       - name: Upload validated MSIX
         uses: actions/upload-artifact@v4
         with:
-          name: TroCode-Microsoft-Store-x64-${{ github.run_number }}
+          name: Tro-Microsoft-Store-x64-${{ github.run_number }}
           path: |
             out/make/msix/x64/*.msix
             out/make/msix/x64/SHA256SUMS.txt
@@ -169,7 +169,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: TroCode-Microsoft-Store-x64-${{ github.run_number }}
+          name: Tro-Microsoft-Store-x64-${{ github.run_number }}
           path: store-artifact
 
       - name: Validate Partner Center credentials
@@ -228,7 +228,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           if ($env:SUBMIT_FOR_CERTIFICATION -eq 'true') {
-            '- Submitted TroCode for Microsoft certification.' >> $env:GITHUB_STEP_SUMMARY
+            '- Submitted Tro for Microsoft certification.' >> $env:GITHUB_STEP_SUMMARY
           } else {
-            '- Uploaded TroCode to the Partner Center draft without submitting.' >> $env:GITHUB_STEP_SUMMARY
+            '- Uploaded Tro to the Partner Center draft without submitting.' >> $env:GITHUB_STEP_SUMMARY
           }

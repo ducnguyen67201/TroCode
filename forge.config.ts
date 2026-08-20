@@ -163,15 +163,17 @@ const config: ForgeConfig = {
       unpackDir: CUA_RUNTIME_DIRECTORY,
     },
     extendInfo: {
+      CFBundleDisplayName: 'Tro',
+      CFBundleName: 'Tro',
       NSMicrophoneUsageDescription:
-        'TroCode uses the microphone only during a voice turn started with a voice shortcut.',
+        'Tro uses the microphone only during a voice turn started with a voice shortcut.',
     },
     win32metadata: {
-      CompanyName: 'TroCode',
-      FileDescription: 'TroCode',
-      InternalName: 'TroCode',
+      CompanyName: 'Tro',
+      FileDescription: 'Tro',
+      InternalName: 'Tro',
       OriginalFilename: `${TROCODE_EXECUTABLE_NAME}.exe`,
-      ProductName: 'TroCode',
+      ProductName: 'Tro',
     },
   },
   hooks: {
@@ -198,11 +200,11 @@ const config: ForgeConfig = {
       ? [
           new MakerMSIX({
             manifestVariables: {
-              appDisplayName: 'TroCode',
+              appDisplayName: 'Tro',
               packageBackgroundColor: 'transparent',
               packageDescription:
                 'A general-purpose, goal-driven desktop agent powered by computer use.',
-              packageDisplayName: 'TroCode',
+              packageDisplayName: 'Tro',
               packageIdentity: MICROSOFT_STORE_PACKAGE_IDENTITY,
               packageMinOSVersion: '10.0.17763.0',
               publisher: MICROSOFT_STORE_PUBLISHER,

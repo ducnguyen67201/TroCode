@@ -16,7 +16,7 @@ export interface WorkspaceDirectoryPicker {
 const WORKSPACE_AVAILABILITY: WorkspaceRuntimeAvailability = {
   available: true,
   runtimeVersion: null,
-  summary: 'Workspace mode is available through the TroCode service.',
+  summary: 'Workspace mode is available through the Tro service.',
 };
 
 export class WorkspaceSelectionService {

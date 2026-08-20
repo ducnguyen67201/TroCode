@@ -23,15 +23,16 @@ export function digestAccessCode(value, hmacKey) {
 }
 
 function activeStatus(row, newlyRedeemed = false) {
-  const maxUsers = Number(row.max_users);
-  const usedUsers = Number(row.used_users);
+  const hasAccessCode = row.max_users !== null && row.max_users !== undefined;
+  const maxUsers = hasAccessCode ? Number(row.max_users) : null;
+  const usedUsers = hasAccessCode ? Number(row.used_users) : null;
   planFor(row.plan);
   return {
     maxUsers,
     newlyRedeemed,
     plan: row.plan,
     state: 'active',
-    summary: 'Access code accepted.',
+    summary: hasAccessCode ? 'Access code accepted.' : 'Free plan active.',
     usedUsers,
   };
 }
@@ -44,24 +45,27 @@ export class PostgresAccessCodeRepository {
 
   async getStatus(userId) {
     const result = await this.pool.query(
-      `SELECT codes.max_users,
-              codes.plan,
+      `SELECT users.plan,
+              codes.max_users,
               COUNT(usage.user_id)::INTEGER AS used_users
-       FROM access_code_redemptions AS own_redemption
-       JOIN access_codes AS codes
+       FROM users
+       LEFT JOIN access_code_redemptions AS own_redemption
+         ON own_redemption.user_id = users.id
+       LEFT JOIN access_codes AS codes
          ON codes.id = own_redemption.access_code_id
-       JOIN access_code_redemptions AS usage
+       LEFT JOIN access_code_redemptions AS usage
          ON usage.access_code_id = codes.id
-       WHERE own_redemption.user_id = $1
-       GROUP BY codes.id, codes.max_users, codes.plan`,
+       WHERE users.id = $1
+       GROUP BY users.id, users.plan, codes.id, codes.max_users`,
       [userId],
     );
     const row = result.rows[0];
     if (!row) {
       return {
         maxUsers: null,
+        plan: null,
         state: 'inactive',
-        summary: 'Enter an access code to continue.',
+        summary: 'The signed-in account could not be found.',
         usedUsers: null,
       };
     }
@@ -136,6 +140,12 @@ export class PostgresAccessCodeRepository {
         `INSERT INTO access_code_redemptions (user_id, access_code_id)
          VALUES ($1, $2)`,
         [userId, code.id],
+      );
+      await client.query(
+        `UPDATE users
+         SET plan = $2, updated_at = NOW()
+         WHERE id = $1`,
+        [userId, code.plan],
       );
       await client.query('COMMIT');
       return {

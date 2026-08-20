@@ -181,7 +181,7 @@ jobs:
           "### Windows x64 build" >> $env:GITHUB_STEP_SUMMARY
           "- Signed: $env:TROCODE_SIGN_WINDOWS" >> $env:GITHUB_STEP_SUMMARY
           "- Installer: $($installer.Name)" >> $env:GITHUB_STEP_SUMMARY
-          "- Download the artifact named **TroCode-Windows-x64-$env:GITHUB_RUN_NUMBER** below." >> $env:GITHUB_STEP_SUMMARY
+          "- Download the artifact named **Tro-Windows-x64-$env:GITHUB_RUN_NUMBER** below." >> $env:GITHUB_STEP_SUMMARY
 
       - name: Publish GitHub Release for app and web updates
         if: env.TROCODE_PUBLISH_RELEASE == 'true'
@@ -208,9 +208,9 @@ jobs:
             (Join-Path $artifactDirectory 'SHA256SUMS.txt')
           )
           $releaseTitle = if ($env:TROCODE_UNSIGNED_PRERELEASE -eq 'true') {
-            "TroCode $env:TROCODE_RELEASE_VERSION unsigned SignPath sample"
+            "Tro $env:TROCODE_RELEASE_VERSION unsigned SignPath sample"
           } else {
-            "TroCode $env:TROCODE_RELEASE_VERSION"
+            "Tro $env:TROCODE_RELEASE_VERSION"
           }
           $releaseArguments = @(
             'release', 'create', $tag
@@ -235,7 +235,7 @@ jobs:
       - name: Upload Windows installer and update metadata
         uses: actions/upload-artifact@v4
         with:
-          name: TroCode-Windows-x64-${{ github.run_number }}
+          name: Tro-Windows-x64-${{ github.run_number }}
           path: out/make/squirrel.windows/x64/*
           if-no-files-found: error
           retention-days: 30

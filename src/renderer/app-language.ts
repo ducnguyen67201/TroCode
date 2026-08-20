@@ -20,22 +20,22 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   '{rate}% of finished tasks completed':
     '{rate}% tác vụ đã kết thúc được hoàn thành',
   'A decision is waiting.': 'Một quyết định đang chờ bạn.',
-  'A durable record of finished work, restored when you reopen TroCode.':
-    'Bản ghi bền vững về công việc đã hoàn tất, được khôi phục khi bạn mở lại TroCode.',
-  'A private, session-only view of how TroCode is working across your tasks.':
-    'Góc nhìn riêng tư chỉ trong phiên về cách TroCode hoạt động trên các tác vụ của bạn.',
+  'A durable record of finished work, restored when you reopen Tro.':
+    'Bản ghi bền vững về công việc đã hoàn tất, được khôi phục khi bạn mở lại Tro.',
+  'A private, session-only view of how Tro is working across your tasks.':
+    'Góc nhìn riêng tư chỉ trong phiên về cách Tro hoạt động trên các tác vụ của bạn.',
   'A useful assistant answer or an evidence-backed tool result.':
     'Câu trả lời hữu ích từ trợ lý hoặc kết quả công cụ có bằng chứng.',
   Act: 'Thực hiện',
-  'A view of how TroCode is working across your saved tasks and lifecycle activity.':
-    'Góc nhìn về cách TroCode hoạt động trên các tác vụ đã lưu và vòng đời của chúng.',
-  'About TroCode': 'Về TroCode',
+  'A view of how Tro is working across your saved tasks and lifecycle activity.':
+    'Góc nhìn về cách Tro hoạt động trên các tác vụ đã lưu và vòng đời của chúng.',
+  'About Tro': 'Về Tro',
   'Access code': 'Mã truy cập',
   'Access required': 'Yêu cầu quyền truy cập',
   Accessibility: 'Trợ năng',
   act: 'thực hiện',
   'Activate membership': 'Kích hoạt tư cách thành viên',
-  'Activate your TroCode membership': 'Kích hoạt tư cách thành viên TroCode',
+  'Activate your Tro membership': 'Kích hoạt tư cách thành viên Tro',
   Activating: 'Đang kích hoạt',
   'Activating…': 'Đang kích hoạt…',
   'Activation code': 'Mã kích hoạt',
@@ -54,7 +54,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
     'Trả lời bên dưới bằng giọng nói hoặc văn bản. Phản hồi của bạn sẽ tiếp tục tác vụ này.',
   Answer: 'Trả lời',
   answer: 'trả lời',
-  'Answer TroCode to continue this task': 'Trả lời TroCode để tiếp tục tác vụ',
+  'Answer Tro to continue this task': 'Trả lời Tro để tiếp tục tác vụ',
   'App controls will use {appLanguage}; new voice turns will use {spokenLanguage}.':
     'Giao diện ứng dụng sẽ dùng {appLanguage}; lượt nói mới sẽ dùng {spokenLanguage}.',
   'Assistant only': 'Chỉ dùng trợ lý',
@@ -70,11 +70,11 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Check again': 'Kiểm tra lại',
   'Checking…': 'Đang kiểm tra…',
   'Checking your membership…': 'Đang kiểm tra tư cách thành viên…',
-  'Choose the language used for navigation, settings, and other TroCode controls.':
-    'Chọn ngôn ngữ dùng cho điều hướng, cài đặt và các thành phần điều khiển khác của TroCode.',
-  'Choose how you talk with TroCode': 'Chọn cách bạn trò chuyện với TroCode',
-  'Choose your spoken language, then give TroCode the macOS permissions it needs to hear your request, use the computer, and confirm the result. You stay in control and can revoke permissions in System Settings at any time.':
-    'Chọn ngôn ngữ nói, sau đó cấp cho TroCode các quyền macOS cần thiết để nghe yêu cầu, sử dụng máy tính và xác nhận kết quả. Bạn luôn nắm quyền kiểm soát và có thể thu hồi quyền trong Cài đặt hệ thống bất cứ lúc nào.',
+  'Choose the language used for navigation, settings, and other Tro controls.':
+    'Chọn ngôn ngữ dùng cho điều hướng, cài đặt và các thành phần điều khiển khác của Tro.',
+  'Choose how you talk with Tro': 'Chọn cách bạn trò chuyện với Tro',
+  'Choose your spoken language, then give Tro the macOS permissions it needs to hear your request, use the computer, and confirm the result. You stay in control and can revoke permissions in System Settings at any time.':
+    'Chọn ngôn ngữ nói, sau đó cấp cho Tro các quyền macOS cần thiết để nghe yêu cầu, sử dụng máy tính và xác nhận kết quả. Bạn luôn nắm quyền kiểm soát và có thể thu hồi quyền trong Cài đặt hệ thống bất cứ lúc nào.',
   'Collapse sidebar': 'Thu gọn thanh bên',
   'Compile or run a task and its behavior will appear here.':
     'Biên dịch hoặc chạy một tác vụ và cách hoạt động của tác vụ sẽ xuất hiện tại đây.',
@@ -90,7 +90,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Completed, stopped, and unsuccessful tasks appear with their scope, conversation, and outcome.':
     'Các tác vụ đã hoàn thành, đã dừng hoặc chưa thành công sẽ xuất hiện cùng phạm vi, cuộc trò chuyện và kết quả.',
   'Computer use': 'Điều khiển máy tính',
-  'Continue to TroCode': 'Tiếp tục vào TroCode',
+  'Continue to Tro': 'Tiếp tục vào Tro',
   'Continue with access code': 'Tiếp tục bằng mã truy cập',
   Copy: 'Sao chép',
   Copied: 'Đã sao chép',
@@ -98,17 +98,24 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   Deny: 'Từ chối',
   Description: 'Mô tả',
   'Describe the outcome': 'Mô tả kết quả mong muốn',
-  'Describe the finish line. TroCode will define a bounded scope, choose its tools, and verify the result.':
-    'Mô tả đích đến. TroCode sẽ xác định phạm vi giới hạn, chọn công cụ và xác minh kết quả.',
+  'Describe the finish line. Tro will define a bounded scope, choose its tools, and verify the result.':
+    'Mô tả đích đến. Tro sẽ xác định phạm vi giới hạn, chọn công cụ và xác minh kết quả.',
   'Desktop agent': 'Trợ lý máy tính',
+  'Weekly usage · {percent}% left': 'Mức dùng tuần · còn {percent}%',
+  'Plan & weekly usage': 'Gói và mức dùng tuần',
+  'Weekly usage': 'Mức dùng tuần',
+  '{percent}% left': 'Còn {percent}%',
+  '{remaining} of {limit} messages left':
+    'Còn {remaining} trong tổng số {limit} tin nhắn',
+  'Usage details unavailable': 'Chưa có thông tin mức dùng',
   'Downloading update…': 'Đang tải bản cập nhật…',
   Enabled: 'Đã bật',
   'Enable all permissions': 'Bật tất cả quyền',
-  'Enable TroCode to work for you': 'Cho phép TroCode làm việc cho bạn',
-  'Enter the access code provided by the TroCode team. Each account can use one code, and each code has a limited number of users.':
-    'Nhập mã truy cập do đội ngũ TroCode cung cấp. Mỗi tài khoản chỉ có thể dùng một mã và mỗi mã có số lượng người dùng giới hạn.',
+  'Enable Tro to work for you': 'Cho phép Tro làm việc cho bạn',
+  'Enter the access code provided by the Tro team. Each account can use one code, and each code has a limited number of users.':
+    'Nhập mã truy cập do đội ngũ Tro cung cấp. Mỗi tài khoản chỉ có thể dùng một mã và mỗi mã có số lượng người dùng giới hạn.',
   'Enter your access code': 'Nhập mã truy cập của bạn',
-  'Enter your TroCode access code': 'Nhập mã truy cập TroCode của bạn',
+  'Enter your Tro access code': 'Nhập mã truy cập Tro của bạn',
   'Expand sidebar': 'Mở rộng thanh bên',
   event: 'sự kiện',
   events: 'sự kiện',
@@ -128,7 +135,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   Guide: 'Hướng dẫn',
   guide: 'hướng dẫn',
   History: 'Lịch sử',
-  'How TroCode helped': 'TroCode đã hỗ trợ như thế nào',
+  'How Tro helped': 'Tro đã hỗ trợ như thế nào',
   'In motion': 'Đang thực hiện',
   Insights: 'Phân tích',
   'Insights overview': 'Tổng quan phân tích',
@@ -154,14 +161,14 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Loading saved task history…': 'Đang tải lịch sử tác vụ đã lưu…',
   'Loading version…': 'Đang tải phiên bản…',
   'Loading…': 'Đang tải…',
-  'Lets TroCode click, type, and control apps for you.':
-    'Cho phép TroCode nhấp, nhập và điều khiển ứng dụng giúp bạn.',
-  'Lets TroCode see the screen and verify its work.':
-    'Cho phép TroCode xem màn hình và xác minh công việc.',
+  'Lets Tro click, type, and control apps for you.':
+    'Cho phép Tro nhấp, nhập và điều khiển ứng dụng giúp bạn.',
+  'Lets Tro see the screen and verify its work.':
+    'Cho phép Tro xem màn hình và xác minh công việc.',
   'Lets you use push-to-talk voice commands.':
     'Cho phép bạn dùng lệnh giọng nói nhấn-để-nói.',
-  'Manage TroCode’s interface language, voice input, and installed application.':
-    'Quản lý ngôn ngữ giao diện, đầu vào giọng nói và ứng dụng TroCode đã cài đặt.',
+  'Manage Tro’s interface language, voice input, and installed application.':
+    'Quản lý ngôn ngữ giao diện, đầu vào giọng nói và ứng dụng Tro đã cài đặt.',
   'Mute other audio while speaking': 'Tắt âm thanh khác khi đang nói',
   'Mute system output while you hold the voice shortcut, then restore its previous mute state when you release.':
     'Tắt âm thanh hệ thống khi bạn giữ phím tắt giọng nói, sau đó khôi phục trạng thái tắt tiếng trước đó khi bạn thả phím.',
@@ -192,8 +199,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'GPT Transcribe voice input is ready. The microphone stays off until you hold the shortcut.':
     'Nhập liệu giọng nói GPT Transcribe đã sẵn sàng. Micrô sẽ tắt cho đến khi bạn giữ phím tắt.',
   'Restart to update': 'Khởi động lại để cập nhật',
-  'Restart to install TroCode {version}':
-    'Khởi động lại để cài đặt TroCode {version}',
+  'Restart to install Tro {version}':
+    'Khởi động lại để cài đặt Tro {version}',
   'Restarting…': 'Đang khởi động lại…',
   Saved: 'Đã lưu',
   'Saved task history': 'Lịch sử tác vụ đã lưu',
@@ -202,8 +209,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Screen Recording': 'Ghi màn hình',
   Scoping: 'Đang xác định phạm vi',
   'Select and copy the code': 'Chọn và sao chép mã',
-  'Send your reference code to the TroCode team. When your access is approved, paste the activation code you receive below.':
-    'Gửi mã tham chiếu cho đội ngũ TroCode. Khi quyền truy cập được phê duyệt, hãy dán mã kích hoạt bạn nhận được vào bên dưới.',
+  'Send your reference code to the Tro team. When your access is approved, paste the activation code you receive below.':
+    'Gửi mã tham chiếu cho đội ngũ Tro. Khi quyền truy cập được phê duyệt, hãy dán mã kích hoạt bạn nhận được vào bên dưới.',
   'Send answer': 'Gửi câu trả lời',
   'Send steering': 'Gửi chỉ dẫn',
   'Sending…': 'Đang gửi…',
@@ -264,18 +271,18 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Tool usage': 'Mức sử dụng công cụ',
   'Tools selected at runtime': 'Công cụ được chọn khi chạy',
   'Tools used': 'Công cụ đã dùng',
-  'TroCode chooses from the tools currently available and asks before consequential actions.':
-    'TroCode chọn trong số công cụ hiện có và sẽ hỏi trước các hành động có hệ quả.',
-  'TroCode could not start automatically. You can try again.':
-    'TroCode không thể tự động bắt đầu. Bạn có thể thử lại.',
-  'TroCode uses this to keep voice transcription in the language you expect. You can change it later in Settings.':
-    'TroCode dùng lựa chọn này để phiên âm giọng nói đúng ngôn ngữ bạn mong đợi. Bạn có thể đổi lại trong Cài đặt.',
+  'Tro chooses from the tools currently available and asks before consequential actions.':
+    'Tro chọn trong số công cụ hiện có và sẽ hỏi trước các hành động có hệ quả.',
+  'Tro could not start automatically. You can try again.':
+    'Tro không thể tự động bắt đầu. Bạn có thể thử lại.',
+  'Tro uses this to keep voice transcription in the language you expect. You can change it later in Settings.':
+    'Tro dùng lựa chọn này để phiên âm giọng nói đúng ngôn ngữ bạn mong đợi. Bạn có thể đổi lại trong Cài đặt.',
   'Task activity': 'Hoạt động tác vụ',
-  'TroCode needs your input': 'TroCode cần phản hồi của bạn',
-  'TroCode sends this as a transcription hint so short or noisy speech is less likely to be interpreted as an unexpected language or script.':
-    'TroCode gửi lựa chọn này làm gợi ý phiên âm để lời nói ngắn hoặc có tạp âm ít bị nhận diện nhầm thành ngôn ngữ hay hệ chữ khác.',
-  'TroCode registers itself with macOS for Screen Recording. If System Settings opens, switch on the TroCode row—you should not need the + button. Then return here and we’ll connect automatically. Screen Recording may require restarting TroCode once.':
-    'TroCode tự đăng ký với macOS để ghi màn hình. Nếu Cài đặt hệ thống mở ra, hãy bật TroCode trong danh sách—bạn không cần dùng nút +. Sau đó quay lại đây và chúng tôi sẽ tự động kết nối. Quyền ghi màn hình có thể yêu cầu khởi động lại TroCode một lần.',
+  'Tro needs your input': 'Tro cần phản hồi của bạn',
+  'Tro sends this as a transcription hint so short or noisy speech is less likely to be interpreted as an unexpected language or script.':
+    'Tro gửi lựa chọn này làm gợi ý phiên âm để lời nói ngắn hoặc có tạp âm ít bị nhận diện nhầm thành ngôn ngữ hay hệ chữ khác.',
+  'Tro registers itself with macOS for Screen Recording. If System Settings opens, switch on the Tro row—you should not need the + button. Then return here and we’ll connect automatically. Screen Recording may require restarting Tro once.':
+    'Tro tự đăng ký với macOS để ghi màn hình. Nếu Cài đặt hệ thống mở ra, hãy bật Tro trong danh sách—bạn không cần dùng nút +. Sau đó quay lại đây và chúng tôi sẽ tự động kết nối. Quyền ghi màn hình có thể yêu cầu khởi động lại Tro một lần.',
   'Updates unavailable': 'Không thể cập nhật',
   'Updates as your agent works': 'Cập nhật khi trợ lý làm việc',
   Unavailable: 'Không khả dụng',
@@ -299,7 +306,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'What language will you usually speak?': 'Bạn thường sẽ nói ngôn ngữ nào?',
   'What should we accomplish?': 'Chúng ta cần hoàn thành điều gì?',
   'What should we do next?': 'Tiếp theo chúng ta nên làm gì?',
-  'Why TroCode stopped': 'Lý do TroCode dừng lại',
+  'Why Tro stopped': 'Lý do Tro dừng lại',
   You: 'Bạn',
   'Your active task has not settled yet.': 'Tác vụ đang chạy chưa kết thúc.',
   'Your move': 'Đến lượt bạn',
@@ -330,8 +337,8 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Open YouTube for me': 'Mở YouTube giúp tôi',
   'Open YouTube for me, research a topic, fix code, or guide me through an app…':
     'Mở YouTube giúp tôi, nghiên cứu một chủ đề, sửa mã hoặc hướng dẫn tôi dùng một ứng dụng…',
-  'Optional permissions are shown here for visibility, but they do not block the workspace. TroCode asks for them only when you choose voice or computer use.':
-    'Các quyền tùy chọn được hiển thị để bạn dễ theo dõi nhưng không chặn không gian làm việc. TroCode chỉ yêu cầu khi bạn chọn dùng giọng nói hoặc điều khiển máy tính.',
+  'Optional permissions are shown here for visibility, but they do not block the workspace. Tro asks for them only when you choose voice or computer use.':
+    'Các quyền tùy chọn được hiển thị để bạn dễ theo dõi nhưng không chặn không gian làm việc. Tro chỉ yêu cầu khi bạn chọn dùng giọng nói hoặc điều khiển máy tính.',
   'Optional tool': 'Công cụ tùy chọn',
   'Outcome & activity': 'Kết quả và hoạt động',
   'Outcome first': 'Kết quả là ưu tiên',
@@ -353,15 +360,15 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   ready: 'sẵn sàng',
   'Ready. Starting automatically… Press Escape at any time to stop.':
     'Sẵn sàng. Đang tự động bắt đầu… Nhấn Escape bất cứ lúc nào để dừng.',
-  'Renew your TroCode membership': 'Gia hạn tư cách thành viên TroCode',
+  'Renew your Tro membership': 'Gia hạn tư cách thành viên Tro',
   'Request access': 'Yêu cầu quyền truy cập',
   'Research three note-taking apps and compare them':
     'Nghiên cứu và so sánh ba ứng dụng ghi chú',
   'Return to Agent to watch, steer, or stop it. Its final record will appear here.':
     'Quay lại Trợ lý để theo dõi, điều hướng hoặc dừng tác vụ. Bản ghi cuối cùng sẽ xuất hiện ở đây.',
   'Return to live task': 'Quay lại tác vụ đang chạy',
-  'Review the request below. TroCode will hold position until you answer or approve the exact action.':
-    'Xem lại yêu cầu bên dưới. TroCode sẽ chờ cho đến khi bạn trả lời hoặc phê duyệt chính xác hành động.',
+  'Review the request below. Tro will hold position until you answer or approve the exact action.':
+    'Xem lại yêu cầu bên dưới. Tro sẽ chờ cho đến khi bạn trả lời hoặc phê duyệt chính xác hành động.',
   'Same task': 'Cùng tác vụ',
   'Spoken or typed “yes” cannot approve this action. Use the button below.':
     'Nói hoặc nhập “có” không thể phê duyệt hành động này. Hãy dùng nút bên dưới.',

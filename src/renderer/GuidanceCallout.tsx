@@ -68,7 +68,7 @@ function releaseGuidancePlayback(
 function friendlyError(error: unknown): string {
   return error instanceof Error
     ? error.message
-    : 'TroCode could not send that response. Try again.';
+    : 'Tro could not send that response. Try again.';
 }
 
 export function guidanceStatusLabel(
@@ -362,7 +362,7 @@ export function GuidanceCallout() {
             <span className="guidance-callout__avatar" aria-hidden="true">
               T
             </span>
-            <span className="guidance-callout__name">TroCode</span>
+            <span className="guidance-callout__name">Tro</span>
             <span className="guidance-callout__status">
               {interaction.kind === 'approval' ? 'Approval' : 'Question'}
             </span>
@@ -453,12 +453,12 @@ export function GuidanceCallout() {
                   onClick={() => void window.troCompanion.revealMainWindow()}
                   type="button"
                 >
-                  Open this task in TroCode
+                  Open this task in Tro
                 </button>
               ) : null}
               {approvalExpired ? (
                 <p className="guidance-callout__expired">
-                  This approval expired. Ask TroCode to try again.
+                  This approval expired. Ask Tro to try again.
                 </p>
               ) : (
                 <div className="guidance-callout__approval-actions">
@@ -495,7 +495,7 @@ export function GuidanceCallout() {
         >
           <div className="guidance-callout__header" aria-hidden="true">
             <span className="guidance-callout__avatar">T</span>
-            <span className="guidance-callout__name">TroCode</span>
+            <span className="guidance-callout__name">Tro</span>
             <span className="guidance-callout__status">
               {guidanceStatusLabel(guidance, audioStatus)}
             </span>

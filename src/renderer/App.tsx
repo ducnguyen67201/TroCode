@@ -68,6 +68,11 @@ import {
   transientCursorErrorReducer,
 } from './transient-cursor-error';
 import {
+  accountPlan,
+  planTitle,
+  remainingUsagePercent,
+} from './usage-presentation';
+import {
   shouldMuteSystemAudioForVoice,
   usePushToTalk,
   type VoiceInputStatus,
@@ -469,7 +474,7 @@ function LiveTaskRail({
                 <span className="field-label">{t('Execution')}</span>
                 <p>
                   {t(
-                    'TroCode chooses from the tools currently available and asks before consequential actions.',
+                    'Tro chooses from the tools currently available and asks before consequential actions.',
                   )}
                 </p>
               </div>
@@ -489,7 +494,7 @@ function LiveTaskRail({
 
         {phase === 'blocked' && lastEvent && (
           <div className="live-task-blocked" role="alert">
-            <strong>{t('Why TroCode stopped')}</strong>
+            <strong>{t('Why Tro stopped')}</strong>
             <p>{lastEvent.summary}</p>
             {lastEvent.nextActions[0] && (
               <span>{lastEvent.nextActions[0]}</span>
@@ -504,7 +509,7 @@ function LiveTaskRail({
                 ? t('Waiting for the OpenAI agent provider before starting.')
                 : autoStartFailed
                   ? t(
-                      'TroCode could not start automatically. You can try again.',
+                      'Tro could not start automatically. You can try again.',
                     )
                   : isStarting
                     ? t(
@@ -636,7 +641,7 @@ function Conversation({
             className={`message message--${message.role}`}
             key={message.messageId}
           >
-            <span>{message.role === 'user' ? t('You') : 'TroCode'}</span>
+            <span>{message.role === 'user' ? t('You') : 'Tro'}</span>
             <p>{message.text}</p>
           </li>
         ))}
@@ -666,7 +671,7 @@ function PendingInteractionCard({
         aria-labelledby="interaction-heading"
         className="interaction-card interaction-card--clarification"
       >
-        <p className="eyebrow">{t('TroCode needs your input')}</p>
+        <p className="eyebrow">{t('Tro needs your input')}</p>
         <h2 id="interaction-heading">{interaction.prompt}</h2>
         {interaction.choices && (
           <div className="interaction-choices">
@@ -858,6 +863,11 @@ export function App({
     ) => translate(appLanguageDraft, message, replacements),
     [appLanguageDraft],
   );
+  const displayedPlan = accountPlan(
+    usageBudget?.plan,
+    membershipStatus?.plan,
+  );
+  const usagePercent = remainingUsagePercent(usageBudget);
   const languageSetupComplete =
     isPrimaryLanguageSetupComplete(appPreferences, preferencesLoaded);
   const entryGate = appEntryGate({
@@ -936,7 +946,7 @@ export function App({
       setPermissionError(
         statusError instanceof Error
           ? statusError.message
-          : 'TroCode could not check system permissions.',
+          : 'Tro could not check system permissions.',
       );
     } finally {
       if (permissionRefreshIdRef.current === refreshId) {
@@ -1003,7 +1013,7 @@ export function App({
         setAppUpdateError(
           updateStatusError instanceof Error
             ? updateStatusError.message
-            : 'TroCode could not inspect application updates.',
+            : 'Tro could not inspect application updates.',
         );
       });
 
@@ -1061,7 +1071,7 @@ export function App({
         setPreferencesLoadError(
           preferencesError instanceof Error
             ? preferencesError.message
-            : 'TroCode could not load your language preference.',
+            : 'Tro could not load your language preference.',
         );
       })
       .finally(() => setPreferencesLoaded(true));
@@ -1147,7 +1157,7 @@ export function App({
         eyebrow: t('Your move'),
         heading: t('A decision is waiting.'),
         description: t(
-          'Review the request below. TroCode will hold position until you answer or approve the exact action.',
+          'Review the request below. Tro will hold position until you answer or approve the exact action.',
         ),
       }
     : hasLiveTask
@@ -1173,7 +1183,7 @@ export function App({
             eyebrow: t('Outcome first'),
             heading: t('What should we accomplish?'),
             description: t(
-              'Describe the finish line. TroCode will define a bounded scope, choose its tools, and verify the result.',
+              'Describe the finish line. Tro will define a bounded scope, choose its tools, and verify the result.',
             ),
           };
   const permissionChecklist = useMemo(
@@ -1208,7 +1218,7 @@ export function App({
       setMembershipError(
         membershipStatusError instanceof Error
           ? membershipStatusError.message
-          : 'TroCode could not check your membership.',
+          : 'Tro could not check your membership.',
       );
     } finally {
       if (membershipRefreshIdRef.current === refreshId) {
@@ -1256,7 +1266,7 @@ export function App({
       setMembershipError(
         activationError instanceof Error
           ? activationError.message
-          : 'TroCode could not activate this membership code.',
+          : 'Tro could not activate this membership code.',
       );
     } finally {
       setIsActivatingMembership(false);
@@ -1292,7 +1302,7 @@ export function App({
       setSettingsError(
         saveError instanceof Error
           ? saveError.message
-          : 'TroCode could not save your language preference.',
+          : 'Tro could not save your language preference.',
       );
     } finally {
       setIsSavingPreferences(false);
@@ -1318,7 +1328,7 @@ export function App({
       reportError(
         selectionError instanceof Error
           ? selectionError.message
-          : 'TroCode could not select that workspace.',
+          : 'Tro could not select that workspace.',
       );
     } finally {
       setIsSelectingWorkspace(false);
@@ -1339,7 +1349,7 @@ export function App({
       setAppUpdateError(
         updateError instanceof Error
           ? updateError.message
-          : 'TroCode could not check for updates.',
+          : 'Tro could not check for updates.',
       );
     } finally {
       setIsUpdatingApp(false);
@@ -1355,7 +1365,7 @@ export function App({
       setAppUpdateError(
         updateError instanceof Error
           ? updateError.message
-          : 'TroCode could not restart to install the update.',
+          : 'Tro could not restart to install the update.',
       );
       setIsUpdatingApp(false);
     }
@@ -1559,7 +1569,7 @@ export function App({
         reportError(
           duckingError instanceof Error
             ? duckingError.message
-            : 'TroCode could not change the system audio mute state.',
+            : 'Tro could not change the system audio mute state.',
         );
       });
   }, [reportError, shouldMuteSystemAudio]);
@@ -1618,7 +1628,7 @@ export function App({
         setPermissionError(
           saveError instanceof Error
             ? saveError.message
-            : 'TroCode could not save your language preference.',
+            : 'Tro could not save your language preference.',
         );
         return;
       }
@@ -1643,7 +1653,7 @@ export function App({
       setPermissionError(
         settingsError instanceof Error
           ? settingsError.message
-          : 'TroCode could not request Screen Recording permission.',
+          : 'Tro could not request Screen Recording permission.',
       );
     } finally {
       setIsRequestingPermissions(false);
@@ -1820,8 +1830,14 @@ export function App({
         <div className="brand">
           <BrandMark />
           <div className="brand-copy">
-            <strong>TroCode</strong>
-            <span>{t('Desktop agent')}</span>
+            <strong>{planTitle(displayedPlan)}</strong>
+            <span>
+              {usagePercent === null
+                ? t('Desktop agent')
+                : t('Weekly usage · {percent}% left', {
+                    percent: usagePercent,
+                  })}
+            </span>
           </div>
         </div>
 
@@ -2105,7 +2121,7 @@ export function App({
             >
               <label htmlFor="task-request">
                 {pendingClarification
-                  ? t('Answer TroCode to continue this task')
+                  ? t('Answer Tro to continue this task')
                   : isSteering
                     ? t('Steer the active task')
                     : t('Describe the outcome')}
@@ -2293,6 +2309,51 @@ export function App({
           </section>
 
           <aside className="context-column">
+            <section
+              className="usage-overview"
+              aria-labelledby="usage-overview-heading"
+            >
+              <div className="usage-overview__heading">
+                <div>
+                  <p className="eyebrow">{t('Plan & weekly usage')}</p>
+                  <h2 id="usage-overview-heading">
+                    {planTitle(displayedPlan)}
+                  </h2>
+                </div>
+                <strong className="usage-overview__percent">
+                  {usagePercent === null
+                    ? '—'
+                    : t('{percent}% left', { percent: usagePercent })}
+                </strong>
+              </div>
+              {usagePercent === null ? (
+                <p className="usage-overview__detail">
+                  {t('Usage details unavailable')}
+                </p>
+              ) : (
+                <>
+                  <div
+                    aria-label={t('Weekly usage')}
+                    aria-valuemax={100}
+                    aria-valuemin={0}
+                    aria-valuenow={usagePercent}
+                    aria-valuetext={t('{percent}% left', {
+                      percent: usagePercent,
+                    })}
+                    className="usage-overview__progress"
+                    role="progressbar"
+                  >
+                    <span style={{ width: `${usagePercent}%` }} />
+                  </div>
+                  <p className="usage-overview__detail">
+                    {t('{remaining} of {limit} messages left', {
+                      limit: usageBudget?.messages.limit ?? 0,
+                      remaining: usageBudget?.messages.remaining ?? 0,
+                    })}
+                  </p>
+                </>
+              )}
+            </section>
             <section
               className="context-overview"
               aria-labelledby="session-overview-heading"

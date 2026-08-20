@@ -38,13 +38,13 @@ const PERMISSIONS: ReadonlyArray<{
   name: string;
 }> = [
   {
-    description: 'Lets TroCode click, type, and control apps for you.',
+    description: 'Lets Tro click, type, and control apps for you.',
     icon: '⌁',
     key: 'accessibility',
     name: 'Accessibility',
   },
   {
-    description: 'Lets TroCode see the screen and verify its work.',
+    description: 'Lets Tro see the screen and verify its work.',
     icon: '▣',
     key: 'screenRecording',
     name: 'Screen Recording',
@@ -83,7 +83,7 @@ export function PermissionOnboarding({
       <div className="permission-onboarding__brand">
         <BrandMark />
         <div>
-          <strong>TroCode</strong>
+          <strong>Tro</strong>
           <span>{t('Desktop agent')}</span>
         </div>
       </div>
@@ -98,7 +98,7 @@ export function PermissionOnboarding({
           </span>
           <p className="eyebrow">{t('Language first')}</p>
           <h1 id="permission-heading">
-            {t('Choose how you talk with TroCode')}
+            {t('Choose how you talk with Tro')}
           </h1>
           <p>
             {t(
@@ -126,7 +126,7 @@ export function PermissionOnboarding({
             </select>
             <small>
               {t(
-                'TroCode uses this to keep voice transcription in the language you expect. You can change it later in Settings.',
+                'Tro uses this to keep voice transcription in the language you expect. You can change it later in Settings.',
               )}
             </small>
           </label>
@@ -185,7 +185,7 @@ export function PermissionOnboarding({
             onClick={onEnable}
             type="button"
           >
-            {isRequesting ? t('Saving…') : t('Continue to TroCode')}
+            {isRequesting ? t('Saving…') : t('Continue to Tro')}
             {!isRequesting && <span aria-hidden="true">→</span>}
           </button>
           <button
@@ -200,7 +200,7 @@ export function PermissionOnboarding({
 
         <p className="permission-onboarding__note" role="status">
           {t(
-            'Optional permissions are shown here for visibility, but they do not block the workspace. TroCode asks for them only when you choose voice or computer use.',
+            'Optional permissions are shown here for visibility, but they do not block the workspace. Tro asks for them only when you choose voice or computer use.',
           )}
         </p>
       </section>

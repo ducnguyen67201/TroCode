@@ -8,13 +8,16 @@ import {
   normalizeAccessCode,
 } from '../services/api/src/access-code-repository.mjs';
 import { runMigrations } from '../services/api/src/migrate.mjs';
+import { PLAN_IDS } from '../services/api/src/plan-catalog.mjs';
+
+const PLAN_LIST = PLAN_IDS.join(', ');
 
 function usage() {
   return [
     'Usage:',
-    '  npm run access-code:create -- --code <CODE> --max-users <COUNT> --plan <basic|pro|max> [--label <LABEL>]',
+    '  npm run access-code:create -- --code <CODE> --max-users <COUNT> --plan <free|basic|pro|max> [--label <LABEL>]',
     '',
-    'DATABASE_URL and TROCODE_SESSION_TOKEN_HMAC_KEY must match the TroCode API.',
+    'DATABASE_URL and TROCODE_SESSION_TOKEN_HMAC_KEY must match the Tro API.',
     'Omit --code to generate a strong code automatically.',
   ].join('\n');
 }
@@ -63,8 +66,8 @@ export function parseCreateOptions(args) {
   }
 
   const plan = values.get('--plan');
-  if (!['basic', 'pro', 'max'].includes(plan)) {
-    throw new Error('--plan must be one of: basic, pro, max.');
+  if (!PLAN_IDS.includes(plan)) {
+    throw new Error(`--plan must be one of: ${PLAN_LIST}.`);
   }
 
   return { code, label, maxUsers, plan };
@@ -85,8 +88,8 @@ export async function createAccessCode({
   if (label && (typeof label !== 'string' || label.length > 100)) {
     throw new Error('label must be at most 100 characters.');
   }
-  if (!['basic', 'pro', 'max'].includes(plan)) {
-    throw new Error('plan must be one of: basic, pro, max.');
+  if (!PLAN_IDS.includes(plan)) {
+    throw new Error(`plan must be one of: ${PLAN_LIST}.`);
   }
   const codeDigest = digestAccessCode(code, hmacKey);
   if (!codeDigest) throw new Error('Access code is invalid.');

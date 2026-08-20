@@ -66,7 +66,7 @@ export function MembershipGate({
       <div className="membership-screen__brand">
         <BrandMark />
         <div>
-          <strong>TroCode</strong>
+          <strong>Tro</strong>
           <span>{t('Desktop agent')}</span>
         </div>
       </div>
@@ -81,16 +81,16 @@ export function MembershipGate({
         </p>
         <h1 id="membership-heading">
           {usesSharedAccessCode
-            ? t('Enter your TroCode access code')
+            ? t('Enter your Tro access code')
             : status?.state === 'expired'
-              ? t('Renew your TroCode membership')
-              : t('Activate your TroCode membership')}
+              ? t('Renew your Tro membership')
+              : t('Activate your Tro membership')}
         </h1>
         <p className="membership-card__description">
           {t(
             usesSharedAccessCode
-              ? 'Enter the access code provided by the TroCode team. Each account can use one code, and each code has a limited number of users.'
-              : 'Send your reference code to the TroCode team. When your access is approved, paste the activation code you receive below.',
+              ? 'Enter the access code provided by the Tro team. Each account can use one code, and each code has a limited number of users.'
+              : 'Send your reference code to the Tro team. When your access is approved, paste the activation code you receive below.',
           )}
         </p>
 

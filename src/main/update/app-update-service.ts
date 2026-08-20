@@ -48,7 +48,7 @@ function initialStatus(
   if (options.platform !== 'darwin' && options.platform !== 'win32') {
     return AppUpdateStatusSchema.parse({
       currentVersion: options.currentVersion,
-      message: 'Use your Linux package manager to update TroCode.',
+      message: 'Use your Linux package manager to update Tro.',
       phase: 'unsupported',
       targetVersion: null,
     });
@@ -65,7 +65,7 @@ function initialStatus(
 
   return AppUpdateStatusSchema.parse({
     currentVersion: options.currentVersion,
-    message: 'Check whether a newer version of TroCode is available.',
+    message: 'Check whether a newer version of Tro is available.',
     phase: 'idle',
     targetVersion: null,
   });
@@ -81,9 +81,9 @@ function updaterErrorMessage(error: unknown): string {
       message,
     )
   ) {
-    return 'TroCode could not reach the update service. Check your connection and try again.';
+    return 'Tro could not reach the update service. Check your connection and try again.';
   }
-  return 'TroCode could not check for updates. Please try again.';
+  return 'Tro could not check for updates. Please try again.';
 }
 
 export class AppUpdateService {
@@ -114,7 +114,7 @@ export class AppUpdateService {
       this.options.managedByMicrosoftStore()
     ) {
       this.updateStatus({
-        message: 'Microsoft Store keeps this installation of TroCode updated.',
+        message: 'Microsoft Store keeps this installation of Tro updated.',
         phase: 'unsupported',
         targetVersion: null,
       });
@@ -242,7 +242,7 @@ export class AppUpdateService {
   private readonly handleUpdateNotAvailable = (): void => {
     this.pendingTargetVersion = null;
     this.updateStatus({
-      message: `TroCode ${this.options.currentVersion} is up to date.`,
+      message: `Tro ${this.options.currentVersion} is up to date.`,
       phase: 'up_to_date',
       targetVersion: null,
     });
@@ -258,7 +258,7 @@ export class AppUpdateService {
       releaseName.trim().slice(0, 100) ||
       'New version';
     this.updateStatus({
-      message: `TroCode ${targetVersion} is ready to install.`,
+      message: `Tro ${targetVersion} is ready to install.`,
       phase: 'ready',
       targetVersion,
     });

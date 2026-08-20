@@ -17,10 +17,10 @@ describe('getCuaModuleSpecifier', () => {
   });
 
   it('loads the unpacked dependency island in a packaged app', () => {
-    const moduleUrl = getCuaModuleSpecifier(true, '/Applications/TroCode/Resources');
+    const moduleUrl = getCuaModuleSpecifier(true, '/Applications/Tro/Resources');
 
     expect(moduleUrl).toBe(
-      'file:///Applications/TroCode/Resources/app.asar.unpacked/cua-runtime/node_modules/@trycua/cua-driver/dist/index.js',
+      'file:///Applications/Tro/Resources/app.asar.unpacked/cua-runtime/node_modules/@trycua/cua-driver/dist/index.js',
     );
   });
 });

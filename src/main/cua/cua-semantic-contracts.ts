@@ -138,7 +138,7 @@ export const CuaBrowserElementSchema = z.object({
 /**
  * CUA 0.19.3 keeps browser semantic output intentionally extensible. These
  * aliases cover the released names while preserving strict bounds on values
- * TroCode consumes.
+ * Tro consumes.
  */
 export const CuaBrowserStateSchema = z.object({
   target_id: z.string().min(1).max(4_000),

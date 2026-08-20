@@ -24,9 +24,9 @@ export interface PolicyDecision {
 const APPROVAL_PATTERN = /\bapprov(?:e|al|ed|ing)\b/iu;
 const INTERNAL_APPROVAL_LABEL_PATTERN =
   /\b(?:approve exact action|deny exact action|approval control|approval dialog)\b/iu;
-const TROCODE_PATTERN = /\btro\s*code\b/iu;
+const TROCODE_PATTERN = /\btro(?:\s*code)?\b/iu;
 
-function isTroCodeApprovalUiAction(action: ProposedAction): boolean {
+function isTroApprovalUiAction(action: ProposedAction): boolean {
   if (action.toolId !== 'desktop.control' && action.toolId !== 'computer.control') {
     return false;
   }
@@ -125,12 +125,12 @@ export function evaluateAction(
     };
   }
 
-  if (isTroCodeApprovalUiAction(action)) {
+  if (isTroApprovalUiAction(action)) {
     return {
       status: 'denied',
       terminal: true,
       summary:
-        'TroCode stopped an approval loop. The agent cannot operate TroCode approval controls.',
+        'Tro stopped an approval loop. The agent cannot operate Tro approval controls.',
       nextActions: [
         'Only the user can approve or deny a consequential action from the approval card.',
       ],

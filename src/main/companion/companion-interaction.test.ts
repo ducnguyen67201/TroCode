@@ -95,7 +95,7 @@ describe('companion interaction projection', () => {
 
     expect(toCompanionInteraction(interaction, 'right')).toMatchObject({
       choices: [{ id: 'choice-1', label: 'Option 1' }],
-      prompt: 'TroCode needs your input.',
+      prompt: 'Tro needs your input.',
     });
   });
 });

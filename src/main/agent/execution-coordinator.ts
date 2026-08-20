@@ -1029,7 +1029,7 @@ export class TaskExecutionCoordinator {
       if (context.walkthrough.completedSteps === 0) {
         this.runtime.block(
           taskId,
-          'TroCode could not start the requested interactive walkthrough.',
+          'Tro could not start the requested interactive walkthrough.',
           ['Try again with the target exercise or application visible.'],
         );
         return;
@@ -1049,7 +1049,7 @@ export class TaskExecutionCoordinator {
       if (!recap) {
         this.runtime.block(
           taskId,
-          'TroCode could not verify a concise walkthrough completion.',
+          'Tro could not verify a concise walkthrough completion.',
           ['Continue the walkthrough or try again with the target still visible.'],
         );
         return;
@@ -1477,7 +1477,7 @@ export class TaskExecutionCoordinator {
         context.pendingApproval = undefined;
         this.runtime.block(
           taskId,
-          'The screen changed after approval, so the action was not executed and TroCode stopped before requesting approval again.',
+          'The screen changed after approval, so the action was not executed and Tro stopped before requesting approval again.',
           [
             'Return to the target application, confirm the intended action is still visible, then start a new request.',
           ],
@@ -1569,7 +1569,7 @@ export class TaskExecutionCoordinator {
           this.onGuidanceWaitEnd(taskId);
           this.dismissPresentation();
           this.runtime.block(taskId, summary, [
-            'Open TroCode to review the result, then try the walkthrough again.',
+            'Open Tro to review the result, then try the walkthrough again.',
           ]);
           return resultOutput(invocation.callId, {
             status: 'not_executed',
@@ -1622,9 +1622,9 @@ export class TaskExecutionCoordinator {
       }
       if (!presented) {
         const summary =
-          'The action preview was unavailable, so TroCode did not perform the action.';
+          'The action preview was unavailable, so Tro did not perform the action.';
         this.runtime.block(taskId, summary, [
-          'Open TroCode and retry after the companion is available.',
+          'Open Tro and retry after the companion is available.',
         ]);
         return resultOutput(invocation.callId, {
           status: 'not_executed',
@@ -1697,7 +1697,7 @@ export class TaskExecutionCoordinator {
     if (result.status === 'unknown' && approvedConsequentialAction) {
       this.runtime.block(
         taskId,
-        'A consequential action has an unknown outcome. TroCode will not retry it or dispatch another consequential action in this task.',
+        'A consequential action has an unknown outcome. Tro will not retry it or dispatch another consequential action in this task.',
         ['Inspect the target application before starting a new task.'],
       );
       return output;
@@ -1705,7 +1705,7 @@ export class TaskExecutionCoordinator {
     if (verificationUnavailable) {
       this.runtime.block(
         taskId,
-        'TroCode could not capture the fresh desktop state required after the action, so it stopped before another model step.',
+        'Tro could not capture the fresh desktop state required after the action, so it stopped before another model step.',
         ['Inspect the target application before starting a new task.'],
       );
       return output;

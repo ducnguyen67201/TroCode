@@ -272,13 +272,14 @@ export class PostgresUsageRepository {
          (SELECT COUNT(*)
           FROM agent_turns
           WHERE user_id = $1
-            AND created_at >= date_trunc('month', NOW())
-            AND status <> 'released') AS month_messages,
+            AND created_at >= date_trunc('week', NOW())
+            AND status <> 'released') AS week_messages,
          COALESCE(SUM(CASE WHEN status = 'settled' AND updated_at >= date_trunc('day', NOW()) THEN actual_micro_usd ELSE 0 END), 0) AS day_settled,
          COALESCE(SUM(CASE WHEN status IN ('reserved', 'uncertain') AND updated_at >= date_trunc('day', NOW()) THEN reserved_micro_usd ELSE 0 END), 0) AS day_reserved,
          COALESCE(SUM(CASE WHEN task_id = $2 AND status = 'settled' THEN actual_micro_usd ELSE 0 END), 0) AS task_settled,
          COALESCE(SUM(CASE WHEN task_id = $2 AND status IN ('reserved', 'uncertain') THEN reserved_micro_usd ELSE 0 END), 0) AS task_reserved,
          date_trunc('month', NOW()) + INTERVAL '1 month' AS month_ends_at,
+         date_trunc('week', NOW()) + INTERVAL '1 week' AS week_ends_at,
          date_trunc('day', NOW()) + INTERVAL '1 day' AS day_ends_at
        FROM model_budget_reservations
        WHERE user_id = $1
@@ -291,11 +292,12 @@ export class PostgresUsageRepository {
       dayReservedMicroUsd: rowNumber(row.day_reserved),
       daySettledMicroUsd: rowNumber(row.day_settled),
       monthEndsAt: row.month_ends_at.toISOString(),
-      monthMessages: rowNumber(row.month_messages),
       monthReservedMicroUsd: rowNumber(row.month_reserved),
       monthSettledMicroUsd: rowNumber(row.month_settled),
       taskReservedMicroUsd: rowNumber(row.task_reserved),
       taskSettledMicroUsd: rowNumber(row.task_settled),
+      weekEndsAt: row.week_ends_at.toISOString(),
+      weekMessages: rowNumber(row.week_messages),
     };
   }
 

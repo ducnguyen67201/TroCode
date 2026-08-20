@@ -1,7 +1,7 @@
-# TroCode
+# Tro
 
-TroCode is a cross-platform, general-purpose agent foundation. Everyday and
-Workspace tasks run through the OpenAI Agents SDK and TroCode's authenticated
+Tro is a cross-platform, general-purpose agent foundation. Everyday and
+Workspace tasks run through the OpenAI Agents SDK and Tro's authenticated
 backend. Both stay behind the same trusted host policy and activity stream.
 
 Read the [privacy policy](PRIVACY.md), [code signing policy](CODE_SIGNING_POLICY.md),
@@ -18,7 +18,7 @@ Implemented:
   desktop work, and installed tools, with incremental Responses SSE.
 - An explicit Workspace mode backed by a canonical user-selected root and the
   Agents SDK's local shell and patch tools. Commands and file mutations require
-  exact, one-use TroCode approval; provider credentials remain backend-only.
+  exact, one-use Tro approval; provider credentials remain backend-only.
 - A trusted model-visible tool registry with desktop observation/control,
   public HTTPS navigation, grounded guidance, and user-input adapters.
 - Typed task lifecycle with guarded transitions.
@@ -38,7 +38,7 @@ Implemented:
   keypresses, scrolling, dragging, and session cleanup.
 - One configured GPT-5.6 model through the Responses API (Luna by default),
   with no classifier or fallback request after a failure.
-- API-owned Basic, Pro, and Max entitlements with atomic agent-message and
+- API-owned Free, Basic, Pro, and Max entitlements with atomic agent-message and
   integer micro-USD reservations before any paid provider dispatch.
 - One resized current screenshot per visual sample, bounded context, and a
   4,000-token output ceiling.
@@ -74,25 +74,25 @@ Current computer-context support and limits:
   editors, ambiguous windows, unsupported apps, and incomplete accessibility
   trees fall back to window or full-desktop vision.
 - Existing logged-in browser-profile attachment remains a separate exact
-  permission action. TroCode does not ship a browser or VS Code extension, so
+  permission action. Tro does not ship a browser or VS Code extension, so
   unsaved editor buffers and diagnostics are available only when the browser or
   operating-system accessibility surface exposes them.
 
 Not implemented yet:
 
 - Production application allowlists beyond current-window selection and the
-  explicit exclusion of TroCode's own windows.
+  explicit exclusion of Tro's own windows.
 - Direct Gmail/Calendar connectors and app-specific independent verifiers.
 - Persistent screenshot-rich execution trajectory storage.
 - Direct media/music generation providers and release-credential provisioning.
 
 Music and other creative work can already be performed through an installed or
 browser-based application using navigation, visible guidance, clicks, hotkeys,
-typing, scrolling, and drag. TroCode does not yet claim to generate an MP3
+typing, scrolling, and drag. Tro does not yet claim to generate an MP3
 directly: that requires a separately configured `music.generate` adapter, which
 can be added to the registry without changing request classification.
 
-When a host-created task reaches `ready`, TroCode starts its selected task-scoped
+When a host-created task reaches `ready`, Tro starts its selected task-scoped
 runtime. CUA remains stopped unless the agent requests a desktop tool.
 The visible **Stop task** control and
 the system-wide **Escape** shortcut cancel a nonterminal task, including while
@@ -133,7 +133,7 @@ fallback), and then stops every track. The temporary session accepts only that
 window's main-frame request; captured images and source details are never
 exposed to the application renderer.
 
-For macOS permission testing, use the packaged `TroCode.app`. Raw `npm start`
+For macOS permission testing, use the packaged `Tro.app`. Raw `npm start`
 runs through Electron's development host, whose separate identity can appear as
 `Electron` in Privacy & Security and does not represent the shipped app's grant.
 The packaged application uses the stable bundle identifier
@@ -165,7 +165,7 @@ screen, reservation, settlement, and presentation flow.
 
 During a visible walkthrough, use **Command/Control + Alt + J** for Back,
 **Command/Control + Alt + K** for Pause/Resume, and **Command/Control + Alt + L**
-for Next. TroCode registers each shortcut only while a guidance step is waiting
+for Next. Tro registers each shortcut only while a guidance step is waiting
 and hides any shortcut that the operating system would not grant.
 
 Paste the value at Doppler's prompt, then enter a line containing only `.`.
@@ -205,7 +205,7 @@ before accepting traffic.
 
 At sign-in, Electron verifies Google's JWT nonce and signature locally, then
 the API verifies it independently and exchanges it for a random opaque device
-session. TroCode does not issue a JWT. Only a HMAC digest of the device token is
+session. Tro does not issue a JWT. Only a HMAC digest of the device token is
 stored in PostgreSQL, enabling expiration, rotation, and immediate sign-out
 revocation. The desktop stores the token with operating-system encryption.
 
@@ -237,7 +237,7 @@ only to `127.0.0.1:54320`. `TROCODE_POSTGRES_PASSWORD` and the matching
 `DATABASE_URL` live in Doppler's `tro-app/dev` config; they are injected into
 Compose and Electron only at runtime. The named `trocode_postgres_data` volume
 preserves records, while [`migrations/001_task_history.sql`](migrations/001_task_history.sql)
-initializes a new database. TroCode also verifies the schema idempotently when
+initializes a new database. Tro also verifies the schema idempotently when
 it starts and keys every query by the verified Google user ID.
 
 The URL is intentionally not added to Webpack's `DefinePlugin`, so database
@@ -245,7 +245,7 @@ credentials are not compiled into the desktop bundle or exposed through
 preload. Deployment database configuration remains separate from this local
 Compose setup.
 
-On history load, TroCode validates every persisted snapshot and performs a
+On history load, Tro validates every persisted snapshot and performs a
 forward-only read repair for transitional v5 contracts created before runtime,
 profile, autonomy, and workspace fields were introduced. Repairs default to
 the Everyday OpenAI runtime unless a complete trusted workspace identity is
@@ -260,12 +260,13 @@ OAuth/model credentials are not part of the task snapshot contract.
 
 ### Production access codes
 
-Access checks are bypassed by raw local development (`npm start`). Every
-packaged build requires a code after Google sign-in and permission onboarding.
+Access checks are bypassed by raw local development (`npm start`). In hosted
+builds, every Google account starts on Free immediately after sign-in. Packaged
+builds without the hosted API retain the signed activation-code fallback.
 
-Hosted builds configured with `TROCODE_API_BASE_URL` store shared access codes
-and account redemptions in PostgreSQL. Create codes with the administrator CLI;
-do not insert them manually:
+Hosted builds configured with `TROCODE_API_BASE_URL` store each account's plan,
+shared upgrade codes, and code redemptions in PostgreSQL. Create upgrade codes
+with the administrator CLI; do not insert them manually:
 
 ```bash
 doppler run --project tro-app --config prd -- \
@@ -285,26 +286,34 @@ are rejected.
 
 The API tier catalog is the pricing and entitlement source of truth:
 
-| Plan | Recommended price | Agent messages/month | Provider-cost cap/month | Responses RPM |
+| Plan | Recommended price | Agent messages/week | Provider-cost cap/month | Responses RPM |
 |---|---:|---:|---:|---:|
-| Basic | $20 | 1,200 | $8 | 30 |
-| Pro | $50 | 3,000 | $20 | 45 |
-| Max | $100 | 7,500 | $45 | 60 |
+| Free | $0 | 25 | $1 | 15 |
+| Basic | $20 | 300 | $8 | 30 |
+| Pro | $50 | 750 | $20 | 45 |
+| Max | $100 | 1,875 | $45 | 60 |
 
 One agent message is one accepted user turn: the initial request, a clarification
 answer, or a steering message. The desktop sends its message UUID to
-`POST /v1/agent-turns`; the API atomically and idempotently reserves the monthly
+`POST /v1/agent-turns`; the API atomically and idempotently reserves the weekly
 allowance and returns the server turn token required by `/v1/openai/responses`.
 Internal model/tool continuations reuse that token and do not consume more agent
 messages. Approval decisions, speech, and transcription do not consume agent
 messages. A turn whose only provider request is explicitly rejected before
 inference is released; an ambiguous dispatched turn remains counted. Whichever
-monthly message or provider-cost limit is reached first blocks more inference.
+weekly message or monthly provider-cost limit is reached first blocks more inference.
 Environment budget values are emergency ceilings and may only lower a tier's
 dollar limits.
 
-The API checks access again before proxying model, voice transcription, or
-speech requests, so bypassing the renderer does not bypass the quota.
+Plans are account entitlements. New accounts default to Free; redeeming a code
+atomically assigns that code's plan to the account. Existing redemptions are
+backfilled into the account plan during migration. New database-level
+access-code rows default to Free, while the administrator CLI requires an
+explicit `--plan free|basic|pro|max`.
+
+The API resolves the account plan again before proxying model, voice
+transcription, or speech requests, so bypassing the renderer does not bypass the
+quota.
 
 Packaged builds without `TROCODE_API_BASE_URL` use the offline signed-membership
 fallback and fail closed when `TROCODE_MEMBERSHIP_PUBLIC_KEY` is missing or
@@ -345,7 +354,7 @@ local environment file when using `npm run start:local`. Analytics is disabled
 when `POSTHOG_PROJECT_TOKEN` is absent. The build injects these values into the
 Electron main bundle only; the preload and renderer cannot access them.
 
-TroCode records `application opened`, `application closed`, task funnel events,
+Tro records `application opened`, `application closed`, task funnel events,
 non-sensitive goal metadata, and a `voice transcription completed` event that
 contains only the transcript character count. A durable anonymous installation
 ID powers DAU before sign-in; authenticated identity is associated with the
@@ -355,24 +364,24 @@ Typed task text, messages, voice transcript content, screenshots, URLs,
 document contents, file paths, credentials, and approval descriptions are not
 added to analytics events.
 
-Closing the TroCode window hides it while TroCode stays available from the menu
-bar or system tray for background voice input. Choose **Quit TroCode** there, or
+Closing the Tro window hides it while Tro stays available from the menu
+bar or system tray for background voice input. Choose **Quit Tro** there, or
 press **Command+Q** on macOS, to stop the cursor companion, shut down CUA, and
-exit. If native shutdown does not respond, TroCode forces a process exit after
+exit. If native shutdown does not respond, Tro forces a process exit after
 a short grace period.
 
-With the TroCode window focused, hold **Command + Control** on macOS or the
+With the Tro window focused, hold **Command + Control** on macOS or the
 physical **left Alt + left Control** keys on Windows. Release either key to
 finish the transcript and submit it through the same bounded task pipeline as
 typed input. The same **Command + Control** hold gesture works system-wide on
 macOS; on Windows, hold **Ctrl + Alt + Space** globally and release it to finish.
 The cursor companion shows audio bars while listening and a processing spinner
-after release until the transcript returns. When TroCode has asked a
+after release until the transcript returns. When Tro has asked a
 clarification, the next transcript answers that same task rather than creating
 another one. Short pending prompts use local system speech; ElevenLabs
 narration is reserved for grounded walkthrough steps.
 
-When `TROCODE_API_BASE_URL` is compiled into a production build, TroCode enables
+When `TROCODE_API_BASE_URL` is compiled into a production build, Tro enables
 agent and voice access from the signed-in device session. The renderer and
 Electron main never ask for or receive long-lived provider keys. OpenAI
 Responses, segmented GPT Transcribe transcription, and ElevenLabs synthesis are
@@ -380,15 +389,15 @@ authenticated and proxied by Railway.
 
 ### First Gmail execution test
 
-1. Start TroCode with `TROCODE_API_BASE_URL` configured and choose **Connect
+1. Start Tro with `TROCODE_API_BASE_URL` configured and choose **Connect
    computer** if CUA is not ready.
-2. Sign in to Gmail yourself. TroCode will not type passwords.
+2. Sign in to Gmail yourself. Tro will not type passwords.
 3. Enter a complete bounded request, for example: `Open Gmail, compose an
-   email from my work account to me@example.com with subject "TroCode test"
+   email from my work account to me@example.com with subject "Tro test"
    and body "The desktop loop works", then send it after I approve.`
-4. Review the compiled goal as TroCode starts it automatically. Press
+4. Review the compiled goal as Tro starts it automatically. Press
    **Escape** or choose **Stop task** to cancel at any time.
-5. If TroCode needs a material detail, answer in the same task from the main
+5. If Tro needs a material detail, answer in the same task from the main
    window or with the system-wide voice shortcut.
 6. Before Send, confirm the approval card's account, recipients, subject, body,
    target, and exact command. Send is dispatched once only after the button is
@@ -408,14 +417,14 @@ Doppler `prd`. The release workflow requires Apple notarization and Windows
 code-signing credentials before it will publish a release.
 
 CUA installs a native package for the host OS and CPU, so build each release on
-its target operating system. During packaging, TroCode stages the CUA JavaScript
+its target operating system. During packaging, Tro stages the CUA JavaScript
 SDK and native libraries together outside ASAR; this preserves CUA's relative
 native-library resolution in the packaged application.
 
 ### Application updates and releases
 
 Installed macOS and Windows builds expose **Settings → Application update**.
-The trusted main process checks the fixed TroCode feed on
+The trusted main process checks the fixed Tro feed on
 `update.electronjs.org`; the sandboxed renderer can request a check or restart,
 but it cannot replace the feed URL. Available updates download in the
 background and install after the user selects **Restart to update**.
@@ -434,7 +443,7 @@ Configure these GitHub Actions secrets before pushing a release tag:
 - `APPLE_API_KEY_P8_BASE64`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`
 - `WINDOWS_CERTIFICATE_PFX_BASE64` and `WINDOWS_CERTIFICATE_PASSWORD`
 
-The tag-triggered workflow above is the certificate-file release path. TroCode
+The tag-triggered workflow above is the certificate-file release path. Tro
 also provides a free open-source Windows path through SignPath Foundation. See
 the [code signing policy](CODE_SIGNING_POLICY.md) for its roles and controls.
 After SignPath accepts the project, configure this repository secret:
@@ -458,7 +467,7 @@ installer second, verifies both signatures, and publishes the stable release.
 
 The first updater-enabled build still requires a normal manual installation.
 After that bootstrap release, future published versions can be installed from
-inside TroCode. Linux continues to use its package manager because Electron's
+inside Tro. Linux continues to use its package manager because Electron's
 native updater supports only macOS and Windows.
 
 For a Windows-only customer build, run **Windows build and release** from the
@@ -496,7 +505,7 @@ React renderer
     -> trusted Electron IPC
       -> Google OAuth service / encrypted local session
       -> TaskContract v5 / runtime factory / policy brokers
-      -> OpenAI Agents SDK through the TroCode backend
+      -> OpenAI Agents SDK through the Tro backend
         -> trusted local Workspace shell/patch tools when explicitly selected
       -> PostHog analytics service (allowlisted metadata only)
       -> local PCM/VAD voice capture

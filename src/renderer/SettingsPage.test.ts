@@ -35,7 +35,7 @@ describe('SettingsPage application updates', () => {
   it('offers a manual update check with the installed version', () => {
     const markup = renderSettings({
       currentVersion: '0.1.0',
-      message: 'Check whether a newer version of TroCode is available.',
+      message: 'Check whether a newer version of Tro is available.',
       phase: 'idle',
       targetVersion: null,
     });
@@ -62,7 +62,7 @@ describe('SettingsPage application updates', () => {
   it('disables the action on unsupported platforms', () => {
     const markup = renderSettings({
       currentVersion: '0.1.0',
-      message: 'Use your Linux package manager to update TroCode.',
+      message: 'Use your Linux package manager to update Tro.',
       phase: 'unsupported',
       targetVersion: null,
     });
@@ -74,7 +74,7 @@ describe('SettingsPage application updates', () => {
   it('offers a concise retry after an update error', () => {
     const markup = renderSettings({
       currentVersion: '0.1.1',
-      message: 'TroCode could not reach the update service.',
+      message: 'Tro could not reach the update service.',
       phase: 'error',
       targetVersion: null,
     });

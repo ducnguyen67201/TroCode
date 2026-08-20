@@ -228,5 +228,5 @@ test('committed spend tracks money without treating provider calls as messages',
     { dayMicroUsd: 0, monthMicroUsd: 0, taskMicroUsd: 0 },
   );
   const aggregate = statements.find((sql) => sql.includes('AS month'));
-  assert.doesNotMatch(aggregate, /month_messages|lane = 'responses'/u);
+  assert.doesNotMatch(aggregate, /week_messages|lane = 'responses'/u);
 });

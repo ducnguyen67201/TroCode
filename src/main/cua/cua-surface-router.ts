@@ -35,7 +35,7 @@ const MAX_STRUCTURED_STATE_LENGTH = 500_000;
 const CODE_EDITOR_PATTERN = /\b(?:code|code-oss|visual studio code|vscode)\b/iu;
 const BROWSER_PATTERN =
   /\b(?:arc|brave|chrome|chromium|edge|opera|vivaldi)\b/iu;
-const TROCODE_PATTERN = /\btrocode\b/iu;
+const TROCODE_PATTERN = /\btro(?:\s*code)?\b/iu;
 const SECRET_ROLE_PATTERN = /(?:password|secure)/iu;
 const STALE_OR_REFUSED_PATTERN =
   /(?:stale|not[_ -]?found|invalid[_ -]?(?:ref|token)|owner_pid_mismatch|permission_required|refus)/iu;
@@ -356,7 +356,7 @@ export class CuaSurfaceRouter {
       return SurfaceActionOutcomeSchema.parse({
         status: effect === 'confirmed' ? 'unknown' : 'unknown',
         summary:
-          'CUA may have delivered the action, but TroCode could not refresh the exact surface.',
+          'CUA may have delivered the action, but Tro could not refresh the exact surface.',
       });
     }
     this.referenceStore.replace(fresh.binding);

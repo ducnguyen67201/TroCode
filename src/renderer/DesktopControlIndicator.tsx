@@ -135,7 +135,7 @@ export function DesktopControlIndicator() {
       ) : null}
       <div className="desktop-control-indicator__label">
         <span aria-hidden="true" />
-        TroCode is controlling
+        Tro is controlling
       </div>
     </div>
   );

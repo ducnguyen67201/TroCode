@@ -129,7 +129,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     })),
     assertActive: vi.fn(async () => {
       if (!membershipActive) {
-        throw new Error('An active membership is required to use TroCode.');
+        throw new Error('An active membership is required to use Tro.');
       }
     }),
     getStatus: vi.fn(async () => ({
@@ -249,7 +249,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   const workspaceAvailability = vi.fn(async () => ({
     available: true,
     runtimeVersion: null,
-    summary: 'Workspace mode is available through the TroCode service.',
+    summary: 'Workspace mode is available through the Tro service.',
   }));
   const workspaceSelect = vi.fn(async () => null);
   const services = {
@@ -288,9 +288,18 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
         daily: { limitMicroUsd: 2_000_000, remainingMicroUsd: 2_000_000, reservedMicroUsd: 0, settledMicroUsd: 0 },
         enforcementMode: 'enforce',
         estimatedMicroUsd: 0,
+        messages: {
+          limit: 750,
+          periodEndsAt: '2026-08-24T00:00:00.000Z',
+          periodStartsAt: '2026-08-17T00:00:00.000Z',
+          remaining: 750,
+          used: 0,
+        },
         monthEndsAt: '2026-09-01T00:00:00.000Z',
         monthly: { limitMicroUsd: 20_000_000, remainingMicroUsd: 20_000_000, reservedMicroUsd: 0, settledMicroUsd: 0 },
         periodStartsAt: '2026-08-01T00:00:00.000Z',
+        plan: 'pro',
+        pricing: { currency: 'usd', monthlyCents: 5_000 },
         source: 'hosted',
         task: { limitMicroUsd: 500_000, remainingMicroUsd: 500_000, reservedMicroUsd: 0, settledMicroUsd: 0 },
         warningThresholdMicroUsd: 16_000_000,

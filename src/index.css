@@ -3180,7 +3180,8 @@ h1 {
   font-size: 15px;
 }
 
-.context-overview {
+.context-overview,
+.usage-overview {
   position: relative;
   overflow: hidden;
   padding: 24px 22px;
@@ -3190,7 +3191,8 @@ h1 {
   box-shadow: none;
 }
 
-.context-overview::after {
+.context-overview::after,
+.usage-overview::after {
   position: absolute;
   right: 0;
   bottom: 0;
@@ -3259,6 +3261,53 @@ h1 {
   background: var(--accent-strong);
   content: "";
   transform: translateY(-50%);
+}
+
+.usage-overview__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.usage-overview h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+.usage-overview__percent {
+  flex: none;
+  padding: 6px 9px;
+  border: 1px solid rgba(199, 151, 0, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 204, 51, 0.12);
+  color: var(--accent-text);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.usage-overview__progress {
+  height: 8px;
+  margin-top: 20px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(32, 31, 26, 0.09);
+}
+
+.usage-overview__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-strong), #f7cc45);
+}
+
+.usage-overview__detail {
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .status-dot,

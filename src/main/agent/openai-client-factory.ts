@@ -51,7 +51,7 @@ export class OpenAIClientFactory {
 
   async create(taskId: string): Promise<HostedOpenAIClient> {
     if (!this.apiBaseUrl) {
-      throw new Error('The TroCode model service is not configured.');
+      throw new Error('The Tro model service is not configured.');
     }
     const credential = await this.options.accessTokenProvider();
     if (!credential) {
@@ -94,7 +94,7 @@ export class OpenAIClientFactory {
           !('taskId' in value) ||
           value.taskId !== taskId
         ) {
-          throw new Error('TroCode returned an invalid agent turn.');
+          throw new Error('Tro returned an invalid agent turn.');
         }
         const turn = { clientTurnId, id: value.id, taskId };
         acceptedTurns.set(clientTurnId, turn);

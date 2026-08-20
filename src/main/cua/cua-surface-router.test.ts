@@ -58,11 +58,12 @@ function router(callTool: CuaToolCaller) {
 }
 
 describe('CuaSurfaceRouter', () => {
-  it('selects the top non-TroCode window and refuses ambiguous null stacking', () => {
+  it('selects the top non-Tro window and refuses ambiguous null stacking', () => {
     expect(
       selectWindow(
         [
-          { ...windowRecord, app_name: 'TroCode', pid: 999, z_index: 20 },
+          { ...windowRecord, app_name: 'Tro', pid: 999, z_index: 20 },
+          { ...windowRecord, app_name: 'TroCode', pid: 998, z_index: 19 },
           windowRecord,
         ],
         999,

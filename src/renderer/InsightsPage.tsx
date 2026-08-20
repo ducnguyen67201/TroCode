@@ -102,10 +102,10 @@ export function InsightsPage({
           <p>
             {persistence.mode === 'postgres'
               ? t(
-                  'A view of how TroCode is working across your saved tasks and lifecycle activity.',
+                  'A view of how Tro is working across your saved tasks and lifecycle activity.',
                 )
               : t(
-                  'A private, session-only view of how TroCode is working across your tasks.',
+                  'A private, session-only view of how Tro is working across your tasks.',
                 )}
           </p>
         </div>
@@ -244,7 +244,7 @@ export function InsightsPage({
         <article className="insight-card capability-card">
           <div className="detail-card-heading">
             <div>
-              <p className="eyebrow">{t('How TroCode helped')}</p>
+              <p className="eyebrow">{t('How Tro helped')}</p>
               <h2>{t('Tool usage')}</h2>
             </div>
             <span>

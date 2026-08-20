@@ -12,7 +12,7 @@ describe('desktop control indicator', () => {
     const markup = renderToStaticMarkup(createElement(DesktopControlIndicator));
 
     expect(markup).toContain('desktop-control-indicator');
-    expect(markup).toContain('TroCode is controlling');
+    expect(markup).toContain('Tro is controlling');
     expect(markup).toContain('role="status"');
     expect(markup).not.toContain('<button');
     expect(markup).not.toContain('tabindex');

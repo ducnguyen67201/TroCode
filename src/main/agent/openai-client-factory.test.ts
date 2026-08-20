@@ -99,14 +99,14 @@ describe('OpenAIClientFactory', () => {
     ).toEqual([true, true]);
   });
 
-  it('fails closed when the TroCode backend is not configured', async () => {
+  it('fails closed when the Tro backend is not configured', async () => {
     const accessTokenProvider = vi.fn(async () => 'unused-token');
     await expect(
       new OpenAIClientFactory({
         accessTokenProvider,
         apiBaseUrl: '',
       }).create('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
-    ).rejects.toThrow('TroCode model service is not configured');
+    ).rejects.toThrow('Tro model service is not configured');
     expect(accessTokenProvider).not.toHaveBeenCalled();
   });
 });

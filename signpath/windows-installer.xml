@@ -5,11 +5,11 @@
   </parameters>
   <zip-file>
     <pe-file
-      path="TroCode-${version} Setup.exe"
-      company-name="TroCode"
+      path="Tro-${version} Setup.exe"
+      company-name="Tro"
       file-version="${version}"
-      original-filename="TroCode-${version} Setup.exe"
-      product-name="TroCode"
+      original-filename="Tro-${version} Setup.exe"
+      product-name="Tro"
       product-version="${version}">
       <authenticode-sign />
     </pe-file>

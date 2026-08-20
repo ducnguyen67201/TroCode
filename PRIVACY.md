@@ -1,25 +1,25 @@
-# TroCode privacy policy
+# Tro privacy policy
 
 Effective date: August 17, 2026
 
-TroCode is an open-source desktop agent. It can answer requests with a hosted
+Tro is an open-source desktop agent. It can answer requests with a hosted
 model and, when the user asks, observe and control applications on the user's
 computer. This policy describes the network transfers made by the application
 and the data stored locally or by an operator-configured service.
 
 ## Data sent to service providers
 
-TroCode transfers data only for configured application features or actions the
+Tro transfers data only for configured application features or actions the
 user requests:
 
-- **TroCode hosted API on Railway:** production builds send the verified Google
+- **Tro hosted API on Railway:** production builds send the verified Google
   ID token once during sign-in, then send an opaque device-session token with
   model, voice, and companion-speech requests. The API stores the Google user
   ID, email, display name, session expiry, and only an HMAC digest of the device
   token in PostgreSQL. It proxies task content, observations, tool results,
   Realtime SDP, and short speech text to the providers below but does not store
   those request or response bodies. Railway processes standard network and
-  service logs; TroCode application logs exclude tokens and task content.
+  service logs; Tro application logs exclude tokens and task content.
 
 - **OpenAI:** typed task text, conversation messages, model tool results, and
   desktop observations needed for a task can be sent to the Responses API.
@@ -27,12 +27,12 @@ user requests:
   audio is sent to OpenAI Realtime for transcription. Responses requests set
   `store: false`, but OpenAI's own service terms and retention rules still
   apply. See the [OpenAI privacy policy](https://openai.com/policies/privacy-policy/).
-- **Google:** when the user chooses Google sign-in, TroCode sends the OAuth
+- **Google:** when the user chooses Google sign-in, Tro sends the OAuth
   authorization request and receives verified identity claims and tokens. The
   application requests only OpenID, email, and profile scopes. See the
   [Google privacy policy](https://policies.google.com/privacy).
 - **PostHog:** analytics is disabled unless an operator configures a PostHog
-  project token. When enabled, TroCode sends app/platform/version fields,
+  project token. When enabled, Tro sends app/platform/version fields,
   anonymous or signed-in identifiers, sign-in profile fields, task lifecycle
   counts, tool identifiers/operations, and voice-transcript character counts.
   It does not send task text, screenshots, URLs, document contents, file paths,
@@ -42,22 +42,22 @@ user requests:
 - **ElevenLabs:** when an operator configures ElevenLabs companion speech,
   the short visible text of each grounded guidance step is sent for
   text-to-speech generation. Generated audio is streamed to the current
-  guidance window and is not persisted by TroCode. Clarification, approval,
+  guidance window and is not persisted by Tro. Clarification, approval,
   internal action, observation, and final-response text is not sent to
   ElevenLabs for narration. See the
   [ElevenLabs privacy policy](https://elevenlabs.io/privacy-policy).
 - **GitHub and Electron's update service:** installed builds contact the fixed
-  TroCode GitHub release feed to check for, download, and install application
+  Tro GitHub release feed to check for, download, and install application
   updates. Standard request metadata such as IP address and user agent can be
   processed by those services. See the
   [GitHub privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
-- **User-selected websites and applications:** when the user asks TroCode to
+- **User-selected websites and applications:** when the user asks Tro to
   navigate, type, upload, submit, or otherwise act in a third-party service,
   that service receives the information involved in the requested action under
   its own privacy policy. Consequential actions require confirmation in the
-  cases enforced by TroCode's host policy.
+  cases enforced by Tro's host policy.
 
-## Data stored by TroCode
+## Data stored by Tro
 
 - Google and hosted device-session data is encrypted with the operating
   system's secure storage. Signing out revokes the server session and deletes
@@ -73,7 +73,7 @@ user requests:
 
 The retention and deletion policy for an operator-configured PostgreSQL or
 PostHog deployment is controlled by that operator. To request deletion from a
-TroCode-operated deployment, contact the address below with the Google account
+Tro-operated deployment, contact the address below with the Google account
 email used to sign in.
 
 ## Security

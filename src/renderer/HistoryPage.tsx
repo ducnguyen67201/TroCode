@@ -20,7 +20,7 @@ function formatMessageRole(
 ): string {
   if (role === 'user') return translate(appLanguage, 'You');
   if (role === 'system') return translate(appLanguage, 'System');
-  return 'TroCode';
+  return 'Tro';
 }
 
 function formatTaskTime(value: string, appLanguage: AppLanguage): string {
@@ -69,7 +69,7 @@ export function HistoryPage({
           <p>
             {persistence.mode === 'postgres'
               ? t(
-                  'A durable record of finished work, restored when you reopen TroCode.',
+                  'A durable record of finished work, restored when you reopen Tro.',
                 )
               : persistence.summary}
           </p>

@@ -34,6 +34,21 @@ test('generates a strong code when the administrator omits one', () => {
   );
 });
 
+test('accepts the Free plan', () => {
+  assert.equal(
+    parseCreateOptions([
+      'create',
+      '--code',
+      'FREEA',
+      '--max-users',
+      '100',
+      '--plan',
+      'free',
+    ]).plan,
+    'free',
+  );
+});
+
 test('creates the database row with a digest instead of plaintext', async () => {
   const queries = [];
   class FakePool {

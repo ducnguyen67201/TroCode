@@ -25,7 +25,7 @@ export function AppUpdateButton({
   const isReady = status.phase === 'ready' && !isUpdating;
   const label =
     status.phase === 'ready'
-      ? translate(appLanguage, 'Restart to install TroCode {version}', {
+      ? translate(appLanguage, 'Restart to install Tro {version}', {
           version: status.targetVersion ?? translate(appLanguage, 'latest'),
         })
       : translate(

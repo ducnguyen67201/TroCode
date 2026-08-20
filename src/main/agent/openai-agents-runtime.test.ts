@@ -105,7 +105,7 @@ describe('OpenAIAgentsRuntime', () => {
     await runtime.end(taskId);
   });
 
-  it('fails before dispatch when the hosted TroCode service is not configured', async () => {
+  it('fails before dispatch when the hosted Tro service is not configured', async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const runtime = new OpenAIAgentsRuntime({
       accessTokenProvider: vi.fn(async () => 'unused-token'),
@@ -126,7 +126,7 @@ describe('OpenAIAgentsRuntime', () => {
         taskId: randomUUID(),
         tools: [],
       }),
-    ).rejects.toThrow('TroCode model service is not configured');
+    ).rejects.toThrow('Tro model service is not configured');
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 

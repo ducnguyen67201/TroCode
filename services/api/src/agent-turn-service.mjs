@@ -18,11 +18,11 @@ export class AgentTurnService {
     const plan = planFor(input.planId);
     const result = await this.repository.create({
       ...input,
-      authorize: ({ monthMessages }) =>
-        monthMessages + 1 > plan.monthlyMessages
+      authorize: ({ weekMessages }) =>
+        weekMessages + 1 > plan.weeklyMessages
           ? {
-              code: 'monthly_message_limit_reached',
-              message: 'The monthly agent message allowance has been reached.',
+              code: 'weekly_message_limit_reached',
+              message: 'The weekly agent message allowance has been reached.',
             }
           : null,
       enforce: this.mode === 'enforce',

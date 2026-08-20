@@ -27,10 +27,10 @@ function LoginScreen({
     <main className="auth-screen">
       <section className="auth-card" aria-labelledby="auth-heading">
         <BrandMark className="auth-brand-mark" />
-        <p className="eyebrow">Welcome to TroCode</p>
+        <p className="eyebrow">Welcome to Tro</p>
         <h1 id="auth-heading">Your desktop agent, connected to you.</h1>
         <p className="auth-description">
-          Sign in once with Google. TroCode stores your session securely on
+          Sign in once with Google. Tro stores your session securely on
           this computer, then asks separately before using your microphone or
           controlling the screen.
         </p>

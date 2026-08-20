@@ -129,7 +129,7 @@ describe('GoogleAuthService', () => {
     });
   });
 
-  it('exchanges the verified Google identity for a hosted TroCode session', async () => {
+  it('exchanges the verified Google identity for a hosted Tro session', async () => {
     const { store, write } = memoryStore();
     const accessToken = `tro_live_${'a'.repeat(43)}`;
     const fetchImpl = vi.fn<typeof fetch>(async (input) => {

@@ -11,7 +11,7 @@ Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 
-public static class TroCodeKeyboardState {
+public static class TroKeyboardState {
   [DllImport("user32.dll")]
   public static extern short GetAsyncKeyState(int vKey);
 }
@@ -21,7 +21,7 @@ $keys = @(0x11, 0x12, 0x20)
 while ($true) {
   $allDown = $true
   foreach ($key in $keys) {
-    if (([TroCodeKeyboardState]::GetAsyncKeyState($key) -band 0x8000) -eq 0) {
+    if (([TroKeyboardState]::GetAsyncKeyState($key) -band 0x8000) -eq 0) {
       $allDown = $false
       break
     }

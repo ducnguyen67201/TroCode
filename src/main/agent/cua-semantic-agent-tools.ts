@@ -443,7 +443,7 @@ export function createCuaSemanticToolDefinitions(
       id: 'computer.observe',
       modelName: 'observe_surface',
       description:
-        'Read the current non-TroCode browser tab or application window using structured semantics first. It returns opaque element references and falls back to vision when needed.',
+        'Read the current non-Tro browser tab or application window using structured semantics first. It returns opaque element references and falls back to vision when needed.',
       operations: ['observe'],
       available: options.semanticAvailable,
       parameters: objectSchema(

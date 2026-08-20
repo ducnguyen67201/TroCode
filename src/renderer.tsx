@@ -15,10 +15,10 @@ function DesktopBridgeUnavailable() {
     <main className="auth-screen" role="alert">
       <section className="auth-card" aria-labelledby="bridge-error-heading">
         <BrandMark className="auth-brand-mark" />
-        <p className="eyebrow">TroCode needs a restart</p>
+        <p className="eyebrow">Tro needs a restart</p>
         <h1 id="bridge-error-heading">The desktop bridge did not load.</h1>
         <p className="auth-description">
-          The secure connection between this window and the TroCode desktop
+          The secure connection between this window and the Tro desktop
           process is unavailable. Restart the development app, then try again.
         </p>
         <button

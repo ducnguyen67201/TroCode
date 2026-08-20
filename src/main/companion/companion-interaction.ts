@@ -47,7 +47,7 @@ export function toCompanionInteraction(
     prompt: boundedOr(
       interaction.prompt,
       1_000,
-      'TroCode needs your input.',
+      'Tro needs your input.',
     ),
     side,
     taskId: interaction.taskId,
@@ -113,7 +113,7 @@ export function toCompanionInteraction(
     consequence: boundedOr(
       interaction.consequence,
       1_000,
-      'This action changes something outside TroCode.',
+      'This action changes something outside Tro.',
     ),
     expiresAt: interaction.expiresAt,
     kind: 'approval',

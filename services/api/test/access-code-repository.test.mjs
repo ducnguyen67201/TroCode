@@ -52,6 +52,32 @@ test('normalizes access codes and hashes equivalent input identically', () => {
   );
 });
 
+test('returns the Free plan for an account without an access code', async () => {
+  const { pool } = sequencedPool([
+    {
+      rows: [
+        {
+          max_users: null,
+          plan: 'free',
+          used_users: 0,
+        },
+      ],
+    },
+  ]);
+  const repository = new PostgresAccessCodeRepository(pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(await repository.getStatus('user-1'), {
+    maxUsers: null,
+    newlyRedeemed: false,
+    plan: 'free',
+    state: 'active',
+    summary: 'Free plan active.',
+    usedUsers: null,
+  });
+});
+
 test('redeems a code while holding user and code row locks', async () => {
   const { client, pool, queries } = sequencedPool([
     { rows: [] },
@@ -79,6 +105,7 @@ test('redeems a code while holding user and code row locks', async () => {
   });
   assert.match(queries[1].sql, /users WHERE id = \$1 FOR UPDATE/u);
   assert.match(queries[3].sql, /access_codes[\s\S]+FOR UPDATE/u);
+  assert.match(queries.at(-2).sql, /UPDATE users[\s\S]+SET plan = \$2/u);
   assert.equal(queries.at(-1).sql, 'COMMIT');
   assert.equal(client.released, true);
 });

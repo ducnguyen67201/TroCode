@@ -199,7 +199,7 @@ describe('ElectronPresentationPresenter', () => {
     expect(reveal).not.toHaveBeenCalled();
   });
 
-  it('reveals TroCode if foreground read-aloud narration fails', () => {
+  it('reveals Tro if foreground read-aloud narration fails', () => {
     const { presentCompanionResponse, presenter, reveal } =
       createPresenter(false);
     const task = createTask({ phase: 'completed' });
@@ -212,7 +212,7 @@ describe('ElectronPresentationPresenter', () => {
     expect(reveal).toHaveBeenCalledOnce();
   });
 
-  it('does not reveal TroCode if background narration later fails', () => {
+  it('does not reveal Tro if background narration later fails', () => {
     const { presentCompanionResponse, presenter, reveal } =
       createPresenter(true);
     const task = createTask({ phase: 'completed' });
@@ -240,7 +240,7 @@ describe('ElectronPresentationPresenter', () => {
     expect(reveal).not.toHaveBeenCalled();
   });
 
-  it('reveals TroCode when the visual response card is unavailable', () => {
+  it('reveals Tro when the visual response card is unavailable', () => {
     const { presentCompanionResponse, presenter, reveal } = createPresenter();
     presentCompanionResponse.mockReturnValue(false);
 
@@ -252,7 +252,7 @@ describe('ElectronPresentationPresenter', () => {
     expect(reveal).toHaveBeenCalledOnce();
   });
 
-  it('reveals TroCode when visual response presentation throws', () => {
+  it('reveals Tro when visual response presentation throws', () => {
     const { presentCompanionResponse, presenter, reveal } = createPresenter();
     presentCompanionResponse.mockImplementation(() => {
       throw new Error('Response overlay unavailable.');

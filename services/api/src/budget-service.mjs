@@ -145,7 +145,7 @@ export class BudgetService {
     return this.repository.markUncertain(userId, requestId);
   }
 
-  async snapshot(userId, taskId = null, planId = 'basic') {
+  async snapshot(userId, taskId = null, planId = 'free') {
     const limits = this.limitsFor(planId);
     const value = await this.repository.snapshot(userId, taskId);
     const monthCommitted =
@@ -163,9 +163,14 @@ export class BudgetService {
       enforcementMode: this.options.mode,
       estimatedMicroUsd: value.monthReservedMicroUsd,
       messages: {
-        limit: limits.monthlyMessages,
-        remaining: Math.max(0, limits.monthlyMessages - value.monthMessages),
-        used: value.monthMessages,
+        limit: limits.weeklyMessages,
+        periodEndsAt: value.weekEndsAt,
+        periodStartsAt: (() => {
+          const periodEnd = new Date(value.weekEndsAt);
+          return new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1_000).toISOString();
+        })(),
+        remaining: Math.max(0, limits.weeklyMessages - value.weekMessages),
+        used: value.weekMessages,
       },
       monthEndsAt: value.monthEndsAt,
       monthly: {
@@ -230,7 +235,6 @@ export class BudgetService {
     const plan = planFor(planId);
     return {
       dailyMicroUsd: Math.min(plan.dailyMicroUsd, this.options.dailyMicroUsd),
-      monthlyMessages: plan.monthlyMessages,
       monthlyPriceCents: plan.monthlyPriceCents,
       providerCallsPerTurn: plan.providerCallsPerTurn,
       monthlyMicroUsd: Math.min(
@@ -238,6 +242,7 @@ export class BudgetService {
         this.options.monthlyMicroUsd,
       ),
       taskMicroUsd: Math.min(plan.taskMicroUsd, this.options.taskMicroUsd),
+      weeklyMessages: plan.weeklyMessages,
     };
   }
 }

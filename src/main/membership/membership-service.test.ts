@@ -111,7 +111,7 @@ describe('MembershipService', () => {
     expect(read).not.toHaveBeenCalled();
   });
 
-  it('uses hosted access-code status and redemption when an API is configured', async () => {
+  it('uses hosted Free status and access-code upgrades when an API is configured', async () => {
     const { read, store, write } = memoryStore();
     const accessTokenProvider = vi.fn(async () => `tro_live_${'a'.repeat(43)}`);
     const fetchImpl = vi
@@ -120,8 +120,9 @@ describe('MembershipService', () => {
         new Response(
           JSON.stringify({
             maxUsers: null,
-            state: 'inactive',
-            summary: 'Enter an access code to continue.',
+            plan: 'free',
+            state: 'active',
+            summary: 'Free plan active.',
             usedUsers: null,
           }),
           { headers: { 'Content-Type': 'application/json' }, status: 200 },
@@ -132,6 +133,7 @@ describe('MembershipService', () => {
           JSON.stringify({
             maxUsers: 10,
             newlyRedeemed: true,
+            plan: 'basic',
             state: 'active',
             summary: 'Access code accepted.',
             usedUsers: 1,
@@ -150,11 +152,13 @@ describe('MembershipService', () => {
 
     await expect(service.getStatus(TEST_USER)).resolves.toMatchObject({
       expiresAt: null,
+      plan: 'free',
       referenceCode: null,
       required: true,
-      state: 'inactive',
+      state: 'active',
     });
     await expect(service.activate(TEST_USER, ' codea ')).resolves.toMatchObject({
+      plan: 'basic',
       referenceCode: null,
       state: 'active',
     });

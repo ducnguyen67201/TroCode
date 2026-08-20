@@ -241,7 +241,7 @@ jobs:
         run: |
           set -euo pipefail
           artifact_directory="out/make/zip/darwin/${{ matrix.architecture }}"
-          zip_path="$artifact_directory/TroCode-darwin-${{ matrix.architecture }}-${{ needs.validate.outputs.version }}.zip"
+          zip_path="$artifact_directory/Tro-darwin-${{ matrix.architecture }}-${{ needs.validate.outputs.version }}.zip"
           if [[ ! -f "$zip_path" ]]; then
             echo "::error::macOS ZIP not found in $artifact_directory"
             exit 1
@@ -275,7 +275,7 @@ jobs:
       - name: Upload macOS ZIP and checksum
         uses: actions/upload-artifact@v4
         with:
-          name: TroCode-macOS-${{ matrix.architecture }}-${{ github.run_number }}
+          name: Tro-macOS-${{ matrix.architecture }}-${{ github.run_number }}
           path: |
             out/make/zip/darwin/${{ matrix.architecture }}/*.zip
             out/make/zip/darwin/${{ matrix.architecture }}/SHA256SUMS-macos-${{ matrix.architecture }}.txt
@@ -298,7 +298,7 @@ jobs:
       - name: Download macOS release artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: TroCode-macOS-*-${{ github.run_number }}
+          pattern: Tro-macOS-*-${{ github.run_number }}
           path: release-assets
           merge-multiple: true
 

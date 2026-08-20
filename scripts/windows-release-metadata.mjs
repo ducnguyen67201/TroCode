@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { NtExecutable, NtExecutableResource, Resource } from 'resedit';
 
 const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
-const PRODUCT_NAME = 'TroCode';
+const PRODUCT_NAME = 'Tro';
 
 function parseVersion(version) {
   const match = VERSION_PATTERN.exec(version);
@@ -30,7 +30,7 @@ function metadataFor(kind, fileName, version) {
     FileDescription: kind === 'app' ? PRODUCT_NAME : `${PRODUCT_NAME} Installer`,
     FileVersion: version,
     InternalName: kind === 'app' ? PRODUCT_NAME : `${PRODUCT_NAME} Setup`,
-    LegalCopyright: `Copyright © ${new Date().getUTCFullYear()} TroCode contributors`,
+    LegalCopyright: `Copyright © ${new Date().getUTCFullYear()} Tro contributors`,
     OriginalFilename: fileName,
     ProductName: PRODUCT_NAME,
     ProductVersion: version,

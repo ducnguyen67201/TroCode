@@ -141,7 +141,7 @@ export function CompanionResponseCard({
           className="companion-response-card__title"
           id="companion-response-title"
         >
-          TroCode
+          Tro
         </h2>
         <span
           aria-atomic="true"

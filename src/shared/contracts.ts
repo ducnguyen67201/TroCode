@@ -731,14 +731,30 @@ const UsageBudgetPeriodSchema = z.object({
   settledMicroUsd: z.number().int().nonnegative(),
 });
 
+export const PlanIdSchema = z.enum(['free', 'basic', 'pro', 'max']);
+
 export const UsageBudgetSnapshotSchema = z.object({
   actualMicroUsd: z.number().int().nonnegative(),
   daily: UsageBudgetPeriodSchema,
   enforcementMode: z.enum(['observe', 'enforce']),
   estimatedMicroUsd: z.number().int().nonnegative(),
+  messages: z.object({
+    limit: z.number().int().nonnegative(),
+    periodEndsAt: z.string().datetime(),
+    periodStartsAt: z.string().datetime(),
+    remaining: z.number().int().nonnegative(),
+    used: z.number().int().nonnegative(),
+  }),
   monthEndsAt: z.string().datetime(),
   monthly: UsageBudgetPeriodSchema,
   periodStartsAt: z.string().datetime(),
+  plan: PlanIdSchema.nullable(),
+  pricing: z
+    .object({
+      currency: z.literal('usd'),
+      monthlyCents: z.number().int().nonnegative(),
+    })
+    .nullable(),
   source: z.enum(['hosted', 'local_advisory']),
   task: UsageBudgetPeriodSchema,
   warningThresholdMicroUsd: z.number().int().nonnegative(),
@@ -792,7 +808,7 @@ const CompanionSpeechMediaUrlSchema = z
     ) {
       context.addIssue({
         code: 'custom',
-        message: 'Speech media URLs must use the private TroCode audio scheme.',
+        message: 'Speech media URLs must use the private Tro audio scheme.',
       });
     }
   });
@@ -1013,6 +1029,7 @@ export const MembershipStatusSchema = z.object({
     .regex(/^TRC-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/)
     .nullable(),
   expiresAt: z.string().datetime().nullable(),
+  plan: PlanIdSchema.nullable().default(null),
   summary: z.string().min(1).max(1_000),
 });
 
@@ -1084,6 +1101,7 @@ export type InteractionMode = z.infer<typeof InteractionModeSchema>;
 export type AgentActivityKind = z.infer<typeof AgentActivityKindSchema>;
 export type AgentActivityUpdate = z.infer<typeof AgentActivityUpdateSchema>;
 export type MembershipStatus = z.infer<typeof MembershipStatusSchema>;
+export type PlanId = z.infer<typeof PlanIdSchema>;
 export type PendingInteraction = z.infer<typeof PendingInteractionSchema>;
 export type PrimaryLanguage = z.infer<typeof PrimaryLanguageSchema>;
 export type ProposedAction = z.infer<typeof ProposedActionSchema>;

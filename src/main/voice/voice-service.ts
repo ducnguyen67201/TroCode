@@ -170,7 +170,7 @@ export class VoiceService {
         state: 'not_configured',
         summary: this.apiBaseUrl
           ? 'Sign in with Google to use voice input.'
-          : 'OPENAI_API_KEY is missing from Doppler. Add it and restart TroCode.',
+          : 'OPENAI_API_KEY is missing from Doppler. Add it and restart Tro.',
       });
     } catch (error) {
       this.diagnosticLogger('status.failed', diagnosticErrorProperties(error));
@@ -178,7 +178,7 @@ export class VoiceService {
         model: VOICE_TRANSCRIPTION_MODEL,
         provider: 'openai',
         state: 'error',
-        summary: 'TroCode could not read the encrypted voice credential.',
+        summary: 'Tro could not read the encrypted voice credential.',
       });
     }
   }
@@ -186,7 +186,7 @@ export class VoiceService {
   async configure(input: unknown): Promise<VoiceStatus> {
     this.diagnosticLogger('configure.start');
     if (this.apiBaseUrl) {
-      throw new Error('TroCode voice is managed by the hosted service.');
+      throw new Error('Tro voice is managed by the hosted service.');
     }
     const { apiKey } = ConfigureVoiceRequestSchema.parse(input);
     await this.validateTranscriptionAccess(apiKey);
@@ -202,7 +202,7 @@ export class VoiceService {
       throw new Error(
         this.apiBaseUrl
           ? 'Sign in with Google to use voice input.'
-          : 'OPENAI_API_KEY is missing from Doppler. Add it and restart TroCode.',
+          : 'OPENAI_API_KEY is missing from Doppler. Add it and restart Tro.',
       );
     }
     const language = await this.preferencesService.getPrimaryLanguage();
@@ -235,7 +235,7 @@ export class VoiceService {
         error instanceof Error &&
           (error.name === 'TimeoutError' || error.name === 'AbortError')
           ? 'OpenAI voice transcription timed out.'
-          : 'TroCode could not reach voice transcription.',
+          : 'Tro could not reach voice transcription.',
         { cause: error },
       );
     }
@@ -329,7 +329,7 @@ export class VoiceService {
       throw new Error(
         error instanceof Error && error.name === 'TimeoutError'
           ? 'OpenAI voice validation timed out.'
-          : 'TroCode could not validate OpenAI GPT Transcribe access.',
+          : 'Tro could not validate OpenAI GPT Transcribe access.',
       );
     }
     const responseBody = await readBoundedJson(response);

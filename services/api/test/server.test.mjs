@@ -80,8 +80,10 @@ function memoryAccessCodes(
     if (!assignedCode) {
       return {
         maxUsers: null,
-        state: 'inactive',
-        summary: 'Enter an access code to continue.',
+        newlyRedeemed,
+        plan: 'free',
+        state: 'active',
+        summary: 'Free plan active.',
         usedUsers: null,
       };
     }
@@ -147,14 +149,23 @@ async function withApi(
     release: async () => undefined,
     reserve: async () => undefined,
     settle: async () => undefined,
-    snapshot: async () => ({
+    snapshot: async (_userId, _taskId, plan = 'free') => ({
       actualMicroUsd: 1_000,
       daily: { limitMicroUsd: 2_000_000, remainingMicroUsd: 1_999_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
       enforcementMode: 'enforce',
       estimatedMicroUsd: 0,
+      messages: {
+        limit: plan === 'free' ? 25 : 300,
+        periodEndsAt: '2026-08-24T00:00:00.000Z',
+        periodStartsAt: '2026-08-17T00:00:00.000Z',
+        remaining: plan === 'free' ? 24 : 299,
+        used: 1,
+      },
       monthEndsAt: '2026-09-01T00:00:00.000Z',
       monthly: { limitMicroUsd: 20_000_000, remainingMicroUsd: 19_999_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
       periodStartsAt: '2026-08-01T00:00:00.000Z',
+      plan,
+      pricing: { currency: 'usd', monthlyCents: plan === 'free' ? 0 : 2_000 },
       task: { limitMicroUsd: 500_000, remainingMicroUsd: 499_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
       warningThresholdMicroUsd: 16_000_000,
     }),
@@ -346,8 +357,10 @@ test('access codes enforce one code per account and an atomic user limit', async
       );
       assert.deepEqual(await initialStatus.json(), {
         maxUsers: null,
-        state: 'inactive',
-        summary: 'Enter an access code to continue.',
+        newlyRedeemed: false,
+        plan: 'free',
+        state: 'active',
+        summary: 'Free plan active.',
         usedUsers: null,
       });
 
@@ -463,6 +476,47 @@ test('Basic response traffic uses the API-owned 30 RPM shared limit', async () =
   );
 });
 
+test('Free response traffic uses the API-owned 15 RPM shared limit', async () => {
+  const consumed = [];
+  await withApi(
+    async ({ baseUrl }) => {
+      const session = await signIn(baseUrl);
+      const response = await fetch(`${baseUrl}/v1/openai/responses`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(responsesBody()),
+      });
+      assert.equal(response.status, 429);
+
+      assert.deepEqual(
+        consumed.find((entry) => entry.scope === 'responses.minute'),
+        {
+          key: TEST_USER.id,
+          limit: 15,
+          scope: 'responses.minute',
+          windowMs: 60_000,
+        },
+      );
+    },
+    {
+      rateLimiter: {
+        consume: async (input) => {
+          consumed.push(input);
+          return {
+            allowed: input.scope !== 'responses.minute',
+            limit: input.limit,
+            remaining: Math.max(0, input.limit - 1),
+            retryAfterSeconds: 1,
+          };
+        },
+      },
+    },
+  );
+});
+
 test('agent turns are authenticated, plan-owned, and idempotent', async () => {
   await withApi(async ({ baseUrl }) => {
     const session = await signInAndActivate(baseUrl);
@@ -511,7 +565,7 @@ test('model proxy requires authentication and enforces model allowlist', async (
       assert.equal(unauthenticated.status, 401);
 
       const session = await signIn(baseUrl);
-      const accessRequired = await fetch(`${baseUrl}/v1/openai/responses`, {
+      const incompleteRequest = await fetch(`${baseUrl}/v1/openai/responses`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.accessToken}`,
@@ -519,9 +573,9 @@ test('model proxy requires authentication and enforces model allowlist', async (
         },
         body: JSON.stringify(responsesBody()),
       });
-      assert.equal(accessRequired.status, 403);
-      assert.deepEqual(await accessRequired.json(), {
-        error: 'Enter a valid access code to use TroCode.',
+      assert.equal(incompleteRequest.status, 400);
+      assert.deepEqual(await incompleteRequest.json(), {
+        error: 'Responses request is invalid.',
       });
 
       const activation = await redeemAccessCode(baseUrl, session.accessToken);
@@ -686,6 +740,7 @@ test('usage budget returns only the authenticated caller snapshot', async () => 
     assert.equal(response.status, 200);
     const snapshot = await response.json();
     assert.equal(snapshot.monthly.limitMicroUsd, 20_000_000);
+    assert.equal(snapshot.plan, 'free');
     assert.equal('prompt' in snapshot, false);
   });
 });
@@ -809,7 +864,7 @@ test('hosted speech delivers its first chunk before provider completion', async 
   );
 });
 
-test('segmented transcription requires membership and validates its bounded contract', async () => {
+test('segmented transcription requires sign-in and validates its bounded contract', async () => {
   await withApi(async ({ baseUrl }) => {
     const signedOut = await fetch(
       `${baseUrl}/v1/openai/audio/transcriptions`,
@@ -822,20 +877,6 @@ test('segmented transcription requires membership and validates its bounded cont
     assert.equal(signedOut.status, 401);
 
     const session = await signIn(baseUrl);
-    const inactive = await fetch(
-      `${baseUrl}/v1/openai/audio/transcriptions`,
-      {
-        body: JSON.stringify(transcriptionBody()),
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          'Content-Type': 'application/json',
-          'X-Trocode-Request-Id': TEST_REQUEST_ID,
-        },
-        method: 'POST',
-      },
-    );
-    assert.equal(inactive.status, 403);
-    await redeemAccessCode(baseUrl, session.accessToken);
 
     for (const [body, requestId] of [
       [transcriptionBody({ language: 'xx' }), TEST_REQUEST_ID],

@@ -19,7 +19,7 @@ export function CursorCompanion() {
 
   return (
     <div
-      aria-label={`TroCode companion: ${state}`}
+      aria-label={`Tro companion: ${state}`}
       className={`cursor-companion cursor-companion--${state}${
         usesOverlayTracking ? ' cursor-companion--overlay' : ''
       }`}

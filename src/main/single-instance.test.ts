@@ -50,7 +50,7 @@ describe('initializeSingleInstance', () => {
 describe('isolateDevelopmentInstance', () => {
   it('uses a separate user-data directory for development launches', () => {
     const app = {
-      getName: vi.fn(() => 'TroCode'),
+      getName: vi.fn(() => 'Tro'),
       getPath: vi.fn(() => '/application-support'),
       isPackaged: false,
       setPath: vi.fn(),
@@ -60,13 +60,13 @@ describe('isolateDevelopmentInstance', () => {
 
     expect(app.setPath).toHaveBeenCalledWith(
       'userData',
-      path.join('/application-support', 'TroCode Development'),
+      path.join('/application-support', 'Tro Development'),
     );
   });
 
   it('keeps the packaged application user-data directory unchanged', () => {
     const app = {
-      getName: vi.fn(() => 'TroCode'),
+      getName: vi.fn(() => 'Tro'),
       getPath: vi.fn(() => '/application-support'),
       isPackaged: true,
       setPath: vi.fn(),

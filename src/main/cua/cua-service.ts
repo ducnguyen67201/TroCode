@@ -754,9 +754,9 @@ export class CuaService {
             summary: 'macOS permissions are not complete yet.',
             nextActions: [
               requestMissingPermissions
-                ? 'Enable TroCode under Accessibility and Screen Recording.'
+                ? 'Enable Tro under Accessibility and Screen Recording.'
                 : 'Choose Connect computer to finish permission onboarding.',
-              'Restart TroCode after changing Screen Recording permission.',
+              'Restart Tro after changing Screen Recording permission.',
             ],
           };
         }
@@ -804,7 +804,7 @@ export class CuaService {
           metadata.toolsListSchemaVersion !== '1'
         ) {
           throw new Error(
-            'CUA runtime does not match TroCode supported contract 0.19.3/0.6.0.',
+            'CUA runtime does not match Tro supported contract 0.19.3/0.6.0.',
           );
         }
         this.driverVersion = metadata.driverVersion;

@@ -52,15 +52,15 @@ export class PostgresAgentTurnRepository {
       }
 
       const usage = await client.query(
-        `SELECT COUNT(*) AS month_messages
+        `SELECT COUNT(*) AS week_messages
          FROM agent_turns
          WHERE user_id = $1
-           AND created_at >= date_trunc('month', NOW())
+           AND created_at >= date_trunc('week', NOW())
            AND status <> 'released'`,
         [input.userId],
       );
       const committed = {
-        monthMessages: rowNumber(usage.rows[0]?.month_messages),
+        weekMessages: rowNumber(usage.rows[0]?.week_messages),
       };
       const denial = input.authorize(committed);
       if (denial && input.enforce) {

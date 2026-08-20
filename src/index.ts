@@ -143,7 +143,7 @@ if (require('electron-squirrel-startup')) {
   app.quit();
 }
 
-app.setName('TroCode');
+app.setName('Tro');
 protocol.registerSchemesAsPrivileged([
   {
     privileges: {
@@ -1820,7 +1820,7 @@ function ensureBackgroundTray(): void {
     .createFromPath(runtimeAppIconPath())
     .resize({ height: 18, width: 18 });
   backgroundTray = new Tray(trayIcon);
-  backgroundTray.setToolTip('TroCode');
+  backgroundTray.setToolTip('Tro');
   backgroundTray.setContextMenu(
     Menu.buildFromTemplate([
       {
@@ -1831,12 +1831,12 @@ function ensureBackgroundTray(): void {
           }
           createWindow();
         },
-        label: 'Show TroCode',
+        label: 'Show Tro',
       },
       { type: 'separator' },
       {
         click: () => beginShutdown(),
-        label: 'Quit TroCode',
+        label: 'Quit Tro',
       },
     ]),
   );
@@ -1858,7 +1858,7 @@ const createWindow = (): void => {
     minHeight: 680,
     minWidth: 960,
     show: false,
-    title: 'TroCode',
+    title: 'Tro',
     ...(process.platform === 'darwin'
       ? {
           titleBarStyle: 'hiddenInset' as const,
@@ -2417,7 +2417,7 @@ if (hasSingleInstanceLock) {
   });
 
   app.on('window-all-closed', () => {
-    // The renderer is TroCode's background voice host. Explicit Quit remains
+    // The renderer is Tro's background voice host. Explicit Quit remains
     // available from the application menu and tray.
   });
 

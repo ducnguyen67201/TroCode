@@ -55,7 +55,7 @@ describe('resolveWindowsUpdateRelease', () => {
   it('skips draft, incomplete, and older releases', async () => {
     const request = requestWith([
       release('v0.2.0', { draft: true }),
-      release('v0.1.5', { assets: ['TroCodeSetup.exe'] }),
+      release('v0.1.5', { assets: ['TroSetup.exe'] }),
       release('v0.1.1'),
     ]);
 

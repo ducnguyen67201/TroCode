@@ -8,7 +8,6 @@ class MemoryUsageRepository {
 
   committed = {
     dayMicroUsd: 0,
-    monthMessages: 0,
     monthMicroUsd: 0,
     taskMicroUsd: 0,
   };
@@ -29,7 +28,6 @@ class MemoryUsageRepository {
     this.reservations.set(key, reservation);
     this.committed = {
       dayMicroUsd: this.committed.dayMicroUsd + input.reservedMicroUsd,
-      monthMessages: this.committed.monthMessages,
       monthMicroUsd: this.committed.monthMicroUsd + input.reservedMicroUsd,
       taskMicroUsd: this.committed.taskMicroUsd + input.reservedMicroUsd,
     };
@@ -48,11 +46,12 @@ class MemoryUsageRepository {
       dayReservedMicroUsd: this.committed.dayMicroUsd,
       daySettledMicroUsd: 0,
       monthEndsAt: '2026-09-01T00:00:00.000Z',
-      monthMessages: this.committed.monthMessages,
       monthReservedMicroUsd: this.committed.monthMicroUsd,
       monthSettledMicroUsd: 0,
       taskReservedMicroUsd: this.committed.taskMicroUsd,
       taskSettledMicroUsd: 0,
+      weekEndsAt: '2026-08-24T00:00:00.000Z',
+      weekMessages: 0,
     };
   }
 }
@@ -109,12 +108,14 @@ test('observe mode records would-deny reservations and snapshots remain sanitize
     userId: 'user-1',
     planId: 'basic',
   });
-  const snapshot = await budget.snapshot('user-1');
+  const snapshot = await budget.snapshot('user-1', null, 'basic');
   assert.equal(snapshot.enforcementMode, 'observe');
   assert.equal(snapshot.monthly.remainingMicroUsd, 0);
   assert.deepEqual(snapshot.messages, {
-    limit: 1_200,
-    remaining: 1_200,
+    limit: 300,
+    periodEndsAt: '2026-08-24T00:00:00.000Z',
+    periodStartsAt: '2026-08-17T00:00:00.000Z',
+    remaining: 300,
     used: 0,
   });
   assert.equal(snapshot.plan, 'basic');
@@ -141,7 +142,22 @@ test('multiple provider calls do not increment the user-turn message count', asy
 
   await request('11111111-1111-4111-8111-111111111112');
   await request('11111111-1111-4111-8111-111111111113');
-  assert.equal(repository.committed.monthMessages, 0);
+  assert.equal((await budget.snapshot('user-1')).messages.used, 0);
+});
+
+test('Free snapshots expose the account plan and zero-dollar price', async () => {
+  const budget = service(new MemoryUsageRepository());
+  const snapshot = await budget.snapshot('user-1', null, 'free');
+
+  assert.equal(snapshot.plan, 'free');
+  assert.deepEqual(snapshot.pricing, { currency: 'usd', monthlyCents: 0 });
+  assert.deepEqual(snapshot.messages, {
+    limit: 25,
+    periodEndsAt: '2026-08-24T00:00:00.000Z',
+    periodStartsAt: '2026-08-17T00:00:00.000Z',
+    remaining: 25,
+    used: 0,
+  });
 });
 
 test('voice usage shares the cost cap without consuming an agent message', async () => {
@@ -158,7 +174,8 @@ test('voice usage shares the cost cap without consuming an agent message', async
     userId: 'user-1',
   });
 
-  assert.equal(repository.committed.monthMessages, 0);
+  assert.equal(repository.committed.monthMicroUsd, 1);
+  assert.equal((await budget.snapshot('user-1')).messages.used, 0);
 });
 
 test('transcription pricing uses integer micro-USD ceiling math', () => {

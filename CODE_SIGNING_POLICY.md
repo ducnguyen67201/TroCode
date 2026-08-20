@@ -4,9 +4,9 @@ Free code signing provided by [SignPath.io](https://signpath.io/), certificate
 by [SignPath Foundation](https://signpath.org/).
 
 This policy applies to Windows release artifacts built from the public
-[TroCode repository](https://github.com/ducnguyen67201/TroCode). The certificate
+[Tro repository](https://github.com/ducnguyen67201/TroCode). The certificate
 publisher is SignPath Foundation; the product represented by the signed files
-is TroCode.
+is Tro.
 
 ## Team roles
 
@@ -31,7 +31,7 @@ from the `main` branch. The workflow:
 1. installs the locked npm dependency graph and runs lint, type checking, tests,
    and the production dependency audit;
 2. packages the application and submits the GitHub-hosted workflow artifact to
-   SignPath so the TroCode executable is signed;
+   SignPath so the Tro executable is signed;
 3. creates the Squirrel.Windows installer from that signed package;
 4. constrains the product name, version, company, and original-filename metadata
    before submitting the installer for signing;
@@ -40,9 +40,9 @@ from the `main` branch. The workflow:
 6. produces SHA-256 checksums and publishes an immutable versioned GitHub
    Release only after all checks succeed.
 
-SignPath artifact configurations restrict signing to the expected TroCode
+SignPath artifact configurations restrict signing to the expected Tro
 executable and installer names and metadata. Third-party executables and native
-libraries bundled with Electron or CUA are not signed as TroCode binaries.
+libraries bundled with Electron or CUA are not signed as Tro binaries.
 
 ## Release and incident policy
 

@@ -117,7 +117,7 @@ export function SettingsPage({
         <h1 id="settings-heading">{t('Settings')}</h1>
         <p>
           {t(
-            'Manage TroCode’s interface language, voice input, and installed application.',
+            'Manage Tro’s interface language, voice input, and installed application.',
           )}
         </p>
       </div>
@@ -158,7 +158,7 @@ export function SettingsPage({
 
         <p className="settings-help">
           {t(
-            'Choose the language used for navigation, settings, and other TroCode controls.',
+            'Choose the language used for navigation, settings, and other Tro controls.',
           )}
         </p>
 
@@ -191,7 +191,7 @@ export function SettingsPage({
         <p className="settings-help">
           {autonomyMode === 'balanced'
             ? t(
-                'Routine, reversible actions continue automatically. TroCode still pauses for destructive, financial, privacy-sensitive, or permission-changing actions.',
+                'Routine, reversible actions continue automatically. Tro still pauses for destructive, financial, privacy-sensitive, or permission-changing actions.',
               )
             : t(
                 'Ask before routine desktop mutations as well as consequential actions.',
@@ -227,7 +227,7 @@ export function SettingsPage({
 
         <p className="settings-help">
           {t(
-            'TroCode sends this as a transcription hint so short or noisy speech is less likely to be interpreted as an unexpected language or script.',
+            'Tro sends this as a transcription hint so short or noisy speech is less likely to be interpreted as an unexpected language or script.',
           )}
         </p>
 
@@ -281,7 +281,7 @@ export function SettingsPage({
       <section className="settings-card settings-update-card" aria-labelledby="app-update-heading">
         <div className="settings-card__heading">
           <div>
-            <p className="eyebrow">{t('About TroCode')}</p>
+            <p className="eyebrow">{t('About Tro')}</p>
             <h2 id="app-update-heading">{t('Application update')}</h2>
           </div>
           <span className="settings-badge settings-badge--neutral">

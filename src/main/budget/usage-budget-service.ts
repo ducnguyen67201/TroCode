@@ -7,6 +7,11 @@ function localSnapshot(): UsageBudgetSnapshot {
   const now = new Date();
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  const weekStart = new Date(now);
+  const daysFromMonday = (weekStart.getUTCDay() + 6) % 7;
+  weekStart.setUTCDate(weekStart.getUTCDate() - daysFromMonday);
+  weekStart.setUTCHours(0, 0, 0, 0);
+  const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1_000);
   const empty = {
     limitMicroUsd: 0,
     remainingMicroUsd: 0,
@@ -18,9 +23,18 @@ function localSnapshot(): UsageBudgetSnapshot {
     daily: empty,
     enforcementMode: 'observe',
     estimatedMicroUsd: 0,
+    messages: {
+      limit: 0,
+      periodEndsAt: weekEnd.toISOString(),
+      periodStartsAt: weekStart.toISOString(),
+      remaining: 0,
+      used: 0,
+    },
     monthEndsAt: end.toISOString(),
     monthly: empty,
     periodStartsAt: start.toISOString(),
+    plan: null,
+    pricing: null,
     source: 'local_advisory',
     task: empty,
     warningThresholdMicroUsd: 0,

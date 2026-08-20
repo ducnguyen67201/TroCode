@@ -84,7 +84,7 @@ describe('AppUpdateService', () => {
     });
 
     expect(service.start()).toMatchObject({
-      message: 'Microsoft Store keeps this installation of TroCode updated.',
+      message: 'Microsoft Store keeps this installation of Tro updated.',
       phase: 'unsupported',
     });
     await expect(service.checkForUpdates()).resolves.toMatchObject({
@@ -154,7 +154,7 @@ describe('AppUpdateService', () => {
     autoUpdater.emitter.emit('error', new Error('x'.repeat(3_000)));
 
     expect(service.getStatus()).toMatchObject({
-      message: 'TroCode could not check for updates. Please try again.',
+      message: 'Tro could not check for updates. Please try again.',
       phase: 'error',
     });
     expect(service.getStatus().message).not.toContain('xxx');
@@ -205,7 +205,7 @@ describe('AppUpdateService', () => {
     });
 
     await expect(service.checkForUpdates()).resolves.toMatchObject({
-      message: 'TroCode 0.1.1 is up to date.',
+      message: 'Tro 0.1.1 is up to date.',
       phase: 'up_to_date',
     });
     expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();

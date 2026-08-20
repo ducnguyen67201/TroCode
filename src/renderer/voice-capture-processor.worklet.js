@@ -1,4 +1,4 @@
-class TroCodeVoiceCaptureProcessor extends AudioWorkletProcessor {
+class TroVoiceCaptureProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     this.frameSamples = Math.max(1, Math.round(sampleRate * 0.02));
@@ -42,4 +42,4 @@ class TroCodeVoiceCaptureProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor('trocode-voice-capture', TroCodeVoiceCaptureProcessor);
+registerProcessor('trocode-voice-capture', TroVoiceCaptureProcessor);

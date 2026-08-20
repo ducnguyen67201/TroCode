@@ -122,7 +122,7 @@ describe('VoiceService', () => {
 
   it('surfaces hosted string and object access errors', async () => {
     for (const error of [
-      'Enter a valid access code to use TroCode.',
+      'Enter a valid access code to use Tro.',
       { message: 'Your session expired.' },
     ]) {
       const service = new VoiceService({

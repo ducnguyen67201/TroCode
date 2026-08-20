@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { PostgresAgentTurnRepository } from '../src/agent-turn-repository.mjs';
 
-test('agent turn creation serializes a user monthly quota check', async () => {
+test('agent turn creation serializes a user weekly quota check', async () => {
   const statements = [];
   const client = {
     query: async (sql, parameters = []) => {
@@ -11,8 +11,8 @@ test('agent turn creation serializes a user monthly quota check', async () => {
       if (sql.includes('FROM agent_turns') && sql.includes('client_turn_id')) {
         return { rows: [] };
       }
-      if (sql.includes('COUNT(*) AS month_messages')) {
-        return { rows: [{ month_messages: 1199 }] };
+      if (sql.includes('COUNT(*) AS week_messages')) {
+        return { rows: [{ week_messages: 299 }] };
       }
       if (sql.includes('INSERT INTO agent_turns')) {
         return {
@@ -37,8 +37,8 @@ test('agent turn creation serializes a user monthly quota check', async () => {
   });
 
   const result = await repository.create({
-    authorize: ({ monthMessages }) =>
-      monthMessages >= 1_200 ? { code: 'full' } : null,
+    authorize: ({ weekMessages }) =>
+      weekMessages >= 300 ? { code: 'full' } : null,
     clientTurnId: '22222222-2222-4222-8222-222222222222',
     enforce: true,
     planId: 'basic',
@@ -47,7 +47,10 @@ test('agent turn creation serializes a user monthly quota check', async () => {
   });
 
   assert.equal(result.kind, 'created');
-  assert.equal(result.committed.monthMessages, 1_199);
+  assert.equal(result.committed.weekMessages, 299);
+  assert.ok(
+    statements.some(({ sql }) => sql.includes("date_trunc('week', NOW())")),
+  );
   assert.ok(
     statements.some(({ sql }) => sql.includes('pg_advisory_xact_lock')),
   );

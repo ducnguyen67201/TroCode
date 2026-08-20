@@ -102,7 +102,7 @@ jobs:
       - name: Constrain application metadata before signing
         shell: pwsh
         run: |
-          $application = 'out\TroCode-win32-x64\TroCode.exe'
+          $application = 'out\Tro-win32-x64\Tro.exe'
           if (-not (Test-Path $application -PathType Leaf)) {
             Write-Error "Packaged application not found: $application"
             exit 1
@@ -117,11 +117,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: signpath-unsigned-app-${{ github.run_id }}-${{ github.run_attempt }}
-          path: out/TroCode-win32-x64
+          path: out/Tro-win32-x64
           if-no-files-found: error
           retention-days: 1
 
-      - name: Sign the TroCode application through SignPath
+      - name: Sign the Tro application through SignPath
         id: sign-application
         uses: signpath/github-action-submit-signing-request@v2
         with:
@@ -140,8 +140,8 @@ jobs:
       - name: Verify and install the signed application
         shell: pwsh
         run: |
-          $signedApplication = 'out\signpath\signed-app\TroCode.exe'
-          $packageApplication = 'out\TroCode-win32-x64\TroCode.exe'
+          $signedApplication = 'out\signpath\signed-app\Tro.exe'
+          $packageApplication = 'out\Tro-win32-x64\Tro.exe'
           if (-not (Test-Path $signedApplication -PathType Leaf)) {
             Write-Error "Signed application not found: $signedApplication"
             exit 1
@@ -149,7 +149,7 @@ jobs:
 
           $signature = Get-AuthenticodeSignature $signedApplication
           if ($signature.Status -ne 'Valid') {
-            Write-Error "TroCode.exe signature is not valid: $($signature.Status)"
+            Write-Error "Tro.exe signature is not valid: $($signature.Status)"
             exit 1
           }
           Copy-Item $signedApplication $packageApplication -Force
@@ -190,7 +190,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Sign the TroCode installer through SignPath
+      - name: Sign the Tro installer through SignPath
         id: sign-installer
         uses: signpath/github-action-submit-signing-request@v2
         with:
@@ -242,10 +242,10 @@ jobs:
           New-Item -ItemType Directory -Path $expandedPackage | Out-Null
           tar -xf $package.FullName -C $expandedPackage
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $packagedApplication = Get-ChildItem $expandedPackage -Recurse -Filter 'TroCode.exe' -File |
+          $packagedApplication = Get-ChildItem $expandedPackage -Recurse -Filter 'Tro.exe' -File |
             Select-Object -First 1
           if (-not $packagedApplication) {
-            Write-Error 'TroCode.exe is missing from the full update package.'
+            Write-Error 'Tro.exe is missing from the full update package.'
             exit 1
           }
           $applicationSignature = Get-AuthenticodeSignature $packagedApplication.FullName
@@ -285,7 +285,7 @@ jobs:
           gh release create '${{ steps.release.outputs.tag }}' @assets `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:GITHUB_SHA `
-            --title "TroCode $env:TROCODE_RELEASE_VERSION" `
+            --title "Tro $env:TROCODE_RELEASE_VERSION" `
             --notes "Signed by SignPath.io; certificate by SignPath Foundation. Code signing policy: https://github.com/$env:GITHUB_REPOSITORY/blob/main/CODE_SIGNING_POLICY.md" `
             --generate-notes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -293,7 +293,7 @@ jobs:
       - name: Upload signed Windows installer and update metadata
         uses: actions/upload-artifact@v4
         with:
-          name: TroCode-Windows-x64-SignPath-${{ github.run_number }}
+          name: Tro-Windows-x64-SignPath-${{ github.run_number }}
           path: out/make/squirrel.windows/x64/*
           if-no-files-found: error
           retention-days: 30

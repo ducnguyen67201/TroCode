@@ -15,6 +15,7 @@ import {
   CompanionSpeechPlaybackReportSchema,
   CompanionSpeechSchema,
   MembershipStatusSchema,
+  PlanIdSchema,
   LEGACY_VOICE_TRANSCRIPTION_MODEL,
   TaskComposerFocusRequestSchema,
   TaskHistorySchema,
@@ -228,15 +229,17 @@ describe('shared task contracts', () => {
   });
 
   it('accepts hosted access-code membership contracts', () => {
+    expect(PlanIdSchema.options).toEqual(['free', 'basic', 'pro', 'max']);
     expect(
       MembershipStatusSchema.parse({
         expiresAt: null,
+        plan: 'free',
         referenceCode: null,
         required: true,
         state: 'inactive',
         summary: 'Enter an access code to continue.',
       }),
-    ).toMatchObject({ referenceCode: null, state: 'inactive' });
+    ).toMatchObject({ plan: 'free', referenceCode: null, state: 'inactive' });
     expect(ActivateMembershipRequestSchema.parse({ code: 'CODEA' })).toEqual({
       code: 'CODEA',
     });
@@ -273,20 +276,33 @@ describe('shared task contracts', () => {
         schemaVersion: 4,
       }),
     ).toMatchObject({ schemaVersion: 4 });
-    expect(
-      UsageBudgetSnapshotSchema.parse({
-        actualMicroUsd: 1_000,
-        daily: { limitMicroUsd: 2_000_000, remainingMicroUsd: 1_999_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
-        enforcementMode: 'enforce',
-        estimatedMicroUsd: 0,
-        monthEndsAt: '2026-09-01T00:00:00.000Z',
-        monthly: { limitMicroUsd: 20_000_000, remainingMicroUsd: 19_999_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
-        periodStartsAt: '2026-08-01T00:00:00.000Z',
-        source: 'hosted',
-        task: { limitMicroUsd: 500_000, remainingMicroUsd: 499_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
-        warningThresholdMicroUsd: 16_000_000,
-      }),
-    ).not.toHaveProperty('prompt');
+    const usageBudget = UsageBudgetSnapshotSchema.parse({
+      actualMicroUsd: 1_000,
+      daily: { limitMicroUsd: 2_000_000, remainingMicroUsd: 1_999_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
+      enforcementMode: 'enforce',
+      estimatedMicroUsd: 0,
+      messages: {
+        limit: 25,
+        periodEndsAt: '2026-08-24T00:00:00.000Z',
+        periodStartsAt: '2026-08-17T00:00:00.000Z',
+        remaining: 24,
+        used: 1,
+      },
+      monthEndsAt: '2026-09-01T00:00:00.000Z',
+      monthly: { limitMicroUsd: 20_000_000, remainingMicroUsd: 19_999_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
+      periodStartsAt: '2026-08-01T00:00:00.000Z',
+      plan: 'free',
+      pricing: { currency: 'usd', monthlyCents: 0 },
+      source: 'hosted',
+      task: { limitMicroUsd: 500_000, remainingMicroUsd: 499_000, reservedMicroUsd: 0, settledMicroUsd: 1_000 },
+      warningThresholdMicroUsd: 16_000_000,
+    });
+    expect(usageBudget).toMatchObject({
+      messages: { limit: 25, remaining: 24, used: 1 },
+      plan: 'free',
+      pricing: { currency: 'usd', monthlyCents: 0 },
+    });
+    expect(usageBudget).not.toHaveProperty('prompt');
   });
 
   it('binds v5 Workspace contracts and submissions to one trusted selection', () => {

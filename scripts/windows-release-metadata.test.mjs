@@ -22,11 +22,11 @@ const squirrelSetup = path.join(
   'Setup.exe',
 );
 
-test('stamps the Squirrel installer with constrained TroCode metadata', async () => {
+test('stamps the Squirrel installer with constrained Tro metadata', async () => {
   const temporaryDirectory = await mkdtemp(
     path.join(os.tmpdir(), 'trocode-windows-metadata-'),
   );
-  const installer = path.join(temporaryDirectory, 'TroCode-0.1.0 Setup.exe');
+  const installer = path.join(temporaryDirectory, 'Tro-0.1.0 Setup.exe');
 
   try {
     await copyFile(squirrelSetup, installer);
@@ -48,12 +48,12 @@ test('stamps the Squirrel installer with constrained TroCode metadata', async ()
         ProductVersion: metadata.ProductVersion,
       },
       {
-        CompanyName: 'TroCode',
-        FileDescription: 'TroCode Installer',
+        CompanyName: 'Tro',
+        FileDescription: 'Tro Installer',
         FileVersion: '0.1.0',
-        InternalName: 'TroCode Setup',
-        OriginalFilename: 'TroCode-0.1.0 Setup.exe',
-        ProductName: 'TroCode',
+        InternalName: 'Tro Setup',
+        OriginalFilename: 'Tro-0.1.0 Setup.exe',
+        ProductName: 'Tro',
         ProductVersion: '0.1.0',
       },
     );

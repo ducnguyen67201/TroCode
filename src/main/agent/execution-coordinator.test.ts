@@ -1467,15 +1467,15 @@ describe('TaskExecutionCoordinator', () => {
     expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
   });
 
-  it('blocks a model attempt to operate TroCode approval UI before requesting approval', async () => {
+  it('blocks a model attempt to operate Tro approval UI before requesting approval', async () => {
     const observationId = randomUUID();
     const { agent, coordinator, cua, runtime } = setup([
       tool('call-observe', 'observe_desktop', { reason: 'Inspect the desktop.' }),
       tool('call-self-approve', 'control_desktop', {
         observationId,
         consequence: 'click_element',
-        description: 'Click the approval control at the bottom of the TroCode dialog.',
-        target: 'Approve exact action button in the TroCode window',
+        description: 'Click the approval control at the bottom of the Tro dialog.',
+        target: 'Approve exact action button in the Tro window',
         command: {
           kind: 'click',
           x: 700,

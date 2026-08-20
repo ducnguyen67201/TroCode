@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>TroCode design preview</title>
+    <title>Tro design preview</title>
   </head>
   <body>
     <div id="root"></div>
@@ -39,7 +39,7 @@
         }),
         getAppUpdateStatus: () => Promise.resolve({
           currentVersion: '0.1.1',
-          message: 'TroCode is up to date.',
+          message: 'Tro is up to date.',
           phase: 'up_to_date',
           targetVersion: null,
         }),
@@ -55,6 +55,7 @@
           required: true,
           referenceCode: 'TRC-DEMO-2026-USER',
           expiresAt: null,
+          plan: 'basic',
           summary: 'Active preview membership.',
         }),
         getUsageBudget: () => Promise.resolve({
@@ -62,12 +63,30 @@
           daily: emptyBudgetPeriod(),
           enforcementMode: 'observe',
           estimatedMicroUsd: 0,
+          messages: {
+            limit: 300,
+            periodEndsAt: '2026-08-24T00:00:00.000Z',
+            periodStartsAt: '2026-08-17T00:00:00.000Z',
+            remaining: 180,
+            used: 120,
+          },
           monthEndsAt: '2026-09-01T00:00:00.000Z',
-          monthly: emptyBudgetPeriod(),
+          monthly: {
+            limitMicroUsd: 8_000_000,
+            remainingMicroUsd: 6_000_000,
+            reservedMicroUsd: 0,
+            settledMicroUsd: 2_000_000,
+          },
           periodStartsAt: '2026-08-01T00:00:00.000Z',
-          source: 'local_advisory',
+          plan: 'basic',
+          pricing: { currency: 'usd', monthlyCents: 2_000 },
+          source: 'hosted',
           task: emptyBudgetPeriod(),
           warningThresholdMicroUsd: 0,
+        }),
+        getWorkspaceRuntimeAvailability: () => Promise.resolve({
+          available: true,
+          reason: null,
         }),
         getTaskHistory: () => Promise.resolve({
           events: [],
@@ -80,7 +99,9 @@
           model: 'gpt-transcribe',
           summary: 'Voice ready.',
         }),
+        onAgentActivity: noOpSubscription,
         onAppUpdateStatusChanged: noOpSubscription,
+        onTaskComposerFocusRequested: noOpSubscription,
         onTaskUpdate: noOpSubscription,
         onVoiceShortcut: noOpSubscription,
         openSystemPermissionSettings: resolvedVoid,
@@ -88,6 +109,7 @@
         reportVoiceDiagnostic: resolvedVoid,
         respondToInteraction: () => Promise.reject(new Error('Preview only')),
         restartAndInstallAppUpdate: resolvedVoid,
+        selectWorkspace: () => Promise.resolve(null),
         setCompanionState: resolvedVoid,
         setCompanionVoiceActivity: resolvedVoid,
         setVoiceAudioDucking: resolvedVoid,

@@ -86,18 +86,22 @@ describe('concrete tool policy', () => {
 
   it.each([
     {
-      description: 'Approve the requested Gmail compose action in TroCode.',
-      target: 'TroCode',
+      description: 'Approve the requested Gmail compose action in Tro.',
+      target: 'Tro',
     },
     {
-      description: 'Approve the exact Gmail compose action shown in TroCode.',
+      description: 'Approve the exact Gmail compose action shown in Tro.',
+      target: 'Tro approval card',
+    },
+    {
+      description: 'Click the approval control at the bottom of the Tro dialog.',
+      target: 'Approve exact action button in the Tro window',
+    },
+    {
+      description: 'Click the approval control in the legacy TroCode dialog.',
       target: 'TroCode approval card',
     },
-    {
-      description: 'Click the approval control at the bottom of the TroCode dialog.',
-      target: 'Approve exact action button in the TroCode window',
-    },
-  ])('denies desktop actions aimed at TroCode approval controls', ({ description, target }) => {
+  ])('denies desktop actions aimed at Tro approval controls', ({ description, target }) => {
     const decision = evaluateAction(contract, {
       action: 'click_element',
       toolId: 'desktop.control',

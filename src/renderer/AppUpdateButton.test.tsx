@@ -21,7 +21,7 @@ describe('AppUpdateButton', () => {
     expect(
       renderButton({
         currentVersion: '0.1.1',
-        message: 'TroCode 0.1.1 is up to date.',
+        message: 'Tro 0.1.1 is up to date.',
         phase: 'up_to_date',
         targetVersion: null,
       }),
@@ -44,12 +44,12 @@ describe('AppUpdateButton', () => {
   it('offers a compact restart action once the update is ready', () => {
     const markup = renderButton({
       currentVersion: '0.1.1',
-      message: 'TroCode 0.1.3 is ready to install.',
+      message: 'Tro 0.1.3 is ready to install.',
       phase: 'ready',
       targetVersion: '0.1.3',
     });
 
-    expect(markup).toContain('Restart to install TroCode 0.1.3');
+    expect(markup).toContain('Restart to install Tro 0.1.3');
     expect(markup).toContain('app-update-button--ready');
     expect(markup).not.toContain('disabled');
   });

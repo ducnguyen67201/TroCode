@@ -1,6 +1,6 @@
 # Microsoft Store release
 
-TroCode's Microsoft Store product is `9PHZWW2MCPG1`.
+Tro's Microsoft Store product is `9PHZWW2MCPG1`.
 
 ## Package identity
 
@@ -9,7 +9,7 @@ The MSIX maker is configured with the identity reserved in Partner Center:
 - Package name: `FeatherlaneAI.TroCode`
 - Publisher: `CN=55ECF4A8-A613-42A0-9B49-9E83D77D32BE`
 - Publisher display name: `Featherlane AI`
-- Executable: `app\TroCode.exe`
+- Executable: `app\Tro.exe`
 
 The generated MSIX is intentionally unsigned. Microsoft signs it during Store
 certification. Do not publish that unsigned MSIX as a direct website download.
@@ -44,6 +44,6 @@ submission.
 
 ## Updates
 
-Store-installed builds use Windows package updates and do not contact TroCode's
+Store-installed builds use Windows package updates and do not contact Tro's
 GitHub/Squirrel update feed. The direct-download Squirrel installer continues to
 use the GitHub update feed independently.

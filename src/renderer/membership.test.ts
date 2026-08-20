@@ -13,6 +13,7 @@ function membershipStatus(
 ): MembershipStatus {
   return {
     expiresAt: null,
+    plan: null,
     referenceCode: 'TRC-AAAA-BBBB-CCCC',
     required: true,
     state: 'inactive',

@@ -310,14 +310,14 @@ describe('AnalyticsService', () => {
     );
 
     await service.trackVoiceTranscript({
-      text: '  Open YouTube and find the latest TroCode demo  ',
+      text: '  Open YouTube and find the latest Tro demo  ',
     });
 
     expect(client.events.at(-1)).toMatchObject({
       distinctId: 'account-42',
       event: 'voice transcription completed',
       properties: {
-        character_count: 'Open YouTube and find the latest TroCode demo'.length,
+        character_count: 'Open YouTube and find the latest Tro demo'.length,
       },
     });
     expect(JSON.stringify(client.events.at(-1))).not.toContain('Open YouTube');

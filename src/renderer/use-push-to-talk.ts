@@ -141,7 +141,7 @@ export function voiceConnectionErrorMessage(error: unknown): string {
     return 'Microphone access is required for voice input.';
   }
   if (error instanceof Error && error.message) return error.message;
-  return 'TroCode could not transcribe voice input.';
+  return 'Tro could not transcribe voice input.';
 }
 
 export function createVoiceConnectionDiagnostic(

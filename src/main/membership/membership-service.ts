@@ -9,6 +9,7 @@ import { z } from 'zod';
 
 import {
   MembershipStatusSchema,
+  PlanIdSchema,
   type AuthUser,
   type MembershipStatus,
 } from '../../shared/contracts';
@@ -19,6 +20,7 @@ const MAX_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 
 const HostedAccessStatusSchema = z.object({
   maxUsers: z.number().int().positive().nullable(),
+  plan: PlanIdSchema.nullable().default(null),
   state: z.enum(['inactive', 'active']),
   summary: z.string().min(1).max(1_000),
   usedUsers: z.number().int().nonnegative().nullable(),
@@ -120,7 +122,10 @@ function normalizeApiBaseUrl(value: string | undefined): string {
 }
 
 function status(
-  input: Omit<MembershipStatus, 'summary'> & { summary: string },
+  input: Omit<MembershipStatus, 'plan' | 'summary'> & {
+    plan?: MembershipStatus['plan'];
+    summary: string;
+  },
 ): MembershipStatus {
   return MembershipStatusSchema.parse(input);
 }
@@ -258,12 +263,12 @@ export class MembershipService {
       return;
     }
     if (currentStatus.state === 'expired') {
-      throw new Error('Your TroCode membership has expired.');
+      throw new Error('Your Tro membership has expired.');
     }
     if (currentStatus.state === 'error') {
       throw new Error(currentStatus.summary);
     }
-    throw new Error('A valid access code is required to use TroCode.');
+    throw new Error('A valid access code is required to use Tro.');
   }
 
   private async activateHostedCode(code: string): Promise<MembershipStatus> {
@@ -289,7 +294,7 @@ export class MembershipService {
         summary:
           error instanceof Error
             ? error.message
-            : 'TroCode could not check your access code.',
+            : 'Tro could not check your access code.',
       });
     }
   }
@@ -317,13 +322,14 @@ export class MembershipService {
       throw new Error(
         parsedError.success
           ? parsedError.data.error
-          : 'TroCode could not verify this access code.',
+          : 'Tro could not verify this access code.',
       );
     }
 
     const hostedStatus = HostedAccessStatusSchema.parse(body);
     return status({
       expiresAt: null,
+      plan: hostedStatus.plan,
       referenceCode: null,
       required: true,
       state: hostedStatus.state,
