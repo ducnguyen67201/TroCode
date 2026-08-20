@@ -20,6 +20,9 @@ file was used.
    created after encrypted retrieval was enabled.
 6. As an administrator, I can still inspect metadata for legacy digest-only
    codes without the system pretending their unrecoverable plaintext exists.
+7. As an administrator, I can sign in once and keep this browser authenticated
+   for 30 days without persisting the raw admin token in page-accessible
+   storage; Lock signs the browser out.
 
 ## RED / GREEN report
 
@@ -39,6 +42,11 @@ file was used.
   encryption, migration, listing API, and inventory-page failures.
 - Access-code inventory GREEN checkpoint: commit `d9de307` passed the same 14
   focused tests after implementing the encrypted, backward-compatible path.
+- Persistent-session RED checkpoint: commit `c2660fc` captured missing signed
+  sessions, secure cookie issuance, reload restoration, and logout clearing.
+- Persistent-session GREEN checkpoint: commit `2641158` passed the same 11
+  focused tests after adding the signed HttpOnly session flow. Commit `36e4fa6`
+  then cleared the raw token from the hidden login form after cookie issuance.
 
 ## Test specification
 
@@ -60,6 +68,10 @@ file was used.
 | 14 | The protected code-list API supports bounded search/status filters and sends `Cache-Control: no-store`. | `services/api/test/admin-http-controller.test.mjs` | Security integration | PASS |
 | 15 | The Access codes page and navigation are present in the strict-CSP dashboard. | `services/api/test/admin-http-controller.test.mjs` | Integration | PASS |
 | 16 | The nullable encrypted-code column is included as the twelfth forward-only migration, preserving legacy digest-only rows. | `services/api/test/migrate.test.mjs` | Unit | PASS |
+| 17 | Admin browser sessions expire after 30 days and fail verification after tampering or admin-token rotation. | `services/api/test/admin-session.test.mjs` | Security unit | PASS |
+| 18 | The persistent cookie contains no raw token and is `HttpOnly`, `Secure`, `SameSite=Strict`, path-scoped to `/`, and bounded by `Max-Age`. | `services/api/test/admin-session.test.mjs` | Security unit | PASS |
+| 19 | A bearer-token login issues the cookie, and the cookie alone authenticates a later request as it would after a reload. | `services/api/test/admin-http-controller.test.mjs` | Security integration | PASS |
+| 20 | Lock clears the cookie with `Max-Age=0` and no-store response semantics. | `services/api/test/admin-http-controller.test.mjs` | Security integration | PASS |
 
 ## Coverage and browser QA
 
@@ -69,6 +81,10 @@ controller, 93.45% for the admin repository, and 100% for the migration runner.
 The transitive aggregate is 76.51% because the focused tests import the
 pre-existing access-code repository and HTTP primitives, which have separate
 suites.
+
+The persistent-session focused suite reported 92.22% line coverage for the
+session signer/verifier, 85.49% for the admin HTTP controller, and 86.60%
+aggregate line coverage across its transitive source files.
 
 A local seeded preview was exercised in headless Chrome at 1440×1000 and
 390×844. Login, user rendering, block confirmation, summary refresh, bulk code
@@ -83,6 +99,13 @@ then passed `/healthz`, `/readyz`, strict-CSP dashboard delivery, unauthenticate
 `401`, authenticated users, and authenticated code-inventory smoke checks. The
 live current-database snapshot reported 6 users, 2 legacy codes, and 1
 redemption without logging token or code values.
+
+Persistent sessions were canary-deployed as
+`9366bc07-29c7-4783-8216-18965781dd2d`, where login, cookie restoration,
+logout, and post-logout denial returned `204`, `200`, `204`, and `401`.
+Production deployment `b15a8217-6223-449c-bc6a-ec05203dd5ff` passed the same
+flow, confirmed all hardening flags, confirmed the cookie did not contain the
+admin token, and retained access to all 6 current-database users.
 
 ## Known gaps
 
