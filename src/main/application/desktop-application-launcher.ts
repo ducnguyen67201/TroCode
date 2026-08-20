@@ -96,11 +96,14 @@ export class DesktopApplicationLauncher {
   }
 
   async launch(application: LaunchableApplication): Promise<void> {
-    const candidates = chromeCandidates(
-      this.platform,
-      this.environment,
-      this.homeDirectory,
-    );
+    const candidates =
+      application === 'chrome'
+        ? chromeCandidates(
+            this.platform,
+            this.environment,
+            this.homeDirectory,
+          )
+        : [];
     const target = await this.firstInstalledCandidate(candidates);
     if (!target) {
       throw new Error('Google Chrome is not installed in a supported location.');
@@ -119,4 +122,3 @@ export class DesktopApplicationLauncher {
     return undefined;
   }
 }
-

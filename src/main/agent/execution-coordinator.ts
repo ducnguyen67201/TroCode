@@ -5,8 +5,8 @@ import type {
   TaskMessage,
   TaskSnapshot,
 } from '../../shared/contracts';
-import type { CuaService } from '../cua/cua-service';
 import type { LaunchableApplication } from '../application/desktop-application-launcher';
+import type { CuaService } from '../cua/cua-service';
 
 import { createActionDigest } from './action-approval';
 import {

@@ -7,6 +7,7 @@ import {
   type RuntimeToolId,
   type GoalSpec,
 } from '../../shared/contracts';
+import type { LaunchableApplication } from '../application/desktop-application-launcher';
 
 import {
   type AgentToolCall,
@@ -24,7 +25,6 @@ import {
   type DesktopObservation,
   type DesktopRegion,
 } from './execution-contracts';
-import type { LaunchableApplication } from '../application/desktop-application-launcher';
 
 export interface ToolResolutionContext {
   goal?: GoalSpec;
