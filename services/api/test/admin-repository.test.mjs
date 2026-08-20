@@ -176,6 +176,93 @@ test('lists access codes with capacity, retrieval, and legacy metadata', async (
   assert.equal(queries[1].parameters[1], '%Founding%');
 });
 
+test('lists the users who redeemed an access code with bounded pagination', async () => {
+  const codeId = '11111111-1111-4111-8111-111111111111';
+  const { pool, queries } = sequencedPool([
+    {
+      rows: [
+        {
+          id: codeId,
+          label: 'Launch cohort',
+          max_users: 5,
+          plan: 'pro',
+          redeemed_users: 2,
+        },
+      ],
+    },
+    {
+      rows: [
+        {
+          blocked_at: null,
+          email: 'ada@example.com',
+          id: 'google-ada',
+          name: 'Ada Lovelace',
+          redeemed_at: new Date('2026-08-20T05:10:00.000Z'),
+        },
+        {
+          blocked_at: new Date('2026-08-20T06:00:00.000Z'),
+          email: 'grace@example.com',
+          id: 'google-grace',
+          name: 'Grace Hopper',
+          redeemed_at: new Date('2026-08-19T05:10:00.000Z'),
+        },
+      ],
+    },
+  ]);
+  const repository = new PostgresAdminRepository(pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(
+    await repository.listAccessCodeUsers(codeId, { limit: 25, offset: 0 }),
+    {
+      code: {
+        id: codeId,
+        label: 'Launch cohort',
+        maxUsers: 5,
+        plan: 'pro',
+        redeemedUsers: 2,
+      },
+      items: [
+        {
+          email: 'ada@example.com',
+          id: 'google-ada',
+          name: 'Ada Lovelace',
+          redeemedAt: '2026-08-20T05:10:00.000Z',
+          status: 'active',
+        },
+        {
+          email: 'grace@example.com',
+          id: 'google-grace',
+          name: 'Grace Hopper',
+          redeemedAt: '2026-08-19T05:10:00.000Z',
+          status: 'blocked',
+        },
+      ],
+      page: { limit: 25, offset: 0, total: 2 },
+    },
+  );
+  assert.match(queries[1].sql, /redemptions\.access_code_id = \$1/u);
+  assert.match(queries[1].sql, /LIMIT \$2 OFFSET \$3/u);
+  assert.deepEqual(queries[1].parameters, [codeId, 25, 0]);
+});
+
+test('returns null when listing users for a missing access code', async () => {
+  const { pool, queries } = sequencedPool([{ rows: [] }]);
+  const repository = new PostgresAdminRepository(pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.equal(
+    await repository.listAccessCodeUsers(
+      '22222222-2222-4222-8222-222222222222',
+      { limit: 50, offset: 0 },
+    ),
+    null,
+  );
+  assert.equal(queries.length, 1);
+});
+
 test('bulk code creation returns plaintext and stores a digest plus encrypted copy', async () => {
   const generated = ['TRO-CODE-ONE', 'TRO-CODE-TWO'];
   const { client, pool, queries } = sequencedPool([

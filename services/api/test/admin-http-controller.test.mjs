@@ -51,6 +51,29 @@ async function withAdmin(run, { now } = {}) {
         },
       };
     },
+    listAccessCodeUsers: async (id, input) => {
+      calls.push({ id, input, method: 'listAccessCodeUsers' });
+      if (id === '22222222-2222-4222-8222-222222222222') return null;
+      return {
+        code: {
+          id,
+          label: 'Launch',
+          maxUsers: 3,
+          plan: 'pro',
+          redeemedUsers: 1,
+        },
+        items: [
+          {
+            email: 'ada@example.com',
+            id: 'google-ada',
+            name: 'Ada',
+            redeemedAt: '2026-08-20T05:00:00.000Z',
+            status: 'active',
+          },
+        ],
+        page: { limit: input.limit, offset: input.offset, total: 1 },
+      };
+    },
     listUsers: async (input) => {
       calls.push({ input, method: 'listUsers' });
       return {
@@ -121,6 +144,8 @@ test('serves the separate admin dashboard with a strict self-only CSP', async ()
     assert.match(response.headers.get('content-security-policy'), /script-src 'self'/u);
     assert.match(html, /<h1[^>]*>Users<\/h1>/u);
     assert.match(html, /<h1[^>]*>Access codes<\/h1>/u);
+    assert.match(html, /Who(?:&rsquo;|')s using it/u);
+    assert.match(html, /id="code-users-dialog"/u);
     assert.doesNotMatch(html, new RegExp(ADMIN_TOKEN, 'u'));
 
     const script = await fetch(`${baseUrl}/source/admin/assets/admin.js`);
@@ -204,6 +229,44 @@ test('lists access codes with bounded filters and prevents response caching', as
       },
     ]);
     assert.equal((await response.json()).items[0].code, 'TRO-RETRIEVABLE-CODE');
+  });
+});
+
+test('lists users of one access code with validated, bounded pagination', async () => {
+  const codeId = '11111111-1111-4111-8111-111111111111';
+  await withAdmin(async ({ baseUrl, calls }) => {
+    const response = await fetch(
+      `${baseUrl}/v1/admin/access-codes/${codeId}/users?limit=25&offset=50`,
+      { headers: adminHeaders(baseUrl) },
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(calls, [
+      {
+        id: codeId,
+        input: { limit: 25, offset: 50 },
+        method: 'listAccessCodeUsers',
+      },
+    ]);
+    assert.equal((await response.json()).items[0].email, 'ada@example.com');
+
+    const invalidId = await fetch(
+      `${baseUrl}/v1/admin/access-codes/not-a-uuid/users`,
+      { headers: adminHeaders(baseUrl) },
+    );
+    assert.equal(invalidId.status, 400);
+  });
+});
+
+test('returns not found when an access code user list does not exist', async () => {
+  await withAdmin(async ({ baseUrl }) => {
+    const response = await fetch(
+      `${baseUrl}/v1/admin/access-codes/22222222-2222-4222-8222-222222222222/users`,
+      { headers: adminHeaders(baseUrl) },
+    );
+
+    assert.equal(response.status, 404);
   });
 });
 
