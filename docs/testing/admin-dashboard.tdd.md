@@ -26,6 +26,10 @@ file was used.
 8. As an administrator, I can see how many seats each code has used and open a
    paginated list of the users who redeemed it, including redemption date and
    current active or blocked status.
+9. As an administrator, I can pause or resume a code, permanently delete an
+   unused code after confirmation, and continue creating new code batches from
+   the same Access codes page. Pausing blocks only new redemptions; existing
+   users retain access, and codes with redemption history cannot be deleted.
 
 ## RED / GREEN report
 
@@ -54,6 +58,12 @@ file was used.
   repository query, protected route, and dashboard dialog.
 - Code-user detail GREEN checkpoint: commit `478faf3` passed all 17 focused
   tests after adding the bounded user-detail flow.
+- Access-code lifecycle RED checkpoint: commit `4d05c58` captured missing
+  pause/resume, guarded-delete, paused-redemption, dashboard-action, and
+  migration behavior in nine intended test failures.
+- Access-code lifecycle GREEN checkpoint: commit `1e4f2cf` passed all 47
+  focused tests after adding transactional lifecycle controls and the
+  forward-only migration.
 
 ## Test specification
 
@@ -82,6 +92,12 @@ file was used.
 | 21 | Each access code returns its redeemers in deterministic, parameterized, bounded pages with redemption dates and current active/blocked status. | `services/api/test/admin-repository.test.mjs` | Unit | PASS |
 | 22 | The code-user route validates UUID and pagination inputs, is protected by the common admin boundary, is non-cacheable, and returns 404 for missing codes. | `services/api/test/admin-http-controller.test.mjs` | Security integration | PASS |
 | 23 | The deployed dashboard includes a dedicated “Who’s using it” column and protected detail dialog. | `services/api/test/admin-http-controller.test.mjs` | Integration | PASS |
+| 24 | Paused codes reject new redemptions while existing linked accounts continue to resolve their current membership. | `services/api/test/access-code-repository.test.mjs`, `services/api/test/server.test.mjs` | Unit / integration | PASS |
+| 25 | Pause and resume update the code and append a sanitized audit event in one transaction; a resumed full code remains accurately reported as full. | `services/api/test/admin-repository.test.mjs` | Unit | PASS |
+| 26 | Delete locks the code row and refuses any code with redemptions before issuing a delete, preserving user and audit history. | `services/api/test/admin-repository.test.mjs` | Security unit | PASS |
+| 27 | Lifecycle routes require common admin authorization, strict UUID/body validation, and return conflict for a used-code deletion. | `services/api/test/admin-http-controller.test.mjs` | Security integration | PASS |
+| 28 | The dashboard exposes Pause/Resume and confirmed Delete actions while leaving bulk New code creation available. | `services/api/test/admin-http-controller.test.mjs` | Integration | PASS |
+| 29 | The nullable pause timestamp and expanded audit actions are included as the thirteenth forward-only migration. | `services/api/test/migrate.test.mjs` | Unit | PASS |
 
 ## Coverage and browser QA
 
@@ -99,6 +115,12 @@ aggregate line coverage across its transitive source files.
 The final 17-test admin-focused suite reported 90.89% aggregate line coverage
 across the admin controller, repository, and session modules; the controller
 and repository individually reported 86.57% and 94.32%.
+
+The final 22-test lifecycle-focused admin suite reported 90.95% aggregate line
+coverage across the admin controller, repository, and session modules; the
+controller and repository individually reported 86.96% and 93.70%. The full
+repository gate passed 96 Vitest files / 662 tests, 9 root Node tests, and 102
+runnable API tests; one PostgreSQL-only integration test remained skipped.
 
 A local seeded preview was exercised in headless Chrome at 1440×1000 and
 390×844. Login, user rendering, block confirmation, summary refresh, bulk code
