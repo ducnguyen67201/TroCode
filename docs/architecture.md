@@ -2,8 +2,8 @@
 
 ## Decision
 
-TroCode uses Electron Forge, React, TypeScript, the OpenAI Agents SDK, and
-trusted local brokers. A runtime receives only
+TroCode uses Electron Forge, React, TypeScript, a backend-owned OpenAI Agents
+SDK supervisor, and trusted local brokers. A runtime receives only
 the capabilities selected by the host. Electron main owns internal tool IDs,
 parsers, policy metadata, adapters, cancellation, and budgets.
 
@@ -11,10 +11,10 @@ parsers, policy metadata, adapters, cancellation, and budgets.
 flowchart LR
     UI["Sandboxed React renderer"] -->|"Narrow DesktopApi"| PRELOAD["Validated preload"]
     PRELOAD -->|"Authenticated IPC"| MAIN["Electron main"]
-    MAIN --> RUNTIME["Task runtime v6 supervisor"]
+    MAIN --> RUNTIME["Task runtime v8 + hosted task projection"]
     RUNTIME --> FACTORY{"Host-selected profile"}
     FACTORY -->|"Everyday or Workspace"| AGENT["OpenAI Agents SDK Runner + bounded Session"]
-    AGENT -->|"Workspace only; exact approval"| WORKSPACE["Local shell + apply_patch in selected root"]
+    AGENT -->|"Workspace only; SDK checkpoint + host policy"| WORKSPACE["Local shell + apply_patch in selected root"]
     AGENT -->|"SSE + request UUID + opaque session"| API["Railway API"]
     API --> BUDGET["BudgetService"]
     BUDGET --> USAGE["Reservation + usage ledger"]
@@ -37,10 +37,14 @@ flowchart LR
 
 ## Assistant-or-tool loop
 
-A new request creates a host-owned `TaskContract` v6 containing the original
+A new request creates a host-owned `TaskContract` v8 containing the original
 request, explicit runtime kind, execution profile, autonomy preference, optional
-trusted workspace identity, fixed exact-approval policy, and resource ceilings.
-It contains no model-authored authority. Both profiles map to OpenAI Agents.
+trusted workspace identity, outcome contract, bounded intent-authorization
+grants, fixed hard-confirm effect policy, and resource ceilings.
+It contains no model-authored authority and includes a versioned outcome
+contract. Every effectful invocation adds a host-owned verification obligation.
+A run can enter completed only when the backend transaction proves that every
+required current-revision criterion passed.
 The optional Activity field is host-resolved from a private Attempt and pins an
 immutable definition, evidence policy, compact source catalog, and bounded prior
 progress. Normal tasks carry `activity: null` and receive no knowledge/evidence
@@ -50,20 +54,25 @@ directory picker canonicalizes and records the selected root. Patch operations
 are root-confined; the explicitly approved local shell starts at that root but
 is not an OS-level sandbox.
 
-One Agents SDK `Runner` owns the repeated model/tool loop and a bounded in-memory
-`Session` receives the user message plus tool specs currently installed by the
-registry. `tool_choice` is `auto`, parallel calls are disabled, storage is off,
-and both SDK and HTTP retries are disabled. Each function call is schema-parsed,
-normalized to a host-owned internal tool identity, policy-checked, executed once,
-and returned through the SDK tool callback. The context filter keeps at most one
-current screenshot and removes older image bytes before the next sample.
+The Railway API owns the Agents SDK `Runner`, encrypted PostgreSQL Session,
+serialized in-flight RunState checkpoints, leases, model routing, and evidence
+ledger. Parallel tool calls and Responses storage are disabled. The signed-in
+Electron main process is a reconnectable worker: it schema-parses and normalizes
+each durable invocation, resolves a typed effect, repeats local policy and any
+required exact approval, requests a
+one-time executing grant, executes once, then returns a bounded result and fresh
+evidence. A disconnected executing action becomes unknown and is never retried.
 
 Workspace mode uses the same authenticated TroCode Responses proxy as Everyday
 mode. The desktop adds SDK `shell` and `apply_patch` tools bound to the selected
 canonical root. Patch paths are resolved against that root and symlink escapes
-are rejected. Every command, create, update, move, and delete request pauses on
-an exact TroCode approval whose digest includes the full bounded command or
-patch. Commands start in the selected root with an allowlisted environment that
+are rejected. The SDK keeps every shell and patch call as an inspectable
+interruption, but the host resumes requested create/update/move patches and
+classified read/test/lint/typecheck/build commands programmatically. Delete,
+unexpected overwrite, install, network, push, deploy, destructive Git, secret
+enumeration, absolute paths, and unknown shell syntax require approval or are
+denied. Exact approval digests include the typed effect, intent revision, and
+full bounded command or patch. Commands start in the selected root with an allowlisted environment that
 omits provider and TroCode secrets. A shared per-task counter bounds shell and
 patch dispatches to the contract's tool-call ceiling. No operation is retried
 after an unknown result.
@@ -110,11 +119,13 @@ Provider credentials, response bodies, and raw errors never cross that bridge.
 - Playback reports are accepted only from the current guidance window's main
   frame. Private audio URLs contain only a random ticket ID and expire quickly.
 - The registry, not GPT, supplies internal tool ID and operation.
-- Policy checks only a concrete normalized action: installed operation, public
-  HTTPS target, and the fixed host consequence list. Routine click, drag, text,
-  keypress, and scroll actions continue automatically. Login, send, submit,
-  upload, download, delete, purchase, install, command, and file-write
-  consequences require exact user approval.
+- Policy checks only a concrete host-normalized action: installed operation,
+  public HTTPS target, typed effect/resource, current intent revision, and
+  trusted task/workspace binding. In Balanced mode the user instruction can
+  authorize only requested reversible private create/update/rename/move/comment
+  and safe Workspace effects. Send/invite, delete/archive, unexpected overwrite,
+  publish, deploy, merge, money/trade, credentials, permissions, installs,
+  sensitive transfer, and unknown effects always require exact approval.
 - Exact approvals bind target, payload, command, coordinates, observation ID,
   and observation fingerprint. A changed screen invalidates a held desktop
   approval.
@@ -150,9 +161,16 @@ environment.
 The API authenticates every provider request, applies IP/user rate limits,
 restricts models to the configured allowlist, bounds request and response sizes,
 streams Responses SSE without buffering, settles usage from the completed event,
-and never stores Responses input or output. Native desktop policy and exact
-action approvals remain in Electron main; the API does not grant computer-use
-authority.
+and sets OpenAI Responses storage to false. For backend-agent canary users, the
+API intentionally stores task requests, session items, tool envelopes, and SDK
+checkpoints encrypted with a dedicated versioned AES-256-GCM key for a bounded
+recovery window. Sanitized lifecycle metadata remains queryable; screenshot
+bytes, cookies, raw DOM, secrets, and reasoning text are never persisted.
+Railway owns the encrypted canonical v8 contract and protocol-v2 checkpoint.
+Native desktop normalization, policy, and exact approvals remain in Electron
+main; the API-proposed effect can raise risk but cannot grant computer-use
+authority. Invocation persistence records closed effect/resource and
+authorization labels separately from whether an effect is consequential.
 
 ## Voice transcription path
 

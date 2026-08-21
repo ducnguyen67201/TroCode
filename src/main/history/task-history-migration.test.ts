@@ -89,12 +89,13 @@ describe('migratePersistedTaskSnapshot', () => {
   ])('keeps supported $label goals historical and non-executable', ({ goal, limits }) => {
     const result = migratePersistedTaskSnapshot(snapshot(goal));
 
-    expect(result.changed).toBe(false);
+    expect(result.changed).toBe(true);
     expect(result.snapshot.goal).toMatchObject({
       limits,
       schemaVersion: goal.schemaVersion,
     });
     expect(result.snapshot.runtimeResume).toBeNull();
+    expect(result.snapshot.outcomes).toBeNull();
   });
 
   it('repairs transitional V5 goals that predate runtime fields', () => {

@@ -9,6 +9,7 @@ import {
   TaskUpdateSchema,
   type TaskSnapshot,
 } from '../../shared/contracts';
+import { resolveActionEffect } from '../agent/action-effect';
 import { toolIdentityForAction } from '../agent/runtime-tool-registry';
 
 import type {
@@ -205,7 +206,7 @@ export class AnalyticsService {
     const goalProperties: AnalyticsProperties = snapshot.goal
       ? {
           contract_version: snapshot.goal.schemaVersion,
-          ...(snapshot.goal.schemaVersion === 5 || snapshot.goal.schemaVersion === 6
+          ...(snapshot.goal.schemaVersion === 5 || snapshot.goal.schemaVersion === 6 || snapshot.goal.schemaVersion === 7 || snapshot.goal.schemaVersion === 8
             ? {
                 autonomy_mode: snapshot.goal.autonomyMode,
                 execution_profile: snapshot.goal.executionProfile,
@@ -236,25 +237,37 @@ export class AnalyticsService {
           ? snapshot.pendingInteraction.action
           : null;
       const toolIdentity = action ? toolIdentityForAction(action) : null;
+      const effect = action ? resolveActionEffect(action) : null;
       this.taskApprovalCounts.set(
         snapshot.taskId,
         (this.taskApprovalCounts.get(snapshot.taskId) ?? 0) + 1,
       );
       this.capture('approval requested', {
         action_type: action?.action ?? 'unknown',
+        approval_required: true,
+        authorization_source: 'none',
+        effect_kind: effect?.kind ?? 'unknown',
         operation: toolIdentity?.operation ?? 'unknown',
+        resource_kind: effect?.resourceKind ?? 'unknown',
         tool_id: toolIdentity?.toolId ?? 'unknown',
       });
       return;
     }
     if (snapshot.phase === 'verifying' && update.event.tool) {
       this.capture('tool call completed', {
+        approval_required: update.event.tool.approvalRequired ?? false,
+        authorization_source:
+          update.event.tool.authorizationSource ?? 'unknown',
+        consequential: update.event.tool.consequential ?? false,
+        effect_kind: update.event.tool.effectKind ?? 'unknown',
         operation: update.event.tool.operation,
+        resource_kind: update.event.tool.resourceKind ?? 'unknown',
         tool_id: update.event.tool.toolId,
       });
       return;
     }
     if (TERMINAL_PHASES.has(snapshot.phase)) {
+      const approvalCount = this.taskApprovalCounts.get(snapshot.taskId) ?? 0;
       const toolCount = snapshot.progress
         ? 'kind' in snapshot.progress
           ? snapshot.progress.completed
@@ -262,9 +275,15 @@ export class AnalyticsService {
         : 0;
       this.capture('task ended', {
         ...goalProperties,
-        approval_count: this.taskApprovalCounts.get(snapshot.taskId) ?? 0,
+        approval_count: approvalCount,
+        approvals_per_verified_success:
+          snapshot.phase === 'completed' ? approvalCount : 0,
         outcome: snapshot.phase,
         tool_count: toolCount,
+        unnecessary_approval_count: 0,
+        unnecessary_approval_rate: 0,
+        user_intervention_count: approvalCount > 0 ? 1 : 0,
+        user_intervention_rate: approvalCount > 0 ? 1 : 0,
       });
     }
   }

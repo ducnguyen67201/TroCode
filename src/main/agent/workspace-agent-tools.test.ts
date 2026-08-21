@@ -11,6 +11,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AgentRuntimeCallbacks } from './agent-runtime';
+import { createTaskContract } from './task-contract';
 import {
   createWorkspaceAgentTools,
   WorkspaceEditor,
@@ -26,6 +27,18 @@ function callbacks(
     executeTool: async () => '',
     requestApproval,
   };
+}
+
+function workspaceContract(root: string, request: string) {
+  return createTaskContract(request, {
+    executionProfile: 'workspace',
+    workspace: {
+      selectionId: '11111111-1111-4111-8111-111111111111',
+      canonicalPath: root,
+      displayName: path.basename(root),
+      selectedAt: '2026-08-21T00:00:00.000Z',
+    },
+  });
 }
 
 describe('WorkspaceEditor', () => {
@@ -144,13 +157,15 @@ describe('WorkspaceShell', () => {
 });
 
 describe('createWorkspaceAgentTools', () => {
-  it('binds shell approval to the full bounded command list', async () => {
+  it('programmatically resumes requested validation and read commands', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'trocode-tools-'));
     const requestApproval = vi.fn(async () => true);
+    const canonicalRoot = await realpath(root);
     const bundle = createWorkspaceAgentTools({
       callbacks: callbacks(requestApproval),
+      contract: workspaceContract(canonicalRoot, 'Run the tests and inspect git status.'),
       maxToolCalls: 5,
-      root: await realpath(root),
+      root: canonicalRoot,
     });
     try {
       const shell = bundle.tools.find((tool) => tool.type === 'shell');
@@ -167,20 +182,7 @@ describe('createWorkspaceAgentTools', () => {
           } as never,
         ),
       ).resolves.toEqual({ approve: true });
-      expect(requestApproval).toHaveBeenCalledWith({
-        action: {
-          action: 'run_command',
-          description: 'Run 2 workspace commands.',
-          target: await realpath(root),
-          parameters: {
-            commands: ['npm test', 'git status --short'],
-            declaredConsequence: 'run_command',
-          },
-        },
-        consequence:
-          'This runs the displayed command exactly once in a local system shell. It starts in the selected workspace but can access other local files and the network.',
-        prompt: 'Run 2 workspace commands.',
-      });
+      expect(requestApproval).not.toHaveBeenCalled();
     } finally {
       await bundle.close();
       await rm(root, { force: true, recursive: true });
@@ -192,6 +194,10 @@ describe('createWorkspaceAgentTools', () => {
     const requestApproval = vi.fn(async () => false);
     const bundle = createWorkspaceAgentTools({
       callbacks: callbacks(requestApproval),
+      contract: workspaceContract(
+        await realpath(root),
+        'Help me debug this programming assignment.',
+      ),
       maxToolCalls: 5,
       request: 'Help me debug this programming assignment.',
       root: await realpath(root),
@@ -205,7 +211,7 @@ describe('createWorkspaceAgentTools', () => {
           rawItem: {
             type: 'shell_call',
             callId: 'call-classroom',
-            action: { commands: ['npm test'] },
+            action: { commands: ['npm install'] },
           },
         } as never,
       );
@@ -227,6 +233,10 @@ describe('createWorkspaceAgentTools', () => {
     const canonicalRoot = await realpath(root);
     const bundle = createWorkspaceAgentTools({
       callbacks: callbacks(requestApproval),
+      contract: workspaceContract(
+        canonicalRoot,
+        'Update and move the workspace file.',
+      ),
       maxToolCalls: 5,
       root: canonicalRoot,
     });
@@ -251,24 +261,26 @@ describe('createWorkspaceAgentTools', () => {
           } as never,
         ),
       ).resolves.toEqual({ approve: true });
-      expect(requestApproval).toHaveBeenCalledWith({
-        action: {
-          action: 'write_file',
-          description:
-            'Update workspace file src/example.ts and move it to src/renamed.ts.',
-          target: path.join(canonicalRoot, 'src/example.ts'),
-          parameters: {
-            declaredConsequence: 'write_file',
-            operation: 'update_file',
-            diff: '@@\n-old\n+new',
-            moveTo: 'src/renamed.ts',
-          },
-        },
-        consequence:
-          'This applies the displayed patch once inside the selected workspace.',
-        prompt:
-          'Update workspace file src/example.ts and move it to src/renamed.ts.',
-      });
+      expect(requestApproval).not.toHaveBeenCalled();
+
+      requestApproval.mockClear();
+      await expect(
+        patch?.onApproval?.(
+          {} as never,
+          {
+            rawItem: {
+              type: 'apply_patch_call',
+              callId: 'call-delete',
+              status: 'in_progress',
+              operation: {
+                type: 'delete_file',
+                path: 'src/example.ts',
+              },
+            },
+          } as never,
+        ),
+      ).resolves.toEqual({ approve: true });
+      expect(requestApproval).toHaveBeenCalledOnce();
 
       requestApproval.mockClear();
       await expect(
@@ -303,6 +315,10 @@ describe('createWorkspaceAgentTools', () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'trocode-tools-'));
     const bundle = createWorkspaceAgentTools({
       callbacks: callbacks(async () => true),
+      contract: workspaceContract(
+        await realpath(root),
+        'Create the requested workspace files.',
+      ),
       maxToolCalls: 1,
       root: await realpath(root),
     });

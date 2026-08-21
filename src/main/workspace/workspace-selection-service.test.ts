@@ -44,4 +44,35 @@ describe('WorkspaceSelectionService', () => {
       await rm(directory, { force: true, recursive: true });
     }
   });
+
+  it('restores an opaque selection through the injected encrypted-store boundary', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'trocode-workspace-'));
+    let stored: unknown[] = [];
+    const store = {
+      read: vi.fn(async () => stored),
+      write: vi.fn(async (value: readonly unknown[]) => {
+        stored = [...value];
+      }),
+    };
+    try {
+      const first = new WorkspaceSelectionService(
+        { pickDirectory: vi.fn(async () => directory) },
+        () => new Date('2026-08-18T00:00:00.000Z'),
+        store as never,
+      );
+      const selection = await first.select();
+      if (!selection) throw new Error('Expected a selected workspace.');
+
+      const restored = new WorkspaceSelectionService(
+        { pickDirectory: vi.fn(async () => null) },
+        () => new Date('2026-08-18T00:00:01.000Z'),
+        store as never,
+      );
+      await expect(restored.resolve(selection.selectionId)).resolves.toMatchObject({
+        canonicalPath: await realpath(directory),
+      });
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
 });

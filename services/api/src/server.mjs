@@ -297,6 +297,7 @@ function transcriptionSessionConfig(language) {
 export function createApiHandler({
   accessCodeRepository,
   adminController = null,
+  agentRuntimeController = null,
   agentTurnService,
   budgetService,
   config,
@@ -351,6 +352,27 @@ export function createApiHandler({
         (await knowledgeController.handle({ request, response, url }))
       ) {
         return;
+      }
+
+      if (agentRuntimeController?.matches(path)) {
+        const session = await requireSession(request, sessionRepository);
+        const access = await requireAccess(session, accessCodeRepository);
+        const handled = await agentRuntimeController.handle({
+          access,
+          helpers: {
+            notFound: () => {
+              throw new HttpError(404, 'Task or worker session not found.');
+            },
+            readJson,
+            sendJson,
+            sendStream,
+          },
+          request,
+          response,
+          session,
+          url,
+        });
+        if (handled) return;
       }
 
       if (request.method === 'POST' && path === '/v1/auth/google/exchange') {
@@ -871,9 +893,10 @@ export function createApiHandler({
       const status = isTypedHttpError ? error.status : 500;
       const message =
         isTypedHttpError ? error.message : 'An internal error occurred.';
+      const retryAfterSeconds = Number(error?.retryAfterSeconds);
       const extraHeaders =
-        error instanceof HttpError && error.retryAfterSeconds
-          ? { 'Retry-After': String(error.retryAfterSeconds) }
+        Number.isInteger(retryAfterSeconds) && retryAfterSeconds > 0
+          ? { 'Retry-After': String(retryAfterSeconds) }
           : {};
       if (status >= 500) {
         console.error(

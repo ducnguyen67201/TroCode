@@ -184,4 +184,63 @@ describe('concrete tool policy', () => {
       ).status,
     ).toBe('denied');
   });
+
+  it('separates instruction authorization, approval requirement, and consequence', () => {
+    const action = {
+      action: 'click_element' as const,
+      toolId: 'desktop.control' as const,
+      operation: 'click',
+      description: 'Save the private calendar event.',
+      target: 'Save',
+      effect: {
+        kind: 'create_resource' as const,
+        resourceKind: 'calendar_event' as const,
+        reversibility: 'reversible' as const,
+        externality: 'cloud_private' as const,
+        communication: 'none' as const,
+        overwrite: 'none' as const,
+        sensitiveDataTransfer: false as const,
+      },
+    };
+    expect(
+      evaluateAction(createTaskContract('Create a calendar event.'), action),
+    ).toMatchObject({
+      status: 'allowed',
+      authorizationSource: 'user_instruction',
+      approvalRequired: false,
+      consequential: true,
+    });
+    expect(
+      evaluateAction(createTaskContract('Create a document.'), action),
+    ).toMatchObject({ status: 'needs_approval', approvalRequired: true });
+    expect(
+      evaluateAction(
+        createTaskContract('Create a calendar event.', { autonomyMode: 'strict' }),
+        action,
+      ),
+    ).toMatchObject({ status: 'needs_approval', approvalRequired: true });
+  });
+
+  it('never lets attendee-bearing invitation metadata match a create grant', () => {
+    const decision = evaluateAction(createTaskContract('Create a calendar event.'), {
+      action: 'click_element',
+      toolId: 'desktop.control',
+      operation: 'click',
+      description: 'Save the calendar invitation.',
+      effect: {
+        kind: 'create_resource',
+        resourceKind: 'calendar_event',
+        reversibility: 'reversible',
+        externality: 'cloud_private',
+        communication: 'none',
+        overwrite: 'none',
+        sensitiveDataTransfer: false,
+      },
+      parameters: { attendees: ['person@example.test'] },
+    });
+    expect(decision).toMatchObject({
+      status: 'needs_approval',
+      effect: { kind: 'send_communication', communication: 'invite' },
+    });
+  });
 });

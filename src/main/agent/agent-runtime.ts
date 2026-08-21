@@ -1,5 +1,5 @@
 import type {
-  AgentTaskContract,
+  ExecutableAgentTaskContract,
   ProposedAction,
   TaskSnapshot,
 } from '../../shared/contracts';
@@ -58,7 +58,7 @@ export interface AgentRuntimeActivity {
 
 export interface AgentRuntimeStart {
   callbacks: AgentRuntimeCallbacks;
-  contract: AgentTaskContract;
+  contract: ExecutableAgentTaskContract;
   maxTurns: number;
   emitActivity?(activity: AgentRuntimeActivity): void;
   initialObservation?: DesktopObservation;
@@ -74,7 +74,7 @@ export interface AgentRuntimeStart {
  * Implementations own conversation continuity and repeated model/tool turns.
  */
 export interface AgentRuntime {
-  readonly kind: AgentTaskContract['runtimeKind'];
+  readonly kind: ExecutableAgentTaskContract['runtimeKind'];
   continueTask(
     taskId: string,
     instruction: string,

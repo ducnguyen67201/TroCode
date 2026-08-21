@@ -16,6 +16,7 @@ function createIdleTask(): TaskSnapshot {
     messages: [],
     pendingInteraction: null,
     approvalGrant: null,
+    outcomes: null,
     progress: null,
     queuedSteering: [],
     runtimeResume: null,

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { access } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +11,14 @@ interface DesktopApplicationLauncherOptions {
   openPath(path: string): Promise<string>;
   pathExists?: (path: string) => Promise<boolean>;
   platform?: NodeJS.Platform;
+  now?: () => Date;
+  createReceipt?: () => string;
+}
+
+export interface ApplicationLaunchReceipt {
+  application: LaunchableApplication;
+  acceptedAt: string;
+  receipt: string;
 }
 
 async function defaultPathExists(candidate: string): Promise<boolean> {
@@ -87,15 +96,21 @@ export class DesktopApplicationLauncher {
 
   private readonly platform: NodeJS.Platform;
 
+  private readonly now: () => Date;
+
+  private readonly createReceipt: () => string;
+
   constructor(options: DesktopApplicationLauncherOptions) {
     this.environment = options.environment ?? process.env;
     this.homeDirectory = options.homeDirectory ?? os.homedir();
     this.openPath = options.openPath;
     this.pathExists = options.pathExists ?? defaultPathExists;
     this.platform = options.platform ?? process.platform;
+    this.now = options.now ?? (() => new Date());
+    this.createReceipt = options.createReceipt ?? randomUUID;
   }
 
-  async launch(application: LaunchableApplication): Promise<void> {
+  async launch(application: LaunchableApplication): Promise<ApplicationLaunchReceipt> {
     const candidates =
       application === 'chrome'
         ? chromeCandidates(
@@ -111,6 +126,11 @@ export class DesktopApplicationLauncher {
 
     const error = await this.openPath(target);
     if (error) throw new Error(`Could not open Google Chrome: ${error}`);
+    return {
+      application,
+      acceptedAt: this.now().toISOString(),
+      receipt: this.createReceipt(),
+    };
   }
 
   private async firstInstalledCandidate(

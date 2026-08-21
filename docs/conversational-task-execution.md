@@ -1,5 +1,15 @@
 # Conversational task execution
 
+Hosted tasks use replayable, monotonically sequenced backend events. A stream
+disconnect does not cancel the task. Steering is encrypted, attached to a new
+outcome-contract revision, inserted into the durable SDK session once using its
+source event ID, and acknowledged only after that insertion commits.
+
+Renderer completion is a projection of the backend hard gate, never a local
+guess from assistant prose. Legacy local task snapshots remain readable during
+the rollback window, but new local contracts mirror the same v8 outcome and
+intent predicate.
+
 TroCode keeps one bounded runtime conversation for each task. A user request is
 not precompiled into answer/guide/act modes. Everyday and explicitly selected
 Workspace tasks are OpenAI Agents SDK runs authenticated through the TroCode
@@ -20,13 +30,14 @@ flowchart TD
     ROUTER --> POLICY["Availability, target, exact-risk policy"]
     POLICY -->|"Denied/recoverable"| OUTPUT["Function-call output"]
     POLICY -->|"Missing information"| ASK["Task-scoped question"]
-    POLICY -->|"Consequential"| APPROVE["Exact approval card"]
-    POLICY -->|"Allowed"| EXECUTE["Registered adapter executes once"]
+    POLICY -->|"Hard-confirm or scope expansion"| APPROVE["Exact approval card"]
+    POLICY -->|"Routine or instruction-authorized"| EXECUTE["Registered adapter executes once"]
     ASK --> USER
     APPROVE --> USER
     EXECUTE --> OUTPUT
     OUTPUT --> MODEL
-    MODEL -->|"Workspace shell or patch"| APPROVE
+    MODEL -->|"Workspace shell or patch"| SDK["Inspectable SDK checkpoint"]
+    SDK --> POLICY
 ```
 
 `show_guidance` adds one user-controlled pacing boundary to this loop. The host
@@ -59,12 +70,14 @@ boundary. Neither profile mutates an already dispatched atomic action.
 
 ## Exact approval
 
-Send, submit, upload, download, delete, purchase, install, login, permission
-changes, command execution, and file writes pause at a concrete escalation
-boundary. Under the default Balanced preference, routine grounded clicks,
-drags, text entry, keypresses, and scrolling continue automatically. Host-visible
-sensitive cues can only raise risk. Strict mode also confirms routine desktop
-mutations. The UI shows target, description, and exact bounded parameters. Typed
+The original authenticated instruction authorizes only its matching reversible
+private effects. Communications and invitations, delete/archive, unexpected
+overwrite, publish/deploy/merge, money/trade, credentials, permissions, installs,
+sensitive transfer, ambiguous submit, and scope expansion pause at a concrete
+escalation boundary. Under Balanced, effect-free controls and matching requested
+work continue automatically. Host-visible sensitive cues can only raise risk.
+Strict confirms every mutation or side effect. The UI shows target, description,
+and exact bounded parameters. Typed
 or spoken “yes” is not approval. A desktop grant is single-use, expires, and
 matches a digest of tool, operation, consequence, target, payload, command,
 coordinates, and desktop observation evidence.
@@ -73,7 +86,9 @@ Approval denial is returned to GPT as a denied tool output so the assistant can
 continue usefully. For desktop work, approval is followed by a fresh screen
 check; changed state invalidates the action instead of guessing.
 
-Workspace command and patch responses are one-request decisions. Their approval
+Workspace calls remain inspectable SDK interruptions. The host programmatically
+resumes only classified safe/read/validation commands and requested reversible
+patches. Other command and patch responses are one-request decisions. Their approval
 digest includes the bounded commands or diff, target, operation, and declared
 consequence; there is no session-wide approval. Patch paths must remain within
 the selected canonical root, and the command subprocess receives no provider

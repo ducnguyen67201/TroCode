@@ -30,5 +30,14 @@ describe('app language', () => {
       'Phiên bản 0.2.0',
     );
     expect(translate('en', 'Settings')).toBe('Settings');
+    expect(
+      translate(
+        'vi',
+        'Your instruction authorizes requested reversible work; Tro still asks for high-impact or expanded-scope actions.',
+      ),
+    ).not.toContain('Your instruction');
+    expect(
+      translate('vi', 'Strict mode asks before every mutation or side effect.'),
+    ).not.toContain('Strict mode');
   });
 });

@@ -3,7 +3,29 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 import { createCuaSemanticToolDefinitions } from './cua-semantic-agent-tools';
+import { evaluateAction } from './policy';
 import { RuntimeToolRegistry } from './runtime-tool-registry';
+import { createTaskContract } from './task-contract';
+
+const effectFree = {
+  kind: 'none' as const,
+  resourceKind: null,
+  reversibility: 'none' as const,
+  externality: 'local' as const,
+  communication: 'none' as const,
+  overwrite: 'none' as const,
+  sensitiveDataTransfer: false as const,
+};
+
+const calendarCreate = {
+  kind: 'create_resource' as const,
+  resourceKind: 'calendar_event' as const,
+  reversibility: 'reversible' as const,
+  externality: 'cloud_private' as const,
+  communication: 'none' as const,
+  overwrite: 'none' as const,
+  sensitiveDataTransfer: false as const,
+};
 
 function registry() {
   return new RuntimeToolRegistry(
@@ -47,6 +69,8 @@ describe('CUA semantic agent tools', () => {
           observationId: observation.observationId,
           description: 'Run the visible code.',
           target: 'Run',
+          effect: effectFree,
+          attendees: null,
           command: {
             kind: 'click_element',
             ref: 'e1',
@@ -84,6 +108,8 @@ describe('CUA semantic agent tools', () => {
             observationId: randomUUID(),
             description: 'Run.',
             target: null,
+            effect: effectFree,
+            attendees: null,
             command: {
               kind: 'click_element',
               ref: 'e1',
@@ -123,5 +149,71 @@ describe('CUA semantic agent tools', () => {
       action: 'system_permission',
       toolId: 'browser.prepare',
     });
+  });
+
+  it('auto-authorizes one private calendar save and requires approval once attendees exist', () => {
+    const tools = registry();
+    const base = {
+      observationId: observation.observationId,
+      description: 'Save the private calendar event.',
+      target: 'Save',
+      command: {
+        kind: 'click_element' as const,
+        ref: 'e1',
+        button: 'left' as const,
+        count: 1,
+        consequence: 'click_element' as const,
+        sendPayload: null,
+      },
+    };
+    const createInvocation = tools.resolve(
+      {
+        callId: 'calendar-create',
+        name: 'control_surface',
+        arguments: JSON.stringify({
+          ...base,
+          effect: calendarCreate,
+          attendees: null,
+        }),
+      },
+      { taskId: observation.taskId, latestObservation: observation },
+    );
+    expect(
+      evaluateAction(
+        createTaskContract('Create a calendar event.'),
+        createInvocation.action!,
+        tools,
+      ),
+    ).toMatchObject({
+      status: 'allowed',
+      authorizationSource: 'user_instruction',
+      approvalRequired: false,
+      consequential: true,
+    });
+
+    const inviteInvocation = tools.resolve(
+      {
+        callId: 'calendar-invite',
+        name: 'control_surface',
+        arguments: JSON.stringify({
+          ...base,
+          effect: {
+            ...calendarCreate,
+            kind: 'send_communication',
+            communication: 'invite',
+            externality: 'external',
+          },
+          attendees: ['teammate@example.test'],
+        }),
+      },
+      { taskId: observation.taskId, latestObservation: observation },
+    );
+    expect(
+      evaluateAction(
+        createTaskContract('Create a calendar event with an attendee.'),
+        inviteInvocation.action!,
+        tools,
+      ).status,
+    ).toBe('needs_approval');
   });
 });

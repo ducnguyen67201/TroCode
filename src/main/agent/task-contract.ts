@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
 import {
-  AgentTaskContractV6Schema,
+  AgentTaskContractV8Schema,
   HOST_ALWAYS_CONFIRM_ACTIONS,
+  HOST_ALWAYS_CONFIRM_EFFECTS,
   type AgentTaskContract,
   type AgentRuntimeKind,
   type AutonomyMode,
@@ -12,7 +13,12 @@ import {
   type TaskBehavior,
   type WorkspaceIdentity,
   type ActivityContext,
+  type IntentAuthorizationContract,
+  type OutcomeContract,
 } from '../../shared/contracts';
+
+import { compileIntentAuthorization } from './intent-authorization';
+import { compileOutcomeContract } from './outcome-contract';
 
 export const HOST_APPROVAL_POLICY: readonly SensitiveAction[] =
   HOST_ALWAYS_CONFIRM_ACTIONS;
@@ -30,6 +36,8 @@ export interface CreateTaskContractOptions {
   runtimeKind?: AgentRuntimeKind;
   workspace?: WorkspaceIdentity | null;
   taskId?: string;
+  intentAuthorization?: IntentAuthorizationContract;
+  outcomeContract?: OutcomeContract;
 }
 
 /**
@@ -42,8 +50,8 @@ export function createTaskContract(
 ): AgentTaskContract {
   const executionProfile = options.executionProfile ?? 'everyday';
   const runtimeKind = options.runtimeKind ?? 'openai_agents';
-  return AgentTaskContractV6Schema.parse({
-    schemaVersion: 6,
+  return AgentTaskContractV8Schema.parse({
+    schemaVersion: 8,
     id: randomUUID(),
     originalRequest,
     autonomyMode: options.autonomyMode ?? 'balanced',
@@ -51,7 +59,14 @@ export function createTaskContract(
     runtimeKind,
     workspace: options.workspace ?? null,
     activity: options.activity ?? null,
-    approvalPolicy: { alwaysConfirm: [...HOST_APPROVAL_POLICY] },
+    outcomeContract:
+      options.outcomeContract ?? compileOutcomeContract(originalRequest),
+    intentAuthorization:
+      options.intentAuthorization ??
+      compileIntentAuthorization(originalRequest, { executionProfile }),
+    approvalPolicy: {
+      alwaysConfirmEffects: [...HOST_ALWAYS_CONFIRM_EFFECTS],
+    },
     limits: {
       maxToolCalls: DEFAULT_MAX_TOOL_CALLS,
       maxMinutes: DEFAULT_MAX_TASK_MINUTES,
@@ -67,13 +82,13 @@ export function taskApprovalPolicy(): readonly SensitiveAction[] {
 }
 
 export function taskMaxToolCalls(goal: GoalSpec): number {
-  return goal.schemaVersion === 3 || goal.schemaVersion === 4 || goal.schemaVersion === 5 || goal.schemaVersion === 6
+  return goal.schemaVersion === 3 || goal.schemaVersion === 4 || goal.schemaVersion === 5 || goal.schemaVersion === 6 || goal.schemaVersion === 7 || goal.schemaVersion === 8
     ? goal.limits.maxToolCalls
     : goal.limits.maxSteps;
 }
 
 export function taskMaxModelSamples(goal: GoalSpec): number {
-  return goal.schemaVersion === 4 || goal.schemaVersion === 5 || goal.schemaVersion === 6
+  return goal.schemaVersion === 4 || goal.schemaVersion === 5 || goal.schemaVersion === 6 || goal.schemaVersion === 7 || goal.schemaVersion === 8
     ? goal.limits.maxModelSamples
     : DEFAULT_MAX_MODEL_SAMPLES;
 }

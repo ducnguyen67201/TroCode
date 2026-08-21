@@ -30,6 +30,18 @@ function booleanValue(name, value, fallback) {
   throw new Error(`${name} must be true or false.`);
 }
 
+function percentage(name, value, fallback) {
+  const normalized = value === undefined || value === '' ? fallback : Number(value);
+  if (!Number.isInteger(normalized) || normalized < 0 || normalized > 100) {
+    throw new Error(`${name} must be an integer from 0 to 100.`);
+  }
+  return normalized;
+}
+
+function commaSeparated(value) {
+  return [...new Set(String(value ?? '').split(',').map((item) => item.trim()).filter(Boolean))];
+}
+
 export function loadConfig(environment = process.env) {
   const sessionTokenHmacKey = required(
     'TROCODE_SESSION_TOKEN_HMAC_KEY',
@@ -44,6 +56,23 @@ export function loadConfig(environment = process.env) {
   const primaryModel =
     environment.TROCODE_AGENT_MODEL?.trim() ||
     'gpt-5.6-luna';
+  const backendAgentEnabled = booleanValue(
+    'TROCODE_BACKEND_AGENT_ENABLED',
+    environment.TROCODE_BACKEND_AGENT_ENABLED,
+    false,
+  );
+  const agentStateEncryptionKeys = environment.TROCODE_AGENT_STATE_ENCRYPTION_KEYS?.trim() || '';
+  if (backendAgentEnabled && !agentStateEncryptionKeys) {
+    throw new Error('TROCODE_AGENT_STATE_ENCRYPTION_KEYS is required when the backend agent is enabled.');
+  }
+  const agentRuntimeProtocolVersion = positiveInteger(
+    'TROCODE_AGENT_RUNTIME_PROTOCOL_VERSION',
+    environment.TROCODE_AGENT_RUNTIME_PROTOCOL_VERSION,
+    2,
+  );
+  if (agentRuntimeProtocolVersion !== 2) {
+    throw new Error('TROCODE_AGENT_RUNTIME_PROTOCOL_VERSION must be 2.');
+  }
 
   const knowledgeSpacesEnabled = booleanValue(
     'TROCODE_KNOWLEDGE_SPACES_ENABLED',
@@ -75,6 +104,72 @@ export function loadConfig(environment = process.env) {
     : null;
 
   return {
+    agentRuntime: {
+      canaryUsers: new Set(commaSeparated(environment.TROCODE_BACKEND_AGENT_CANARY_USERS)),
+      compactionItemThreshold: positiveInteger(
+        'TROCODE_AGENT_COMPACTION_ITEM_THRESHOLD',
+        environment.TROCODE_AGENT_COMPACTION_ITEM_THRESHOLD,
+        80,
+      ),
+      currentEncryptionKeyVersion: positiveInteger(
+        'TROCODE_AGENT_STATE_KEY_VERSION',
+        environment.TROCODE_AGENT_STATE_KEY_VERSION,
+        1,
+      ),
+      enabled: backendAgentEnabled,
+      intentAuthorization: {
+        canaryUsers: new Set(commaSeparated(
+          environment.TROCODE_INTENT_AUTHORIZATION_CANARY_USERS,
+        )),
+        enabled: booleanValue(
+          'TROCODE_INTENT_AUTHORIZATION_ENABLED',
+          environment.TROCODE_INTENT_AUTHORIZATION_ENABLED,
+          false,
+        ),
+        rolloutPercent: percentage(
+          'TROCODE_INTENT_AUTHORIZATION_ROLLOUT_PERCENT',
+          environment.TROCODE_INTENT_AUTHORIZATION_ROLLOUT_PERCENT,
+          0,
+        ),
+      },
+      encryptionKeys: agentStateEncryptionKeys,
+      heartbeatTtlMs: positiveInteger(
+        'TROCODE_DESKTOP_WORKER_TTL_MS',
+        environment.TROCODE_DESKTOP_WORKER_TTL_MS,
+        35_000,
+      ),
+      leaseMs: positiveInteger(
+        'TROCODE_AGENT_LEASE_MS',
+        environment.TROCODE_AGENT_LEASE_MS,
+        30_000,
+      ),
+      maxActiveRunsPerUser: positiveInteger(
+        'TROCODE_AGENT_MAX_ACTIVE_RUNS_PER_USER',
+        environment.TROCODE_AGENT_MAX_ACTIVE_RUNS_PER_USER,
+        2,
+      ),
+      maxQueueDepth: positiveInteger(
+        'TROCODE_AGENT_MAX_QUEUE_DEPTH',
+        environment.TROCODE_AGENT_MAX_QUEUE_DEPTH,
+        1_000,
+      ),
+      payloadTtlMs: positiveInteger(
+        'TROCODE_AGENT_PAYLOAD_TTL_MS',
+        environment.TROCODE_AGENT_PAYLOAD_TTL_MS,
+        7 * 24 * 60 * 60 * 1_000,
+      ),
+      playwrightCdpEnabled: booleanValue(
+        'TROCODE_PLAYWRIGHT_CDP_ENABLED',
+        environment.TROCODE_PLAYWRIGHT_CDP_ENABLED,
+        false,
+      ),
+      protocolVersion: agentRuntimeProtocolVersion,
+      rolloutPercent: percentage(
+        'TROCODE_BACKEND_AGENT_ROLLOUT_PERCENT',
+        environment.TROCODE_BACKEND_AGENT_ROLLOUT_PERCENT,
+        0,
+      ),
+    },
     admin: {
       accessToken: adminAccessToken,
       enabled: Boolean(adminAccessToken),
@@ -148,7 +243,13 @@ export function loadConfig(environment = process.env) {
       objectStore: knowledgeObjectStore,
     },
     openAiApiKey: required('OPENAI_API_KEY', environment),
-    openAiModels: new Set([primaryModel]),
+    openAiModels: new Set([
+      primaryModel,
+      'gpt-5.6-luna',
+      'gpt-5.6-terra',
+      'gpt-5.6-sol',
+      ...commaSeparated(environment.TROCODE_AGENT_MODEL_ALLOWLIST),
+    ]),
     port: positiveInteger('PORT', environment.PORT, 8080),
     sessionDurationDays: positiveInteger(
       'TROCODE_SESSION_DURATION_DAYS',

@@ -19,6 +19,7 @@ function task(phase: TaskSnapshot['phase']): TaskSnapshot {
     goal: null,
     lastEvent: null,
     messages: [],
+    outcomes: null,
     pendingInteraction: null,
     phase,
     progress: null,

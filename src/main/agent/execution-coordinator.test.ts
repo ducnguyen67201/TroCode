@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import type { CuaStatus } from '../../shared/contracts';
+import type { CuaStatus, TaskUpdate } from '../../shared/contracts';
+import type { ApplicationSurfaceVerifier } from '../application/application-surface-verifier';
 
 import type { ActionPreview } from './action-preview-policy';
 import type {
@@ -162,6 +163,7 @@ function setup(
   turns: FakeAgentTurn[],
   observations: DesktopObservation[] = [],
   options: {
+    applicationSurfaceVerifier?: Pick<ApplicationSurfaceVerifier, 'verify'>;
     approvalObservationMatches?: (
       approved: DesktopObservation,
       current: DesktopObservation,
@@ -209,6 +211,13 @@ function setup(
       summary: 'The desktop action was confirmed.',
     })),
     observeCurrentSurface: vi.fn(async () => undefined),
+    inspectSurfaceRegion: vi.fn(() => ({
+      dataUrl: 'data:image/png;base64,aGVsbG8=',
+      height: 100,
+      observationId: randomUUID(),
+      region: { x: 0, y: 0, width: 100, height: 100 },
+      width: 100,
+    })),
     executeSurfaceCommand: vi.fn<
       (
         taskId: string,
@@ -240,9 +249,31 @@ function setup(
   };
   const registry = new RuntimeToolRegistry();
   const openExternal = vi.fn(async () => undefined);
-  const openApplication = vi.fn(async () => undefined);
+  const openApplication = vi.fn(async () => ({
+    application: 'chrome' as const,
+    acceptedAt: '2026-08-20T00:00:00.000Z',
+    receipt: randomUUID(),
+  }));
+  const applicationSurfaceVerifier = {
+    verify: vi.fn(async (taskId: string, criterionId: string) => ({
+      status: 'confirmed' as const,
+      summary: 'A fresh trusted observation confirmed one visible Chrome surface.',
+      evidence: {
+        id: randomUUID(),
+        runId: taskId,
+        criterionId,
+        source: 'fresh_observation' as const,
+        status: 'supports' as const,
+        observationId: randomUUID(),
+        observationFingerprint: 'a'.repeat(64),
+        summary: 'Trusted CUA identity matched Chrome.',
+        createdAt: '2026-08-20T00:00:00.000Z',
+      },
+    })),
+  };
   const coordinator = new TaskExecutionCoordinator({
     agent,
+    applicationSurfaceVerifier,
     cua,
     openApplication,
     openExternal,
@@ -250,7 +281,15 @@ function setup(
     toolRegistry: registry,
     ...options,
   });
-  return { agent, coordinator, cua, openApplication, openExternal, runtime };
+  return {
+    agent,
+    applicationSurfaceVerifier,
+    coordinator,
+    cua,
+    openApplication,
+    openExternal,
+    runtime,
+  };
 }
 
 describe('TaskExecutionCoordinator', () => {
@@ -994,7 +1033,13 @@ describe('TaskExecutionCoordinator', () => {
       sequence.push('preview');
       return true;
     });
-    const { coordinator, cua, openApplication, runtime } = setup(
+    const {
+      applicationSurfaceVerifier,
+      coordinator,
+      cua,
+      openApplication,
+      runtime,
+    } = setup(
       [
         tool('call-open-chrome', 'open_application', {
           application: 'chrome',
@@ -1007,6 +1052,11 @@ describe('TaskExecutionCoordinator', () => {
     );
     openApplication.mockImplementationOnce(async () => {
       sequence.push('dispatch');
+      return {
+        application: 'chrome' as const,
+        acceptedAt: '2026-08-20T00:00:00.000Z',
+        receipt: randomUUID(),
+      };
     });
     const ready = runtime.submit({ text: 'Open Chrome.' });
 
@@ -1015,7 +1065,35 @@ describe('TaskExecutionCoordinator', () => {
 
     expect(sequence).toEqual(['preview', 'dispatch']);
     expect(openApplication).toHaveBeenCalledWith('chrome');
+    expect(applicationSurfaceVerifier.verify).toHaveBeenCalledOnce();
     expect(cua.startTaskSession).not.toHaveBeenCalled();
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+  });
+
+  it('does not complete a Chrome launch when surface verification is unknown', async () => {
+    const applicationSurfaceVerifier = {
+      verify: vi.fn(async () => ({
+        status: 'unknown' as const,
+        summary: 'No visible Chrome surface was observed before the deadline.',
+      })),
+    };
+    const { coordinator, runtime } = setup(
+      [
+        tool('call-open-chrome', 'open_application', {
+          application: 'chrome',
+          reason: 'Open Google Chrome.',
+        }),
+        assistant('Google Chrome is open.'),
+      ],
+      [],
+      { applicationSurfaceVerifier },
+    );
+    const ready = runtime.submit({ text: 'Open Chrome.' });
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(runtime.getSnapshot(ready.taskId).phase).not.toBe('completed');
   });
 
   it('blocks promptly when post-action desktop verification stalls', async () => {
@@ -1148,6 +1226,76 @@ describe('TaskExecutionCoordinator', () => {
     expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
       phase: 'blocked',
       lastEvent: { summary: expect.stringContaining('image-evidence limit') },
+    });
+  });
+
+  it('executes an instruction-authorized calendar save without UI and blocks an unknown result once', async () => {
+    const observationId = randomUUID();
+    const first = observation(randomUUID(), observationId, 'a'.repeat(64));
+    const after = observation(randomUUID(), randomUUID(), 'b'.repeat(64));
+    const { coordinator, cua, runtime } = setup(
+      [
+        tool('call-observe-calendar', 'observe_desktop', {
+          reason: 'Inspect the calendar editor.',
+        }),
+        tool('call-save-calendar', 'control_desktop', {
+          observationId,
+          description: 'Save the private calendar event.',
+          target: 'Save',
+          effect: {
+            kind: 'create_resource',
+            resourceKind: 'calendar_event',
+            reversibility: 'reversible',
+            externality: 'cloud_private',
+            communication: 'none',
+            overwrite: 'none',
+            sensitiveDataTransfer: false,
+          },
+          attendees: null,
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 250,
+            button: 'left',
+            count: 1,
+            consequence: 'click_element',
+            sendPayload: null,
+          },
+        }),
+      ],
+      [first, after],
+    );
+    const updates: TaskUpdate[] = [];
+    runtime.on('task-update', (update: TaskUpdate) => updates.push(update));
+    const ready = runtime.submit({ text: 'Create a calendar event.' });
+    first.taskId = ready.taskId;
+    after.taskId = ready.taskId;
+    cua.executeCommand.mockResolvedValueOnce({
+      status: 'unknown',
+      summary: 'The calendar save result could not be confirmed.',
+    });
+
+    coordinator.start({ taskId: ready.taskId });
+    await coordinator.waitForIdle(ready.taskId);
+
+    expect(cua.executeCommand).toHaveBeenCalledOnce();
+    expect(updates.some((update) => update.event.phase === 'awaiting_approval')).toBe(
+      false,
+    );
+    expect(
+      updates.find(
+        (update) =>
+          update.event.phase === 'verifying' &&
+          update.event.tool?.authorizationSource === 'user_instruction',
+      )?.event.tool,
+    ).toMatchObject({
+      effectKind: 'create_resource',
+      approvalRequired: false,
+      consequential: true,
+    });
+    expect(runtime.getSnapshot(ready.taskId)).toMatchObject({
+      phase: 'blocked',
+      lastEvent: { summary: expect.stringContaining('unknown outcome') },
     });
   });
 
@@ -1442,7 +1590,7 @@ describe('TaskExecutionCoordinator', () => {
       [ready.taskId, true],
       [ready.taskId, false],
     ]);
-    expect(runtime.getSnapshot(ready.taskId).phase).toBe('completed');
+    expect(runtime.getSnapshot(ready.taskId).phase).toBe('failed');
   });
 
   it('does not blink desktop control between consecutive actions', async () => {

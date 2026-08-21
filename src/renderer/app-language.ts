@@ -281,6 +281,12 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Tools used': 'Công cụ đã dùng',
   'Tro chooses from the tools currently available and asks before consequential actions.':
     'Tro chọn trong số công cụ hiện có và sẽ hỏi trước các hành động có hệ quả.',
+  'Your instruction authorizes requested reversible work. Tro still asks before communications, deletion, publishing or deployment, money, credentials or permissions, installs, sensitive transfers, and scope expansion.':
+    'Chỉ dẫn của bạn cho phép Tro thực hiện công việc có thể hoàn tác đã yêu cầu. Tro vẫn hỏi trước khi liên lạc, xóa, xuất bản hoặc triển khai, xử lý tiền, thông tin đăng nhập hoặc quyền, cài đặt, chuyển dữ liệu nhạy cảm hay mở rộng phạm vi.',
+  'Your instruction authorizes requested reversible work; Tro still asks for high-impact or expanded-scope actions.':
+    'Chỉ dẫn của bạn cho phép công việc có thể hoàn tác đã yêu cầu; Tro vẫn hỏi với hành động có tác động lớn hoặc mở rộng phạm vi.',
+  'Strict mode asks before every mutation or side effect.':
+    'Chế độ Nghiêm ngặt hỏi trước mọi thay đổi hoặc tác động phụ.',
   'Tro could not start automatically. You can try again.':
     'Tro không thể tự động bắt đầu. Bạn có thể thử lại.',
   'Tro uses this to keep voice transcription in the language you expect. You can change it later in Settings.':

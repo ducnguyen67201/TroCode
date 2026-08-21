@@ -19,6 +19,7 @@ function createSnapshot(
     goal: null,
     lastEvent: null,
     messages: [],
+    outcomes: null,
     pendingInteraction: null,
     phase,
     progress: null,

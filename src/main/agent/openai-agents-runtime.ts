@@ -76,7 +76,8 @@ const SYSTEM_INSTRUCTIONS = [
   'Use control_surface with opaque refs from the latest semantic observation. Call observe_desktop before coordinate-grounded actions and use only the latest observation ID.',
   'Use prepare_browser_access only when the current browser observation explicitly says deeper access requires approval and the task genuinely needs it.',
   'When entering a table into a visible spreadsheet, use one paste_table command with rectangular rows so each value lands in its own cell. Never simulate a multi-cell table with space-separated type_text.',
-  'Declare paste_table as type_text. Reserve write_file, submit, send, and other consequential labels for actions that actually have those effects.',
+  'For control_surface and control_desktop, declare the exact typed effect. A private calendar event with no attendees is create_resource/calendar_event; any attendee makes it send_communication with invite communication. Generic submit is unknown unless a narrower effect is proven.',
+  'The authenticated user instruction authorizes its in-scope reversible work. Continue without asking again when the host allows the typed effect; approval is still required for sending, deletion, publishing, deployment, merge, money, credentials, permissions, installs, sensitive transfer, unexpected overwrite, or unknown effects.',
   'Never use desktop tools to operate Tro itself, including its approval cards, dialogs, or controls. Approval and denial are user-only decisions handled by the trusted host.',
   'When the user asks for a visible walkthrough, call show_guidance once per user-controlled step with one visible target and one concise spoken instruction. Wait for that tool output before observing and emitting the next step. Do not substitute control_desktop unless the user asked Tro to act.',
   'Navigation alone does not complete a request to read, edit, submit, or act.',
@@ -364,6 +365,7 @@ export class OpenAIAgentsRuntime implements AgentRuntime {
     const workspaceTools = input.contract.workspace
       ? createWorkspaceAgentTools({
           callbacks: input.callbacks,
+          contract: input.contract,
           maxToolCalls: input.contract.limits.maxToolCalls,
           request: input.request,
           root: input.contract.workspace.canonicalPath,

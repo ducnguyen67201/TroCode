@@ -20,6 +20,7 @@ import {
   type DesktopObservation,
   tableRowsToTsv,
 } from '../agent/execution-contracts';
+import type { ImageEvidencePolicy } from '../inference/image-evidence-policy';
 
 import { CuaAuthorizationBroker } from './cua-authorization-broker';
 import {
@@ -28,6 +29,8 @@ import {
   deriveCuaSemanticCapabilities,
   type CuaOpenToolResult,
   type CuaSemanticCapabilities,
+  type TrustedApplicationIdentity,
+  type VisibleApplicationSurface,
 } from './cua-semantic-contracts';
 import {
   CuaSurfaceRouter,
@@ -77,6 +80,7 @@ export interface CuaPerformanceMetric {
 }
 
 export interface CuaServiceOptions {
+  imageEvidencePolicy?: Pick<ImageEvidencePolicy, 'clear' | 'inspect' | 'prepare'>;
   now?: () => number;
   onPerformanceMetric?: (metric: CuaPerformanceMetric) => void;
   platform?: NodeJS.Platform;
@@ -281,6 +285,11 @@ export class CuaService {
 
   private readonly onPerformanceMetric?: (metric: CuaPerformanceMetric) => void;
 
+  private readonly imageEvidencePolicy?: Pick<
+    ImageEvidencePolicy,
+    'clear' | 'inspect' | 'prepare'
+  >;
+
   private readonly platform: NodeJS.Platform;
 
   private readonly performanceNow: () => number;
@@ -291,6 +300,7 @@ export class CuaService {
 
   constructor(options: CuaServiceOptions = {}) {
     this.now = options.now ?? Date.now;
+    this.imageEvidencePolicy = options.imageEvidencePolicy;
     this.onPerformanceMetric = options.onPerformanceMetric;
     this.platform = options.platform ?? process.platform;
     this.performanceNow = options.performanceNow ?? performance.now.bind(performance);
@@ -307,6 +317,14 @@ export class CuaService {
       this.semanticCapabilityState.windowState &&
       this.semanticCapabilityState.windowActions
     );
+  }
+
+  async queryVisibleApplicationSurfaces(
+    application: TrustedApplicationIdentity,
+    signal?: AbortSignal,
+  ): Promise<VisibleApplicationSurface[]> {
+    if (!this.supportsSemanticFastPath() || !this.surfaceRouter) return [];
+    return this.surfaceRouter.queryVisibleApplicationSurfaces(application, signal);
   }
 
   async getStatus(): Promise<CuaStatus> {
@@ -504,7 +522,7 @@ export class CuaService {
       screenshotAttached: Boolean(observation.screenshot),
       status: 'confirmed',
     });
-    return observation;
+    return this.imageEvidencePolicy?.prepare(taskId, observation) ?? observation;
   }
 
   async observeCurrentSurface(
@@ -519,9 +537,29 @@ export class CuaService {
         options,
         signal,
       );
-      if (observation) return observation;
+      if (observation) {
+        return this.imageEvidencePolicy?.prepare(taskId, observation) ?? observation;
+      }
     }
     return undefined;
+  }
+
+  inspectSurfaceRegion(
+    taskId: string,
+    observationId: string,
+    region: unknown,
+  ): {
+    dataUrl: string;
+    height: number;
+    observationId: string;
+    region: unknown;
+    width: number;
+  } {
+    this.assertActiveSession(taskId);
+    if (!this.imageEvidencePolicy) {
+      throw new Error('Original-resolution image inspection is unavailable.');
+    }
+    return this.imageEvidencePolicy.inspect(taskId, observationId, region);
   }
 
   async executeSurfaceCommand(
@@ -865,6 +903,7 @@ export class CuaService {
 
   async endTaskSession(taskId: string, signal?: AbortSignal): Promise<void> {
     this.surfaceRouter?.clearTask(taskId);
+    this.imageEvidencePolicy?.clear(taskId);
     this.desktopScopeSessions.delete(taskId);
     this.latestCoordinateSpaces.delete(taskId);
     this.windowsBottomEdgeAwaitingObservation.delete(taskId);

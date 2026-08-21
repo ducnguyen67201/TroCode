@@ -22,10 +22,19 @@ import {
   type ShellTool,
 } from '@openai/agents';
 
-import type { ProposedAction } from '../../shared/contracts';
+import type {
+  ActionEffect,
+  ExecutableAgentTaskContract,
+  ProposedAction,
+} from '../../shared/contracts';
 
 import { createActionPreview } from './action-preview-policy';
 import type { AgentRuntimeCallbacks } from './agent-runtime';
+import { evaluateAction } from './policy';
+import {
+  classifyWorkspaceCommand,
+  type WorkspaceCommandDecision,
+} from './workspace-command-policy';
 
 const MAX_COMMANDS = 8;
 const MAX_COMMAND_LENGTH = 8_000;
@@ -63,6 +72,7 @@ export interface WorkspaceAgentToolBundle {
 
 export interface WorkspaceAgentToolOptions {
   callbacks: AgentRuntimeCallbacks;
+  contract: ExecutableAgentTaskContract;
   maxToolCalls: number;
   request?: string;
   root: string;
@@ -353,6 +363,33 @@ export class WorkspaceEditor implements Editor {
     return this.resolvePath(candidate);
   }
 
+  async readTextFile(candidate: string): Promise<string> {
+    this.consumeToolCall();
+    const target = await this.resolveExistingFile(candidate);
+    const content = await readFile(target, 'utf8');
+    this.validateFileLength(content);
+    return content;
+  }
+
+  async replaceTextFile(candidate: string, content: string): Promise<void> {
+    this.validateFileLength(content);
+    this.consumeToolCall();
+    const target = await this.resolvePath(candidate);
+    await mkdir(path.dirname(target), { recursive: true });
+    await this.assertResolvedParent(target);
+    try {
+      const info = await lstat(target);
+      if (!info.isFile() || info.isSymbolicLink()) {
+        throw new Error(
+          'Workspace edits require a regular file inside the selected root.',
+        );
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    await writeFile(target, content, 'utf8');
+  }
+
   private async resolveExistingFile(candidate: string): Promise<string> {
     const target = await this.resolvePath(candidate);
     const info = await lstat(target);
@@ -360,7 +397,8 @@ export class WorkspaceEditor implements Editor {
       throw new Error('Workspace edits require a regular file inside the selected root.');
     }
     const canonical = await realpath(target);
-    if (!withinRoot(this.root, canonical)) {
+    const canonicalRoot = await realpath(this.root);
+    if (!withinRoot(canonicalRoot, canonical)) {
       throw new Error('Workspace file path escapes the selected root.');
     }
     return target;
@@ -381,11 +419,12 @@ export class WorkspaceEditor implements Editor {
   }
 
   private async assertResolvedParent(target: string): Promise<void> {
+    const canonicalRoot = await realpath(this.root);
     let current = target;
     for (;;) {
       try {
         const canonical = await realpath(current);
-        if (!withinRoot(this.root, canonical)) {
+        if (!withinRoot(canonicalRoot, canonical)) {
           throw new Error('Workspace file path escapes the selected root.');
         }
         return;
@@ -428,6 +467,51 @@ function approvalRequester(callbacks: AgentRuntimeCallbacks) {
   };
 }
 
+function workspaceEffect(
+  kind: 'workspace_command' | 'workspace_write',
+  resourceKind: 'workspace_repository' | 'workspace_file',
+): ActionEffect {
+  return {
+    kind,
+    resourceKind,
+    reversibility: 'reversible',
+    externality: 'local',
+    communication: 'none',
+    overwrite: kind === 'workspace_write' ? 'requested' : 'none',
+    sensitiveDataTransfer: false,
+  };
+}
+
+function deniedShellEffect(): ActionEffect {
+  return {
+    kind: 'unknown',
+    resourceKind: 'workspace_repository',
+    reversibility: 'unknown',
+    externality: 'unknown',
+    communication: 'unknown',
+    overwrite: 'unknown',
+    sensitiveDataTransfer: 'unknown',
+  };
+}
+
+function shellEffect(
+  decisions: readonly WorkspaceCommandDecision[],
+): ActionEffect {
+  return decisions.every((decision) => decision.classification === 'safe_read')
+    ? {
+        kind: 'none',
+        resourceKind: null,
+        reversibility: 'none',
+        externality: 'local',
+        communication: 'none',
+        overwrite: 'none',
+        sensitiveDataTransfer: false,
+      }
+    : decisions.some((decision) => decision.classification === 'requires_approval')
+      ? deniedShellEffect()
+      : workspaceEffect('workspace_command', 'workspace_repository');
+}
+
 function patchDescription(operation: ApplyPatchOperation): string {
   switch (operation.type) {
     case 'create_file':
@@ -468,18 +552,36 @@ export function createWorkspaceAgentTools(
           return { approve: false, reason: 'Malformed workspace shell request.' };
         }
         const validated = validateShellAction(item.rawItem.action);
+        const commandDecisions = validated.commands.map((command) =>
+          classifyWorkspaceCommand(command, options.contract.originalRequest),
+        );
+        const denied = commandDecisions.find(
+          (decision) => decision.classification === 'denied',
+        );
+        if (denied) return { approve: false, reason: denied.reason };
         const action: ProposedAction = {
           action: 'run_command',
+          operation: 'run_command',
+          toolId: 'workspace.terminal',
           description:
             validated.commands.length === 1
               ? `Run workspace command: ${validated.commands[0]}`
               : `Run ${validated.commands.length} workspace commands.`,
           target: options.root,
+          effect: shellEffect(commandDecisions),
           parameters: {
             commands: validated.commands,
+            commandClassifications: commandDecisions.map(
+              (decision) => decision.classification,
+            ),
             declaredConsequence: 'run_command',
           },
         };
+        const policy = evaluateAction(options.contract, action);
+        if (policy.status === 'allowed') return { approve: true };
+        if (policy.status === 'denied') {
+          return { approve: false, reason: policy.summary };
+        }
         const approve = await requestApproval({
           action,
           consequence:
@@ -518,10 +620,29 @@ export function createWorkspaceAgentTools(
         };
         const action: ProposedAction = {
           action: operation.type === 'delete_file' ? 'delete' : 'write_file',
+          operation: 'write_file',
+          toolId: 'workspace.filesystem',
           description: patchDescription(operation),
           target,
+          effect:
+            operation.type === 'delete_file'
+              ? {
+                  kind: 'delete_or_archive',
+                  resourceKind: 'workspace_file',
+                  reversibility: 'destructive',
+                  externality: 'local',
+                  communication: 'none',
+                  overwrite: 'none',
+                  sensitiveDataTransfer: false,
+                }
+              : workspaceEffect('workspace_write', 'workspace_file'),
           parameters,
         };
+        const policy = evaluateAction(options.contract, action);
+        if (policy.status === 'allowed') return { approve: true };
+        if (policy.status === 'denied') {
+          return { approve: false, reason: policy.summary };
+        }
         const approve = await requestApproval({
           action,
           consequence:

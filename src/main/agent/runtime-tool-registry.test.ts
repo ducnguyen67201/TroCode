@@ -169,6 +169,9 @@ describe('RuntimeToolRegistry', () => {
     expect(
       (controlTool?.parameters as unknown as { anyOf?: unknown[] }).anyOf,
     ).toBeUndefined();
+    expect(controlTool?.parameters.required).toEqual(
+      expect.arrayContaining(['effect', 'attendees']),
+    );
     expect(variants?.map(kindFor)).toEqual([
       { type: 'string', const: 'click' },
       { type: 'string', const: 'click' },
@@ -449,6 +452,65 @@ describe('RuntimeToolRegistry', () => {
     expect(invocation.action).toMatchObject({
       action: 'click_element',
       operation: 'click',
+    });
+  });
+
+  it('retains an explicit coordinate-lane effect for consequence and retry policy', () => {
+    const registry = new RuntimeToolRegistry();
+    const taskId = randomUUID();
+    const observationId = randomUUID();
+    const invocation = registry.resolve(
+      {
+        callId: 'call-calendar-save',
+        name: 'control_desktop',
+        arguments: JSON.stringify({
+          observationId,
+          description: 'Save the private calendar event.',
+          target: 'Save',
+          effect: {
+            kind: 'create_resource',
+            resourceKind: 'calendar_event',
+            reversibility: 'reversible',
+            externality: 'cloud_private',
+            communication: 'none',
+            overwrite: 'none',
+            sensitiveDataTransfer: false,
+          },
+          attendees: null,
+          command: {
+            kind: 'click',
+            x: 500,
+            y: 250,
+            button: 'left',
+            count: 1,
+            consequence: 'click_element',
+            sendPayload: null,
+          },
+        }),
+      },
+      {
+        taskId,
+        latestObservation: {
+          observationId,
+          taskId,
+          capturedAt: '2026-08-21T00:00:00.000Z',
+          route: 'desktop_vision',
+          text: 'A calendar Save button is visible.',
+          degraded: false,
+          fingerprint: 'a'.repeat(64),
+          coordinateSpace: {
+            screenHeight: 500,
+            screenWidth: 1000,
+            screenshotHeight: 1000,
+            screenshotWidth: 2000,
+          },
+        },
+      },
+    );
+
+    expect(invocation.action?.effect).toMatchObject({
+      kind: 'create_resource',
+      resourceKind: 'calendar_event',
     });
   });
 

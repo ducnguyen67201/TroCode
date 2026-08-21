@@ -41,9 +41,15 @@ import {
 } from './main/agent/runtime-tool-registry';
 import { TaskRuntime } from './main/agent/task-runtime';
 import { requestsGuidedWalkthrough } from './main/agent/walkthrough-policy';
+import { createWorkspaceRuntimeToolAdapters } from './main/agent/workspace-runtime-tool-adapters';
 import { FileAnalyticsIdentityStore } from './main/analytics/analytics-identity-store';
 import { AnalyticsService } from './main/analytics/analytics-service';
+import { ApplicationSurfaceVerifier } from './main/application/application-surface-verifier';
 import { DesktopApplicationLauncher } from './main/application/desktop-application-launcher';
+import {
+  HostedTaskClient,
+  projectHostedTask,
+} from './main/application/hosted-task-client';
 import { TaskApplicationService } from './main/application/task-application-service';
 import { EncryptedAuthSessionStore } from './main/auth/auth-session-store';
 import { GoogleAuthService } from './main/auth/google-auth-service';
@@ -76,9 +82,13 @@ import {
   type GlobalNumberedChoiceShortcuts,
 } from './main/companion/global-numbered-choice-shortcuts';
 import { CuaService } from './main/cua/cua-service';
+import { HostedTaskHistoryStore } from './main/history/hosted-task-history-store';
 import { TaskHistoryService } from './main/history/task-history-service';
 import { PostgresTaskHistoryStore } from './main/history/task-history-store';
-import { resizeObservationForModel } from './main/inference/image-evidence';
+import { DesktopToolWorker } from './main/hosted/desktop-tool-worker';
+import { DesktopWorkerClient } from './main/hosted/desktop-worker-client';
+import { desktopWorkerCapabilities } from './main/hosted/desktop-worker-protocol';
+import { ImageEvidencePolicy } from './main/inference/image-evidence-policy';
 import { registerIpcHandlers } from './main/ipc/register-ipc';
 import { ActivityContextService } from './main/knowledge/activity-context-service';
 import { ActivityProgressReporter } from './main/knowledge/activity-progress-reporter';
@@ -121,6 +131,7 @@ import { EncryptedVoiceCredentialStore } from './main/voice/voice-credential-sto
 import { VoiceService } from './main/voice/voice-service';
 import { watchWindowsGlobalVoiceShortcut } from './main/voice/windows-voice-shortcut-watcher';
 import { WorkspaceSelectionService } from './main/workspace/workspace-selection-service';
+import { EncryptedWorkspaceSelectionStore } from './main/workspace/workspace-selection-store';
 import {
   AgentActivityUpdateSchema,
   CompanionGuidanceSchema,
@@ -137,6 +148,7 @@ import {
   type CompanionState,
   type CompanionVoiceActivity,
   type PendingInteraction,
+  type ProposedAction,
   type TaskSnapshot,
 } from './shared/contracts';
 import { IPC_CHANNELS } from './shared/desktop-api';
@@ -183,7 +195,6 @@ const hasSingleInstanceLock = initializeSingleInstance(app, () => {
   }
 });
 
-const taskRuntime = new TaskRuntime();
 let analyticsService: AnalyticsService | null = null;
 const agentActivityService = new AgentActivityService();
 const companionResponseController = new CompanionResponseController();
@@ -191,13 +202,6 @@ const desktopApplicationLauncher = new DesktopApplicationLauncher({
   openPath: (target) => shell.openPath(target),
 });
 const databaseUrl = process.env.DATABASE_URL?.trim() ?? '';
-const taskHistoryService = new TaskHistoryService({
-  onError: (error) => {
-    console.error('[task-history] PostgreSQL persistence failed.', error);
-  },
-  store: databaseUrl ? new PostgresTaskHistoryStore(databaseUrl) : null,
-});
-taskRuntime.on('task-update', taskHistoryService.recordTaskUpdate);
 const oauthBrowserFlow = new LocalOAuthBrowserFlow({
   openExternal: async (url) => shell.openExternal(url, { activate: true }),
 });
@@ -212,6 +216,25 @@ const authService = new GoogleAuthService({
   clientId: process.env.GOOGLE_OAUTH_CLIENT_ID,
   clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
   sessionStore: authSessionStore,
+});
+const hostedRuntimeConfigured =
+  (process.env.TROCODE_BACKEND_AGENT_ENABLED ?? process.env.TROCODE_AGENT_RUNTIME_ENABLED)
+    ?.trim().toLowerCase() === 'true' &&
+  Boolean(trocodeApiBaseUrl);
+let hostedRuntimeAvailable = false;
+const hostedTaskClient = new HostedTaskClient({
+  accessTokenProvider: () => authService.getAccessToken(),
+  apiBaseUrl: trocodeApiBaseUrl,
+});
+const taskHistoryService = new TaskHistoryService({
+  onError: (error) => {
+    console.error('[task-history] durable persistence failed.', error);
+  },
+  store: hostedRuntimeConfigured
+    ? new HostedTaskHistoryStore(hostedTaskClient, (run) => projectHostedTask(run))
+    : databaseUrl
+      ? new PostgresTaskHistoryStore(databaseUrl)
+      : null,
 });
 const usageBudgetService = new UsageBudgetService(
   trocodeApiBaseUrl,
@@ -236,8 +259,11 @@ const activityProgressReporter = new ActivityProgressReporter(knowledgeSpaceClie
 const reportActivityProgress = (value: unknown): void => {
   void activityProgressReporter.report(TaskUpdateSchema.parse(value));
 };
-taskRuntime.on('task-update', reportActivityProgress);
+const imageEvidencePolicy = new ImageEvidencePolicy({
+  create: (data) => nativeImage.createFromBuffer(data),
+});
 const cuaService = new CuaService({
+  imageEvidencePolicy,
   onPerformanceMetric: (metric) => {
     void analyticsService?.trackCuaPerformance(metric);
   },
@@ -250,6 +276,14 @@ const runtimeToolRegistry = new RuntimeToolRegistry([
     semanticAvailable: () => cuaService.supportsSemanticFastPath(),
   }),
 ]);
+const taskRuntime = new TaskRuntime({
+  // Only a compatible, canary-authorized hosted contract may grant instruction
+  // authority. The local fallback remains v8 fail-closed.
+  intentAuthorizationEnabled: false,
+  toolRegistry: runtimeToolRegistry,
+});
+taskRuntime.on('task-update', taskHistoryService.recordTaskUpdate);
+taskRuntime.on('task-update', reportActivityProgress);
 const appPreferencesService = new AppPreferencesService(
   new FileAppPreferencesStore(
     path.join(app.getPath('userData'), 'app-preferences.json'),
@@ -269,6 +303,8 @@ const workspaceSelectionService = new WorkspaceSelectionService(
       return result.canceled ? null : (result.filePaths[0] ?? null);
     },
   },
+  undefined,
+  new EncryptedWorkspaceSelectionStore(),
 );
 const fileSelectionService = new FileSelectionService({
   pick: async (selectionKind) => {
@@ -345,7 +381,14 @@ const executionCoordinator = new TaskExecutionCoordinator({
       return 'en';
     }
   },
-  additionalToolAdapters: createActivityToolAdapters(knowledgeSpaceClient),
+  additionalToolAdapters: [
+    ...createActivityToolAdapters(knowledgeSpaceClient),
+    ...createWorkspaceRuntimeToolAdapters(),
+  ],
+  applicationSurfaceVerifier: new ApplicationSurfaceVerifier({
+    queryVisibleApplicationSurfaces: (application, signal) =>
+      cuaService.queryVisibleApplicationSurfaces(application, signal),
+  }),
   agentRuntimeFactory,
   approvalObservationMatches: (approved, current, command) =>
     approvalObservationMatches(approved, current, command, (data) => {
@@ -406,13 +449,7 @@ const executionCoordinator = new TaskExecutionCoordinator({
       }
     };
   },
-  prepareObservation: (observation) =>
-    resizeObservationForModel(
-      attachDesktopCaptureOrigin(observation),
-      {
-        create: (data) => nativeImage.createFromBuffer(data),
-      },
-    ),
+  prepareObservation: attachDesktopCaptureOrigin,
   presentAction: presentCompanionAction,
   presentActionPreview: presentCompanionActionPreview,
 });
@@ -423,9 +460,44 @@ const taskApplicationService = new TaskApplicationService(
     activityContextService,
     activityProgressReporter,
     appPreferencesService,
+    hostedTaskClient,
+    onHostedTerminal: (taskId) => executionCoordinator.endHostedTask(taskId),
+    onHostedUpdate: (update) => {
+      taskHistoryService.recordTaskUpdate(update);
+      reportActivityProgress(update);
+      trackTaskAnalytics(update);
+      coordinateTaskPresentation(update);
+    },
+    useHostedRuntime: () => hostedRuntimeAvailable,
     workspaceSelectionService,
   },
 );
+const desktopWorkerClient = new DesktopWorkerClient({
+  accessTokenProvider: () => authService.getAccessToken(),
+  apiBaseUrl: trocodeApiBaseUrl,
+});
+const desktopToolWorker = new DesktopToolWorker({
+  approvalProvider: requestHostedApproval,
+  commitResult: (result) => desktopWorkerClient.commitResult(result),
+  dispatcher: {
+    dispatch: (invocation, context) =>
+      executionCoordinator.dispatchHostedTool(invocation, context),
+  },
+  goalProvider: (runId) => taskApplicationService.hostedGoal(runId),
+  interactionProvider: requestHostedInteraction,
+  registry: runtimeToolRegistry,
+  requestExecuting: (invocationId, consequential) =>
+    desktopWorkerClient.requestExecuting(invocationId, consequential),
+  taskIdProvider: (runId) => taskApplicationService.taskIdForHostedRun(runId),
+});
+desktopWorkerClient.on('invocation', (invocation) => {
+  void desktopToolWorker.handle(invocation).catch((error: unknown) => {
+    console.error('[desktop-worker] invocation failed.', error);
+  });
+});
+desktopWorkerClient.on('transport-error', (error: unknown) => {
+  console.error('[desktop-worker] connection degraded.', error);
+});
 const presentationCoordinator = new PresentationCoordinator(
   new ElectronPresentationPresenter(
     updateCompanionState,
@@ -1281,11 +1353,115 @@ function showGuidancePresentation(
 
 async function identifyAnalyticsUser(user: AuthUser): Promise<void> {
   taskHistoryService.setCurrentOwner(user.id);
+  await startHostedDesktopWorker();
   await analyticsService?.identifyUser({
     email: user.email,
     loginMethod: 'oauth',
     name: user.name,
     userId: user.id,
+  });
+}
+
+async function startHostedDesktopWorker(): Promise<void> {
+  if (!hostedRuntimeConfigured) return;
+  const status = await hostedTaskClient.status().catch((error: unknown) => {
+    console.error('[desktop-worker] runtime status unavailable.', error);
+    return { enabled: false, protocolVersion: 2, workerRequired: false };
+  });
+  hostedRuntimeAvailable = status.enabled;
+  if (!status.workerRequired) return;
+  await taskApplicationService.restoreHostedRuns().catch((error: unknown) => {
+    console.error('[desktop-worker] active task restoration failed.', error);
+    return 0;
+  });
+  await desktopWorkerClient
+    .start(desktopWorkerCapabilities(runtimeToolRegistry))
+    .catch((error: unknown) => {
+      console.error('[desktop-worker] could not connect.', error);
+    });
+}
+
+async function requestHostedApproval(
+  runId: string,
+  action: ProposedAction,
+): Promise<boolean> {
+  const taskId = taskApplicationService.taskIdForHostedRun(runId);
+  if (!taskId) return false;
+  const waiting = taskRuntime.requestApproval({
+    action,
+    consequence: action.description,
+    prompt: action.description,
+    taskId,
+  });
+  const interactionId = waiting.pendingInteraction?.id;
+  if (!interactionId) return false;
+
+  return new Promise<boolean>((resolve) => {
+    const finish = (approved: boolean): void => {
+      clearTimeout(timer);
+      taskRuntime.off('task-update', onUpdate);
+      if (approved) {
+        try {
+          taskRuntime.consumeApprovalGrant({ action, taskId });
+        } catch {
+          resolve(false);
+          return;
+        }
+      }
+      resolve(approved);
+    };
+    const onUpdate = (value: unknown): void => {
+      const parsed = TaskUpdateSchema.safeParse(value);
+      if (!parsed.success || parsed.data.snapshot.taskId !== taskId) return;
+      const snapshot = parsed.data.snapshot;
+      if (snapshot.pendingInteraction?.id === interactionId) return;
+      finish(Boolean(snapshot.approvalGrant));
+    };
+    const timer = setTimeout(() => finish(false), 5 * 60_000);
+    taskRuntime.on('task-update', onUpdate);
+  });
+}
+
+async function requestHostedInteraction(
+  runId: string,
+  input: { choices?: string[]; prompt: string },
+): Promise<string> {
+  const taskId = taskApplicationService.taskIdForHostedRun(runId);
+  if (!taskId) throw new Error('Hosted run is not mapped to a local task.');
+  const waiting = taskRuntime.requestInput({
+    choices: input.choices?.map((label, index) => ({
+      id: `choice-${index + 1}`,
+      label,
+    })),
+    prompt: input.prompt,
+    taskId,
+  });
+  const interactionId = waiting.pendingInteraction?.id;
+  if (!interactionId) throw new Error('Could not create the clarification request.');
+
+  return new Promise<string>((resolve, reject) => {
+    const finish = (answer?: string, error?: Error): void => {
+      clearTimeout(timer);
+      taskRuntime.off('task-update', onUpdate);
+      if (error) reject(error);
+      else if (answer) resolve(answer);
+      else reject(new Error('The clarification ended without an answer.'));
+    };
+    const onUpdate = (value: unknown): void => {
+      const parsed = TaskUpdateSchema.safeParse(value);
+      if (!parsed.success || parsed.data.snapshot.taskId !== taskId) return;
+      const snapshot = parsed.data.snapshot;
+      if (snapshot.pendingInteraction?.id === interactionId) return;
+      const answer = [...snapshot.messages]
+        .reverse()
+        .find((message) => message.role === 'user' && message.kind === 'answer');
+      finish(answer?.text);
+    };
+    const timer = setTimeout(
+      () => finish(undefined, new Error('The clarification request expired.')),
+      30 * 60_000,
+    );
+    taskRuntime.on('task-update', onUpdate);
   });
 }
 
@@ -1396,6 +1572,7 @@ function prepareApplicationShutdown(): Promise<void> {
   const executionShutdown = executionCoordinator.shutdown().finally(() =>
     Promise.allSettled([
       cuaService.shutdown(),
+      desktopWorkerClient.stop(),
       taskHistoryService.shutdown(),
     ]),
   );
@@ -2001,7 +2178,9 @@ const createWindow = (): void => {
     },
     onAuthSignedOut: async () => {
       disableAuthenticatedAuxiliaryWindows();
+      hostedRuntimeAvailable = false;
       taskHistoryService.setCurrentOwner(null);
+      await desktopWorkerClient.stop();
       await systemAudioDuckingService.setActive(false).catch((error: unknown) => {
         console.error('[voice] Could not restore system audio after sign-out.', error);
       });

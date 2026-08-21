@@ -5,10 +5,15 @@ import type {
   TaskMessage,
   TaskSnapshot,
 } from '../../shared/contracts';
-import type { LaunchableApplication } from '../application/desktop-application-launcher';
+import type { ApplicationSurfaceVerifier } from '../application/application-surface-verifier';
+import type {
+  LaunchableApplication,
+  ApplicationLaunchReceipt,
+} from '../application/desktop-application-launcher';
 import type { CuaService } from '../cua/cua-service';
 
 import { createActionDigest } from './action-approval';
+import { resolveActionEffect, unknownActionEffect } from './action-effect';
 import {
   createActionPreview,
   type ActionPreview,
@@ -31,6 +36,7 @@ import {
   shouldCaptureInitialDesktopObservation,
 } from './completion-policy';
 import type {
+  ObserveSurfaceToolInput,
   PrepareBrowserAccessToolInput,
   SurfaceControlToolInput,
 } from './cua-semantic-agent-tools';
@@ -41,7 +47,8 @@ import {
   type DesktopObservation,
 } from './execution-contracts';
 import { GuidancePlaybackController } from './guidance-playback';
-import { evaluateAction } from './policy';
+import { createCompletionDecision } from './outcome-verifier';
+import { evaluateAction, type PolicyDecision } from './policy';
 import {
   RuntimeToolDispatcher,
   type RuntimeToolExecutionAdapter,
@@ -85,6 +92,7 @@ interface ExecutionCoordinatorOptions {
     | 'startTaskSession'
     | 'observe'
     | 'observeCurrentSurface'
+    | 'inspectSurfaceRegion'
     | 'executeCommand'
     | 'executeSurfaceCommand'
     | 'prepareBrowserAccess'
@@ -105,7 +113,10 @@ interface ExecutionCoordinatorOptions {
     taskId: string,
     active: boolean,
   ) => Promise<void> | void;
-  openApplication?: (application: LaunchableApplication) => Promise<void>;
+  applicationSurfaceVerifier?: Pick<ApplicationSurfaceVerifier, 'verify'>;
+  openApplication?: (
+    application: LaunchableApplication,
+  ) => Promise<ApplicationLaunchReceipt>;
   openExternal?: (url: string) => Promise<void>;
   prepareDesktop?: () => Promise<DesktopObservationCleanup | void>;
   prepareObservation?: (
@@ -128,6 +139,14 @@ interface ExecutionCoordinatorOptions {
     'endTask' | 'modelVisibleSpecs' | 'preview' | 'resolve' | 'supports'
   >;
 }
+
+type ExecutionAuthorizationMetadata = Pick<
+  PolicyDecision,
+  | 'effect'
+  | 'authorizationSource'
+  | 'approvalRequired'
+  | 'consequential'
+>;
 
 type DesktopObservationCleanup = () => Promise<void> | void;
 
@@ -203,6 +222,19 @@ const TERMINAL_PHASES: ReadonlySet<TaskSnapshot['phase']> = new Set([
 const DEFAULT_OBSERVATION_TIMEOUT_MS = 15_000;
 
 function approvalConsequence(action: ProposedAction): string {
+  const effect = resolveActionEffect(action);
+  if (
+    effect.kind === 'send_communication' &&
+    effect.resourceKind === 'calendar_event'
+  ) {
+    const attendees = action.parameters?.attendees;
+    const attendeeText = Array.isArray(attendees)
+      ? attendees.join(', ')
+      : attendees;
+    return attendeeText
+      ? `This will send a calendar invitation to ${attendeeText}.`
+      : 'This will send a calendar invitation.';
+  }
   const declaredConsequence = action.parameters?.declaredConsequence;
   const displayConsequence =
     typeof declaredConsequence === 'string'
@@ -239,6 +271,18 @@ function approvalConsequence(action: ProposedAction): string {
     default:
       return 'This will perform: ' + action.description;
   }
+}
+
+function actionDigestFor(
+  snapshot: TaskSnapshot,
+  action: ProposedAction,
+): string {
+  return createActionDigest(
+    action,
+    snapshot.goal?.schemaVersion === 8
+      ? snapshot.goal.intentAuthorization.revision
+      : null,
+  );
 }
 
 function errorMessage(error: unknown): string {
@@ -560,6 +604,12 @@ export class TaskExecutionCoordinator {
     approvalObservationMatches = (approved, current) =>
       approved.fingerprint === current.fingerprint,
     cua,
+    applicationSurfaceVerifier = {
+      verify: async () => ({
+        status: 'unknown' as const,
+        summary: 'Trusted application-surface verification is not configured.',
+      }),
+    },
     dismissPresentation = () => undefined,
     guidanceAutoAdvanceMs,
     observationTimeoutMs = DEFAULT_OBSERVATION_TIMEOUT_MS,
@@ -611,13 +661,99 @@ export class TaskExecutionCoordinator {
       toolDispatcher ??
       new RuntimeToolDispatcher([
         {
-          id: 'application.launch',
-          execute: async (invocation) => {
-            const input = invocation.input as OpenApplicationToolInput;
-            await openApplication(input.application);
+          id: 'desktop.observe',
+          execute: async (_invocation, context) => ({
+            status: 'confirmed',
+            summary: 'Captured a fresh desktop observation.',
+            observation: await cua.observe(context.taskId, context.signal),
+          }),
+        },
+        {
+          id: 'computer.observe',
+          execute: async (invocation, context) => {
+            const input = invocation.input as ObserveSurfaceToolInput;
+            if (invocation.operation === 'inspect_surface_region') {
+              if (!input.observationId || !input.region) {
+                throw new Error(
+                  'Original-resolution inspection requires a current observation and region.',
+                );
+              }
+              const crop = cua.inspectSurfaceRegion(
+                context.taskId,
+                input.observationId,
+                input.region,
+              );
+              return {
+                status: 'confirmed',
+                summary: `Captured a ${crop.width} by ${crop.height} original-resolution crop.`,
+                data: {
+                  crop: {
+                    height: crop.height,
+                    observationId: crop.observationId,
+                    region: crop.region,
+                    width: crop.width,
+                  },
+                },
+                imageDataUrl: crop.dataUrl,
+              };
+            }
+            const observation =
+              await cua.observeCurrentSurface(
+                context.taskId,
+                { query: input.query },
+                context.signal,
+              ) ?? await cua.observe(context.taskId, context.signal);
             return {
               status: 'confirmed',
-              summary: 'The operating system accepted the application launch request.',
+              summary: 'Captured a fresh application-surface observation.',
+              observation,
+            };
+          },
+        },
+        {
+          id: 'application.launch',
+          execute: async (invocation, context) => {
+            const input = invocation.input as OpenApplicationToolInput;
+            const receipt = await openApplication(input.application);
+            const snapshot = runtime.getSnapshot(context.taskId);
+            const criterion =
+              snapshot.goal && (snapshot.goal.schemaVersion === 7 || snapshot.goal.schemaVersion === 8)
+                ? snapshot.goal.outcomeContract.criteria.find(
+                    (candidate) =>
+                      candidate.verifier.kind === 'application_surface' &&
+                      candidate.verifier.application === input.application,
+                  )
+                : undefined;
+            if (!criterion) {
+              return {
+                status: 'unknown',
+                summary:
+                  'The launch was accepted, but the current contract has no trusted application-surface verifier.',
+              };
+            }
+            const verification = await applicationSurfaceVerifier.verify(
+              context.taskId,
+              criterion.id,
+              receipt,
+              context.signal,
+            );
+            if (verification.evidence) {
+              runtime.recordOutcomeEvidence(context.taskId, verification.evidence);
+            }
+            return {
+              status: verification.status,
+              summary: verification.summary,
+              ...(verification.evidence
+                ? {
+                    data: {
+                      applicationSurfaceEvidence: {
+                        observationFingerprint:
+                          verification.evidence.observationFingerprint,
+                        observationId: verification.evidence.observationId,
+                      },
+                    },
+                  }
+                : {}),
             };
           },
         },
@@ -693,6 +829,26 @@ export class TaskExecutionCoordinator {
     }
     this.kick(snapshot.taskId);
     return this.runtime.getSnapshot(snapshot.taskId);
+  }
+
+  async dispatchHostedTool(
+    invocation: ResolvedToolInvocation,
+    context: { signal: AbortSignal; taskId: string },
+  ): Promise<ToolExecutionResult> {
+    if (
+      invocation.toolId === 'desktop.observe' ||
+      invocation.toolId === 'desktop.control' ||
+      invocation.toolId === 'computer.observe' ||
+      invocation.toolId === 'computer.control' ||
+      invocation.toolId === 'browser.prepare'
+    ) {
+      await this.cua.startTaskSession(context.taskId, context.signal);
+    }
+    return this.toolDispatcher.dispatch(invocation, context);
+  }
+
+  async endHostedTask(taskId: string): Promise<void> {
+    await this.cua.endTaskSession(taskId);
   }
 
   resume(taskId: string): TaskSnapshot {
@@ -853,7 +1009,7 @@ export class TaskExecutionCoordinator {
     const signal = context.controller.signal;
     const snapshot = this.runtime.getSnapshot(taskId);
     if (!snapshot.goal) throw new Error('Task has no agent contract.');
-    if (snapshot.goal.schemaVersion !== 6) {
+    if (snapshot.goal.schemaVersion !== 7 && snapshot.goal.schemaVersion !== 8) {
       throw new Error('Persisted legacy tasks cannot be resumed after the runtime cutover.');
     }
     if (context.initialized) return;
@@ -1131,7 +1287,21 @@ export class TaskExecutionCoordinator {
     }
     const current = this.runtime.getSnapshot(taskId);
     if (!TERMINAL_PHASES.has(current.phase) && current.phase !== 'blocked') {
-      this.runtime.complete(taskId, finalOutput);
+      if (
+        !current.goal ||
+        (current.goal.schemaVersion !== 7 && current.goal.schemaVersion !== 8) ||
+        !current.outcomes
+      ) {
+        throw new Error('Current task has no outcome contract for completion.');
+      }
+      this.runtime.complete(
+        taskId,
+        createCompletionDecision(
+          current.goal.outcomeContract,
+          current.outcomes.evidence,
+          finalOutput,
+        ),
+      );
       this.onActivity(taskId, {
         kind: 'run_completed',
         summary: 'Agent completed.',
@@ -1388,7 +1558,7 @@ export class TaskExecutionCoordinator {
     context.pendingApproval = undefined;
     const approved =
       snapshot.approvalGrant?.actionDigest ===
-      createActionDigest(request.action);
+      actionDigestFor(snapshot, request.action);
     if (!approved) {
       this.runtime.resumePlanning(
         taskId,
@@ -1427,7 +1597,7 @@ export class TaskExecutionCoordinator {
     }
     if (policy.status === 'needs_approval') {
       if (
-        snapshot.approvalGrant?.actionDigest !== createActionDigest(action)
+        snapshot.approvalGrant?.actionDigest !== actionDigestFor(snapshot, action)
       ) {
         const approved = await this.requestExactApproval(
           taskId,
@@ -1451,7 +1621,7 @@ export class TaskExecutionCoordinator {
     }
 
     this.runtime.beginAllowedAction(taskId, action);
-    return this.dispatchAction(taskId, context, invocation, false);
+    return this.dispatchAction(taskId, context, invocation, policy);
   }
 
   private async resumeHeldApproval(
@@ -1566,14 +1736,30 @@ export class TaskExecutionCoordinator {
       action: invocation.action,
     });
     context.pendingApproval = undefined;
-    return this.dispatchAction(taskId, context, invocation, true);
+    const approvedPolicy = snapshot.goal && invocation.action
+      ? evaluateAction(snapshot.goal, invocation.action, this.toolRegistry)
+      : undefined;
+    const authorization: ExecutionAuthorizationMetadata = approvedPolicy
+      ? {
+          effect: approvedPolicy.effect,
+          authorizationSource: 'exact_approval',
+          approvalRequired: true,
+          consequential: approvedPolicy.consequential,
+        }
+      : {
+          effect: unknownActionEffect(),
+          authorizationSource: 'exact_approval',
+          approvalRequired: true,
+          consequential: true,
+        };
+    return this.dispatchAction(taskId, context, invocation, authorization);
   }
 
   private async dispatchAction(
     taskId: string,
     context: ExecutionContext,
     invocation: ResolvedToolInvocation,
-    approvedConsequentialAction: boolean,
+    authorization: ExecutionAuthorizationMetadata,
   ): Promise<AgentToolOutput['output']> {
     const signal = context.controller.signal;
     let guidanceEntry: GuidanceHistoryEntry | undefined;
@@ -1670,6 +1856,15 @@ export class TaskExecutionCoordinator {
       context.latestObservation = undefined;
     }
 
+    if (invocation.kind !== 'guidance') {
+      this.runtime.registerToolEffectObligation(
+        taskId,
+        toolIdentity(invocation),
+        invocation.action?.description ??
+          `Complete ${invocation.toolId}.${invocation.operation}.`,
+      );
+    }
+
     let result: ToolExecutionResult;
     try {
       result = await this.toolDispatcher.dispatch(invocation, { taskId, signal });
@@ -1712,10 +1907,31 @@ export class TaskExecutionCoordinator {
       const input = invocation.input as GuidanceToolInput;
       this.runtime.recordGuidance(taskId, input.description);
     }
+    if (invocation.kind !== 'guidance') {
+      this.runtime.recordToolOutcomeEvidence(
+        taskId,
+        toolIdentity(invocation),
+        result.status,
+        result.summary,
+      );
+    }
+    const eventGoal = this.runtime.getSnapshot(taskId).goal;
+    const authorizationEvent = eventGoal?.schemaVersion === 8
+      ? {
+          effectKind: authorization.effect.kind,
+          resourceKind: authorization.effect.resourceKind,
+          authorizationSource: authorization.authorizationSource,
+          approvalRequired: authorization.approvalRequired,
+          consequential: authorization.consequential,
+        }
+      : {};
     this.runtime.recordToolResult(
       taskId,
       result.summary,
-      toolIdentity(invocation),
+      {
+        ...toolIdentity(invocation),
+        ...authorizationEvent,
+      },
     );
     const output = resultOutput(invocation.callId, result, observation).output;
     if (guidanceEntry) {
@@ -1724,7 +1940,7 @@ export class TaskExecutionCoordinator {
       context.guidanceCursor = context.guidanceHistory.length - 1;
       await this.waitForGuidance(taskId, context);
     }
-    if (result.status === 'unknown' && approvedConsequentialAction) {
+    if (result.status === 'unknown' && authorization.consequential) {
       this.runtime.block(
         taskId,
         'A consequential action has an unknown outcome. Tro will not retry it or dispatch another consequential action in this task.',
@@ -1794,7 +2010,7 @@ export class TaskExecutionCoordinator {
     const snapshot = this.runtime.getSnapshot(taskId);
     if (!snapshot.goal) throw new Error('Task has no agent contract.');
     const maxImages =
-      snapshot.goal.schemaVersion === 4 || snapshot.goal.schemaVersion === 5 || snapshot.goal.schemaVersion === 6
+      snapshot.goal.schemaVersion === 4 || snapshot.goal.schemaVersion === 5 || snapshot.goal.schemaVersion === 6 || snapshot.goal.schemaVersion === 7 || snapshot.goal.schemaVersion === 8
         ? snapshot.goal.limits.maxImages
         : 20;
     await this.ensureDesktopSession(taskId, context);
