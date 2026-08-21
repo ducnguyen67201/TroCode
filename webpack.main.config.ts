@@ -48,6 +48,12 @@ export const mainConfig: Configuration = {
       'process.env.TROCODE_API_BASE_URL': JSON.stringify(
         process.env.TROCODE_API_BASE_URL ?? '',
       ),
+      'process.env.TROCODE_BACKEND_AGENT_ENABLED': JSON.stringify(
+        process.env.TROCODE_BACKEND_AGENT_ENABLED ?? 'false',
+      ),
+      'process.env.TROCODE_AGENT_RUNTIME_ENABLED': JSON.stringify(
+        process.env.TROCODE_AGENT_RUNTIME_ENABLED ?? 'false',
+      ),
     }),
   ],
   resolve: {

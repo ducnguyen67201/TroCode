@@ -5,6 +5,7 @@ import {
   CancelTaskRequestSchema,
   ConsumeApprovalGrantRequestSchema,
   DecideApprovalRequestSchema,
+  OutcomeEvidenceSchema,
   RequestApprovalSchema,
   RequestTaskInputSchema,
   RespondToInteractionRequestSchema,
@@ -12,6 +13,11 @@ import {
   SteerTaskRequestSchema,
   SubmitTaskRequestSchema,
   TaskSnapshotSchema,
+  type AutonomyMode,
+  type CompletionDecision,
+  type IntentAuthorizationContract,
+  type OutcomeContract,
+  type OutcomeEvidence,
   type PendingInteraction,
   type ProposedAction,
   type RuntimeToolId,
@@ -24,6 +30,13 @@ import {
 
 import { createActionDigest } from './action-approval';
 import { canTransition, isTerminalPhase, transitionTask } from './goal-machine';
+import { compileIntentAuthorization } from './intent-authorization';
+import {
+  addApplicationSurfaceObligation,
+  addToolEffectObligation,
+  sameOutcomeCriterion,
+} from './outcome-contract';
+import { assertCompletionDecision, createCompletionDecision } from './outcome-verifier';
 import { evaluateAction } from './policy';
 import {
   defaultRuntimeToolRegistry,
@@ -45,6 +58,7 @@ const STEERABLE_PHASES: ReadonlySet<TaskSnapshot['phase']> = new Set([
 ]);
 
 interface TaskRuntimeOptions {
+  intentAuthorizationEnabled?: boolean;
   now?: () => Date;
   toolRegistry?: Pick<RuntimeToolRegistry, 'supports'>;
 }
@@ -106,6 +120,12 @@ function incrementProgress(snapshot: TaskSnapshot): TaskSnapshot['progress'] {
   };
 }
 
+function intentRevision(snapshot: TaskSnapshot): number | null {
+  return snapshot.goal?.schemaVersion === 8
+    ? snapshot.goal.intentAuthorization.revision
+    : null;
+}
+
 export class TaskRuntime extends EventEmitter {
   private readonly tasks = new Map<string, TaskSnapshot>();
 
@@ -113,10 +133,14 @@ export class TaskRuntime extends EventEmitter {
 
   private readonly toolRegistry: Pick<RuntimeToolRegistry, 'supports'>;
 
+  private readonly intentAuthorizationEnabled: boolean;
+
   constructor(options: TaskRuntimeOptions = {}) {
     super();
     this.now = options.now ?? (() => new Date());
     this.toolRegistry = options.toolRegistry ?? defaultRuntimeToolRegistry;
+    this.intentAuthorizationEnabled =
+      options.intentAuthorizationEnabled ?? true;
   }
 
   submit(
@@ -125,7 +149,17 @@ export class TaskRuntime extends EventEmitter {
   ): TaskSnapshot {
     const request = SubmitTaskRequestSchema.parse(input);
     const timestamp = this.timestamp();
-    const contract = createTaskContract(request.text, contractOptions);
+    const executionProfile = contractOptions.executionProfile ?? 'everyday';
+    const contract = createTaskContract(request.text, {
+      ...contractOptions,
+      ...(!this.intentAuthorizationEnabled && !contractOptions.intentAuthorization
+        ? {
+            intentAuthorization: compileIntentAuthorization('', {
+              executionProfile,
+            }),
+          }
+        : {}),
+    });
     const idle: TaskSnapshot = {
       taskId: contractOptions.taskId ?? randomUUID(),
       request: request.text,
@@ -138,6 +172,15 @@ export class TaskRuntime extends EventEmitter {
         kind: 'tool_calls',
         completed: 0,
         limit: contract.limits.maxToolCalls,
+      },
+      outcomes: {
+        contractRevision: contract.outcomeContract.revision,
+        criterionResults: contract.outcomeContract.criteria.map((criterion) => ({
+          criterionId: criterion.id,
+          status: 'pending',
+          evidenceIds: [],
+        })),
+        evidence: [],
       },
       queuedSteering: [],
       runtimeResume: null,
@@ -239,7 +282,7 @@ export class TaskRuntime extends EventEmitter {
     taskId: string,
     summary: string,
     toolCompleted = false,
-    tool?: { toolId: RuntimeToolId; operation: string },
+    tool?: NonNullable<TaskEvent['tool']>,
   ): TaskSnapshot {
     const snapshot = this.getTask(taskId);
     return this.move(
@@ -259,20 +302,259 @@ export class TaskRuntime extends EventEmitter {
   recordToolResult(
     taskId: string,
     summary: string,
-    tool: { toolId: RuntimeToolId; operation: string },
+    tool: NonNullable<TaskEvent['tool']>,
   ): TaskSnapshot {
     return this.beginVerification(taskId, summary, true, tool);
   }
 
-  complete(taskId: string, summary: string): TaskSnapshot {
+  registerToolEffectObligation(
+    taskId: string,
+    tool: { toolId: RuntimeToolId; operation: string },
+    description: string,
+  ): TaskSnapshot {
     const snapshot = this.getTask(taskId);
+    if (
+      !snapshot.goal ||
+      (snapshot.goal.schemaVersion !== 7 && snapshot.goal.schemaVersion !== 8) ||
+      !snapshot.outcomes
+    ) {
+      throw new Error('Tool-effect obligations require a current outcome contract.');
+    }
+    const previousContract = snapshot.goal.outcomeContract;
+    let outcomeContract = addToolEffectObligation(
+      previousContract,
+      tool.toolId,
+      tool.operation,
+      description,
+    );
+    if (tool.toolId === 'application.launch' && tool.operation === 'launch') {
+      outcomeContract = addApplicationSurfaceObligation(outcomeContract, 'chrome');
+    }
+    if (outcomeContract === previousContract) return snapshot;
+    const retainedCriterionIds = new Set(
+      outcomeContract.criteria
+        .filter((criterion) =>
+          previousContract.criteria.some((previous) =>
+            sameOutcomeCriterion(previous, criterion),
+          ),
+        )
+        .map((criterion) => criterion.id),
+    );
+    const evidence = snapshot.outcomes.evidence.filter((item) =>
+      retainedCriterionIds.has(item.criterionId),
+    );
+    const updated = {
+      ...snapshot,
+      goal: { ...snapshot.goal, outcomeContract },
+      outcomes: {
+        contractRevision: outcomeContract.revision,
+        evidence,
+        criterionResults: createCompletionDecision(
+          outcomeContract,
+          evidence,
+          'Pending assistant output.',
+        ).criterionResults.map((result) =>
+          result.criterionId === 'assistant-output'
+            ? { ...result, status: 'pending' as const }
+            : result,
+        ),
+      },
+    };
+    return this.record(updated, {
+      summary: 'Registered a required tool-effect verification obligation.',
+      nextActions: ['Execute and verify the exact tool effect.'],
+      tool,
+    });
+  }
+
+  recordOutcomeEvidence(taskId: string, input: unknown): TaskSnapshot {
+    const snapshot = this.getTask(taskId);
+    if (
+      !snapshot.goal ||
+      (snapshot.goal.schemaVersion !== 7 && snapshot.goal.schemaVersion !== 8) ||
+      !snapshot.outcomes
+    ) {
+      throw new Error('Outcome evidence requires a current outcome contract.');
+    }
+    const evidence = OutcomeEvidenceSchema.parse(input);
+    if (evidence.runId !== taskId) {
+      throw new Error('Outcome evidence belongs to a different task.');
+    }
+    if (
+      !snapshot.goal.outcomeContract.criteria.some(
+        (criterion) => criterion.id === evidence.criterionId,
+      )
+    ) {
+      throw new Error('Outcome evidence references an unknown criterion.');
+    }
+    if (snapshot.outcomes.evidence.some((item) => item.id === evidence.id)) {
+      return snapshot;
+    }
+    const ledger = [...snapshot.outcomes.evidence, evidence].slice(-200);
+    const provisional = createCompletionDecision(
+      snapshot.goal.outcomeContract,
+      ledger,
+      'Pending assistant output.',
+    ).criterionResults.map((result) =>
+      result.criterionId === 'assistant-output'
+        ? { ...result, status: 'pending' as const }
+        : result,
+    );
+    return this.record(
+      {
+        ...snapshot,
+        outcomes: {
+          ...snapshot.outcomes,
+          evidence: ledger,
+          criterionResults: provisional,
+        },
+      },
+      {
+        summary: evidence.summary,
+        nextActions: ['Continue only when every required outcome is verified.'],
+      },
+    );
+  }
+
+  recordToolOutcomeEvidence(
+    taskId: string,
+    tool: { toolId: RuntimeToolId; operation: string },
+    status: 'confirmed' | 'unknown' | 'failed' | 'denied' | 'not_executed',
+    summary: string,
+  ): TaskSnapshot {
+    const snapshot = this.getTask(taskId);
+    if (
+      !snapshot.goal ||
+      (snapshot.goal.schemaVersion !== 7 && snapshot.goal.schemaVersion !== 8) ||
+      !snapshot.outcomes
+    ) {
+      return snapshot;
+    }
+    const criteria = snapshot.goal.outcomeContract.criteria.filter((candidate) => {
+      if (
+        candidate.verifier.kind === 'tool_effect' &&
+        candidate.verifier.toolId === tool.toolId &&
+        candidate.verifier.operation === tool.operation
+      ) {
+        return true;
+      }
+      if (
+        candidate.verifier.kind !== 'filesystem_effect' ||
+        !tool.toolId.startsWith('workspace.')
+      ) {
+        return false;
+      }
+      return candidate.id !== 'workspace-mutated' ||
+        tool.operation === 'write_file' ||
+        tool.operation === 'run_command';
+    });
+    let current = snapshot;
+    for (const criterion of criteria) {
+      current = this.recordOutcomeEvidence(taskId, {
+        id: randomUUID(),
+        runId: taskId,
+        criterionId: criterion.id,
+        source:
+          criterion.verifier.kind === 'filesystem_effect'
+            ? 'filesystem'
+            : 'tool_result',
+        status:
+          status === 'confirmed'
+            ? 'supports'
+            : status === 'unknown'
+              ? 'unknown'
+              : 'contradicts',
+        summary,
+        createdAt: this.timestamp(),
+      } satisfies OutcomeEvidence);
+    }
+    return current;
+  }
+
+  synchronizeHostedAuthority(
+    taskId: string,
+    input: {
+      autonomyMode: AutonomyMode;
+      intentAuthorization: IntentAuthorizationContract;
+      outcomeContract: OutcomeContract;
+    },
+  ): TaskSnapshot {
+    const snapshot = this.getTask(taskId);
+    if (!snapshot.goal || snapshot.goal.schemaVersion !== 8) {
+      throw new Error('Hosted authority synchronization requires a v8 task.');
+    }
+    if (
+      input.intentAuthorization.revision <
+        snapshot.goal.intentAuthorization.revision ||
+      input.outcomeContract.revision < snapshot.goal.outcomeContract.revision
+    ) {
+      throw new Error('Hosted authority synchronization cannot roll back revisions.');
+    }
+    const retainedCriteria = new Set(
+      input.outcomeContract.criteria.map((criterion) => criterion.id),
+    );
+    const evidence = (snapshot.outcomes?.evidence ?? []).filter((item) =>
+      retainedCriteria.has(item.criterionId),
+    );
+    const criterionResults = createCompletionDecision(
+      input.outcomeContract,
+      evidence,
+      'Pending assistant output.',
+    ).criterionResults.map((result) =>
+      result.criterionId === 'assistant-output'
+        ? { ...result, status: 'pending' as const }
+        : result,
+    );
+    return this.record(
+      {
+        ...snapshot,
+        goal: {
+          ...snapshot.goal,
+          autonomyMode: input.autonomyMode,
+          intentAuthorization: input.intentAuthorization,
+          outcomeContract: input.outcomeContract,
+        },
+        approvalGrant: null,
+        outcomes: {
+          contractRevision: input.outcomeContract.revision,
+          criterionResults,
+          evidence,
+        },
+      },
+      {
+        summary: 'Synchronized the backend-owned task authority revision.',
+        nextActions: ['Continue from the next safe hosted model boundary.'],
+      },
+    );
+  }
+
+  complete(taskId: string, input: CompletionDecision): TaskSnapshot {
+    const snapshot = this.getTask(taskId);
+    if (
+      !snapshot.goal ||
+      (snapshot.goal.schemaVersion !== 7 && snapshot.goal.schemaVersion !== 8) ||
+      !snapshot.outcomes
+    ) {
+      throw new Error('Completion requires a current outcome contract and evidence ledger.');
+    }
+    const decision = assertCompletionDecision(
+      snapshot.goal.outcomeContract,
+      snapshot.outcomes.evidence,
+      input,
+    );
     const completedWithResponse = appendMessage(
-      snapshot,
-      { kind: 'answer', role: 'assistant', text: summary },
+      {
+        ...snapshot,
+        outcomes: {
+          ...snapshot.outcomes,
+          criterionResults: decision.criterionResults,
+        },
+      },
+      { kind: 'answer', role: 'assistant', text: decision.summary },
       this.timestamp(),
     );
     return this.move(completedWithResponse, 'completed', {
-      summary,
+      summary: decision.summary,
       nextActions: [],
     });
   }
@@ -387,7 +669,7 @@ export class TaskRuntime extends EventEmitter {
       prompt: request.prompt,
       createdAt,
       expiresAt,
-      actionDigest: createActionDigest(request.action),
+      actionDigest: createActionDigest(request.action, intentRevision(snapshot)),
       action: request.action,
       consequence: request.consequence,
     };
@@ -416,7 +698,10 @@ export class TaskRuntime extends EventEmitter {
     if (pending.actionDigest !== request.actionDigest) {
       throw new Error('The approval action digest does not match.');
     }
-    if (createActionDigest(pending.action) !== request.actionDigest) {
+    if (
+      createActionDigest(pending.action, intentRevision(snapshot)) !==
+      request.actionDigest
+    ) {
       throw new Error('The pending action changed after approval was requested.');
     }
     if (Date.parse(pending.expiresAt) <= this.now().getTime()) {
@@ -500,9 +785,34 @@ export class TaskRuntime extends EventEmitter {
       createdAt: timestamp,
       requiresGoalReview: true,
     };
+    const revisedGoal =
+      snapshot.goal?.schemaVersion === 8
+        ? {
+            ...snapshot.goal,
+            intentAuthorization: this.intentAuthorizationEnabled
+              ? compileIntentAuthorization(
+                  [
+                    snapshot.goal.originalRequest,
+                    ...snapshot.messages
+                      .filter((message) => message.kind === 'steering')
+                      .map((message) => message.text),
+                    request.instruction,
+                  ].join('\nSteering update: '),
+                  {
+                    executionProfile: snapshot.goal.executionProfile,
+                    revision: snapshot.goal.intentAuthorization.revision + 1,
+                  },
+                )
+              : {
+                  ...snapshot.goal.intentAuthorization,
+                  revision: snapshot.goal.intentAuthorization.revision + 1,
+                },
+          }
+        : snapshot.goal;
     const steered = appendMessage(
       {
         ...snapshot,
+        goal: revisedGoal,
         approvalGrant: null,
         queuedSteering: [...snapshot.queuedSteering, steering].slice(
           -MAX_QUEUED_STEERING,
@@ -553,11 +863,16 @@ export class TaskRuntime extends EventEmitter {
     if (!grant) {
       throw new Error('Task ' + request.taskId + ' has no approved action grant.');
     }
-    const actionDigest = createActionDigest(request.action);
+    const actionDigest = createActionDigest(
+      request.action,
+      intentRevision(snapshot),
+    );
     if (grant.actionDigest !== actionDigest) {
       throw new Error('The approved action grant does not match this action.');
     }
-    if (createActionDigest(grant.action) !== actionDigest) {
+    if (
+      createActionDigest(grant.action, intentRevision(snapshot)) !== actionDigest
+    ) {
       throw new Error('The approved action changed before dispatch.');
     }
     if (Date.parse(grant.expiresAt) <= this.now().getTime()) {

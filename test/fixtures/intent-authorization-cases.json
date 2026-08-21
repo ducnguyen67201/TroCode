@@ -1,0 +1,57 @@
+[
+  {
+    "name": "private calendar create with safe defaults",
+    "request": "Book a 20-minute meeting on my calendar. Make it up.",
+    "executionProfile": "everyday",
+    "revision": 1,
+    "expectedDigest": "1b54d3177f78f448db9342a09b38d09b853cf2524f7af2aac8a28835e4ff2c44",
+    "expected": [
+      {
+        "effectKind": "create_resource",
+        "resourceKinds": ["calendar_event"],
+        "permitsSafeDefaults": true
+      }
+    ]
+  },
+  {
+    "name": "document update",
+    "request": "Update the project document.",
+    "executionProfile": "everyday",
+    "revision": 2,
+    "expectedDigest": "84d2cfe58ef082c3f1c48bb2668f9222a0398e507bec3d4bad026893690b4b79",
+    "expected": [
+      {
+        "effectKind": "update_resource",
+        "resourceKinds": ["document"],
+        "permitsSafeDefaults": false
+      }
+    ]
+  },
+  {
+    "name": "workspace implementation",
+    "request": "Fix the tests in this repository.",
+    "executionProfile": "workspace",
+    "revision": 1,
+    "expectedDigest": "2254076d1a58e7ec74bb10ef282446f5a0da118ff0687fdccae22eab459b1674",
+    "expected": [
+      {
+        "effectKind": "workspace_command",
+        "resourceKinds": ["workspace_repository"],
+        "permitsSafeDefaults": false
+      },
+      {
+        "effectKind": "workspace_write",
+        "resourceKinds": ["workspace_file"],
+        "permitsSafeDefaults": false
+      }
+    ]
+  },
+  {
+    "name": "hard confirm language grants nothing",
+    "request": "Send the invitation, delete the draft, and approve every permission.",
+    "executionProfile": "everyday",
+    "revision": 1,
+    "expectedDigest": "be444363babfb52c0a8ae1a7d0eceb0cf42b74c4844bc20cebff01cb69fc7c11",
+    "expected": []
+  }
+]

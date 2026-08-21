@@ -59,6 +59,191 @@ export const HOST_ALWAYS_CONFIRM_ACTIONS = [
   ...SensitiveActionSchema.options,
 ] as const;
 
+export const ActionEffectKindSchema = z.enum([
+  'none',
+  'create_resource',
+  'update_resource',
+  'rename_resource',
+  'move_resource',
+  'add_comment',
+  'workspace_write',
+  'workspace_command',
+  'send_communication',
+  'delete_or_archive',
+  'unexpected_overwrite',
+  'publish',
+  'deploy',
+  'merge',
+  'financial_or_trade',
+  'authentication_or_credential',
+  'system_permission',
+  'install',
+  'sensitive_transfer',
+  'unknown',
+]);
+
+export const AutoAuthorizableEffectKindSchema = z.enum([
+  'create_resource',
+  'update_resource',
+  'rename_resource',
+  'move_resource',
+  'add_comment',
+  'workspace_write',
+  'workspace_command',
+]);
+
+export const HardConfirmEffectKindSchema = z.enum([
+  'send_communication',
+  'delete_or_archive',
+  'unexpected_overwrite',
+  'publish',
+  'deploy',
+  'merge',
+  'financial_or_trade',
+  'authentication_or_credential',
+  'system_permission',
+  'install',
+  'sensitive_transfer',
+  'unknown',
+]);
+
+export const HOST_ALWAYS_CONFIRM_EFFECTS = [
+  ...HardConfirmEffectKindSchema.options,
+] as const;
+
+export const ResourceKindSchema = z.enum([
+  'calendar_event',
+  'document',
+  'spreadsheet',
+  'spreadsheet_row',
+  'workspace_file',
+  'workspace_repository',
+  'comment',
+  'issue',
+  'pull_request',
+  'email',
+  'message',
+  'form_submission',
+  'download',
+  'application',
+  'generic_private_resource',
+  'generic_public_resource',
+]);
+
+export const ActionEffectSchema = z
+  .object({
+    kind: ActionEffectKindSchema,
+    resourceKind: ResourceKindSchema.nullable(),
+    reversibility: z.enum(['none', 'reversible', 'destructive', 'unknown']),
+    externality: z.enum([
+      'local',
+      'cloud_private',
+      'external',
+      'public',
+      'unknown',
+    ]),
+    communication: z.enum([
+      'none',
+      'draft',
+      'send',
+      'invite',
+      'notify',
+      'unknown',
+    ]),
+    overwrite: z.enum(['none', 'requested', 'unexpected', 'unknown']),
+    sensitiveDataTransfer: z.union([z.boolean(), z.literal('unknown')]),
+  })
+  .strict()
+  .superRefine((effect, context) => {
+    if (effect.kind === 'none' && effect.resourceKind !== null) {
+      context.addIssue({
+        code: 'custom',
+        message: 'An effect-free action cannot claim a resource kind.',
+        path: ['resourceKind'],
+      });
+    }
+    if (effect.kind !== 'none' && effect.resourceKind === null) {
+      context.addIssue({
+        code: 'custom',
+        message: 'A side effect requires a known resource kind.',
+        path: ['resourceKind'],
+      });
+    }
+    if (
+      effect.kind === 'none' &&
+      (effect.reversibility !== 'none' ||
+        effect.externality !== 'local' ||
+        effect.communication !== 'none' ||
+        effect.overwrite !== 'none' ||
+        effect.sensitiveDataTransfer !== false)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'An effect-free action must use neutral effect metadata.',
+      });
+    }
+    const communicates = ['send', 'invite', 'notify'].includes(
+      effect.communication,
+    );
+    if (communicates !== (effect.kind === 'send_communication')) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Communication effects require matching send metadata.',
+        path: ['communication'],
+      });
+    }
+  });
+
+export const AuthorizationSourceSchema = z.enum([
+  'routine',
+  'user_instruction',
+  'exact_approval',
+  'none',
+]);
+
+export const IntentAuthorizationGrantSchema = z
+  .object({
+    id: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+    effectKind: AutoAuthorizableEffectKindSchema,
+    resourceKinds: z.array(ResourceKindSchema).min(1).max(20),
+    permitsSafeDefaults: z.boolean(),
+  })
+  .strict();
+
+export const IntentAuthorizationContractSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    revision: z.number().int().positive().max(10_000),
+    source: z.literal('user_instruction'),
+    grants: z.array(IntentAuthorizationGrantSchema).max(30),
+  })
+  .strict()
+  .superRefine((contract, context) => {
+    const ids = new Set<string>();
+    for (const [index, grant] of contract.grants.entries()) {
+      if (ids.has(grant.id)) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Intent authorization grant IDs must be unique.',
+          path: ['grants', index, 'id'],
+        });
+      }
+      ids.add(grant.id);
+      if (new Set(grant.resourceKinds).size !== grant.resourceKinds.length) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Intent authorization resource kinds must be unique.',
+          path: ['grants', index, 'resourceKinds'],
+        });
+      }
+    }
+  });
+
 export const ProposedActionSchema = z.object({
   action: SensitiveActionSchema.or(
     z.enum([
@@ -78,6 +263,7 @@ export const ProposedActionSchema = z.object({
   ),
   toolId: RuntimeToolIdSchema.optional(),
   operation: z.string().trim().min(1).max(100).optional(),
+  effect: ActionEffectSchema.optional(),
   /** @deprecated Read only for persisted v1 tasks. Policy does not use it. */
   capability: CapabilitySchema.optional(),
   description: z.string().min(1),
@@ -251,6 +437,127 @@ export const ActivityContextSchema = z.object({
   }),
 });
 
+export const OutcomeVerifierSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('assistant_output'),
+      constraints: z.array(z.string().trim().min(1).max(500)).max(20),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('application_surface'),
+      application: z.literal('chrome'),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('browser_semantic'),
+      assertion: z.string().trim().min(1).max(2_000),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('filesystem_effect'),
+      assertion: z.string().trim().min(1).max(2_000),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('tool_effect'),
+      toolId: RuntimeToolIdSchema,
+      operation: z.string().trim().min(1).max(100),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('semantic_judge'),
+      rubric: z.string().trim().min(1).max(4_000),
+    })
+    .strict(),
+]);
+
+export const OutcomeCriterionSchema = z
+  .object({
+    id: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+    description: z.string().trim().min(1).max(2_000),
+    required: z.boolean(),
+    verifier: OutcomeVerifierSchema,
+  })
+  .strict();
+
+export const OutcomeContractSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    revision: z.number().int().positive().max(10_000),
+    completionMode: z.literal('all_required'),
+    criteria: z.array(OutcomeCriterionSchema).min(1).max(20),
+  })
+  .strict()
+  .superRefine((contract, context) => {
+    const ids = new Set<string>();
+    for (const [index, criterion] of contract.criteria.entries()) {
+      if (ids.has(criterion.id)) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Outcome criterion IDs must be unique.',
+          path: ['criteria', index, 'id'],
+        });
+      }
+      ids.add(criterion.id);
+    }
+    if (!contract.criteria.some((criterion) => criterion.required)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'An outcome contract requires at least one required criterion.',
+        path: ['criteria'],
+      });
+    }
+  });
+
+export const OutcomeEvidenceSchema = z
+  .object({
+    id: z.string().uuid(),
+    runId: z.string().uuid(),
+    criterionId: z.string().trim().min(1).max(80),
+    source: z.enum([
+      'assistant_output',
+      'tool_result',
+      'fresh_observation',
+      'browser_dom',
+      'filesystem',
+      'semantic_judge',
+    ]),
+    status: z.enum(['supports', 'contradicts', 'unknown']),
+    invocationId: z.string().uuid().optional(),
+    observationId: z.string().uuid().optional(),
+    observationFingerprint: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+    summary: z.string().trim().min(1).max(1_000),
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+
+export const CriterionResultSchema = z
+  .object({
+    criterionId: z.string().trim().min(1).max(80),
+    status: z.enum(['pending', 'passed', 'failed', 'unknown']),
+    evidenceIds: z.array(z.string().uuid()).max(100),
+  })
+  .strict();
+
+export const CompletionDecisionSchema = z
+  .object({
+    summary: z.string().trim().min(1).max(8_000),
+    contractRevision: z.number().int().positive().max(10_000),
+    criterionResults: z.array(CriterionResultSchema).min(1).max(20),
+  })
+  .strict();
+
 export const AgentTaskContractV6Schema = z
   .object({
     schemaVersion: z.literal(6),
@@ -298,6 +605,130 @@ export const AgentTaskContractV6Schema = z
     }
   });
 
+export const AgentTaskContractV7Schema = z
+  .object({
+    schemaVersion: z.literal(7),
+    id: z.string().uuid(),
+    originalRequest: z.string().min(2).max(8_000),
+    runtimeKind: AgentRuntimeKindSchema,
+    executionProfile: ExecutionProfileSchema,
+    autonomyMode: AutonomyModeSchema,
+    workspace: WorkspaceIdentitySchema.nullable(),
+    activity: ActivityContextSchema.nullable(),
+    outcomeContract: OutcomeContractSchema,
+    approvalPolicy: z.object({
+      alwaysConfirm: z.array(SensitiveActionSchema),
+    }),
+    limits: AgentTaskContractV4Schema.shape.limits,
+  })
+  .superRefine((contract, context) => {
+    const workspaceProfile = contract.executionProfile === 'workspace';
+    if (workspaceProfile !== Boolean(contract.workspace)) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Workspace profile and trusted workspace identity must be selected together.',
+        path: ['workspace'],
+      });
+    }
+    if (
+      contract.activity?.activity.launchTarget === 'workspace' &&
+      !workspaceProfile
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Workspace Activities require a trusted workspace.',
+        path: ['activity', 'activity', 'launchTarget'],
+      });
+    }
+    if (
+      contract.activity?.activity.launchTarget === 'current_surface' &&
+      workspaceProfile
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Current-surface Activities cannot claim Workspace authority.',
+        path: ['activity', 'activity', 'launchTarget'],
+      });
+    }
+  });
+
+export const AgentTaskContractV8Schema = z
+  .object({
+    schemaVersion: z.literal(8),
+    id: z.string().uuid(),
+    originalRequest: z.string().min(2).max(8_000),
+    runtimeKind: AgentRuntimeKindSchema,
+    executionProfile: ExecutionProfileSchema,
+    autonomyMode: AutonomyModeSchema,
+    workspace: WorkspaceIdentitySchema.nullable(),
+    activity: ActivityContextSchema.nullable(),
+    outcomeContract: OutcomeContractSchema,
+    intentAuthorization: IntentAuthorizationContractSchema,
+    approvalPolicy: z
+      .object({
+        alwaysConfirmEffects: z.array(HardConfirmEffectKindSchema),
+      })
+      .strict(),
+    limits: AgentTaskContractV4Schema.shape.limits,
+  })
+  .strict()
+  .superRefine((contract, context) => {
+    const workspaceProfile = contract.executionProfile === 'workspace';
+    if (workspaceProfile !== Boolean(contract.workspace)) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Workspace profile and trusted workspace identity must be selected together.',
+        path: ['workspace'],
+      });
+    }
+    if (
+      contract.activity?.activity.launchTarget === 'workspace' &&
+      !workspaceProfile
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Workspace Activities require a trusted workspace.',
+        path: ['activity', 'activity', 'launchTarget'],
+      });
+    }
+    if (
+      contract.activity?.activity.launchTarget === 'current_surface' &&
+      workspaceProfile
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Current-surface Activities cannot claim Workspace authority.',
+        path: ['activity', 'activity', 'launchTarget'],
+      });
+    }
+    if (
+      new Set(contract.approvalPolicy.alwaysConfirmEffects).size !==
+      contract.approvalPolicy.alwaysConfirmEffects.length
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Always-confirm effects must be unique.',
+        path: ['approvalPolicy', 'alwaysConfirmEffects'],
+      });
+    }
+    if (
+      contract.approvalPolicy.alwaysConfirmEffects.length !==
+        HOST_ALWAYS_CONFIRM_EFFECTS.length ||
+      HOST_ALWAYS_CONFIRM_EFFECTS.some(
+        (effect) =>
+          !contract.approvalPolicy.alwaysConfirmEffects.includes(effect),
+      )
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Contract v8 must retain every host always-confirm effect.',
+        path: ['approvalPolicy', 'alwaysConfirmEffects'],
+      });
+    }
+  });
+
 function normalizeLegacyGoal(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
   const goal = value as Record<string, unknown>;
@@ -324,6 +755,8 @@ export const TaskContractSchema = z.preprocess(
     AgentTaskContractV4Schema,
     AgentTaskContractV5Schema,
     AgentTaskContractV6Schema,
+    AgentTaskContractV7Schema,
+    AgentTaskContractV8Schema,
   ]),
 );
 
@@ -361,8 +794,61 @@ export const TaskEventSchema = z.object({
     .object({
       toolId: RuntimeToolIdSchema,
       operation: z.string().trim().min(1).max(100),
+      effectKind: ActionEffectKindSchema.optional(),
+      resourceKind: ResourceKindSchema.nullable().optional(),
+      authorizationSource: AuthorizationSourceSchema.optional(),
+      approvalRequired: z.boolean().optional(),
+      consequential: z.boolean().optional(),
     })
     .optional(),
+}).superRefine((event, context) => {
+  const metadata = event.tool
+    ? [
+        event.tool.effectKind,
+        event.tool.resourceKind,
+        event.tool.authorizationSource,
+        event.tool.approvalRequired,
+        event.tool.consequential,
+      ]
+    : [];
+  const hasMetadata = metadata.some((value) => value !== undefined);
+  if (!event.tool || !hasMetadata) return;
+  if (metadata.some((value) => value === undefined)) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Execution authorization metadata must be recorded as one complete set.',
+      path: ['tool'],
+    });
+    return;
+  }
+  const effectFree = event.tool.effectKind === 'none';
+  if (effectFree !== (event.tool.resourceKind === null)) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Tool resource metadata must match the effect kind.',
+      path: ['tool', 'resourceKind'],
+    });
+  }
+  if (event.tool.consequential !== !effectFree) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Tool consequence metadata must match the effect kind.',
+      path: ['tool', 'consequential'],
+    });
+  }
+  if (
+    event.tool.authorizationSource === 'none' ||
+    (event.tool.authorizationSource === 'routine' && !effectFree) ||
+    (event.tool.authorizationSource === 'user_instruction' && effectFree) ||
+    (event.tool.authorizationSource === 'exact_approval') !==
+      event.tool.approvalRequired
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Tool authorization source contradicts its effect or approval metadata.',
+      path: ['tool', 'authorizationSource'],
+    });
+  }
 });
 
 export const AgentActivityKindSchema = z.enum([
@@ -531,6 +1017,14 @@ export const SteeringInstructionSchema = z.object({
   requiresGoalReview: z.literal(true),
 });
 
+export const OutcomeProgressSchema = z
+  .object({
+    contractRevision: z.number().int().positive().max(10_000),
+    criterionResults: z.array(CriterionResultSchema).min(1).max(20),
+    evidence: z.array(OutcomeEvidenceSchema).max(200),
+  })
+  .strict();
+
 export const TaskSnapshotSchema = z
   .object({
     taskId: z.string().uuid(),
@@ -541,6 +1035,7 @@ export const TaskSnapshotSchema = z
     pendingInteraction: PendingInteractionSchema.nullable(),
     approvalGrant: ActionApprovalGrantSchema.nullable(),
     progress: TaskProgressSchema.nullable(),
+    outcomes: OutcomeProgressSchema.nullable().default(null),
     queuedSteering: z.array(SteeringInstructionSchema).max(50),
     runtimeResume: z
       .object({
@@ -915,6 +1410,134 @@ export const TaskHistorySchema = z.object({
   }),
   snapshots: z.array(TaskSnapshotSchema),
 });
+
+export const HostedTaskStateSchema = z.enum([
+  'queued',
+  'compiling_outcomes',
+  'planning',
+  'awaiting_worker',
+  'executing_tool',
+  'awaiting_input',
+  'awaiting_approval',
+  'verifying',
+  'recovering',
+  'completed',
+  'blocked',
+  'failed',
+  'cancelled',
+  'expired',
+]);
+
+export const HostedTaskRecordSchema = z.object({
+  id: z.string().uuid(),
+  taskId: z.string().uuid(),
+  clientTaskId: z.string().uuid(),
+  request: z.string().trim().min(2).max(8_000),
+  executionProfile: ExecutionProfileSchema,
+  workspaceSelectionId: z.string().uuid().nullable(),
+  state: HostedTaskStateSchema,
+  protocolVersion: z.number().int().positive(),
+  runVersion: z.number().int().positive(),
+  outcomeRevision: z.number().int().positive(),
+  contractSchemaVersion: z.union([z.literal(7), z.literal(8)]).optional(),
+  autonomyMode: AutonomyModeSchema.optional(),
+  outcomeContract: OutcomeContractSchema.optional(),
+  intentAuthorization: IntentAuthorizationContractSchema.optional(),
+  publicSummary: z.string().max(1_000),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  newlyCreated: z.boolean().optional(),
+}).passthrough();
+
+export const HostedTaskEventSchema = z.object({
+  id: z.string().uuid(),
+  runId: z.string().uuid(),
+  sequence: z.number().int().positive(),
+  type: z.string().trim().min(1).max(80),
+  summary: z.string().trim().min(1).max(1_000),
+  finalOutput: z.string().trim().min(1).max(8_000).optional(),
+  outcomeRevision: z.number().int().positive().optional(),
+  outcomes: z.array(z.object({
+    criterionId: z.string().trim().min(1).max(80),
+    required: z.boolean(),
+    status: z.enum(['pending', 'passed', 'failed', 'unknown']),
+    verifierKind: z.enum([
+      'assistant_output', 'application_surface', 'browser_semantic',
+      'filesystem_effect', 'tool_effect', 'semantic_judge',
+    ]),
+  }).strict()).max(20).optional(),
+  createdAt: z.string().datetime(),
+}).strict();
+
+export const HostedTaskListSchema = z.object({
+  items: z.array(HostedTaskRecordSchema).max(100),
+});
+
+export const HostedWorkerSessionSchema = z.object({
+  id: z.string().uuid(),
+  connectedAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+}).strict();
+
+export const HostedDesktopInvocationSchema = z.object({
+  protocolVersion: z.literal(2),
+  schemaDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+  invocationId: z.string().uuid(),
+  runId: z.string().uuid(),
+  callId: z.string().trim().min(1).max(255),
+  toolId: RuntimeToolIdSchema,
+  operation: z.string().trim().min(1).max(100),
+  effect: ActionEffectSchema,
+  intentRevision: z.number().int().positive().max(10_000),
+  approvalRequired: z.boolean(),
+  authorizationSource: AuthorizationSourceSchema,
+  consequential: z.boolean(),
+  input: z.record(z.string().min(1).max(100), z.unknown()),
+  obligations: z.array(z.object({
+    criterionId: z.string().trim().min(1).max(80),
+    verifierKind: z.enum(['application_surface', 'browser_semantic', 'filesystem_effect', 'tool_effect']),
+  }).strict()).max(20).default([]),
+  expiresAt: z.string().datetime(),
+}).strict().superRefine((invocation, context) => {
+  if (invocation.consequential !== (invocation.effect.kind !== 'none')) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Invocation consequence must match its typed effect.',
+      path: ['consequential'],
+    });
+  }
+  if (
+    invocation.authorizationSource === 'exact_approval' &&
+    !invocation.approvalRequired
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Exact approval metadata must remain approval-required.',
+      path: ['approvalRequired'],
+    });
+  }
+});
+
+export const HostedDesktopResultSchema = z.object({
+  invocationId: z.string().uuid(),
+  status: z.enum(['confirmed', 'failed', 'denied', 'not_executed', 'unknown', 'cancelled']),
+  summary: z.string().trim().min(1).max(1_000),
+  data: z.record(z.string().min(1).max(100), z.unknown()).optional(),
+  visual: z.object({
+    dataBase64: z.string().min(1).max(40_000_000),
+    detail: z.literal('original'),
+    mimeType: z.enum(['image/jpeg', 'image/png']),
+    observationId: z.string().uuid(),
+  }).strict().optional(),
+  evidence: z.array(z.object({
+    criterionId: z.string().trim().min(1).max(80),
+    source: z.enum(['tool_result', 'fresh_observation', 'browser_dom', 'filesystem']),
+    status: z.enum(['supports', 'contradicts', 'unknown']),
+    observationId: z.string().uuid().optional(),
+    observationFingerprint: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+    summary: z.string().trim().min(1).max(1_000),
+  }).strict()).max(20).default([]),
+}).strict();
 
 export const CuaStatusSchema = z.object({
   state: z.enum(['disconnected', 'permission_required', 'ready', 'error']),
@@ -1354,6 +1977,15 @@ export const ActivateMembershipRequestSchema = z.object({
 });
 
 export type Capability = z.infer<typeof CapabilitySchema>;
+export type ActionEffect = z.infer<typeof ActionEffectSchema>;
+export type ActionEffectKind = z.infer<typeof ActionEffectKindSchema>;
+export type AuthorizationSource = z.infer<typeof AuthorizationSourceSchema>;
+export type AutoAuthorizableEffectKind = z.infer<
+  typeof AutoAuthorizableEffectKindSchema
+>;
+export type HardConfirmEffectKind = z.infer<
+  typeof HardConfirmEffectKindSchema
+>;
 export type ActionApprovalGrant = z.infer<typeof ActionApprovalGrantSchema>;
 export type AppLanguage = z.infer<typeof AppLanguageSchema>;
 export type AppPreferences = z.infer<typeof AppPreferencesSchema>;
@@ -1410,7 +2042,10 @@ export type GetUsageBudgetRequest = z.infer<
   typeof GetUsageBudgetRequestSchema
 >;
 export type TaskContract = z.infer<typeof TaskContractSchema>;
-export type AgentTaskContract = z.infer<typeof AgentTaskContractV6Schema>;
+export type AgentTaskContract = z.infer<typeof AgentTaskContractV8Schema>;
+export type ExecutableAgentTaskContract =
+  | z.infer<typeof AgentTaskContractV7Schema>
+  | AgentTaskContract;
 export type ActivityContext = z.infer<typeof ActivityContextSchema>;
 export type AgentRuntimeKind = z.infer<typeof AgentRuntimeKindSchema>;
 export type ExecutionProfile = z.infer<typeof ExecutionProfileSchema>;
@@ -1422,6 +2057,13 @@ export type PlanId = z.infer<typeof PlanIdSchema>;
 export type PendingInteraction = z.infer<typeof PendingInteractionSchema>;
 export type PrimaryLanguage = z.infer<typeof PrimaryLanguageSchema>;
 export type ProposedAction = z.infer<typeof ProposedActionSchema>;
+export type ResourceKind = z.infer<typeof ResourceKindSchema>;
+export type IntentAuthorizationContract = z.infer<
+  typeof IntentAuthorizationContractSchema
+>;
+export type IntentAuthorizationGrant = z.infer<
+  typeof IntentAuthorizationGrantSchema
+>;
 export type RecordVoiceTranscriptRequest = z.infer<
   typeof RecordVoiceTranscriptRequestSchema
 >;
@@ -1444,11 +2086,22 @@ export type SubmitTaskRequest = z.infer<typeof SubmitTaskRequestSchema>;
 export type TaskEvent = z.infer<typeof TaskEventSchema>;
 export type TaskBehavior = z.infer<typeof TaskBehaviorSchema>;
 export type TaskHistory = z.infer<typeof TaskHistorySchema>;
+export type HostedTaskEvent = z.infer<typeof HostedTaskEventSchema>;
+export type HostedTaskRecord = z.infer<typeof HostedTaskRecordSchema>;
+export type HostedDesktopInvocation = z.infer<typeof HostedDesktopInvocationSchema>;
+export type HostedDesktopResult = z.infer<typeof HostedDesktopResultSchema>;
 export type TaskMessage = z.infer<typeof TaskMessageSchema>;
 export type TaskPhase = z.infer<typeof TaskPhaseSchema>;
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>;
 export type TaskUpdate = z.infer<typeof TaskUpdateSchema>;
+export type CompletionDecision = z.infer<typeof CompletionDecisionSchema>;
+export type CriterionResult = z.infer<typeof CriterionResultSchema>;
+export type OutcomeContract = z.infer<typeof OutcomeContractSchema>;
+export type OutcomeCriterion = z.infer<typeof OutcomeCriterionSchema>;
+export type OutcomeEvidence = z.infer<typeof OutcomeEvidenceSchema>;
+export type OutcomeProgress = z.infer<typeof OutcomeProgressSchema>;
+export type OutcomeVerifier = z.infer<typeof OutcomeVerifierSchema>;
 export type UsageBudgetSnapshot = z.infer<typeof UsageBudgetSnapshotSchema>;
 export type UpdateAppPreferencesRequest = z.infer<
   typeof UpdateAppPreferencesRequestSchema

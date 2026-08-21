@@ -17,7 +17,10 @@ function normalizeParameters(
   );
 }
 
-export function createActionDigest(input: unknown): string {
+export function createActionDigest(
+  input: unknown,
+  intentRevision: number | null = null,
+): string {
   const action = ProposedActionSchema.parse(input);
   const identity = toolIdentityForAction(action);
   const normalizedAction = {
@@ -25,6 +28,8 @@ export function createActionDigest(input: unknown): string {
     operation: identity.operation,
     toolId: identity.toolId,
     description: action.description,
+    effect: action.effect ?? null,
+    intentRevision,
     parameters: normalizeParameters(action.parameters),
     target: action.target ?? null,
   };

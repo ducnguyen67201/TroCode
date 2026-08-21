@@ -23,7 +23,11 @@ describe('DesktopApplicationLauncher', () => {
       platform: 'win32',
     });
 
-    await launcher.launch('chrome');
+    await expect(launcher.launch('chrome')).resolves.toMatchObject({
+      application: 'chrome',
+      acceptedAt: expect.any(String),
+      receipt: expect.any(String),
+    });
 
     expect(openPath).toHaveBeenCalledWith(chromePath);
   });

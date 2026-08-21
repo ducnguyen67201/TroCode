@@ -38,13 +38,16 @@ TroCode has unusually powerful local permissions. The model is treated as an unt
   the revocable Google-backed device session instead of an offline activation.
 - Assistant text and tool calls share one model session. A model tool call is a
   proposal, not permission or proof that an effect occurred.
-- Consequential actions require explicit approval. Balanced autonomy permits
-  routine click, drag, text entry, keypress, and scroll while the action remains
-  grounded and in scope. The pure host classifier can raise risk from normalized
-  action identity, declared consequence, opaque/stale state, and visible
-  destructive, financial, credential, submission, or permission cues. Strict
-  autonomy additionally confirms routine desktop mutations. Untrusted content
-  can raise risk but can never lower it or satisfy approval.
+- Approval requirement and consequence are separate. In Balanced mode,
+  authenticated user text compiles to closed grants for requested reversible
+  private create/update/rename/move/comment and safe Workspace effects. The pure
+  host classifier still resolves the exact effect and can raise risk from
+  normalized payload facts, opaque/stale state, or visible cues. Send/invite,
+  delete/archive, unexpected overwrite, publish/deploy/merge, money/trade,
+  credentials, permissions, installs, sensitive transfer, and unknown effects
+  always require exact approval. Strict mode confirms every mutation or side
+  effect. Untrusted content can raise risk but can never create or satisfy a
+  grant.
 - Remote navigation and creation of unexpected Electron windows are denied.
 - Current actions are bounded by registered tool operations, public-target
   checks, task budgets, fresh observations, and exact approvals. A task does
@@ -64,12 +67,13 @@ for a Codex login, ChatGPT subscription, or OpenAI API key. The trusted
 main-process picker canonicalizes one directory and returns only an opaque
 selection ID to the renderer. SDK patch operations resolve paths against that
 canonical root, reject lexical and symlink escapes, bound file and patch sizes,
-and require a single-use exact approval. SDK shell operations start in the root,
-receive only an allowlisted OS environment, and require exact approval for the
-full bounded command list. TroCode, provider, database, analytics, and release
-secrets are not inherited. A command is host code after the user approves it,
-so the approval card displays the full command or patch and is the permission
-boundary rather than an implicit session-wide grant. The shell is not an OS
+and pass host policy at the SDK interruption. Requested create/update/move
+patches may resume without user UI; delete and unexpected overwrite remain
+exact. SDK shell operations start in the root, receive only an allowlisted OS
+environment, and bypass user UI only for the closed read/validation/requested-
+local command policy. TroCode, provider, database, analytics, and release
+secrets are not inherited. When approval is required, the card displays the full
+command or patch and remains single-use. The shell is not an OS
 sandbox: it starts in the selected directory, but an approved command can use
 absolute paths or the network. Patch operations, unlike shell commands, are
 structurally confined to the selected root.
@@ -96,6 +100,13 @@ participant's local Workspace, screen, unsaved editor state, and ordinary task
 conversation are never uploaded. Submission always requires a separate exact
 file preview and user action. Agent evidence is policy-acknowledged, allowlisted,
 bounded, provenance-labeled, and cannot grade or change state.
+
+Backend-agent canary runs are a separate, explicit privacy path: task text and
+bounded tool results are processed by Railway and short-lived operational state
+is stored under AES-256-GCM with authenticated run metadata and a dedicated
+versioned key. Sanitized events contain no task content. Screenshot and crop
+bytes live only in a bounded in-memory sidecar and are removed before any
+session item or tool result is written to PostgreSQL.
 
 Local PostgreSQL binds only to `127.0.0.1:54320`, receives its generated
 password from Doppler at container startup, and persists data in a named Docker
@@ -157,6 +168,14 @@ revocation or authoritative time; those require an authenticated backend.
 Every nonterminal task exposes a renderer **Stop task** control, and the trusted
 main process registers **Escape** system-wide while work is active. Cancelling
 does not widen authority or bypass exact-action approvals.
+
+Backend ownership does not move local authority to Railway. A protocol-v2
+durable tool call carries a typed effect proposal, intent revision, approval
+requirement, authorization source, and independent consequence bit. Only the
+exact signed-in desktop worker may transition it to executing, after repeating
+schema validation, workspace binding, effect normalization, policy, and any
+one-use approval. A stale worker result is rejected. Loss after executing is
+recorded as unknown and blocks completion rather than replaying the effect.
 
 ## Release requirements
 

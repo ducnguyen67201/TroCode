@@ -1,7 +1,11 @@
 import { z } from 'zod';
 
 import {
+  ActionEffectKindSchema,
+  ActionEffectSchema,
   ProposedActionSchema,
+  ResourceKindSchema,
+  type ActionEffect,
   type ProposedAction,
 } from '../../shared/contracts';
 
@@ -132,16 +136,60 @@ const ModelSurfaceCommandSchema = z.discriminatedUnion('kind', [
   }
 });
 
-const SurfaceControlInputSchema = z.object({
-  observationId: z.string().uuid(),
-  description: z.string().trim().min(1).max(2_000),
-  target: z.string().trim().min(1).max(8_000).nullable(),
-  command: ModelSurfaceCommandSchema,
-});
+const SurfaceControlInputSchema = z
+  .object({
+    observationId: z.string().uuid(),
+    description: z.string().trim().min(1).max(2_000),
+    target: z.string().trim().min(1).max(8_000).nullable(),
+    effect: ActionEffectSchema,
+    attendees: z.array(z.string().trim().min(1).max(500)).max(50).nullable(),
+    command: ModelSurfaceCommandSchema,
+  })
+  .superRefine((input, context) => {
+    const attendees = input.attendees ?? [];
+    const invitation =
+      input.effect.kind === 'send_communication' &&
+      input.effect.communication === 'invite';
+    if (invitation !== (attendees.length > 0)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'A calendar invitation effect requires exact attendees.',
+        path: ['attendees'],
+      });
+    }
+    if (
+      input.command.consequence === 'send' &&
+      !(
+        input.effect.kind === 'send_communication' &&
+        input.effect.communication === 'send'
+      )
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'An exact send payload requires a send communication effect.',
+        path: ['effect'],
+      });
+    }
+  });
 
 const ObserveSurfaceInputSchema = z.object({
-  reason: z.string().trim().min(1).max(500),
-  query: z.string().trim().min(1).max(500).nullable(),
+  reason: z.string().trim().min(1).max(500).optional(),
+  query: z.string().trim().min(1).max(500).nullable().optional(),
+  observationId: z.string().uuid().optional(),
+  region: z.object({
+    x: z.number().int().min(0).max(999),
+    y: z.number().int().min(0).max(999),
+    width: z.number().int().min(1).max(1_000),
+    height: z.number().int().min(1).max(1_000),
+  }).strict().optional(),
+}).superRefine((value, context) => {
+  const inspecting = Boolean(value.observationId || value.region);
+  if (inspecting !== Boolean(value.observationId && value.region)) {
+    context.addIssue({ code: 'custom', message: 'Image inspection requires observationId and region.' });
+  }
+  if (!inspecting && !value.reason) {
+    context.addIssue({ code: 'custom', message: 'Surface observation requires a reason.' });
+  }
 });
 
 const PrepareBrowserInputSchema = z.object({
@@ -150,14 +198,17 @@ const PrepareBrowserInputSchema = z.object({
 });
 
 export interface ObserveSurfaceToolInput {
+  observationId?: string;
   query?: string;
-  reason: string;
+  reason?: string;
+  region?: { height: number; width: number; x: number; y: number };
 }
 
 export interface SurfaceControlToolInput {
   command: SurfaceCommand;
   consequence: ProposedAction['action'];
   description: string;
+  effect: ActionEffect;
   observationFingerprint: string;
   observationId: string;
   publicRef?: string;
@@ -220,6 +271,52 @@ const sendPayloadModelSchema = objectSchema(
     },
   },
   ['account', 'recipients', 'subject', 'body', 'threadId', 'attachments'],
+);
+
+const actionEffectModelSchema = objectSchema(
+  {
+    kind: {
+      type: 'string',
+      enum: [...ActionEffectKindSchema.options],
+    },
+    resourceKind: {
+      anyOf: [
+        { type: 'string', enum: [...ResourceKindSchema.options] },
+        { type: 'null' },
+      ],
+    },
+    reversibility: {
+      type: 'string',
+      enum: ['none', 'reversible', 'destructive', 'unknown'],
+    },
+    externality: {
+      type: 'string',
+      enum: ['local', 'cloud_private', 'external', 'public', 'unknown'],
+    },
+    communication: {
+      type: 'string',
+      enum: ['none', 'draft', 'send', 'invite', 'notify', 'unknown'],
+    },
+    overwrite: {
+      type: 'string',
+      enum: ['none', 'requested', 'unexpected', 'unknown'],
+    },
+    sensitiveDataTransfer: {
+      anyOf: [
+        { type: 'boolean' },
+        { type: 'string', const: 'unknown' },
+      ],
+    },
+  },
+  [
+    'kind',
+    'resourceKind',
+    'reversibility',
+    'externality',
+    'communication',
+    'overwrite',
+    'sensitiveDataTransfer',
+  ],
 );
 
 function commandVariant(
@@ -291,6 +388,17 @@ function controlParameters(): StrictJsonObjectSchema {
       target: {
         anyOf: [{ type: 'string', maxLength: 8_000 }, { type: 'null' }],
       },
+      effect: actionEffectModelSchema as unknown as Record<string, unknown>,
+      attendees: {
+        anyOf: [
+          {
+            type: 'array',
+            maxItems: 50,
+            items: { type: 'string', maxLength: 500 },
+          },
+          { type: 'null' },
+        ],
+      },
       command: {
         anyOf: [
           commandVariant(clickModelSchema, [
@@ -306,7 +414,7 @@ function controlParameters(): StrictJsonObjectSchema {
         ],
       },
     },
-    ['observationId', 'description', 'target', 'command'],
+    ['observationId', 'description', 'target', 'effect', 'attendees', 'command'],
   );
 }
 
@@ -390,6 +498,7 @@ function actionParameters(
   command: SurfaceCommand,
   consequence: string,
   sendPayload: z.infer<typeof SendPayloadSchema> | null,
+  attendees: string[] | null,
 ): Record<string, string | string[]> {
   const parameters: Record<string, string | string[]> = {
     command: command.kind,
@@ -432,6 +541,7 @@ function actionParameters(
     if (sendPayload.threadId) parameters.threadId = sendPayload.threadId;
     if (sendPayload.attachments) parameters.attachments = sendPayload.attachments;
   }
+  if (attendees && attendees.length > 0) parameters.attendees = attendees;
   return parameters;
 }
 
@@ -444,7 +554,7 @@ export function createCuaSemanticToolDefinitions(
       modelName: 'observe_surface',
       description:
         'Read the current non-Tro browser tab or application window using structured semantics first. It returns opaque element references and falls back to vision when needed.',
-      operations: ['observe'],
+      operations: ['observe', 'inspect_surface_region'],
       available: options.semanticAvailable,
       parameters: objectSchema(
         {
@@ -452,14 +562,35 @@ export function createCuaSemanticToolDefinitions(
           query: {
             anyOf: [{ type: 'string', maxLength: 500 }, { type: 'null' }],
           },
+          observationId: {
+            anyOf: [{ type: 'string' }, { type: 'null' }],
+          },
+          region: {
+            anyOf: [
+              {
+                type: 'object',
+                properties: {
+                  x: { type: 'integer', minimum: 0, maximum: 999 },
+                  y: { type: 'integer', minimum: 0, maximum: 999 },
+                  width: { type: 'integer', minimum: 1, maximum: 1000 },
+                  height: { type: 'integer', minimum: 1, maximum: 1000 },
+                },
+                required: ['x', 'y', 'width', 'height'],
+                additionalProperties: false,
+              },
+              { type: 'null' },
+            ],
+          },
         },
-        ['reason', 'query'],
+        ['reason', 'query', 'observationId', 'region'],
       ),
       parse: (value) => {
         const parsed = parseJson(ObserveSurfaceInputSchema, value);
         return {
-          reason: parsed.reason,
+          ...(parsed.reason ? { reason: parsed.reason } : {}),
           ...(parsed.query ? { query: parsed.query } : {}),
+          ...(parsed.observationId ? { observationId: parsed.observationId } : {}),
+          ...(parsed.region ? { region: parsed.region } : {}),
         } satisfies ObserveSurfaceToolInput;
       },
       normalize: (input: ObserveSurfaceToolInput, call: AgentToolCall) => ({
@@ -467,7 +598,7 @@ export function createCuaSemanticToolDefinitions(
         input,
         kind: 'observe',
         modelName: call.name,
-        operation: 'observe',
+        operation: input.observationId ? 'inspect_surface_region' : 'observe',
         toolId: 'computer.observe',
       }),
     },
@@ -494,6 +625,7 @@ export function createCuaSemanticToolDefinitions(
           action: trustedActionForCommand(command),
           toolId: 'computer.control',
           operation: command.kind,
+          effect: input.effect,
           description: input.description,
           ...(input.target ? { target: input.target } : {}),
           parameters: actionParameters(
@@ -502,6 +634,7 @@ export function createCuaSemanticToolDefinitions(
             command,
             consequence,
             input.command.sendPayload,
+            input.attendees,
           ),
         });
         return {
@@ -511,6 +644,7 @@ export function createCuaSemanticToolDefinitions(
             command,
             consequence,
             description: input.description,
+            effect: input.effect,
             observationFingerprint: observation.fingerprint,
             observationId: observation.observationId,
             ...(publicRef ? { publicRef } : {}),
@@ -558,6 +692,15 @@ export function createCuaSemanticToolDefinitions(
             action: 'system_permission',
             toolId: 'browser.prepare',
             operation: 'attach_existing_profile',
+            effect: {
+              kind: 'system_permission',
+              resourceKind: 'application',
+              reversibility: 'reversible',
+              externality: 'local',
+              communication: 'none',
+              overwrite: 'none',
+              sensitiveDataTransfer: false,
+            },
             description: input.reason,
             target: observation.surface.application,
             parameters: {

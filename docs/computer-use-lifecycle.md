@@ -1,5 +1,18 @@
 # Computer-use lifecycle
 
+For hosted runs, CUA remains local to Electron main. The backend persists a
+tool interruption and waits; the desktop requests an exactly-once executing
+transition, performs the action through the existing CUA session, observes the
+result, and returns evidence. Requested or delivered invocations may be
+redelivered with the same ID. Executing invocations are never replayed after a
+disconnect; an absent terminal result becomes unknown.
+
+Visual evidence uses semantic facts without an image when sufficient, a
+1536-pixel overview by default, and an observation-bound original-resolution
+crop only on demand. One original is retained in task memory, every new
+observation invalidates prior crop authority, and cleanup removes both CUA and
+image state.
+
 Computer use is an optional tool inside the Everyday Agents SDK loop. A new task
 does not create a CUA session, infer a computer capability, or capture a
 screenshot.
@@ -15,8 +28,8 @@ model calls observe_surface (when the compatible CUA capability is available)
   -> return bounded facts and opaque e1/e2 references to the same call ID
   -> model may call control_surface using the latest observation ID and reference
   -> host resolves the private token and records the declared consequence
-  -> host derives action identity and approval sensitivity from the command
-  -> policy allows, denies, or asks for exact approval
+  -> host merges the typed effect proposal with payload and visible risk raisers
+  -> policy matches a current reversible instruction grant, denies, or asks for exact approval
   -> execute one atomic command
   -> refresh the exact same bound surface and replace all old references
   -> return outcome + fresh evidence to the same model session
@@ -59,12 +72,13 @@ nothing. Existing-profile browser attachment is a separate one-use
 `system_permission` approval; the authorization host denies every callback
 unless its session, operation, and resource digest match the armed grant.
 
-The model's declared consequence is retained for exact approval copy, but it
-cannot downgrade policy. Balanced autonomy allows routine grounded clicks,
-drags, text entry, keypresses, and scrolling. The host risk classifier raises
-sensitive cues, opaque targets, stale observations, and declared consequential
-effects to exact approval. Strict autonomy confirms routine desktop mutations
-too.
+The model's declared effect/consequence is retained for policy evidence and
+exact approval copy, but it cannot downgrade host normalization. Balanced
+autonomy allows effect-free grounded controls and current instruction-matched
+reversible private effects. Attendees force a calendar save to an invitation;
+generic submit is unknown. Sensitive cues, opaque targets, stale observations,
+or contradictory metadata raise to exact approval. Strict autonomy confirms
+every mutation or side effect.
 
 ## Outcomes
 

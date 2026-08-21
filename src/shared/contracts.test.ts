@@ -4,12 +4,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ActivateMembershipRequestSchema,
+  ActionEffectSchema,
   AgentActivityUpdateSchema,
   AgentTaskContractV3Schema,
   AgentTaskContractV4Schema,
   AgentTaskContractV5Schema,
   AgentTaskContractV6Schema,
   AppPreferencesSchema,
+  HostedDesktopInvocationSchema,
+  IntentAuthorizationContractSchema,
   CompanionResponseActionRequestSchema,
   CompanionResponseCardSchema,
   SubmitTaskRequestSchema,
@@ -27,6 +30,81 @@ import {
   VoiceStatusSchema,
   VOICE_TRANSCRIPTION_MODEL,
 } from './contracts';
+
+describe('intent-aware execution contracts', () => {
+  it('rejects hard-confirm grants and contradictory effect metadata', () => {
+    expect(
+      IntentAuthorizationContractSchema.safeParse({
+        schemaVersion: 1,
+        revision: 1,
+        source: 'user_instruction',
+        grants: [{
+          id: 'send-calendar',
+          effectKind: 'send_communication',
+          resourceKinds: ['calendar_event'],
+          permitsSafeDefaults: false,
+        }],
+      }).success,
+    ).toBe(false);
+    expect(
+      ActionEffectSchema.safeParse({
+        kind: 'create_resource',
+        resourceKind: 'calendar_event',
+        reversibility: 'reversible',
+        externality: 'cloud_private',
+        communication: 'invite',
+        overwrite: 'none',
+        sensitiveDataTransfer: false,
+      }).success,
+    ).toBe(false);
+    expect(
+      ActionEffectSchema.safeParse({
+        kind: 'none',
+        resourceKind: null,
+        reversibility: 'none',
+        externality: 'public',
+        communication: 'none',
+        overwrite: 'none',
+        sensitiveDataTransfer: false,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('requires the complete protocol-v2 policy envelope', () => {
+    const envelope = {
+      protocolVersion: 2,
+      schemaDigest: 'a'.repeat(64),
+      invocationId: randomUUID(),
+      runId: randomUUID(),
+      callId: 'call-1',
+      toolId: 'application.launch',
+      operation: 'launch',
+      effect: {
+        kind: 'none',
+        resourceKind: null,
+        reversibility: 'none',
+        externality: 'local',
+        communication: 'none',
+        overwrite: 'none',
+        sensitiveDataTransfer: false,
+      },
+      intentRevision: 1,
+      approvalRequired: false,
+      authorizationSource: 'routine',
+      consequential: false,
+      input: { application: 'chrome' },
+      obligations: [],
+      expiresAt: '2026-08-21T00:01:00.000Z',
+    };
+    expect(HostedDesktopInvocationSchema.parse(envelope)).toEqual(envelope);
+    expect(
+      HostedDesktopInvocationSchema.safeParse({
+        ...envelope,
+        protocolVersion: 1,
+      }).success,
+    ).toBe(false);
+  });
+});
 
 function snapshot(goal: Record<string, unknown>, progress: unknown) {
   const taskId = randomUUID();

@@ -208,3 +208,12 @@ export type CuaBrowserState = z.infer<typeof CuaBrowserStateSchema>;
 export type CuaWindow = z.infer<typeof CuaWindowSchema>;
 export type CuaWindowElement = z.infer<typeof CuaWindowElementSchema>;
 export type CuaWindowState = z.infer<typeof CuaWindowStateSchema>;
+
+export type TrustedApplicationIdentity = 'chrome';
+
+export interface VisibleApplicationSurface {
+  application: TrustedApplicationIdentity;
+  observationFingerprint: string;
+  observationId: string;
+  observedAt: string;
+}

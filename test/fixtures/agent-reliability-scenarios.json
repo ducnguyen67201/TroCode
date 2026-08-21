@@ -1,0 +1,16 @@
+[
+  { "id": "direct-answer", "required": ["assistant_output"], "fault": null },
+  { "id": "calendar-create-private", "required": ["tool_effect", "fresh_observation"], "fault": null, "expectedApprovalCount": 0 },
+  { "id": "calendar-invite", "required": ["tool_effect", "fresh_observation"], "fault": null, "expectedApprovalCount": 1 },
+  { "id": "chrome-launch", "required": ["application_surface", "tool_effect"], "fault": null },
+  { "id": "gmail-full-message", "required": ["browser_semantic", "assistant_output"], "fault": "desktop_restart" },
+  { "id": "form-fill", "required": ["tool_effect", "browser_semantic"], "fault": "after_executing_grant" },
+  { "id": "spreadsheet-edit", "required": ["tool_effect"], "fault": "after_local_effect" },
+  { "id": "workspace-file-test", "required": ["filesystem_effect"], "fault": "api_restart", "expectedApprovalCount": 0 },
+  { "id": "workspace-install", "required": ["filesystem_effect"], "fault": null, "expectedApprovalCount": 1 },
+  { "id": "login-wall", "required": ["assistant_output"], "fault": null },
+  { "id": "stale-approval", "required": ["tool_effect"], "fault": "screen_changed" },
+  { "id": "semantic-fallback", "required": ["fresh_observation"], "fault": "semantic_unavailable" },
+  { "id": "crop-inspection", "required": ["fresh_observation"], "fault": null },
+  { "id": "ambiguous-action", "required": ["tool_effect"], "fault": "disconnect_after_effect" }
+]

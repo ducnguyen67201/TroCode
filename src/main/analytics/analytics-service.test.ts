@@ -219,7 +219,7 @@ describe('AnalyticsService', () => {
     expect(serializedEvents).not.toContain('/Users/example');
     expect(client.events.at(-1)?.properties).toMatchObject({
       autonomy_mode: 'balanced',
-      contract_version: 6,
+      contract_version: 8,
       execution_profile: 'workspace',
       runtime_kind: 'openai_agents',
     });
@@ -295,8 +295,67 @@ describe('AnalyticsService', () => {
 
     expect(client.events.at(-1)).toMatchObject({
       event: 'task ended',
-      properties: { approval_count: 0, outcome: 'completed', tool_count: 2 },
+      properties: {
+        approval_count: 0,
+        approvals_per_verified_success: 0,
+        outcome: 'completed',
+        tool_count: 2,
+        unnecessary_approval_count: 0,
+        unnecessary_approval_rate: 0,
+        user_intervention_count: 0,
+        user_intervention_rate: 0,
+      },
     });
+  });
+
+  it('records closed authorization metadata for completed tools without private intent', async () => {
+    const client = new RecordingAnalyticsClient();
+    const service = createService(
+      client,
+      new MemoryIdentityStore({
+        anonymousId: '28824655-b32f-41d3-ab2d-2f7df31363ef',
+      }),
+    );
+    const runtime = new TaskRuntime({
+      now: () => new Date('2026-08-15T06:00:00.000Z'),
+    });
+    const ready = runtime.submit({ text: 'Private workspace instruction.' });
+    runtime.start({ taskId: ready.taskId });
+    runtime.beginObservation(ready.taskId, 'Inspecting the workspace.');
+    const verifying = runtime.recordToolResult(
+      ready.taskId,
+      'Workspace update finished.',
+      {
+        toolId: 'workspace.apply_patch',
+        operation: 'apply_patch',
+        effectKind: 'workspace_write',
+        resourceKind: 'workspace_file',
+        authorizationSource: 'user_instruction',
+        approvalRequired: false,
+        consequential: true,
+      },
+    );
+
+    await service.trackTaskUpdate({
+      event: verifying.lastEvent,
+      snapshot: verifying,
+    });
+
+    expect(client.events.at(-1)).toMatchObject({
+      event: 'tool call completed',
+      properties: {
+        approval_required: false,
+        authorization_source: 'user_instruction',
+        consequential: true,
+        effect_kind: 'workspace_write',
+        operation: 'apply_patch',
+        resource_kind: 'workspace_file',
+        tool_id: 'workspace.apply_patch',
+      },
+    });
+    expect(JSON.stringify(client.events)).not.toContain(
+      'Private workspace instruction.',
+    );
   });
 
   it('captures only voice transcript counts, never transcript content', async () => {

@@ -22,6 +22,8 @@ import {
   type CuaSemanticCapabilities,
   type CuaWindow,
   type CuaWindowElement,
+  type TrustedApplicationIdentity,
+  type VisibleApplicationSurface,
 } from './cua-semantic-contracts';
 import {
   CuaSurfaceReferenceStore,
@@ -39,6 +41,13 @@ const TROCODE_PATTERN = /\btro(?:\s*code)?\b/iu;
 const SECRET_ROLE_PATTERN = /(?:password|secure)/iu;
 const STALE_OR_REFUSED_PATTERN =
   /(?:stale|not[_ -]?found|invalid[_ -]?(?:ref|token)|owner_pid_mismatch|permission_required|refus)/iu;
+const CHROME_DRIVER_IDENTITIES = new Set([
+  'google chrome',
+  'google-chrome',
+  'google-chrome-stable',
+  'chromium',
+  'chromium-browser',
+]);
 
 export type CuaToolCaller = (
   name: string,
@@ -319,6 +328,46 @@ export class CuaSurfaceRouter {
     if (!snapshot) return undefined;
     this.referenceStore.replace(snapshot.binding);
     return snapshot.observation;
+  }
+
+  async queryVisibleApplicationSurfaces(
+    application: TrustedApplicationIdentity,
+    signal?: AbortSignal,
+  ): Promise<VisibleApplicationSurface[]> {
+    if (!this.available()) return [];
+    const listed = await this.options.callTool(
+      'list_windows',
+      { on_screen_only: true },
+      signal,
+    );
+    if (listed.isError) return [];
+    const windows = parseCuaStructuredResult(listed, CuaWindowListSchema).windows;
+    return windows
+      .filter((window) => {
+        if (
+          !window.is_on_screen ||
+          !window.on_current_space ||
+          window.bounds.width <= 0 ||
+          window.bounds.height <= 0
+        ) {
+          return false;
+        }
+        return (
+          application === 'chrome' &&
+          CHROME_DRIVER_IDENTITIES.has(window.app_name.trim().toLocaleLowerCase('en-US'))
+        );
+      })
+      .map((window) => ({
+        application,
+        observationId: randomUUID(),
+        observedAt: new Date(this.now()).toISOString(),
+        observationFingerprint: hash({
+          application,
+          bounds: window.bounds,
+          pid: window.pid,
+          windowId: window.window_id,
+        }),
+      }));
   }
 
   async execute(

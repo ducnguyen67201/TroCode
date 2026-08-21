@@ -1,6 +1,7 @@
 import type { GoalSpec, ProposedAction } from '../../shared/contracts';
 
 import { createActionDigest } from './action-approval';
+import { effectFreeAction, resolveActionEffect } from './action-effect';
 import type { AgentToolCall, ResolvedToolInvocation } from './agent-contracts';
 import type { DesktopObservation } from './execution-contracts';
 import { evaluateAction, type PolicyDecision } from './policy';
@@ -86,8 +87,13 @@ export class ToolExecutionBroker {
     invocation: ResolvedToolInvocation,
   ): PolicyDecision {
     if (invocation.action && this.isUnknown(taskId, invocation.action)) {
+      const effect = resolveActionEffect(invocation.action);
       return {
         status: 'denied',
+        effect,
+        authorizationSource: 'none',
+        approvalRequired: false,
+        consequential: true,
         summary:
           'This exact action previously had an unknown outcome and will not be repeated.',
         nextActions: ['Inspect the target before starting a new task.'],
@@ -96,6 +102,10 @@ export class ToolExecutionBroker {
     if (!invocation.action) {
       return {
         status: 'allowed',
+        effect: effectFreeAction(),
+        authorizationSource: 'routine',
+        approvalRequired: false,
+        consequential: false,
         summary: 'The tool call has no external side effect.',
         nextActions: ['Execute the bounded tool call once.'],
       };

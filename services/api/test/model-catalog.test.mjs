@@ -45,3 +45,14 @@ test('reservation estimation prices output caps and current images conservativel
   assert(estimate.inputTokens >= 20_000);
   assert(estimate.microUsd > 2_400);
 });
+
+test('Sol pricing and long-context multipliers are applied', () => {
+  const catalog = new ModelCatalog();
+  assert.equal(catalog.calculateUsageCost({
+    cacheWriteTokens: 0,
+    cachedInputTokens: 0,
+    inputTokens: 1_000_000,
+    model: 'gpt-5.6-sol',
+    outputTokens: 1_000_000,
+  }), 55_000_000);
+});

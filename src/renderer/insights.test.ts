@@ -14,6 +14,7 @@ function createSnapshot(
     goal: null,
     lastEvent: null,
     messages: [],
+    outcomes: overrides.outcomes ?? null,
     pendingInteraction: null,
     progress: null,
     queuedSteering: [],

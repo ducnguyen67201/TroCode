@@ -4609,6 +4609,38 @@ h1 {
   line-height: 1.45;
 }
 
+.outcome-checklist {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.8rem;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 0.75rem;
+}
+
+.outcome-checklist ul {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.outcome-checklist li {
+  display: grid;
+  grid-template-columns: 1.25rem 5.5rem 1fr;
+  gap: 0.4rem;
+  align-items: start;
+}
+
+.outcome-checklist li[data-status='passed'] > :first-child {
+  color: var(--success, #2f7d4a);
+}
+
+.outcome-checklist li[data-status='failed'] > :first-child,
+.outcome-checklist li[data-status='unknown'] > :first-child {
+  color: var(--warning, #9b5c12);
+}
+
 .agent-activity-list {
   margin-top: 10px;
   border-top: 1px solid var(--border);

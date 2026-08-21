@@ -1,5 +1,16 @@
 # Inference cost lifecycle
 
+Backend Agents SDK model calls use the same transactional reservation ledger as
+the Responses proxy. The host selects Luna, Terra, or Sol plus reasoning effort;
+the model cannot escalate itself. Estimates use conservative text and image
+token counts, and settlement uses provider usage including cache reads/writes.
+Long contexts above 272K input tokens apply the catalog multiplier.
+
+The transport retries at most twice only for a definitive pre-event provider
+rejection. A network failure, received stream event, or otherwise ambiguous
+dispatch is marked uncertain and is not replayed. A circuit breaker and durable
+submission capacity gate fail honestly before unbounded provider or queue load.
+
 TroCode uses an object-oriented application shell with pure cost and lifecycle
 policies. The desktop decides what it needs to ask; the hosted API is the only
 authority that can price, reserve, dispatch, and settle a paid production call.

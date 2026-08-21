@@ -5,7 +5,7 @@ function freezeEntry(entry) {
   return Object.freeze({ ...entry });
 }
 
-export const DEFAULT_CATALOG_VERSION = '2026-08-17';
+export const DEFAULT_CATALOG_VERSION = '2026-08-20';
 
 export const MODEL_CATALOG = Object.freeze({
   'gpt-5.6-luna': freezeEntry({
@@ -19,6 +19,12 @@ export const MODEL_CATALOG = Object.freeze({
     cacheWriteMicroUsdPerMillion: 2_500_000,
     inputMicroUsdPerMillion: 2_000_000,
     outputMicroUsdPerMillion: 12_000_000,
+  }),
+  'gpt-5.6-sol': freezeEntry({
+    cachedInputMicroUsdPerMillion: 500_000,
+    cacheWriteMicroUsdPerMillion: 6_250_000,
+    inputMicroUsdPerMillion: 5_000_000,
+    outputMicroUsdPerMillion: 30_000_000,
   }),
 });
 
@@ -67,15 +73,19 @@ export class ModelCatalog {
       throw new Error('Cached and cache-write tokens cannot exceed input tokens.');
     }
     const price = this.priceFor(usage.model);
+    const longContext = inputTokens > 272_000;
+    const inputMultiplier = longContext ? 2n : 1n;
+    const outputNumeratorMultiplier = longContext ? 3n : 2n;
+    const outputDenominatorMultiplier = 2n;
     const ordinaryInputTokens =
       inputTokens - cachedInputTokens - cacheWriteTokens;
     const numerator =
-      BigInt(ordinaryInputTokens) * BigInt(price.inputMicroUsdPerMillion) +
+      BigInt(ordinaryInputTokens) * BigInt(price.inputMicroUsdPerMillion) * inputMultiplier +
       BigInt(cachedInputTokens) *
-        BigInt(price.cachedInputMicroUsdPerMillion) +
+        BigInt(price.cachedInputMicroUsdPerMillion) * inputMultiplier +
       BigInt(cacheWriteTokens) *
-        BigInt(price.cacheWriteMicroUsdPerMillion) +
-      BigInt(outputTokens) * BigInt(price.outputMicroUsdPerMillion);
+        BigInt(price.cacheWriteMicroUsdPerMillion) * inputMultiplier +
+      BigInt(outputTokens) * BigInt(price.outputMicroUsdPerMillion) * outputNumeratorMultiplier / outputDenominatorMultiplier;
     const microUsd = ceilingDivide(numerator, TOKENS_PER_MILLION);
     if (microUsd > BigInt(Number.MAX_SAFE_INTEGER)) {
       throw new Error('Calculated usage cost exceeds the supported range.');
@@ -88,10 +98,11 @@ export class ModelCatalog {
     const serializedTools = JSON.stringify(body.tools ?? []);
     const serializedInstructions = String(body.instructions ?? '');
     const imageCount = (serializedInput.match(/"input_image"/gu) ?? []).length;
-    const estimatedTextTokens =
+    const serializedCharacters =
       serializedInput.length +
       serializedTools.length +
       serializedInstructions.length;
+    const estimatedTextTokens = Math.ceil(serializedCharacters / 3) + 1_024;
     const inputTokens = Math.min(
       MAX_TOKEN_COUNT,
       estimatedTextTokens + imageCount * 20_000,

@@ -91,6 +91,36 @@ describe('action approval digest', () => {
     );
   });
 
+  it('binds approval to the typed effect and current intent revision', () => {
+    const base = {
+      action: 'click_element' as const,
+      description: 'Save the calendar event.',
+      operation: 'click_element',
+      toolId: 'computer.control',
+      effect: {
+        kind: 'create_resource' as const,
+        resourceKind: 'calendar_event' as const,
+        reversibility: 'reversible' as const,
+        externality: 'cloud_private' as const,
+        communication: 'none' as const,
+        overwrite: 'none' as const,
+        sensitiveDataTransfer: false as const,
+      },
+    };
+    expect(createActionDigest(base, 1)).not.toBe(createActionDigest(base, 2));
+    expect(createActionDigest(base, 1)).not.toBe(
+      createActionDigest({
+        ...base,
+        effect: {
+          ...base.effect,
+          kind: 'send_communication',
+          communication: 'invite',
+          externality: 'external',
+        },
+      }, 1),
+    );
+  });
+
   it('rejects an unbounded action payload', () => {
     const parameters = Object.fromEntries(
       Array.from({ length: 65 }, (_, index) => [`field-${index}`, 'value']),

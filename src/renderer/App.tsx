@@ -340,6 +340,7 @@ function LiveTaskRail({
   isStarting,
   lastEvent,
   onRetry,
+  outcomes,
   phase,
   progress,
   request,
@@ -354,6 +355,7 @@ function LiveTaskRail({
   isStarting: boolean;
   lastEvent: TaskEvent | null;
   onRetry: () => void;
+  outcomes: TaskSnapshot['outcomes'];
   phase: TaskSnapshot['phase'];
   progress: TaskSnapshot['progress'];
   request: string;
@@ -430,7 +432,10 @@ function LiveTaskRail({
           <span>
             {goal?.schemaVersion === 2
               ? formatLabel(goal.behavior, appLanguage)
-              : goal?.schemaVersion === 5 || goal?.schemaVersion === 6
+              : goal?.schemaVersion === 5 ||
+                  goal?.schemaVersion === 6 ||
+                  goal?.schemaVersion === 7 ||
+                  goal?.schemaVersion === 8
                 ? goal.executionProfile === 'workspace'
                   ? t('Workspace agent')
                   : t('Everyday agent')
@@ -451,6 +456,45 @@ function LiveTaskRail({
           >
             {activityText}
           </p>
+        )}
+
+        {outcomes && (
+          <section
+            aria-label={t('Outcome verification')}
+            aria-live="polite"
+            className="outcome-checklist"
+          >
+            <strong>
+              {phase === 'completed'
+                ? t('Completed and verified')
+                : t('Verifying outcomes')}
+            </strong>
+            <ul>
+              {outcomes.criterionResults.map((result) => {
+                const description =
+                  goal && (goal.schemaVersion === 7 || goal.schemaVersion === 8)
+                    ? goal.outcomeContract.criteria.find(
+                        (criterion) => criterion.id === result.criterionId,
+                      )?.description
+                    : undefined;
+                return (
+                  <li key={result.criterionId} data-status={result.status}>
+                    <span aria-hidden="true">
+                      {result.status === 'passed'
+                        ? '✓'
+                        : result.status === 'failed'
+                          ? '×'
+                          : result.status === 'unknown'
+                            ? '?'
+                            : '…'}
+                    </span>
+                    <span>{formatLabel(result.status, appLanguage)}</span>
+                    <span>{description ?? result.criterionId.replaceAll('-', ' ')}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
         )}
 
         {visibleActivities.length > 0 && (
@@ -479,7 +523,7 @@ function LiveTaskRail({
           <details className="live-task-details">
             <summary>{t('Task details')}</summary>
             <div className="live-task-details__content">
-              {goal.schemaVersion === 6 && goal.activity && (
+              {(goal.schemaVersion === 6 || goal.schemaVersion === 7 || goal.schemaVersion === 8) && goal.activity && (
                 <div className="activity-context-chip">
                   <span>{goal.activity.space.name}</span>
                   <strong>{goal.activity.activity.title}</strong>
@@ -489,17 +533,26 @@ function LiveTaskRail({
                 <span className="field-label">{t('Execution')}</span>
                 <p>
                   {t(
-                    'Tro chooses from the tools currently available and asks before consequential actions.',
+                    goal.schemaVersion === 8 && goal.autonomyMode === 'balanced'
+                      ? 'Your instruction authorizes requested reversible work. Tro still asks before communications, deletion, publishing or deployment, money, credentials or permissions, installs, sensitive transfers, and scope expansion.'
+                      : goal.schemaVersion === 8
+                        ? 'Strict mode asks before every mutation or side effect.'
+                        : 'Tro chooses from the tools currently available and asks before consequential actions.',
                   )}
                 </p>
               </div>
               <div>
                 <span className="field-label">{t('Success looks like')}</span>
                 <p>
-                  {goal.schemaVersion !== 2
-                    ? t(
-                        'A useful assistant answer or an evidence-backed tool result.',
-                      )
+                  {goal.schemaVersion === 7 || goal.schemaVersion === 8
+                    ? goal.outcomeContract.criteria
+                        .filter((criterion) => criterion.required)
+                        .map((criterion) => criterion.description)
+                        .join(' · ')
+                    : goal.schemaVersion !== 2
+                      ? t(
+                          'A useful assistant answer or an evidence-backed tool result.',
+                        )
                     : goal.successCriteria[0]?.description}
                 </p>
               </div>
@@ -2311,8 +2364,8 @@ export function App({
                       ? t('Steering is reviewed at the next safe boundary.')
                       : t(
                           autonomyModeDraft === 'balanced'
-                            ? 'Routine reversible actions flow automatically; consequential actions still ask.'
-                            : 'Strict mode asks before routine desktop changes and consequential actions.',
+                            ? 'Your instruction authorizes requested reversible work; Tro still asks for high-impact or expanded-scope actions.'
+                            : 'Strict mode asks before every mutation or side effect.',
                         )}
                 </span>
                 <button className="primary-button" disabled={!canSubmit} type="submit">
@@ -2359,6 +2412,7 @@ export function App({
                 isStarting={isSubmitting}
                 lastEvent={snapshot.lastEvent}
                 onRetry={() => void startTask(snapshot.taskId)}
+                outcomes={snapshot.outcomes}
                 phase={snapshot.phase}
                 progress={snapshot.progress}
                 request={snapshot.request}

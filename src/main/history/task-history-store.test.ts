@@ -26,6 +26,7 @@ function createUpdate(): TaskUpdate {
     goal: null,
     lastEvent: event,
     messages: [],
+    outcomes: null,
     pendingInteraction: null,
     phase: 'completed',
     progress: null,

@@ -1,11 +1,18 @@
 import {
   GoalSpecSchema,
   ProposedActionSchema,
+  type ActionEffect,
+  type AuthorizationSource,
   type GoalSpec,
   type ProposedAction,
 } from '../../shared/contracts';
 
+import {
+  isConsequentialEffect,
+  resolveActionEffect,
+} from './action-effect';
 import { classifyActionRisk } from './action-risk-classifier';
+import { matchesIntentAuthorization } from './intent-authorization';
 import {
   defaultRuntimeToolRegistry,
   type RuntimeToolRegistry,
@@ -17,6 +24,10 @@ export type { ProposedAction };
 export interface PolicyDecision {
   terminal?: boolean;
   status: 'allowed' | 'needs_approval' | 'denied';
+  effect: ActionEffect;
+  authorizationSource: AuthorizationSource;
+  approvalRequired: boolean;
+  consequential: boolean;
   summary: string;
   nextActions: string[];
 }
@@ -109,16 +120,24 @@ export function evaluateAction(
 ): PolicyDecision {
   GoalSpecSchema.parse(goal);
   const action = ProposedActionSchema.parse(proposedAction);
+  const effect = resolveActionEffect(action);
+  const consequential = isConsequentialEffect(effect);
   if (!toolRegistry.supports(action)) {
     return {
       status: 'denied',
+      effect,
+      authorizationSource: 'none',
+      approvalRequired: false,
+      consequential,
       summary: 'The requested runtime tool operation is unavailable.',
       nextActions: ['Choose an operation exposed by the current runtime.'],
     };
   }
 
   if (action.toolId === 'activity.signal') {
-    const activity = goal.schemaVersion === 6 ? goal.activity : null;
+    const activity = goal.schemaVersion === 6 || goal.schemaVersion === 7 || goal.schemaVersion === 8
+      ? goal.activity
+      : null;
     const criterionId = action.parameters?.criterionId;
     const tag = action.parameters?.tag;
     const criterion = activity?.activity.criteria.find(
@@ -136,6 +155,10 @@ export function evaluateAction(
     ) {
       return {
         status: 'denied',
+        effect,
+        authorizationSource: 'none',
+        approvalRequired: false,
+        consequential,
         summary: 'Activity evidence is outside the pinned Attempt policy.',
         nextActions: ['Continue without recording inferred evidence.'],
       };
@@ -145,6 +168,10 @@ export function evaluateAction(
   if (!isTargetAdmissible(action)) {
     return {
       status: 'denied',
+      effect,
+      authorizationSource: 'none',
+      approvalRequired: false,
+      consequential,
       summary: 'The proposed browser target is not an admissible public HTTPS URL.',
       nextActions: ['Choose a public HTTPS target without embedded credentials.'],
     };
@@ -154,6 +181,10 @@ export function evaluateAction(
     return {
       status: 'denied',
       terminal: true,
+      effect,
+      authorizationSource: 'none',
+      approvalRequired: false,
+      consequential,
       summary:
         'Tro stopped an approval loop. The agent cannot operate Tro approval controls.',
       nextActions: [
@@ -166,13 +197,46 @@ export function evaluateAction(
   if (risk.level === 'sensitive') {
     return {
       status: 'needs_approval',
+      effect,
+      authorizationSource: 'none',
+      approvalRequired: true,
+      consequential,
       summary: `${action.description} requires explicit user approval. ${risk.reason}`,
+      nextActions: ['Present a scoped approval request to the user.'],
+    };
+  }
+
+  if (goal.schemaVersion === 8 && effect.kind !== 'none') {
+    if (matchesIntentAuthorization(goal.intentAuthorization, effect)) {
+      return {
+        status: 'allowed',
+        effect,
+        authorizationSource: 'user_instruction',
+        approvalRequired: false,
+        consequential,
+        summary: action.description,
+        nextActions: [
+          'Execute once under the user instruction, then observe and verify the result.',
+        ],
+      };
+    }
+    return {
+      status: 'needs_approval',
+      effect,
+      authorizationSource: 'none',
+      approvalRequired: true,
+      consequential,
+      summary: `${action.description} is outside the current instruction authorization.`,
       nextActions: ['Present a scoped approval request to the user.'],
     };
   }
 
   return {
     status: 'allowed',
+    effect,
+    authorizationSource: 'routine',
+    approvalRequired: false,
+    consequential,
     summary: action.description,
     nextActions: ['Execute once, then observe and verify the result.'],
   };

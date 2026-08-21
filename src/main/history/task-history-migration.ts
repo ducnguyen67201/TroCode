@@ -3,13 +3,13 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   AgentTaskContractV5Schema,
   AgentTaskContractV6Schema,
+  AgentTaskContractV7Schema,
   AutonomyModeSchema,
   ExecutionProfileSchema,
   HOST_ALWAYS_CONFIRM_ACTIONS,
   TaskContractSchema,
   TaskSnapshotSchema,
   WorkspaceIdentitySchema,
-  type AgentTaskContract,
   type GoalSpec,
   type TaskSnapshot,
 } from '../../shared/contracts';
@@ -45,7 +45,7 @@ function currentApprovalPolicy() {
   return { alwaysConfirm: [...HOST_ALWAYS_CONFIRM_ACTIONS] };
 }
 
-function repairV5(value: unknown): AgentTaskContract {
+function repairV5(value: unknown): GoalSpec {
   const goal = record(value);
   const limits = record(goal.limits);
   const workspace = goal.workspace === undefined
@@ -94,6 +94,12 @@ function migrateGoal(value: unknown): GoalSpec {
   }
   if (goal.schemaVersion === 6) {
     return AgentTaskContractV6Schema.parse(goal);
+  }
+  if (goal.schemaVersion === 7) {
+    return AgentTaskContractV7Schema.parse(goal);
+  }
+  if (goal.schemaVersion === 8) {
+    return TaskContractSchema.parse(goal);
   }
   return TaskContractSchema.parse(goal);
 }

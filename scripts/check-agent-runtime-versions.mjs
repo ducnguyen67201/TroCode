@@ -2,9 +2,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const EXPECTED = Object.freeze({
-  '@openai/agents': '0.16.1',
+  '@openai/agents': '0.17.0',
   '@trycua/cua-driver': '0.19.3',
   openai: '7.5.0',
+  'playwright-core': '1.62.1',
   zod: '4.4.3',
 });
 

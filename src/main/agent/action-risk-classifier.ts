@@ -1,5 +1,6 @@
 import type { GoalSpec, ProposedAction } from '../../shared/contracts';
 
+import { isHardConfirmEffect, resolveActionEffect } from './action-effect';
 import { taskApprovalPolicy } from './task-contract';
 
 export type ActionRiskLevel = 'routine' | 'sensitive';
@@ -58,6 +59,33 @@ export function classifyActionRisk(
   goal: GoalSpec,
   action: ProposedAction,
 ): ActionRisk {
+  if (goal.schemaVersion === 8) {
+    const effect = resolveActionEffect(action);
+    if (isHardConfirmEffect(effect)) {
+      return {
+        level: 'sensitive',
+        reason: 'The host-normalized effect requires exact approval.',
+      };
+    }
+    if (
+      goal.autonomyMode === 'strict' &&
+      ((isComputerControl(action) && ROUTINE_DESKTOP_ACTIONS.has(action.action)) ||
+        effect.kind !== 'none')
+    ) {
+      return {
+        level: 'sensitive',
+        reason: 'Strict autonomy confirms every mutation.',
+      };
+    }
+    return {
+      level: 'routine',
+      reason:
+        effect.kind === 'none'
+          ? 'The action has no external side effect.'
+          : 'The reversible effect can be matched against trusted user intent.',
+    };
+  }
+
   const alwaysConfirm = taskApprovalPolicy() as readonly string[];
   const consequence = declaredConsequence(action);
   if (
@@ -73,7 +101,9 @@ export function classifyActionRisk(
   if (
     isComputerControl(action) &&
     ROUTINE_DESKTOP_ACTIONS.has(action.action) &&
-    ((goal.schemaVersion !== 5 && goal.schemaVersion !== 6) ||
+    ((goal.schemaVersion !== 5 &&
+      goal.schemaVersion !== 6 &&
+      goal.schemaVersion !== 7) ||
       goal.autonomyMode === 'strict')
   ) {
     return {

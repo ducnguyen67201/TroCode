@@ -19,7 +19,8 @@ describe('general-purpose agent evaluation matrix', () => {
     'creates the same general host contract for assistant-capable work: %s',
     (request) => {
       const contract = createTaskContract(request);
-      expect(contract.schemaVersion).toBe(6);
+      expect(contract.schemaVersion).toBe(8);
+      expect(contract.outcomeContract.completionMode).toBe('all_required');
       expect(contract.originalRequest).toBe(request);
       expect(contract).not.toHaveProperty('behavior');
       expect(contract).not.toHaveProperty('capabilities');
@@ -33,7 +34,7 @@ describe('general-purpose agent evaluation matrix', () => {
       'Open Gmail and read the latest email.',
       'Make this beat in GarageBand.',
     ]) {
-      expect(createTaskContract(request).schemaVersion).toBe(6);
+      expect(createTaskContract(request).schemaVersion).toBe(8);
       expect(names).toEqual(
         expect.arrayContaining(['observe_desktop', 'control_desktop']),
       );

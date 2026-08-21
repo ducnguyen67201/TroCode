@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { TaskContractSchema } from '../../shared/contracts';
+import {
+  HOST_ALWAYS_CONFIRM_EFFECTS,
+  TaskContractSchema,
+} from '../../shared/contracts';
 
 import {
   createTaskContract,
@@ -11,18 +14,23 @@ import {
 } from './task-contract';
 
 describe('task contract', () => {
-  it('creates a host-owned v6 Everyday contract with cost ceilings and no semantic grants', () => {
+  it('creates a host-owned v8 Everyday contract with outcomes and bounded intent grants', () => {
     const contract = createTaskContract('Create a simple beat in GarageBand.');
 
     expect(contract).toMatchObject({
-      schemaVersion: 6,
+      schemaVersion: 8,
       activity: null,
       autonomyMode: 'balanced',
       executionProfile: 'everyday',
       originalRequest: 'Create a simple beat in GarageBand.',
       runtimeKind: 'openai_agents',
       workspace: null,
-      approvalPolicy: { alwaysConfirm: HOST_APPROVAL_POLICY },
+      outcomeContract: {
+        schemaVersion: 1,
+        revision: 1,
+        completionMode: 'all_required',
+      },
+      approvalPolicy: { alwaysConfirmEffects: HOST_ALWAYS_CONFIRM_EFFECTS },
       limits: {
         maxImages: 20,
         maxMicroUsd: 500_000,
@@ -33,8 +41,19 @@ describe('task contract', () => {
     });
     expect(contract).not.toHaveProperty('behavior');
     expect(contract).not.toHaveProperty('capabilities');
+    expect(contract.intentAuthorization).toMatchObject({
+      schemaVersion: 1,
+      revision: 1,
+      source: 'user_instruction',
+    });
     expect(taskMaxToolCalls(contract)).toBe(30);
     expect(taskMaxModelSamples(contract)).toBe(40);
+    expect(
+      TaskContractSchema.safeParse({
+        ...contract,
+        approvalPolicy: { alwaysConfirmEffects: ['send_communication'] },
+      }).success,
+    ).toBe(false);
   });
 
   it('normalizes persisted v1 into the legacy v2 branch', () => {
@@ -67,7 +86,7 @@ describe('task contract', () => {
   it('rejects malformed or unknown future contract versions', () => {
     expect(() =>
       TaskContractSchema.parse({
-        schemaVersion: 7,
+        schemaVersion: 9,
         id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         originalRequest: 'Complete a future task',
         approvalPolicy: { alwaysConfirm: [] },
@@ -89,7 +108,7 @@ describe('task contract', () => {
         workspace,
       }),
     ).toMatchObject({
-      schemaVersion: 6,
+      schemaVersion: 8,
       activity: null,
       executionProfile: 'workspace',
       runtimeKind: 'openai_agents',
@@ -100,5 +119,40 @@ describe('task contract', () => {
         executionProfile: 'workspace',
       }),
     ).toThrow('trusted workspace');
+  });
+
+  it('keeps persisted v7 contracts readable with their legacy approval policy', () => {
+    const parsed = TaskContractSchema.parse({
+      schemaVersion: 7,
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      originalRequest: 'Create a document.',
+      runtimeKind: 'openai_agents',
+      executionProfile: 'everyday',
+      autonomyMode: 'balanced',
+      workspace: null,
+      activity: null,
+      outcomeContract: {
+        schemaVersion: 1,
+        revision: 1,
+        completionMode: 'all_required',
+        criteria: [
+          {
+            id: 'assistant-output',
+            description: 'Return an answer.',
+            required: true,
+            verifier: { kind: 'assistant_output', constraints: [] },
+          },
+        ],
+      },
+      approvalPolicy: { alwaysConfirm: HOST_APPROVAL_POLICY },
+      limits: {
+        maxImages: 20,
+        maxMicroUsd: 500_000,
+        maxMinutes: 10,
+        maxModelSamples: 40,
+        maxToolCalls: 30,
+      },
+    });
+    expect(parsed.schemaVersion).toBe(7);
   });
 });
