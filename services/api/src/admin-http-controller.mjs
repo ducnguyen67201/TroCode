@@ -40,6 +40,13 @@ const ACCESS_CODE_USERS_PATH =
   /^\/v1\/admin\/access-codes\/(?<codeId>[^/]{1,128})\/users$/u;
 const ACCESS_CODE_PATH =
   /^\/v1\/admin\/access-codes\/(?<codeId>[^/]{1,128})$/u;
+const USAGE_LANES = [
+  'responses',
+  'realtime_transcription',
+  'speech',
+  'transcription',
+];
+const USAGE_RANGES = ['24h', '7d', '30d', 'all'];
 
 const UserAccessSchema = z
   .object({ blocked: z.boolean() })
@@ -256,6 +263,40 @@ export class AdminHttpController {
           offset,
           search,
           ...(status ? { status } : {}),
+        }),
+      );
+      return true;
+    }
+
+    if (request.method === 'GET' && path === '/v1/admin/usage') {
+      const limit = positiveInteger(url.searchParams.get('limit'), 50, {
+        max: 100,
+        min: 1,
+      });
+      const offset = positiveInteger(url.searchParams.get('offset'), 0, {
+        max: 100_000,
+      });
+      const search = (url.searchParams.get('search') ?? '').trim();
+      if (search.length > 200) {
+        throw new HttpError(400, 'Search is too long.', 'invalid_request');
+      }
+      const lane = url.searchParams.get('lane');
+      if (lane !== null && !USAGE_LANES.includes(lane)) {
+        throw new HttpError(400, 'Usage activity filter is invalid.', 'invalid_request');
+      }
+      const range = url.searchParams.get('range') ?? '7d';
+      if (!USAGE_RANGES.includes(range)) {
+        throw new HttpError(400, 'Usage date range is invalid.', 'invalid_request');
+      }
+      sendJson(
+        response,
+        200,
+        await this.repository.listUsage({
+          limit,
+          offset,
+          range,
+          search,
+          ...(lane ? { lane } : {}),
         }),
       );
       return true;

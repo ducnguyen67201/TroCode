@@ -91,6 +91,46 @@ async function withAdmin(run, { now } = {}) {
         summary: { activeUsers: 0, blockedUsers: 0, totalUsers: 0 },
       };
     },
+    listUsage: async (input) => {
+      calls.push({ input, method: 'listUsage' });
+      return {
+        items: [
+          {
+            activityTitle: null,
+            amountMicroUsd: 4200,
+            createdAt: '2026-08-20T05:00:00.000Z',
+            id: 'usage-1',
+            lane: 'responses',
+            model: 'gpt-5.6-luna',
+            taskId: '11111111-1111-4111-8111-111111111111',
+            user: {
+              email: 'ada@example.com',
+              id: 'google-ada',
+              name: 'Ada',
+              plan: 'pro',
+            },
+          },
+        ],
+        page: { limit: input.limit, offset: input.offset, total: 1 },
+        series: {
+          granularity: 'day',
+          items: [
+            {
+              requests: 1,
+              spendMicroUsd: 4200,
+              startedAt: '2026-08-20T00:00:00.000Z',
+              tokens: 1200,
+            },
+          ],
+        },
+        summary: {
+          activeUsers: 1,
+          totalRequests: 1,
+          totalSpendMicroUsd: 4200,
+          totalTokens: 1200,
+        },
+      };
+    },
     setUserBlocked: async (id, blocked) => {
       calls.push({ blocked, id, method: 'setUserBlocked' });
       return {
@@ -161,6 +201,10 @@ test('serves the separate admin dashboard with a strict self-only CSP', async ()
     assert.match(response.headers.get('content-security-policy'), /script-src 'self'/u);
     assert.match(html, /<h1[^>]*>Users<\/h1>/u);
     assert.match(html, /<h1[^>]*>Access codes<\/h1>/u);
+    assert.match(html, /<h1[^>]*>Usage<\/h1>/u);
+    assert.match(html, /id="usage-nav"/u);
+    assert.match(html, /id="usage-chart"/u);
+    assert.match(html, /Prompts, outputs, screenshots, and tool inputs are never stored/u);
     assert.match(html, /Who(?:&rsquo;|')s using it/u);
     assert.match(html, /id="code-users-dialog"/u);
     assert.doesNotMatch(html, new RegExp(ADMIN_TOKEN, 'u'));
@@ -173,8 +217,49 @@ test('serves the separate admin dashboard with a strict self-only CSP', async ()
     assert.match(javascript, /\/v1\/admin\/session/u);
     assert.match(javascript, /pauseAccessCode/u);
     assert.match(javascript, /deleteAccessCode/u);
+    assert.match(javascript, /\/v1\/admin\/usage/u);
+    assert.match(javascript, /renderUsageChart/u);
     assert.match(html, /signed in for 30 days/u);
     assert.match(html, /<th scope="col">Actions<\/th>/u);
+  });
+});
+
+test('lists usage with bounded privacy-safe filters and no caching', async () => {
+  await withAdmin(async ({ baseUrl, calls }) => {
+    const response = await fetch(
+      `${baseUrl}/v1/admin/usage?limit=25&offset=50&search=ada&lane=responses&range=7d`,
+      { headers: adminHeaders(baseUrl) },
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(calls, [
+      {
+        input: {
+          lane: 'responses',
+          limit: 25,
+          offset: 50,
+          range: '7d',
+          search: 'ada',
+        },
+        method: 'listUsage',
+      },
+    ]);
+    const body = await response.json();
+    assert.equal(body.items[0].user.email, 'ada@example.com');
+    assert.equal(body.series.items[0].spendMicroUsd, 4200);
+
+    const invalidLane = await fetch(
+      `${baseUrl}/v1/admin/usage?lane=prompts`,
+      { headers: adminHeaders(baseUrl) },
+    );
+    assert.equal(invalidLane.status, 400);
+
+    const invalidRange = await fetch(
+      `${baseUrl}/v1/admin/usage?range=forever`,
+      { headers: adminHeaders(baseUrl) },
+    );
+    assert.equal(invalidRange.status, 400);
   });
 });
 

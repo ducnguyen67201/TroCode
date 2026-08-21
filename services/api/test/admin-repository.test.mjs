@@ -77,6 +77,139 @@ test('lists bounded user records with access and plan metadata', async () => {
   assert.deepEqual(queries[1].parameters, ['%ada%', 50, 0]);
 });
 
+test('lists privacy-safe usage activity with user and task context', async () => {
+  const { pool, queries } = sequencedPool([
+    {
+      rows: [
+        {
+          active_users: 2,
+          total_requests: 4,
+          total_spend_micro_usd: '12345',
+          total_tokens: '1500',
+        },
+      ],
+    },
+    {
+      rows: [
+        {
+          bucket_start: new Date('2026-08-19T00:00:00.000Z'),
+          request_count: '1',
+          spend_micro_usd: '4200',
+          total_tokens: '1300',
+        },
+        {
+          bucket_start: new Date('2026-08-20T00:00:00.000Z'),
+          request_count: '3',
+          spend_micro_usd: '8145',
+          total_tokens: '200',
+        },
+      ],
+    },
+    {
+      rows: [
+        {
+          activity_title: 'Prepare the launch brief',
+          amount_micro_usd: '4200',
+          audio_duration_ms: '0',
+          cache_write_tokens: '10',
+          cached_input_tokens: '200',
+          character_count: '0',
+          created_at: new Date('2026-08-20T05:10:00.000Z'),
+          duration_ms: '1250',
+          email: 'ada@example.com',
+          filtered_total: 1,
+          id: 'usage-event-1',
+          input_tokens: '1000',
+          lane: 'responses',
+          model: 'gpt-5.6-luna',
+          name: 'Ada Lovelace',
+          output_tokens: '300',
+          plan: 'pro',
+          reasoning_tokens: '50',
+          task_id: '11111111-1111-4111-8111-111111111111',
+          usage_source: 'actual',
+          user_id: 'google-ada',
+        },
+      ],
+    },
+  ]);
+  const repository = new PostgresAdminRepository(pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(
+    await repository.listUsage({
+      lane: 'responses',
+      limit: 25,
+      offset: 50,
+      range: '7d',
+      search: 'ada',
+    }),
+    {
+      items: [
+        {
+          activityTitle: 'Prepare the launch brief',
+          amountMicroUsd: 4200,
+          audioDurationMs: 0,
+          cacheWriteTokens: 10,
+          cachedInputTokens: 200,
+          characterCount: 0,
+          createdAt: '2026-08-20T05:10:00.000Z',
+          durationMs: 1250,
+          id: 'usage-event-1',
+          inputTokens: 1000,
+          lane: 'responses',
+          model: 'gpt-5.6-luna',
+          outputTokens: 300,
+          reasoningTokens: 50,
+          taskId: '11111111-1111-4111-8111-111111111111',
+          usageSource: 'actual',
+          user: {
+            email: 'ada@example.com',
+            id: 'google-ada',
+            name: 'Ada Lovelace',
+            plan: 'pro',
+          },
+        },
+      ],
+      page: { limit: 25, offset: 50, total: 1 },
+      series: {
+        granularity: 'day',
+        items: [
+          {
+            requests: 1,
+            spendMicroUsd: 4200,
+            startedAt: '2026-08-19T00:00:00.000Z',
+            tokens: 1300,
+          },
+          {
+            requests: 3,
+            spendMicroUsd: 8145,
+            startedAt: '2026-08-20T00:00:00.000Z',
+            tokens: 200,
+          },
+        ],
+      },
+      summary: {
+        activeUsers: 2,
+        totalRequests: 4,
+        totalSpendMicroUsd: 12345,
+        totalTokens: 1500,
+      },
+    },
+  );
+  assert.match(queries[0].sql, /FROM model_usage_events AS events/u);
+  assert.deepEqual(queries[0].parameters, ['responses', '%ada%']);
+  assert.match(queries[1].sql, /generate_series/u);
+  assert.match(queries[1].sql, /GROUP BY date_trunc\('day'/u);
+  assert.deepEqual(queries[1].parameters, ['responses', '%ada%']);
+  assert.match(queries[2].sql, /JOIN users/u);
+  assert.match(queries[2].sql, /knowledge_activity_work_sessions/u);
+  assert.match(queries[2].sql, /LIMIT \$3 OFFSET \$4/u);
+  assert.deepEqual(queries[2].parameters, ['responses', '%ada%', 25, 50]);
+  assert.doesNotMatch(queries[2].sql, /prompt|screenshot|tool_arguments/u);
+});
+
 test('blocking a user also revokes every active device session', async () => {
   const { client, pool, queries } = sequencedPool([
     { rows: [] },

@@ -49,9 +49,13 @@
           <span>Tro</span>
         </div>
         <nav aria-label="Admin navigation">
-          <button class="nav-item nav-item--active" id="users-nav" type="button">
+          <button class="nav-item nav-item--active" id="users-nav" type="button" aria-current="page">
             <span class="nav-icon" aria-hidden="true">◎</span>
             Users
+          </button>
+          <button class="nav-item" id="usage-nav" type="button">
+            <span class="nav-icon" aria-hidden="true">◔</span>
+            Usage
           </button>
           <button class="nav-item" id="access-codes-nav" type="button">
             <span class="nav-icon" aria-hidden="true">⌁</span>
@@ -143,6 +147,133 @@
             <div class="table-footer">
               <span id="range-label"></span>
               <button class="button button--secondary" id="load-more" type="button" hidden>
+                Load more
+              </button>
+            </div>
+          </section>
+        </section>
+
+        <section class="page-view" id="usage-page" hidden>
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Product activity</p>
+              <h1>Usage</h1>
+              <p class="page-subtitle">See who is using Tro, what capabilities they use, and how much each activity costs.</p>
+            </div>
+            <button class="button button--secondary" id="refresh-usage" type="button">
+              <span aria-hidden="true">↻</span>
+              Refresh
+            </button>
+          </header>
+
+          <section class="summary-grid summary-grid--usage" aria-label="Usage summary">
+            <article class="summary-card">
+              <span class="summary-label">Total spend</span>
+              <strong id="usage-total-spend">—</strong>
+              <span class="summary-foot">Completed model activity</span>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">Active users</span>
+              <strong id="usage-active-users">—</strong>
+              <span class="summary-foot summary-foot--good">Unique people in this period</span>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">Model calls</span>
+              <strong id="usage-total-requests">—</strong>
+              <span class="summary-foot">Agent, voice, and speech requests</span>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">Tokens</span>
+              <strong id="usage-total-tokens">—</strong>
+              <span class="summary-foot">Input and output combined</span>
+            </article>
+          </section>
+
+          <section class="usage-chart-card" aria-labelledby="usage-chart-title">
+            <div class="usage-chart-header">
+              <div>
+                <h2 id="usage-chart-title">Usage over time</h2>
+                <p id="usage-chart-summary">Loading chart…</p>
+              </div>
+              <div class="toolbar-controls toolbar-controls--usage">
+                <label class="search-field">
+                  <span aria-hidden="true">⌕</span>
+                  <span class="sr-only">Search usage</span>
+                  <input id="usage-search" type="search" placeholder="Search user, task, or model" />
+                </label>
+                <label class="filter-field filter-field--usage">
+                  <span class="sr-only">Filter by activity</span>
+                  <select id="usage-lane-filter">
+                    <option value="">All activity</option>
+                    <option value="responses">Agent tasks</option>
+                    <option value="transcription">Voice transcription</option>
+                    <option value="realtime_transcription">Live voice</option>
+                    <option value="speech">Spoken replies</option>
+                  </select>
+                </label>
+                <label class="filter-field filter-field--range">
+                  <span class="sr-only">Filter by date range</span>
+                  <select id="usage-range-filter">
+                    <option value="24h">Last 24 hours</option>
+                    <option value="7d" selected>Last 7 days</option>
+                    <option value="30d">Last 30 days</option>
+                    <option value="all">All time</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div class="usage-chart-legend" aria-hidden="true">
+              <span><i></i> Spend</span>
+              <strong id="usage-chart-total">—</strong>
+            </div>
+            <div
+              class="usage-chart"
+              id="usage-chart"
+              role="group"
+              aria-label="Loading usage chart"
+              aria-live="polite"
+            ></div>
+          </section>
+
+          <aside class="privacy-note" aria-label="Usage privacy">
+            <span class="privacy-note__icon" aria-hidden="true">◇</span>
+            <span>
+              <strong>Private by design.</strong>
+              Prompts, outputs, screenshots, and tool inputs are never stored here—only billing and activity metadata.
+            </span>
+          </aside>
+
+          <section class="table-card" aria-labelledby="usage-table-title">
+            <div class="table-toolbar">
+              <div>
+                <h2 id="usage-table-title">Recent activity</h2>
+                <p id="usage-count-label">Loading activity…</p>
+              </div>
+            </div>
+
+            <div class="table-scroll">
+              <table class="usage-table">
+                <thead>
+                  <tr>
+                    <th scope="col">User</th>
+                    <th scope="col">Activity</th>
+                    <th scope="col">Model</th>
+                    <th scope="col">Usage</th>
+                    <th scope="col">Cost</th>
+                    <th scope="col">When</th>
+                  </tr>
+                </thead>
+                <tbody id="usage-body"></tbody>
+              </table>
+            </div>
+            <div class="empty-state" id="usage-empty-state" hidden>
+              <span class="empty-icon" aria-hidden="true">◔</span>
+              <h3>No usage found</h3>
+              <p>Try a wider date range or different filters.</p>
+            </div>
+            <div class="table-footer">
+              <span id="usage-range-label"></span>
+              <button class="button button--secondary" id="usage-load-more" type="button" hidden>
                 Load more
               </button>
             </div>

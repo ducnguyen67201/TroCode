@@ -9,6 +9,43 @@ import { PLAN_IDS, planFor } from './plan-catalog.mjs';
 
 const MAX_CODES_PER_BATCH = 100;
 const MAX_USERS_PER_CODE = 10_000;
+const USAGE_LANES = new Set([
+  'all',
+  'responses',
+  'realtime_transcription',
+  'speech',
+  'transcription',
+]);
+const USAGE_RANGE_CONFIG = {
+  '24h': {
+    granularity: 'hour',
+    rangeClause:
+      "events.created_at >= date_trunc('hour', NOW()) - INTERVAL '23 hours'",
+    startExpression:
+      "date_trunc('hour', NOW()) - INTERVAL '23 hours'",
+    step: '1 hour',
+  },
+  '7d': {
+    granularity: 'day',
+    rangeClause:
+      "events.created_at >= date_trunc('day', NOW()) - INTERVAL '6 days'",
+    startExpression: "date_trunc('day', NOW()) - INTERVAL '6 days'",
+    step: '1 day',
+  },
+  '30d': {
+    granularity: 'day',
+    rangeClause:
+      "events.created_at >= date_trunc('day', NOW()) - INTERVAL '29 days'",
+    startExpression: "date_trunc('day', NOW()) - INTERVAL '29 days'",
+    step: '1 day',
+  },
+  all: {
+    granularity: 'month',
+    rangeClause: 'TRUE',
+    startExpression: null,
+    step: '1 month',
+  },
+};
 
 function accessCode() {
   return `TRO-${randomBytes(12).toString('hex').toUpperCase()}`;
@@ -31,6 +68,33 @@ function publicUser(row) {
     name: row.name,
     plan: row.plan,
     status: blockedAt ? 'blocked' : 'active',
+  };
+}
+
+function publicUsageEvent(row) {
+  return {
+    activityTitle: row.activity_title ?? null,
+    amountMicroUsd: Number(row.amount_micro_usd ?? 0),
+    audioDurationMs: Number(row.audio_duration_ms ?? 0),
+    cacheWriteTokens: Number(row.cache_write_tokens ?? 0),
+    cachedInputTokens: Number(row.cached_input_tokens ?? 0),
+    characterCount: Number(row.character_count ?? 0),
+    createdAt: iso(row.created_at),
+    durationMs: Number(row.duration_ms ?? 0),
+    id: row.id,
+    inputTokens: Number(row.input_tokens ?? 0),
+    lane: row.lane,
+    model: row.model,
+    outputTokens: Number(row.output_tokens ?? 0),
+    reasoningTokens: Number(row.reasoning_tokens ?? 0),
+    taskId: row.task_id,
+    usageSource: row.usage_source,
+    user: {
+      email: row.email,
+      id: row.user_id,
+      name: row.name,
+      plan: row.plan,
+    },
   };
 }
 
@@ -159,6 +223,154 @@ export class PostgresAdminRepository {
         activeUsers: Number(summary.active_users ?? 0),
         blockedUsers: Number(summary.blocked_users ?? 0),
         totalUsers: Number(summary.total_users ?? 0),
+      },
+    };
+  }
+
+  async listUsage({
+    lane = 'all',
+    limit,
+    offset,
+    range = '7d',
+    search,
+  }) {
+    if (!USAGE_LANES.has(lane)) throw new Error('lane is invalid.');
+    const rangeConfig = USAGE_RANGE_CONFIG[range];
+    if (!rangeConfig) throw new Error('range is invalid.');
+    const laneParameter = lane === 'all' ? '' : lane;
+    const pattern = search ? `%${search}%` : '';
+    const joins = `INNER JOIN users ON users.id = events.user_id
+       LEFT JOIN knowledge_activity_work_sessions AS work_sessions
+         ON work_sessions.task_id = events.task_id
+       LEFT JOIN knowledge_activity_attempts AS attempts
+         ON attempts.id = work_sessions.attempt_id
+        AND attempts.user_id = events.user_id
+       LEFT JOIN knowledge_activity_runs AS activity_runs
+         ON activity_runs.id = attempts.run_id
+       LEFT JOIN knowledge_activity_versions AS activity_versions
+         ON activity_versions.id = activity_runs.activity_version_id`;
+    const filters = `WHERE ${rangeConfig.rangeClause}
+         AND ($1 = '' OR events.lane = $1)
+         AND (
+           $2 = ''
+           OR users.email ILIKE $2
+           OR users.name ILIKE $2
+           OR events.model ILIKE $2
+           OR events.task_id::TEXT ILIKE $2
+           OR COALESCE(activity_versions.definition ->> 'title', '') ILIKE $2
+         )`;
+    const summaryResult = await this.pool.query(
+      `SELECT COUNT(*)::INTEGER AS total_requests,
+              COUNT(DISTINCT events.user_id)::INTEGER AS active_users,
+              COALESCE(SUM(events.amount_micro_usd), 0)::BIGINT
+                AS total_spend_micro_usd,
+              COALESCE(SUM(events.input_tokens + events.output_tokens), 0)::BIGINT
+                AS total_tokens
+       FROM model_usage_events AS events
+       ${joins}
+       ${filters}`,
+      [laneParameter, pattern],
+    );
+    const seriesStartExpression = rangeConfig.startExpression ??
+      `COALESCE(
+         date_trunc('${rangeConfig.granularity}', MIN(created_at)),
+         date_trunc('${rangeConfig.granularity}', NOW())
+       )`;
+    const seriesBoundsSource = rangeConfig.startExpression
+      ? ''
+      : 'FROM filtered_usage';
+    const seriesResult = await this.pool.query(
+      `WITH filtered_usage AS (
+         SELECT events.created_at,
+                events.amount_micro_usd,
+                events.input_tokens,
+                events.output_tokens
+         FROM model_usage_events AS events
+         ${joins}
+         ${filters}
+       ),
+       bounds AS (
+         SELECT ${seriesStartExpression} AS first_bucket,
+                date_trunc('${rangeConfig.granularity}', NOW()) AS last_bucket
+         ${seriesBoundsSource}
+       ),
+       buckets AS (
+         SELECT generate_series(
+           bounds.first_bucket,
+           bounds.last_bucket,
+           INTERVAL '${rangeConfig.step}'
+         ) AS bucket_start
+         FROM bounds
+       ),
+       aggregated AS (
+         SELECT date_trunc('${rangeConfig.granularity}', created_at) AS bucket_start,
+                COUNT(*)::INTEGER AS request_count,
+                COALESCE(SUM(amount_micro_usd), 0)::BIGINT AS spend_micro_usd,
+                COALESCE(SUM(input_tokens + output_tokens), 0)::BIGINT AS total_tokens
+         FROM filtered_usage
+         GROUP BY date_trunc('${rangeConfig.granularity}', created_at)
+       )
+       SELECT buckets.bucket_start,
+              COALESCE(aggregated.request_count, 0)::INTEGER AS request_count,
+              COALESCE(aggregated.spend_micro_usd, 0)::BIGINT AS spend_micro_usd,
+              COALESCE(aggregated.total_tokens, 0)::BIGINT AS total_tokens
+       FROM buckets
+       LEFT JOIN aggregated USING (bucket_start)
+       ORDER BY buckets.bucket_start`,
+      [laneParameter, pattern],
+    );
+    const usageResult = await this.pool.query(
+      `SELECT events.id,
+              events.user_id,
+              events.task_id,
+              events.lane,
+              events.model,
+              events.input_tokens,
+              events.cached_input_tokens,
+              events.cache_write_tokens,
+              events.output_tokens,
+              events.reasoning_tokens,
+              events.duration_ms,
+              events.audio_duration_ms,
+              events.character_count,
+              events.amount_micro_usd,
+              events.usage_source,
+              events.created_at,
+              users.email,
+              users.name,
+              users.plan,
+              NULLIF(activity_versions.definition ->> 'title', '')
+                AS activity_title,
+              COUNT(*) OVER()::INTEGER AS filtered_total
+       FROM model_usage_events AS events
+       ${joins}
+       ${filters}
+       ORDER BY events.created_at DESC, events.id DESC
+       LIMIT $3 OFFSET $4`,
+      [laneParameter, pattern, limit, offset],
+    );
+    const summary = summaryResult.rows[0] ?? {};
+    return {
+      items: usageResult.rows.map(publicUsageEvent),
+      page: {
+        limit,
+        offset,
+        total: Number(usageResult.rows[0]?.filtered_total ?? 0),
+      },
+      series: {
+        granularity: rangeConfig.granularity,
+        items: seriesResult.rows.map((row) => ({
+          requests: Number(row.request_count ?? 0),
+          spendMicroUsd: Number(row.spend_micro_usd ?? 0),
+          startedAt: iso(row.bucket_start),
+          tokens: Number(row.total_tokens ?? 0),
+        })),
+      },
+      summary: {
+        activeUsers: Number(summary.active_users ?? 0),
+        totalRequests: Number(summary.total_requests ?? 0),
+        totalSpendMicroUsd: Number(summary.total_spend_micro_usd ?? 0),
+        totalTokens: Number(summary.total_tokens ?? 0),
       },
     };
   }
