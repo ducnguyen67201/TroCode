@@ -54,8 +54,10 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   membershipService: {
     activate: ReturnType<typeof vi.fn>;
     assertActive: ReturnType<typeof vi.fn>;
+    continueWithFree: ReturnType<typeof vi.fn>;
     getStatus: ReturnType<typeof vi.fn>;
   };
+  onAuthSignedIn: ReturnType<typeof vi.fn>;
   restartAndInstallUpdate: ReturnType<typeof vi.fn>;
   setVoiceAudioDucking: ReturnType<typeof vi.fn>;
   openSystemPermissionSettings: ReturnType<typeof vi.fn>;
@@ -127,6 +129,14 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
       state: 'active',
       summary: 'Membership active.',
     })),
+    continueWithFree: vi.fn(async () => ({
+      expiresAt: null,
+      plan: 'free',
+      referenceCode: null,
+      required: true,
+      state: 'active',
+      summary: 'Free plan active.',
+    })),
     assertActive: vi.fn(async () => {
       if (!membershipActive) {
         throw new Error('An active membership is required to use Tro.');
@@ -140,6 +150,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
       summary: 'Enter an activation code to continue.',
     })),
   };
+  const onAuthSignedIn = vi.fn(async () => undefined);
   const taskRuntime = {
     submit,
     respondToInteraction: vi.fn((input: { taskId: string }) => ({
@@ -270,6 +281,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     getCompanionInteractionWindow: () => interactionWindow,
     handleCompanionResponseAction,
     membershipService,
+    onAuthSignedIn,
     openSystemPermissionSettings,
     recordVoiceTranscript,
     reportCompanionSpeechPlayback,
@@ -325,6 +337,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     getTaskHistory,
     handleCompanionResponseAction,
     membershipService,
+    onAuthSignedIn,
     openSystemPermissionSettings,
     recordVoiceTranscript,
     reportCompanionSpeechPlayback,
@@ -343,6 +356,25 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
 }
 
 describe('registerIpcHandlers auth boundary', () => {
+  it('returns sign-in immediately, reveals Tro, and finishes setup in the background', async () => {
+    const { event, onAuthSignedIn, revealMainWindow, unregister } = setup(false);
+    let finishSetup: () => void = () => undefined;
+    onAuthSignedIn.mockImplementation(
+      () => new Promise<void>((resolve) => {
+        finishSetup = resolve;
+      }),
+    );
+    const handler = electronMock.handlers.get(IPC_CHANNELS.signInWithGoogle);
+
+    await expect(handler?.(event)).resolves.toMatchObject({ state: 'signed_in' });
+    expect(revealMainWindow).toHaveBeenCalledOnce();
+    expect(onAuthSignedIn).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'user-id' }),
+    );
+    finishSetup();
+    unregister();
+  });
+
   it('allows the renderer to inspect auth status while signed out', async () => {
     const { authService, event, unregister } = setup(false);
     const handler = electronMock.handlers.get(IPC_CHANNELS.getAuthStatus);
@@ -688,7 +720,7 @@ describe('registerIpcHandlers auth boundary', () => {
     unregister();
   });
 
-  it('inspects and activates membership after authentication', async () => {
+  it('inspects, activates, or continues Free membership after authentication', async () => {
     const { event, membershipService, unregister } = setup(true, false);
     const activationCode = `${'a'.repeat(80)}.${'b'.repeat(86)}`;
 
@@ -700,6 +732,9 @@ describe('registerIpcHandlers auth boundary', () => {
         .get(IPC_CHANNELS.activateMembership)
         ?.(event, { code: `  ${activationCode}  ` }),
     ).resolves.toMatchObject({ state: 'active' });
+    await expect(
+      electronMock.handlers.get(IPC_CHANNELS.continueWithFree)?.(event),
+    ).resolves.toMatchObject({ plan: 'free', state: 'active' });
 
     expect(membershipService.getStatus).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'user-id' }),
@@ -707,6 +742,9 @@ describe('registerIpcHandlers auth boundary', () => {
     expect(membershipService.activate).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'user-id' }),
       activationCode,
+    );
+    expect(membershipService.continueWithFree).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'user-id' }),
     );
     unregister();
   });

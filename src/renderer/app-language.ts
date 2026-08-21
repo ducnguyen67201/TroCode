@@ -94,6 +94,7 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Computer use': 'Điều khiển máy tính',
   'Continue to Tro': 'Tiếp tục vào Tro',
   'Continue with access code': 'Tiếp tục bằng mã truy cập',
+  'Continue with Free': 'Tiếp tục với gói Miễn phí',
   Copy: 'Sao chép',
   Copied: 'Đã sao chép',
   'Current app session': 'Phiên ứng dụng hiện tại',
@@ -116,7 +117,10 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   'Enable Tro to work for you': 'Cho phép Tro làm việc cho bạn',
   'Enter the access code provided by the Tro team. Each account can use one code, and each code has a limited number of users.':
     'Nhập mã truy cập do đội ngũ Tro cung cấp. Mỗi tài khoản chỉ có thể dùng một mã và mỗi mã có số lượng người dùng giới hạn.',
+  'Enter a Tro access code, or continue with the Free plan. You can add a promo code later in Settings when you are ready to upgrade.':
+    'Nhập mã truy cập Tro hoặc tiếp tục với gói Miễn phí. Bạn có thể thêm mã khuyến mãi sau trong phần Cài đặt khi sẵn sàng nâng cấp.',
   'Enter your access code': 'Nhập mã truy cập của bạn',
+  'Enter your promo code': 'Nhập mã khuyến mãi của bạn',
   'Enter your Tro access code': 'Nhập mã truy cập Tro của bạn',
   'Expand sidebar': 'Mở rộng thanh bên',
   event: 'sự kiện',
@@ -197,6 +201,15 @@ const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
   observing: 'đang quan sát',
   'Open task record': 'Mở bản ghi tác vụ',
   'Open permission settings': 'Mở cài đặt quyền',
+  'Opening Free…': 'Đang mở gói Miễn phí…',
+  'Plan access': 'Quyền truy cập gói',
+  'Promo code': 'Mã khuyến mãi',
+  'Promo or access code': 'Mã khuyến mãi hoặc mã truy cập',
+  'Apply promo code': 'Áp dụng mã khuyến mãi',
+  'Your promo code is active on this account.':
+    'Mã khuyến mãi đang hoạt động trên tài khoản này.',
+  'You can keep using Tro Free. Enter a promo code here whenever you are ready to upgrade.':
+    'Bạn có thể tiếp tục dùng Tro Miễn phí. Hãy nhập mã khuyến mãi tại đây khi bạn sẵn sàng nâng cấp.',
   'OpenAI GPT Transcribe': 'OpenAI GPT Transcribe',
   'One-time setup': 'Thiết lập một lần',
   'Personal preferences': 'Tùy chọn cá nhân',

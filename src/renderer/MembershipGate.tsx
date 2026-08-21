@@ -11,8 +11,10 @@ interface MembershipGateProps {
   error: string | null;
   isActivating: boolean;
   isChecking: boolean;
+  isContinuingFree: boolean;
   isSigningOut: boolean;
   onActivate(code: string): void;
+  onContinueFree(): void;
   onRefresh(): void;
   onSignOut(): void;
   status: MembershipStatus | null;
@@ -23,8 +25,10 @@ export function MembershipGate({
   error,
   isActivating,
   isChecking,
+  isContinuingFree,
   isSigningOut,
   onActivate,
+  onContinueFree,
   onRefresh,
   onSignOut,
   status,
@@ -37,7 +41,7 @@ export function MembershipGate({
     status?.expiresAt ?? null,
     appLocale(appLanguage),
   );
-  const busy = isActivating || isChecking || isSigningOut;
+  const busy = isActivating || isChecking || isContinuingFree || isSigningOut;
   const usesSharedAccessCode = status?.referenceCode === null;
 
   const copyReferenceCode = async (): Promise<void> => {
@@ -89,7 +93,7 @@ export function MembershipGate({
         <p className="membership-card__description">
           {t(
             usesSharedAccessCode
-              ? 'Enter the access code provided by the Tro team. Each account can use one code, and each code has a limited number of users.'
+              ? 'Enter a Tro access code, or continue with the Free plan. You can add a promo code later in Settings when you are ready to upgrade.'
               : 'Send your reference code to the Tro team. When your access is approved, paste the activation code you receive below.',
           )}
         </p>
@@ -162,8 +166,20 @@ export function MembershipGate({
                 )}
             {!isActivating && <span aria-hidden="true">→</span>}
           </button>
+          {usesSharedAccessCode && status?.state === 'inactive' && (
+            <button
+              className="secondary-button"
+              disabled={busy}
+              onClick={onContinueFree}
+              type="button"
+            >
+              {isContinuingFree
+                ? t('Opening Free…')
+                : t('Continue with Free')}
+            </button>
+          )}
           <button
-            className="secondary-button"
+            className="membership-refresh-button"
             disabled={busy}
             onClick={onRefresh}
             type="button"

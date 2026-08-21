@@ -909,6 +909,7 @@ export function App({
   const [membershipError, setMembershipError] = useState<string | null>(null);
   const [isCheckingMembership, setIsCheckingMembership] = useState(true);
   const [isActivatingMembership, setIsActivatingMembership] = useState(false);
+  const [isContinuingFree, setIsContinuingFree] = useState(false);
   const [autoStartFailedTaskId, setAutoStartFailedTaskId] = useState<
     string | null
   >(null);
@@ -1346,6 +1347,22 @@ export function App({
       );
     } finally {
       setIsActivatingMembership(false);
+    }
+  }, []);
+
+  const continueWithFree = useCallback(async () => {
+    setIsContinuingFree(true);
+    setMembershipError(null);
+    try {
+      setMembershipStatus(await window.tro.continueWithFree());
+    } catch (continueError) {
+      setMembershipError(
+        continueError instanceof Error
+          ? continueError.message
+          : 'Tro could not start the Free plan.',
+      );
+    } finally {
+      setIsContinuingFree(false);
     }
   }, []);
 
@@ -1883,8 +1900,10 @@ export function App({
         error={membershipError}
         isActivating={isActivatingMembership}
         isChecking={isCheckingMembership}
+        isContinuingFree={isContinuingFree}
         isSigningOut={isSigningOut}
         onActivate={(code) => void activateMembership(code)}
+        onContinueFree={() => void continueWithFree()}
         onRefresh={() => void refreshMembership()}
         onSignOut={onSignOut}
         status={membershipStatus}
@@ -2205,7 +2224,10 @@ export function App({
               appPreferences?.primaryLanguage !== languageDraft
             }
             isSaving={isSavingPreferences}
+            isActivatingMembership={isActivatingMembership}
             isUpdatingApp={isUpdatingApp}
+            membershipError={membershipError}
+            membershipStatus={membershipStatus}
             onAppLanguageChange={(language) => {
               setAppLanguageDraft(language);
               setSettingsError(null);
@@ -2222,6 +2244,7 @@ export function App({
               setSettingsError(null);
               setSettingsSaveMessage(null);
             }}
+            onActivateMembership={(code) => void activateMembership(code)}
             onMuteSystemAudioWhileSpeakingChange={(enabled) => {
               setMuteSystemAudioWhileSpeakingDraft(enabled);
               setSettingsError(null);

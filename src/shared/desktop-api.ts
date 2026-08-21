@@ -72,6 +72,7 @@ import type {
 
 export const IPC_CHANNELS = {
   activateMembership: 'membership:activate',
+  continueWithFree: 'membership:continue-free',
   agentActivity: 'agent:activity',
   appUpdateStatusChanged: 'update:status-changed',
   cancelTask: 'task:cancel',
@@ -146,6 +147,7 @@ export interface DesktopApi {
   activateMembership(
     request: ActivateMembershipRequest,
   ): Promise<MembershipStatus>;
+  continueWithFree(): Promise<MembershipStatus>;
   cancelTask(taskId: string): Promise<TaskSnapshot>;
   checkForAppUpdates(): Promise<AppUpdateStatus>;
   configureVoice(request: ConfigureVoiceRequest): Promise<VoiceStatus>;

@@ -254,6 +254,16 @@ export class MembershipService {
     return this.getStatus(user);
   }
 
+  async continueWithFree(user: AuthUser): Promise<MembershipStatus> {
+    if (!this.options.required) return this.getStatus(user);
+    if (!this.apiBaseUrl) {
+      throw new Error('The Free plan requires the hosted Tro service.');
+    }
+    return this.requestHostedStatus('/v1/access-code-redemptions/free', {
+      method: 'POST',
+    });
+  }
+
   async assertActive(user: AuthUser): Promise<void> {
     const currentStatus = await this.getStatus(user);
     if (

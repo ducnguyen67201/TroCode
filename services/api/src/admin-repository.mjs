@@ -59,6 +59,7 @@ function iso(value) {
 function publicUser(row) {
   const blockedAt = iso(row.blocked_at);
   return {
+    accessCodeId: row.access_code_id ?? null,
     blockedAt,
     codeLabel: row.code_label ?? null,
     createdAt: iso(row.created_at),
@@ -192,6 +193,7 @@ export class PostgresAdminRepository {
               users.plan,
               users.blocked_at,
               users.created_at,
+              codes.id AS access_code_id,
               codes.label AS code_label,
               latest_session.last_seen_at,
               COUNT(*) OVER()::INTEGER AS filtered_total
@@ -414,6 +416,101 @@ export class PostgresAdminRepository {
         blockedAt,
         id: row.id,
         status: blockedAt ? 'blocked' : 'active',
+      };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async grantAccessCode(userId, codeId) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const userResult = await client.query(
+        `SELECT id, blocked_at
+         FROM users
+         WHERE id = $1
+         FOR UPDATE`,
+        [userId],
+      );
+      const user = userResult.rows[0];
+      if (!user) {
+        await client.query('ROLLBACK');
+        return { kind: 'user_not_found' };
+      }
+      if (user.blocked_at) {
+        await client.query('ROLLBACK');
+        return { kind: 'account_blocked' };
+      }
+
+      const existingResult = await client.query(
+        `SELECT access_code_id
+         FROM access_code_redemptions
+         WHERE user_id = $1`,
+        [userId],
+      );
+      if (existingResult.rows[0]) {
+        await client.query('ROLLBACK');
+        return { kind: 'account_already_linked' };
+      }
+
+      const codeResult = await client.query(
+        `SELECT id, label, max_users, paused_at, plan
+         FROM access_codes
+         WHERE id = $1
+         FOR UPDATE`,
+        [codeId],
+      );
+      const code = codeResult.rows[0];
+      if (!code) {
+        await client.query('ROLLBACK');
+        return { kind: 'code_not_found' };
+      }
+      if (code.paused_at) {
+        await client.query('ROLLBACK');
+        return { kind: 'code_paused' };
+      }
+
+      const usageResult = await client.query(
+        `SELECT COUNT(*)::INTEGER AS used_users
+         FROM access_code_redemptions
+         WHERE access_code_id = $1`,
+        [codeId],
+      );
+      const usedUsers = Number(usageResult.rows[0]?.used_users ?? 0);
+      const maxUsers = Number(code.max_users);
+      if (usedUsers >= maxUsers) {
+        await client.query('ROLLBACK');
+        return { kind: 'code_full' };
+      }
+
+      await client.query(
+        `INSERT INTO access_code_redemptions (user_id, access_code_id)
+         VALUES ($1, $2)`,
+        [userId, codeId],
+      );
+      await client.query(
+        `UPDATE users
+         SET plan = $2, updated_at = NOW()
+         WHERE id = $1`,
+        [userId, code.plan],
+      );
+      await client.query(
+        `INSERT INTO admin_audit_events (action, target_user_id, detail)
+         VALUES ('user.access_code_granted', $1, $2::JSONB)`,
+        [userId, JSON.stringify({ accessCodeId: codeId })],
+      );
+      await client.query('COMMIT');
+      return {
+        accessCodeId: codeId,
+        codeLabel: code.label ?? null,
+        kind: 'granted',
+        plan: code.plan,
+        remainingUsers: maxUsers - usedUsers - 1,
+        userId,
       };
     } catch (error) {
       await client.query('ROLLBACK').catch(() => undefined);

@@ -62,6 +62,7 @@ function memoryAccessCodes(
   limits = { CODEA: 10, CODEB: 10 },
 ) {
   const assignments = new Map();
+  const freeAccounts = new Set();
   const codes = new Map(
     Object.entries(limits).map(([code, definition]) => {
       const entitlement =
@@ -82,8 +83,10 @@ function memoryAccessCodes(
         maxUsers: null,
         newlyRedeemed,
         plan: 'free',
-        state: 'active',
-        summary: 'Free plan active.',
+        state: freeAccounts.has(userId) ? 'active' : 'inactive',
+        summary: freeAccounts.has(userId)
+          ? 'Free plan active.'
+          : 'Enter an access code or continue with Free.',
         usedUsers: null,
       };
     }
@@ -99,6 +102,10 @@ function memoryAccessCodes(
   }
 
   return {
+    continueWithFree: async (userId) => {
+      freeAccounts.add(userId);
+      return { kind: 'active', status: statusFor(userId) };
+    },
     getStatus: async (userId) => statusFor(userId),
     redeem: async (userId, input) => {
       const normalized =
@@ -385,8 +392,8 @@ test('access codes enforce one code per account and an atomic user limit', async
         maxUsers: null,
         newlyRedeemed: false,
         plan: 'free',
-        state: 'active',
-        summary: 'Free plan active.',
+        state: 'inactive',
+        summary: 'Enter an access code or continue with Free.',
         usedUsers: null,
       });
 
@@ -480,6 +487,45 @@ test('paused access codes reject new redemptions', async () => {
   );
 });
 
+test('requires onboarding before activating the Free plan', async () => {
+  await withApi(async ({ baseUrl }) => {
+    const session = await signIn(baseUrl);
+    const headers = { Authorization: `Bearer ${session.accessToken}` };
+
+    const before = await fetch(`${baseUrl}/v1/access-code-redemptions/me`, {
+      headers,
+    });
+    assert.equal(before.status, 200);
+    assert.equal((await before.json()).state, 'inactive');
+
+    const protectedBefore = await fetch(`${baseUrl}/v1/agent-turns`, {
+      headers,
+      method: 'POST',
+    });
+    assert.equal(protectedBefore.status, 403);
+
+    const continued = await fetch(
+      `${baseUrl}/v1/access-code-redemptions/free`,
+      { headers, method: 'POST' },
+    );
+    assert.equal(continued.status, 200);
+    assert.deepEqual(await continued.json(), {
+      maxUsers: null,
+      newlyRedeemed: false,
+      plan: 'free',
+      state: 'active',
+      summary: 'Free plan active.',
+      usedUsers: null,
+    });
+
+    const protectedAfter = await fetch(`${baseUrl}/v1/agent-turns`, {
+      headers,
+      method: 'POST',
+    });
+    assert.equal(protectedAfter.status, 415);
+  });
+});
+
 test('Basic response traffic uses the API-owned 30 RPM shared limit', async () => {
   const consumed = [];
   await withApi(
@@ -530,6 +576,12 @@ test('Free response traffic uses the API-owned 15 RPM shared limit', async () =>
   await withApi(
     async ({ baseUrl }) => {
       const session = await signIn(baseUrl);
+      const activation = await redeemAccessCode(
+        baseUrl,
+        session.accessToken,
+        'FREECODE',
+      );
+      assert.equal(activation.status, 201);
       const response = await fetch(`${baseUrl}/v1/openai/responses`, {
         method: 'POST',
         headers: {
@@ -551,6 +603,9 @@ test('Free response traffic uses the API-owned 15 RPM shared limit', async () =>
       );
     },
     {
+      accessCodeLimits: {
+        FREECODE: { maxUsers: 10, plan: 'free' },
+      },
       rateLimiter: {
         consume: async (input) => {
           consumed.push(input);
@@ -614,6 +669,18 @@ test('model proxy requires authentication and enforces model allowlist', async (
       assert.equal(unauthenticated.status, 401);
 
       const session = await signIn(baseUrl);
+      const gatedRequest = await fetch(`${baseUrl}/v1/openai/responses`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(responsesBody()),
+      });
+      assert.equal(gatedRequest.status, 403);
+
+      const activation = await redeemAccessCode(baseUrl, session.accessToken);
+      assert.equal(activation.status, 201);
       const incompleteRequest = await fetch(`${baseUrl}/v1/openai/responses`, {
         method: 'POST',
         headers: {
@@ -627,8 +694,6 @@ test('model proxy requires authentication and enforces model allowlist', async (
         error: 'Responses request is invalid.',
       });
 
-      const activation = await redeemAccessCode(baseUrl, session.accessToken);
-      assert.equal(activation.status, 201);
       const invalidModel = await fetch(`${baseUrl}/v1/openai/responses`, {
         method: 'POST',
         headers: {
@@ -926,6 +991,8 @@ test('segmented transcription requires sign-in and validates its bounded contrac
     assert.equal(signedOut.status, 401);
 
     const session = await signIn(baseUrl);
+    const activation = await redeemAccessCode(baseUrl, session.accessToken);
+    assert.equal(activation.status, 201);
 
     for (const [body, requestId] of [
       [transcriptionBody({ language: 'xx' }), TEST_REQUEST_ID],

@@ -38,6 +38,7 @@ test('lists bounded user records with access and plan metadata', async () => {
       rows: [
         {
           blocked_at: null,
+          access_code_id: '11111111-1111-4111-8111-111111111111',
           code_label: 'August cohort',
           created_at: new Date('2026-08-01T00:00:00.000Z'),
           email: 'ada@example.com',
@@ -59,6 +60,7 @@ test('lists bounded user records with access and plan metadata', async () => {
       items: [
         {
           blockedAt: null,
+          accessCodeId: '11111111-1111-4111-8111-111111111111',
           codeLabel: 'August cohort',
           createdAt: '2026-08-01T00:00:00.000Z',
           email: 'ada@example.com',
@@ -237,6 +239,80 @@ test('blocking a user also revokes every active device session', async () => {
   assert.match(queries[2].sql, /UPDATE device_sessions[\s\S]+revoked_at/u);
   assert.equal(queries.at(-1).sql, 'COMMIT');
   assert.equal(client.released, true);
+});
+
+test('grants an available access code to an unlinked user atomically', async () => {
+  const codeId = '11111111-1111-4111-8111-111111111111';
+  const userId = 'google-user-1';
+  const { client, pool, queries } = sequencedPool([
+    { rows: [] },
+    { rows: [{ blocked_at: null, id: userId }] },
+    { rows: [] },
+    {
+      rows: [{ id: codeId, label: 'Launch', max_users: 3, paused_at: null, plan: 'pro' }],
+    },
+    { rows: [{ used_users: 1 }] },
+    { rows: [] },
+    { rows: [] },
+    { rows: [] },
+    { rows: [] },
+  ]);
+  const repository = new PostgresAdminRepository(pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(await repository.grantAccessCode(userId, codeId), {
+    accessCodeId: codeId,
+    codeLabel: 'Launch',
+    kind: 'granted',
+    plan: 'pro',
+    remainingUsers: 1,
+    userId,
+  });
+  assert.match(queries[1].sql, /FROM users[\s\S]+FOR UPDATE/u);
+  assert.match(queries[3].sql, /FROM access_codes[\s\S]+FOR UPDATE/u);
+  assert.match(queries[5].sql, /INSERT INTO access_code_redemptions/u);
+  assert.deepEqual(queries[5].parameters, [userId, codeId]);
+  assert.match(queries[6].sql, /UPDATE users[\s\S]+plan/u);
+  assert.match(queries[7].sql, /user\.access_code_granted/u);
+  assert.equal(queries.at(-1).sql, 'COMMIT');
+  assert.equal(client.released, true);
+});
+
+test('refuses admin code grants for linked users and unavailable codes', async () => {
+  const codeId = '11111111-1111-4111-8111-111111111111';
+  const userId = 'google-user-1';
+  const linked = sequencedPool([
+    { rows: [] },
+    { rows: [{ blocked_at: null, id: userId }] },
+    { rows: [{ access_code_id: '22222222-2222-4222-8222-222222222222' }] },
+    { rows: [] },
+  ]);
+  const linkedRepository = new PostgresAdminRepository(linked.pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+  assert.deepEqual(await linkedRepository.grantAccessCode(userId, codeId), {
+    kind: 'account_already_linked',
+  });
+  assert.equal(linked.queries.at(-1).sql, 'ROLLBACK');
+
+  const full = sequencedPool([
+    { rows: [] },
+    { rows: [{ blocked_at: null, id: userId }] },
+    { rows: [] },
+    {
+      rows: [{ id: codeId, label: null, max_users: 1, paused_at: null, plan: 'basic' }],
+    },
+    { rows: [{ used_users: 1 }] },
+    { rows: [] },
+  ]);
+  const fullRepository = new PostgresAdminRepository(full.pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+  assert.deepEqual(await fullRepository.grantAccessCode(userId, codeId), {
+    kind: 'code_full',
+  });
+  assert.equal(full.queries.at(-1).sql, 'ROLLBACK');
 });
 
 test('lists access codes with capacity, retrieval, and legacy metadata', async () => {

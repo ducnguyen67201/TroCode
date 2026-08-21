@@ -283,7 +283,19 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.signInWithGoogle, async (event) => {
     assertTrustedSender(event, mainWindow);
     const status = await services.authService.signIn();
-    if (status.user) await services.onAuthSignedIn?.(status.user);
+    if (status.user) {
+      services.revealMainWindow();
+      try {
+        const setup = services.onAuthSignedIn?.(status.user);
+        if (setup) {
+          void setup.catch((error: unknown) => {
+            console.error('[auth] Post-sign-in setup failed.', error);
+          });
+        }
+      } catch (error) {
+        console.error('[auth] Post-sign-in setup failed.', error);
+      }
+    }
     return status;
   });
 
@@ -318,6 +330,15 @@ export function registerIpcHandlers(
       return services.membershipService.activate(user, request.code);
     },
   );
+
+  ipcMain.handle(IPC_CHANNELS.continueWithFree, async (event) => {
+    const user = await assertAuthorizedSender(
+      event,
+      mainWindow,
+      services.authService,
+    );
+    return services.membershipService.continueWithFree(user);
+  });
 
   ipcMain.handle(IPC_CHANNELS.getAppPreferences, async (event) => {
     await assertAuthorizedSender(event, mainWindow, services.authService);

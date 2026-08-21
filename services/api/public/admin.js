@@ -22,6 +22,10 @@
     codeTotal: 0,
     currentPage: 'users',
     generatedCodes: [],
+    grantCodes: [],
+    grantCodeSearch: '',
+    grantCodeTotal: 0,
+    grantUser: null,
     loading: false,
     offset: 0,
     search: '',
@@ -55,6 +59,8 @@
     availableCodes: byId('available-codes'),
     blockedUsers: byId('blocked-users'),
     cancelCodeDialog: byId('cancel-code-dialog'),
+    cancelGrantCode: byId('cancel-grant-code'),
+    closeGrantCodeDialog: byId('close-grant-code-dialog'),
     closeCodeUsers: byId('close-code-users'),
     closeCodeUsersDialog: byId('close-code-users-dialog'),
     closeCodeDialog: byId('close-code-dialog'),
@@ -79,6 +85,15 @@
     emptyState: byId('empty-state'),
     fullCodes: byId('full-codes'),
     generateCodes: byId('generate-codes'),
+    grantCodeDialog: byId('grant-code-dialog'),
+    grantCodeError: byId('grant-code-error'),
+    grantCodeForm: byId('grant-code-form'),
+    grantCodeLoadMore: byId('grant-code-load-more'),
+    grantCodeRange: byId('grant-code-range'),
+    grantCodeSearch: byId('grant-code-search'),
+    grantCodeSelect: byId('grant-code-select'),
+    grantCodeSubmit: byId('grant-code-submit'),
+    grantCodeUser: byId('grant-code-user'),
     loadMore: byId('load-more'),
     loadMoreCodeUsers: byId('load-more-code-users'),
     lockDashboard: byId('lock-dashboard'),
@@ -121,6 +136,8 @@
   };
 
   let codeSearchTimer = null;
+  let grantCodeRequest = 0;
+  let grantCodeSearchTimer = null;
   let searchTimer = null;
   let toastTimer = null;
   let usageReloadQueued = false;
@@ -131,9 +148,7 @@
       ...options,
       credentials: 'same-origin',
       headers: {
-        ...(state.token
-          ? { Authorization: `Bearer ${state.token}` }
-          : {}),
+        ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),
         ...options.headers,
       },
@@ -160,9 +175,7 @@
     return new Intl.DateTimeFormat(undefined, {
       day: 'numeric',
       month: 'short',
-      year: new Date(value).getFullYear() === new Date().getFullYear()
-        ? undefined
-        : 'numeric',
+      year: new Date(value).getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
     }).format(new Date(value));
   }
 
@@ -173,9 +186,7 @@
       hour: 'numeric',
       minute: '2-digit',
       month: 'short',
-      year: new Date(value).getFullYear() === new Date().getFullYear()
-        ? undefined
-        : 'numeric',
+      year: new Date(value).getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
     }).format(new Date(value));
   }
 
@@ -208,11 +219,12 @@
   }
 
   function chartDateLabel(value, granularity) {
-    const options = granularity === 'hour'
-      ? { day: 'numeric', hour: 'numeric', month: 'short' }
-      : granularity === 'month'
-        ? { month: 'short', year: '2-digit' }
-        : { day: 'numeric', month: 'short' };
+    const options =
+      granularity === 'hour'
+        ? { day: 'numeric', hour: 'numeric', month: 'short' }
+        : granularity === 'month'
+          ? { month: 'short', year: '2-digit' }
+          : { day: 'numeric', month: 'short' };
     return new Intl.DateTimeFormat(undefined, options).format(new Date(value));
   }
 
@@ -248,37 +260,32 @@
     identityCell.append(identity);
 
     const planCell = document.createElement('td');
-    planCell.append(
-      element('span', `plan-badge plan-badge--${user.plan}`, user.plan),
-    );
-    const codeCell = element('td', '', user.codeLabel || '—');
+    planCell.append(element('span', `plan-badge plan-badge--${user.plan}`, user.plan));
+    const codeCell = element('td', '', user.codeLabel || (user.accessCodeId ? 'Unlabelled code' : '—'));
     const lastSeenCell = element('td', '', dateLabel(user.lastSeenAt));
     const statusCell = document.createElement('td');
-    statusCell.append(
-      element(
-        'span',
-        `status-badge status-badge--${user.status}`,
-        user.status,
-      ),
-    );
+    statusCell.append(element('span', `status-badge status-badge--${user.status}`, user.status));
     const actionCell = document.createElement('td');
     const isBlocked = user.status === 'blocked';
-    const action = element(
+    const actions = element('div', 'code-actions');
+    if (!user.accessCodeId) {
+      const grant = element('button', 'row-action row-action--users', 'Grant code');
+      grant.type = 'button';
+      grant.disabled = isBlocked;
+      if (isBlocked) grant.title = 'Unblock this user before granting a code.';
+      grant.addEventListener('click', () => void openGrantCodeDialog(user));
+      actions.append(grant);
+    }
+    const blockAction = element(
       'button',
       `row-action${isBlocked ? '' : ' row-action--block'}`,
       isBlocked ? 'Unblock' : 'Block',
     );
-    action.type = 'button';
-    action.addEventListener('click', () => changeAccess(user, action));
-    actionCell.append(action);
-    row.append(
-      identityCell,
-      planCell,
-      codeCell,
-      lastSeenCell,
-      statusCell,
-      actionCell,
-    );
+    blockAction.type = 'button';
+    blockAction.addEventListener('click', () => changeAccess(user, blockAction));
+    actions.append(blockAction);
+    actionCell.append(actions);
+    row.append(identityCell, planCell, codeCell, lastSeenCell, statusCell, actionCell);
     return row;
   }
 
@@ -325,9 +332,7 @@
     const row = document.createElement('tr');
     const identityCell = document.createElement('td');
     const identity = element('div', 'user-cell');
-    identity.append(
-      element('span', 'avatar', initials(item.user.name || '', item.user.email)),
-    );
+    identity.append(element('span', 'avatar', initials(item.user.name || '', item.user.email)));
     const identityText = document.createElement('span');
     identityText.append(
       element('span', 'user-name', item.user.name || 'Unnamed user'),
@@ -376,14 +381,7 @@
     );
     costCell.append(cost);
     const createdCell = element('td', 'usage-time', dateTimeLabel(item.createdAt));
-    row.append(
-      identityCell,
-      activityCell,
-      modelCell,
-      metricCell,
-      costCell,
-      createdCell,
-    );
+    row.append(identityCell, activityCell, modelCell, metricCell, costCell, createdCell);
     return row;
   }
 
@@ -407,19 +405,13 @@
       codeWrap.append(copy);
       codeCell.append(codeWrap);
     } else {
-      const unavailable = element(
-        'span',
-        'code-unavailable',
-        'Unavailable (legacy)',
-      );
+      const unavailable = element('span', 'code-unavailable', 'Unavailable (legacy)');
       unavailable.title = 'This code was stored as a one-way digest before encrypted retrieval was enabled.';
       codeCell.append(unavailable);
     }
     const labelCell = element('td', '', item.label || '—');
     const planCell = document.createElement('td');
-    planCell.append(
-      element('span', `plan-badge plan-badge--${item.plan}`, item.plan),
-    );
+    planCell.append(element('span', `plan-badge plan-badge--${item.plan}`, item.plan));
     const usageCell = element(
       'td',
       'usage-cell',
@@ -440,28 +432,14 @@
     }
     const createdCell = element('td', '', dateLabel(item.createdAt));
     const statusCell = document.createElement('td');
-    statusCell.append(
-      element(
-        'span',
-        `status-badge status-badge--${item.status}`,
-        item.status,
-      ),
-    );
+    statusCell.append(element('span', `status-badge status-badge--${item.status}`, item.status));
     const actionsCell = document.createElement('td');
     const actions = element('div', 'code-actions');
     const isPaused = item.status === 'paused';
-    const pause = element(
-      'button',
-      'row-action',
-      isPaused ? 'Resume' : 'Pause',
-    );
+    const pause = element('button', 'row-action', isPaused ? 'Resume' : 'Pause');
     pause.type = 'button';
     pause.addEventListener('click', () => pauseAccessCode(item, pause));
-    const remove = element(
-      'button',
-      'row-action row-action--danger',
-      'Delete',
-    );
+    const remove = element('button', 'row-action row-action--danger', 'Delete');
     remove.type = 'button';
     remove.disabled = item.redeemedUsers > 0;
     if (remove.disabled) {
@@ -470,16 +448,7 @@
     remove.addEventListener('click', () => deleteAccessCode(item, remove));
     actions.append(pause, remove);
     actionsCell.append(actions);
-    row.append(
-      codeCell,
-      labelCell,
-      planCell,
-      usageCell,
-      usersCell,
-      createdCell,
-      statusCell,
-      actionsCell,
-    );
+    row.append(codeCell, labelCell, planCell, usageCell, usersCell, createdCell, statusCell, actionsCell);
     return row;
   }
 
@@ -493,9 +462,7 @@
         method: 'PATCH',
       });
       await loadAccessCodes();
-      showToast(
-        `${item.label || 'Access code'} was ${paused ? 'paused' : 'resumed'}.`,
-      );
+      showToast(`${item.label || 'Access code'} was ${paused ? 'paused' : 'resumed'}.`);
     } catch (error) {
       showToast(error.message);
       button.disabled = false;
@@ -528,9 +495,7 @@
   function codeUserRow(user) {
     const row = element('article', 'code-user-row');
     const identity = element('div', 'user-cell');
-    identity.append(
-      element('span', 'avatar', initials(user.name || '', user.email)),
-    );
+    identity.append(element('span', 'avatar', initials(user.name || '', user.email)));
     const identityText = document.createElement('span');
     identityText.append(
       element('span', 'user-name', user.name || 'Unnamed user'),
@@ -540,11 +505,7 @@
     const details = element('div', 'code-user-details');
     details.append(
       element('span', 'code-user-redeemed', `Redeemed ${dateLabel(user.redeemedAt)}`),
-      element(
-        'span',
-        `status-badge status-badge--${user.status}`,
-        user.status,
-      ),
+      element('span', `status-badge status-badge--${user.status}`, user.status),
     );
     row.append(identity, details);
     return row;
@@ -553,10 +514,8 @@
   function renderCodeUsers(code) {
     elements.codeUsersSummary.textContent = `${code.label || 'Unlabelled code'} · ${code.plan} plan · ${state.codeUsersTotal.toLocaleString()} of ${code.maxUsers.toLocaleString()} seats used`;
     elements.codeUsersList.replaceChildren(...state.codeUsers.map(codeUserRow));
-    elements.codeUsersEmpty.hidden =
-      state.codeUsers.length > 0 || state.codeUsersLoading;
-    elements.loadMoreCodeUsers.hidden =
-      state.codeUsers.length >= state.codeUsersTotal;
+    elements.codeUsersEmpty.hidden = state.codeUsers.length > 0 || state.codeUsersLoading;
+    elements.loadMoreCodeUsers.hidden = state.codeUsers.length >= state.codeUsersTotal;
     elements.loadMoreCodeUsers.disabled = state.codeUsersLoading;
   }
 
@@ -570,12 +529,8 @@
       offset: String(offset),
     });
     try {
-      const result = await request(
-        `/v1/admin/access-codes/${encodeURIComponent(code.id)}/users?${parameters}`,
-      );
-      state.codeUsers = append
-        ? [...state.codeUsers, ...result.items]
-        : result.items;
+      const result = await request(`/v1/admin/access-codes/${encodeURIComponent(code.id)}/users?${parameters}`);
+      state.codeUsers = append ? [...state.codeUsers, ...result.items] : result.items;
       state.codeUsersTotal = result.page.total;
       renderCodeUsers(result.code);
     } finally {
@@ -625,13 +580,9 @@
     elements.fullCodes.textContent = String(state.codeSummary.fullCodes);
     elements.pausedCodes.textContent = String(state.codeSummary.pausedCodes);
     elements.codeCountLabel.textContent = `${state.codeTotal.toLocaleString()} matching code${state.codeTotal === 1 ? '' : 's'} · ${state.codeSummary.totalRedemptions.toLocaleString()} redemption${state.codeSummary.totalRedemptions === 1 ? '' : 's'}`;
-    elements.codesBody.replaceChildren(
-      ...state.accessCodes.map(accessCodeRow),
-    );
-    elements.codesEmptyState.hidden =
-      state.accessCodes.length > 0 || state.codeLoading;
-    elements.codesLoadMore.hidden =
-      state.accessCodes.length >= state.codeTotal;
+    elements.codesBody.replaceChildren(...state.accessCodes.map(accessCodeRow));
+    elements.codesEmptyState.hidden = state.accessCodes.length > 0 || state.codeLoading;
+    elements.codesLoadMore.hidden = state.accessCodes.length >= state.codeTotal;
     elements.codesLoadMore.disabled = state.codeLoading;
     elements.codeRangeLabel.textContent = state.accessCodes.length
       ? `Showing 1–${state.accessCodes.length} of ${state.codeTotal}`
@@ -641,14 +592,10 @@
   function renderUsageChart() {
     const { granularity, items } = state.usageSeries;
     const totalRequests = state.usageSummary.totalRequests;
-    const rangeLabel =
-      elements.usageRangeFilter.selectedOptions[0]?.textContent || 'Selected period';
-    const laneLabel =
-      elements.usageLaneFilter.selectedOptions[0]?.textContent || 'All activity';
+    const rangeLabel = elements.usageRangeFilter.selectedOptions[0]?.textContent || 'Selected period';
+    const laneLabel = elements.usageLaneFilter.selectedOptions[0]?.textContent || 'All activity';
     elements.usageChartSummary.textContent = `${rangeLabel} · ${laneLabel} · ${compactNumber(totalRequests)} model call${totalRequests === 1 ? '' : 's'}`;
-    elements.usageChartTotal.textContent = moneyLabel(
-      state.usageSummary.totalSpendMicroUsd,
-    );
+    elements.usageChartTotal.textContent = moneyLabel(state.usageSummary.totalSpendMicroUsd);
     elements.usageChart.replaceChildren();
     elements.usageChart.setAttribute(
       'aria-label',
@@ -656,9 +603,7 @@
     );
 
     if (!items.length || totalRequests === 0) {
-      elements.usageChart.append(
-        element('div', 'usage-chart-empty', 'No usage to graph for these filters.'),
-      );
+      elements.usageChart.append(element('div', 'usage-chart-empty', 'No usage to graph for these filters.'));
       return;
     }
 
@@ -672,9 +617,7 @@
     const yMaximum = Math.ceil(maxSpend * 1.12);
     const points = items.map((item, index) => ({
       item,
-      x: items.length === 1
-        ? padding.left + plotWidth / 2
-        : padding.left + (index / (items.length - 1)) * plotWidth,
+      x: items.length === 1 ? padding.left + plotWidth / 2 : padding.left + (index / (items.length - 1)) * plotWidth,
       y: bottom - (item.spendMicroUsd / yMaximum) * plotHeight,
     }));
     const svg = svgElement('svg', {
@@ -691,8 +634,16 @@
       y2: '1',
     });
     gradient.append(
-      svgElement('stop', { offset: '0%', 'stop-color': '#8fc58f', 'stop-opacity': '0.42' }),
-      svgElement('stop', { offset: '100%', 'stop-color': '#8fc58f', 'stop-opacity': '0.04' }),
+      svgElement('stop', {
+        offset: '0%',
+        'stop-color': '#8fc58f',
+        'stop-opacity': '0.42',
+      }),
+      svgElement('stop', {
+        offset: '100%',
+        'stop-color': '#8fc58f',
+        'stop-opacity': '0.04',
+      }),
     );
     definitions.append(gradient);
     svg.append(definitions);
@@ -730,9 +681,7 @@
       ].join(' ');
       svg.append(svgElement('path', { class: 'chart-area', d: areaPath }));
     }
-    const linePath = points
-      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
-      .join(' ');
+    const linePath = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
     svg.append(svgElement('path', { class: 'chart-line', d: linePath }));
 
     for (const point of points) {
@@ -755,7 +704,8 @@
     const labelCount = Math.min(6, items.length);
     const labelIndexes = new Set(
       Array.from({ length: labelCount }, (_, index) =>
-        Math.round((index / Math.max(1, labelCount - 1)) * (items.length - 1))),
+        Math.round((index / Math.max(1, labelCount - 1)) * (items.length - 1)),
+      ),
     );
     for (const index of labelIndexes) {
       const point = points[index];
@@ -764,11 +714,7 @@
           'text',
           {
             class: 'chart-axis-label',
-            'text-anchor': index === 0
-              ? 'start'
-              : index === items.length - 1
-                ? 'end'
-                : 'middle',
+            'text-anchor': index === 0 ? 'start' : index === items.length - 1 ? 'end' : 'middle',
             x: point.x,
             y: height - 10,
           },
@@ -778,25 +724,19 @@
     }
     const accessibleSummary = element('div', 'sr-only');
     accessibleSummary.textContent = items
-      .map((item) =>
-        `${chartDateLabel(item.startedAt, granularity)}: ${moneyLabel(item.spendMicroUsd)}, ${item.requests} calls.`)
+      .map(
+        (item) =>
+          `${chartDateLabel(item.startedAt, granularity)}: ${moneyLabel(item.spendMicroUsd)}, ${item.requests} calls.`,
+      )
       .join(' ');
     elements.usageChart.append(svg, accessibleSummary);
   }
 
   function renderUsage() {
-    elements.usageTotalSpend.textContent = moneyLabel(
-      state.usageSummary.totalSpendMicroUsd,
-    );
-    elements.usageActiveUsers.textContent = compactNumber(
-      state.usageSummary.activeUsers,
-    );
-    elements.usageTotalRequests.textContent = compactNumber(
-      state.usageSummary.totalRequests,
-    );
-    elements.usageTotalTokens.textContent = compactNumber(
-      state.usageSummary.totalTokens,
-    );
+    elements.usageTotalSpend.textContent = moneyLabel(state.usageSummary.totalSpendMicroUsd);
+    elements.usageActiveUsers.textContent = compactNumber(state.usageSummary.activeUsers);
+    elements.usageTotalRequests.textContent = compactNumber(state.usageSummary.totalRequests);
+    elements.usageTotalTokens.textContent = compactNumber(state.usageSummary.totalTokens);
     elements.usageCountLabel.textContent = `${state.usageTotal.toLocaleString()} matching activit${state.usageTotal === 1 ? 'y' : 'ies'}`;
     elements.usageBody.replaceChildren(...state.usage.map(usageRow));
     elements.usageEmptyState.hidden = state.usage.length > 0;
@@ -847,9 +787,7 @@
     if (state.codeStatus) parameters.set('status', state.codeStatus);
     try {
       const result = await request(`/v1/admin/access-codes?${parameters}`);
-      state.accessCodes = append
-        ? [...state.accessCodes, ...result.items]
-        : result.items;
+      state.accessCodes = append ? [...state.accessCodes, ...result.items] : result.items;
       state.accessCodesLoaded = true;
       state.codeTotal = result.page.total;
       state.codeSummary = result.summary;
@@ -880,9 +818,7 @@
     if (state.usageLane) parameters.set('lane', state.usageLane);
     try {
       const result = await request(`/v1/admin/usage?${parameters}`);
-      state.usage = append
-        ? [...state.usage, ...result.items]
-        : result.items;
+      state.usage = append ? [...state.usage, ...result.items] : result.items;
       state.usageLoaded = true;
       state.usageSeries = result.series;
       state.usageTotal = result.page.total;
@@ -910,10 +846,7 @@
     elements.accessCodesPage.hidden = !showingCodes;
     elements.usersNav.classList.toggle('nav-item--active', showingUsers);
     elements.usageNav.classList.toggle('nav-item--active', showingUsage);
-    elements.accessCodesNav.classList.toggle(
-      'nav-item--active',
-      showingCodes,
-    );
+    elements.accessCodesNav.classList.toggle('nav-item--active', showingCodes);
     for (const [nav, active] of [
       [elements.usersNav, showingUsers],
       [elements.usageNav, showingUsage],
@@ -932,21 +865,16 @@
 
   async function changeAccess(user, button) {
     const blocked = user.status !== 'blocked';
-    if (
-      blocked &&
-      !window.confirm(
-        `Block ${user.email}? Their active sessions will be revoked immediately.`,
-      )
-    ) {
+    if (blocked && !window.confirm(`Block ${user.email}? Their active sessions will be revoked immediately.`)) {
       return;
     }
     button.disabled = true;
     button.textContent = blocked ? 'Blocking…' : 'Unblocking…';
     try {
-      await request(
-        `/v1/admin/users/${encodeURIComponent(user.id)}/access`,
-        { body: JSON.stringify({ blocked }), method: 'PATCH' },
-      );
+      await request(`/v1/admin/users/${encodeURIComponent(user.id)}/access`, {
+        body: JSON.stringify({ blocked }),
+        method: 'PATCH',
+      });
       await loadUsers();
       showToast(`${user.email} is now ${blocked ? 'blocked' : 'active'}.`);
     } catch (error) {
@@ -954,6 +882,136 @@
       button.disabled = false;
       button.textContent = blocked ? 'Block' : 'Unblock';
     }
+  }
+
+  function grantCodeOptionLabel(code) {
+    const identity = code.label || code.code || 'Unlabelled code';
+    const seats = `${code.remainingUsers} seat${code.remainingUsers === 1 ? '' : 's'} left`;
+    return `${identity} · ${code.plan} · ${seats}`;
+  }
+
+  function renderGrantCodes() {
+    const selectedCodeId = elements.grantCodeSelect.value;
+    const options = state.grantCodes.map((code) => new Option(grantCodeOptionLabel(code), code.id));
+    elements.grantCodeSelect.replaceChildren(
+      ...(options.length
+        ? [new Option('Choose an access code…', ''), ...options]
+        : [new Option('No available access codes', '')]),
+    );
+    if (state.grantCodes.some((code) => code.id === selectedCodeId)) {
+      elements.grantCodeSelect.value = selectedCodeId;
+    }
+    elements.grantCodeSelect.disabled = options.length === 0;
+    elements.grantCodeSubmit.disabled = options.length === 0;
+    elements.grantCodeLoadMore.hidden = state.grantCodes.length >= state.grantCodeTotal;
+    elements.grantCodeRange.textContent = options.length
+      ? `Showing ${state.grantCodes.length.toLocaleString()} of ${state.grantCodeTotal.toLocaleString()} available codes`
+      : '';
+    elements.grantCodeError.textContent = options.length
+      ? ''
+      : state.grantCodeSearch
+        ? 'No available access codes match this search.'
+        : 'Create or resume an access code with an available seat first.';
+  }
+
+  async function loadGrantCodes(user, { append = false } = {}) {
+    const requestId = ++grantCodeRequest;
+    if (!append) {
+      state.grantCodes = [];
+      state.grantCodeTotal = 0;
+      elements.grantCodeSelect.disabled = true;
+      elements.grantCodeSelect.replaceChildren(new Option('Loading available codes…', ''));
+      elements.grantCodeRange.textContent = '';
+    }
+    elements.grantCodeLoadMore.disabled = true;
+    elements.grantCodeSubmit.disabled = true;
+    const parameters = new URLSearchParams({
+      limit: String(PAGE_SIZE),
+      offset: String(append ? state.grantCodes.length : 0),
+      status: 'available',
+    });
+    if (state.grantCodeSearch) {
+      parameters.set('search', state.grantCodeSearch);
+    }
+    try {
+      const result = await request(`/v1/admin/access-codes?${parameters}`);
+      if (state.grantUser?.id !== user.id || requestId !== grantCodeRequest) {
+        return;
+      }
+      state.grantCodes = append ? [...state.grantCodes, ...result.items] : result.items;
+      state.grantCodeTotal = result.page.total;
+      renderGrantCodes();
+      if (state.grantCodes.length && !append) {
+        elements.grantCodeSelect.focus();
+      }
+    } catch (error) {
+      if (state.grantUser?.id !== user.id || requestId !== grantCodeRequest) {
+        return;
+      }
+      if (append && state.grantCodes.length) {
+        renderGrantCodes();
+      } else {
+        elements.grantCodeSelect.replaceChildren(new Option('Could not load access codes', ''));
+      }
+      elements.grantCodeError.textContent = error.message;
+    } finally {
+      if (state.grantUser?.id === user.id && requestId === grantCodeRequest) {
+        elements.grantCodeLoadMore.disabled = false;
+      }
+    }
+  }
+
+  async function openGrantCodeDialog(user) {
+    state.grantUser = user;
+    state.grantCodes = [];
+    state.grantCodeSearch = '';
+    state.grantCodeTotal = 0;
+    elements.grantCodeSearch.value = '';
+    elements.grantCodeError.textContent = '';
+    elements.grantCodeUser.textContent = `Choose an available code for ${user.name || user.email} (${user.email}).`;
+    elements.grantCodeDialog.showModal();
+    await loadGrantCodes(user);
+  }
+
+  function closeGrantCodeDialog() {
+    grantCodeRequest += 1;
+    window.clearTimeout(grantCodeSearchTimer);
+    state.grantUser = null;
+    state.grantCodes = [];
+    state.grantCodeSearch = '';
+    state.grantCodeTotal = 0;
+    elements.grantCodeForm.reset();
+    elements.grantCodeDialog.close();
+  }
+
+  async function grantAccessCode(event) {
+    event.preventDefault();
+    const user = state.grantUser;
+    const accessCodeId = elements.grantCodeSelect.value;
+    if (!user || !accessCodeId) return;
+    elements.grantCodeError.textContent = '';
+    elements.grantCodeSelect.disabled = true;
+    elements.grantCodeSubmit.disabled = true;
+    elements.grantCodeSubmit.textContent = 'Granting…';
+    try {
+      await request(`/v1/admin/users/${encodeURIComponent(user.id)}/access-code`, {
+        body: JSON.stringify({ accessCodeId }),
+        method: 'POST',
+      });
+    } catch (error) {
+      elements.grantCodeError.textContent = error.message;
+      elements.grantCodeSelect.disabled = false;
+      elements.grantCodeSubmit.disabled = false;
+      elements.grantCodeSubmit.textContent = 'Grant access';
+      return;
+    }
+    closeGrantCodeDialog();
+    state.accessCodesLoaded = false;
+    elements.grantCodeSubmit.textContent = 'Grant access';
+    showToast(`Access code granted to ${user.email}.`);
+    loadUsers().catch(() => {
+      showToast(`Access was granted to ${user.email}, but the user list could not refresh.`);
+    });
   }
 
   function openCodeDialog() {
@@ -1054,6 +1112,7 @@
     state.usageSeries = { granularity: 'day', items: [] };
     state.usageTotal = 0;
     state.currentPage = 'users';
+    state.grantUser = null;
     showPage('users');
     elements.appShell.hidden = true;
     elements.loginShell.hidden = false;
@@ -1108,9 +1167,7 @@
   elements.loginForm.addEventListener('submit', login);
   elements.lockDashboard.addEventListener('click', () => void signOut());
   elements.loadMore.addEventListener('click', () => loadUsers({ append: true }));
-  elements.codesLoadMore.addEventListener('click', () =>
-    loadAccessCodes({ append: true }),
-  );
+  elements.codesLoadMore.addEventListener('click', () => loadAccessCodes({ append: true }));
   elements.openCodeButton.addEventListener('click', openCodeDialog);
   elements.openCodeButtonCodes.addEventListener('click', openCodeDialog);
   elements.usersNav.addEventListener('click', () => showPage('users'));
@@ -1125,19 +1182,32 @@
   elements.closeCodeDialog.addEventListener('click', closeCodeDialog);
   elements.cancelCodeDialog.addEventListener('click', closeCodeDialog);
   elements.codeForm.addEventListener('submit', submitCodes);
+  elements.grantCodeForm.addEventListener('submit', grantAccessCode);
+  elements.grantCodeLoadMore.addEventListener('click', () => {
+    if (state.grantUser) {
+      loadGrantCodes(state.grantUser, { append: true }).catch((error) => showToast(error.message));
+    }
+  });
+  elements.grantCodeSearch.addEventListener('input', () => {
+    window.clearTimeout(grantCodeSearchTimer);
+    grantCodeSearchTimer = window.setTimeout(() => {
+      state.grantCodeSearch = elements.grantCodeSearch.value.trim();
+      if (state.grantUser) {
+        loadGrantCodes(state.grantUser).catch((error) => showToast(error.message));
+      }
+    }, 260);
+  });
+  elements.closeGrantCodeDialog.addEventListener('click', closeGrantCodeDialog);
+  elements.cancelGrantCode.addEventListener('click', closeGrantCodeDialog);
   elements.copyCodes.addEventListener('click', copyCodes);
   elements.closeResultDialog.addEventListener('click', closeResultDialog);
   elements.doneResults.addEventListener('click', closeResultDialog);
   elements.closeCodeUsersDialog.addEventListener('click', closeCodeUsersDialog);
   elements.closeCodeUsers.addEventListener('click', closeCodeUsersDialog);
   elements.loadMoreCodeUsers.addEventListener('click', () => {
-    const code = state.accessCodes.find(
-      (item) => item.id === elements.codeUsersDialog.dataset.codeId,
-    );
+    const code = state.accessCodes.find((item) => item.id === elements.codeUsersDialog.dataset.codeId);
     if (code) {
-      loadCodeUsers(code, { append: true }).catch((error) =>
-        showToast(error.message),
-      );
+      loadCodeUsers(code, { append: true }).catch((error) => showToast(error.message));
     }
   });
   elements.statusFilter.addEventListener('change', () => {

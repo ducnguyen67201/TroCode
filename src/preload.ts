@@ -276,6 +276,13 @@ const desktopApi: DesktopApi = {
     return MembershipStatusSchema.parse(response);
   },
 
+  async continueWithFree() {
+    const response: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.continueWithFree,
+    );
+    return MembershipStatusSchema.parse(response);
+  },
+
   async getAuthStatus() {
     const response: unknown = await ipcRenderer.invoke(
       IPC_CHANNELS.getAuthStatus,

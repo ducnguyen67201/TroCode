@@ -19,25 +19,14 @@
         <p class="eyebrow">Protected workspace</p>
         <h2 id="login-title">Open the dashboard</h2>
         <p class="login-copy">
-          Enter the server admin token. It stays in this tab's memory and is
-          never saved by the page.
+          Enter the server admin token. It stays in this tab's memory and is never saved by the page.
         </p>
-        <p class="login-persistence">
-          This browser stays signed in for 30 days. Use Lock to sign out.
-        </p>
+        <p class="login-persistence">This browser stays signed in for 30 days. Use Lock to sign out.</p>
         <form id="login-form">
           <label for="admin-token">Admin access token</label>
-          <input
-            id="admin-token"
-            name="token"
-            type="password"
-            autocomplete="off"
-            required
-          />
+          <input id="admin-token" name="token" type="password" autocomplete="off" required />
           <p class="form-error" id="login-error" role="alert"></p>
-          <button class="button button--primary button--wide" type="submit">
-            Continue
-          </button>
+          <button class="button button--primary button--wide" type="submit">Continue</button>
         </form>
       </div>
     </section>
@@ -146,9 +135,7 @@
             </div>
             <div class="table-footer">
               <span id="range-label"></span>
-              <button class="button button--secondary" id="load-more" type="button" hidden>
-                Load more
-              </button>
+              <button class="button button--secondary" id="load-more" type="button" hidden>Load more</button>
             </div>
           </section>
         </section>
@@ -158,7 +145,9 @@
             <div>
               <p class="eyebrow">Product activity</p>
               <h1>Usage</h1>
-              <p class="page-subtitle">See who is using Tro, what capabilities they use, and how much each activity costs.</p>
+              <p class="page-subtitle">
+                See who is using Tro, what capabilities they use, and how much each activity costs.
+              </p>
             </div>
             <button class="button button--secondary" id="refresh-usage" type="button">
               <span aria-hidden="true">↻</span>
@@ -273,9 +262,7 @@
             </div>
             <div class="table-footer">
               <span id="usage-range-label"></span>
-              <button class="button button--secondary" id="usage-load-more" type="button" hidden>
-                Load more
-              </button>
+              <button class="button button--secondary" id="usage-load-more" type="button" hidden>Load more</button>
             </div>
           </section>
         </section>
@@ -363,9 +350,7 @@
             </div>
             <div class="table-footer">
               <span id="code-range-label"></span>
-              <button class="button button--secondary" id="codes-load-more" type="button" hidden>
-                Load more
-              </button>
+              <button class="button button--secondary" id="codes-load-more" type="button" hidden>Load more</button>
             </div>
           </section>
         </section>
@@ -381,9 +366,7 @@
           </div>
           <button class="icon-button" id="close-code-dialog" type="button" aria-label="Close">×</button>
         </div>
-        <p class="dialog-copy">
-          Generate up to 100 codes at once. Each code inherits the plan and user limit below.
-        </p>
+        <p class="dialog-copy">Generate up to 100 codes at once. Each code inherits the plan and user limit below.</p>
         <div class="form-grid">
           <label>
             Number of codes
@@ -409,12 +392,49 @@
         </div>
         <p class="security-note">
           <span aria-hidden="true">◇</span>
-          New codes are encrypted at rest and remain viewable in Access codes. Legacy digest-only codes cannot be recovered.
+          New codes are encrypted at rest and remain viewable in Access codes. Legacy digest-only codes cannot be
+          recovered.
         </p>
         <p class="form-error" id="code-error" role="alert"></p>
         <div class="dialog-actions">
           <button class="button button--secondary" id="cancel-code-dialog" type="button">Cancel</button>
           <button class="button button--primary" id="generate-codes" type="submit">Generate codes</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="grant-code-dialog" id="grant-code-dialog" aria-labelledby="grant-code-title">
+      <form class="dialog-card" id="grant-code-form">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Workspace access</p>
+            <h2 id="grant-code-title">Grant access code</h2>
+          </div>
+          <button class="icon-button" id="close-grant-code-dialog" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="dialog-copy" id="grant-code-user">Choose an available code for this user.</p>
+        <label>
+          Search available codes
+          <input id="grant-code-search" type="search" placeholder="Search label or exact code" />
+        </label>
+        <label>
+          Available access code
+          <select id="grant-code-select" name="accessCodeId" required>
+            <option value="">Loading available codes…</option>
+          </select>
+        </label>
+        <div class="grant-code-pagination">
+          <span id="grant-code-range"></span>
+          <button class="button button--secondary" id="grant-code-load-more" type="button" hidden>Load more</button>
+        </div>
+        <p class="security-note">
+          <span aria-hidden="true">◇</span>
+          Granting reserves one seat immediately and applies the code&rsquo;s plan to this account.
+        </p>
+        <p class="form-error" id="grant-code-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button class="button button--secondary" id="cancel-grant-code" type="button">Cancel</button>
+          <button class="button button--primary" id="grant-code-submit" type="submit">Grant access</button>
         </div>
       </form>
     </dialog>

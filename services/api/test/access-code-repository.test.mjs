@@ -52,7 +52,7 @@ test('normalizes access codes and hashes equivalent input identically', () => {
   );
 });
 
-test('returns the Free plan for an account without an access code', async () => {
+test('requires an access choice from an account without onboarding', async () => {
   const { pool } = sequencedPool([
     {
       rows: [
@@ -72,10 +72,96 @@ test('returns the Free plan for an account without an access code', async () => 
     maxUsers: null,
     newlyRedeemed: false,
     plan: 'free',
+    state: 'inactive',
+    summary: 'Enter an access code or continue with Free.',
+    usedUsers: null,
+  });
+});
+
+test('activates Free after the account acknowledges onboarding', async () => {
+  const { pool } = sequencedPool([
+    {
+      rows: [
+        {
+          free_access_started_at: new Date('2026-08-21T08:00:00.000Z'),
+          max_users: null,
+          plan: 'free',
+          used_users: 0,
+        },
+      ],
+    },
+  ]);
+  const repository = new PostgresAccessCodeRepository(pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(await repository.getStatus('user-1'), {
+    maxUsers: null,
+    newlyRedeemed: false,
+    plan: 'free',
     state: 'active',
     summary: 'Free plan active.',
     usedUsers: null,
   });
+});
+
+test('continues with Free atomically without creating a code redemption', async () => {
+  const { client, pool, queries } = sequencedPool([
+    { rows: [] },
+    { rows: [{ blocked_at: null, id: 'user-1' }] },
+    { rows: [] },
+    { rows: [] },
+    {
+      rows: [
+        {
+          free_access_started_at: new Date('2026-08-21T08:00:00.000Z'),
+          max_users: null,
+          plan: 'free',
+          used_users: 0,
+        },
+      ],
+    },
+  ]);
+  const repository = new PostgresAccessCodeRepository(pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(await repository.continueWithFree('user-1'), {
+    kind: 'active',
+    status: {
+      maxUsers: null,
+      newlyRedeemed: false,
+      plan: 'free',
+      state: 'active',
+      summary: 'Free plan active.',
+      usedUsers: null,
+    },
+  });
+  assert.match(queries[1].sql, /users WHERE id = \$1 FOR UPDATE/u);
+  assert.match(queries[2].sql, /free_access_started_at[\s\S]+NOT EXISTS/u);
+  assert.equal(
+    queries.some((query) => query.sql.includes('INSERT INTO access_code_redemptions')),
+    false,
+  );
+  assert.equal(queries[3].sql, 'COMMIT');
+  assert.equal(client.released, true);
+});
+
+test('does not continue a blocked account with Free', async () => {
+  const { client, pool, queries } = sequencedPool([
+    { rows: [] },
+    { rows: [{ blocked_at: new Date('2026-08-21T08:00:00.000Z'), id: 'user-1' }] },
+    { rows: [] },
+  ]);
+  const repository = new PostgresAccessCodeRepository(pool, {
+    hmacKey: TEST_HMAC_KEY,
+  });
+
+  assert.deepEqual(await repository.continueWithFree('user-1'), {
+    kind: 'account_blocked',
+  });
+  assert.equal(queries.at(-1).sql, 'ROLLBACK');
+  assert.equal(client.released, true);
 });
 
 test('returns an inactive status for a blocked account', async () => {

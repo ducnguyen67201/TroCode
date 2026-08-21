@@ -268,11 +268,14 @@ OAuth/model credentials are not part of the task snapshot contract.
 ### Production access codes
 
 Access checks are bypassed by raw local development (`npm start`). In hosted
-builds, every Google account starts on Free immediately after sign-in. Packaged
-builds without the hosted API retain the signed activation-code fallback.
+builds, every Google account must complete the plan-choice screen after sign-in.
+The user can redeem a shared access code immediately or explicitly continue on
+the Free plan, then enter a promo code later from Settings. The Free choice is
+stored per account so it remains complete across devices. Packaged builds
+without the hosted API retain the signed activation-code fallback.
 
 Hosted builds configured with `TROCODE_API_BASE_URL` store each account's plan,
-shared upgrade codes, and code redemptions in PostgreSQL. Create upgrade codes
+shared access codes, and code redemptions in PostgreSQL. Create access codes
 with the administrator CLI; do not insert them manually:
 
 ```bash
@@ -309,15 +312,15 @@ signed, `HttpOnly`, `Secure`, `SameSite=Strict` browser session that lasts for
 30 days or until the administrator selects **Lock**.
 
 The dashboard lists registered users, their current plans and access status,
-can block or unblock an account, and can generate 1–100 access codes in a
-single batch with a selected `free`, `basic`, `pro`, or `max` plan. Blocking an
-account immediately revokes all of its device sessions and prevents new
-sessions from being issued. Access-code verification uses keyed HMAC digests;
-new codes also keep an AES-256-GCM encrypted copy for authenticated admin
-retrieval. Legacy digest-only codes remain valid but cannot be displayed. An
-administrator can pause or resume any code without changing existing users'
-access. Permanent deletion is limited to unused codes so redemption history
-cannot be removed accidentally.
+can grant an available code directly to an unlinked user, can block or unblock
+an account, and can generate 1–100 access codes in a single batch with a
+selected `free`, `basic`, `pro`, or `max` plan. Blocking an account immediately
+revokes all of its device sessions and prevents new sessions from being issued.
+Access-code verification uses keyed HMAC digests; new codes also keep an
+AES-256-GCM encrypted copy for authenticated admin retrieval. Legacy digest-only
+codes remain valid but cannot be displayed. An administrator can pause or
+resume any code without changing existing users' access. Permanent deletion is
+limited to unused codes so redemption history cannot be removed accidentally.
 
 One agent message is one accepted user turn: the initial request, a clarification
 answer, or a steering message. The desktop sends its message UUID to
@@ -331,9 +334,10 @@ weekly message or monthly provider-cost limit is reached first blocks more infer
 Environment budget values are emergency ceilings and may only lower a tier's
 dollar limits.
 
-Plans are account entitlements. New accounts default to Free; redeeming a code
-atomically assigns that code's plan to the account. Existing redemptions are
-backfilled into the account plan during migration. New database-level
+Plans are account entitlements. New accounts default to Free but must explicitly
+choose that plan during onboarding; redeeming a code atomically assigns that
+code's plan to the account. Existing redemptions are backfilled into the account
+plan during migration. New database-level
 access-code rows default to Free, while the administrator CLI requires an
 explicit `--plan free|basic|pro|max`.
 

@@ -14,9 +14,20 @@ function renderSettings(appUpdateStatus: AppUpdateStatus): string {
       appUpdateStatus,
       error: null,
       hasChanges: false,
+      isActivatingMembership: false,
       isSaving: false,
       isUpdatingApp: false,
+      membershipError: null,
+      membershipStatus: {
+        expiresAt: null,
+        plan: 'free',
+        referenceCode: null,
+        required: true,
+        state: 'active',
+        summary: 'Free plan active.',
+      },
       muteSystemAudioWhileSpeaking: false,
+      onActivateMembership: vi.fn(),
       onAppLanguageChange: vi.fn(),
       onAutonomyModeChange: vi.fn(),
       onCheckForUpdates: vi.fn(),
@@ -99,9 +110,20 @@ describe('SettingsPage app language', () => {
         },
         error: null,
         hasChanges: true,
+        isActivatingMembership: false,
         isSaving: false,
         isUpdatingApp: false,
+        membershipError: null,
+        membershipStatus: {
+          expiresAt: null,
+          plan: 'free',
+          referenceCode: null,
+          required: true,
+          state: 'active',
+          summary: 'Free plan active.',
+        },
         muteSystemAudioWhileSpeaking: true,
+        onActivateMembership: vi.fn(),
         onAppLanguageChange: vi.fn(),
         onAutonomyModeChange: vi.fn(),
         onCheckForUpdates: vi.fn(),
@@ -150,5 +172,21 @@ describe('SettingsPage autonomy preference', () => {
     expect(markup).toContain('Autonomy');
     expect(markup).toContain('Routine, reversible actions continue automatically');
     expect(markup).toContain('value="strict"');
+  });
+});
+
+describe('SettingsPage promo codes', () => {
+  it('lets a Free user enter a promo code later', () => {
+    const markup = renderSettings({
+      currentVersion: '0.1.0',
+      message: 'No updates found.',
+      phase: 'up_to_date',
+      targetVersion: null,
+    });
+
+    expect(markup).toContain('Promo code');
+    expect(markup).toContain('Tro Free');
+    expect(markup).toContain('name="promoCode"');
+    expect(markup).toContain('Apply promo code');
   });
 });

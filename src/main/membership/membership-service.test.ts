@@ -209,6 +209,39 @@ describe('MembershipService', () => {
     );
   });
 
+  it('persists the hosted Free choice through the membership endpoint', async () => {
+    const { store } = memoryStore();
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          maxUsers: null,
+          plan: 'free',
+          state: 'active',
+          summary: 'Free plan active.',
+          usedUsers: null,
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    const service = new MembershipService({
+      accessTokenProvider: vi.fn(async () => `tro_live_${'a'.repeat(43)}`),
+      apiBaseUrl: 'https://api.trocode.example',
+      fetchImpl,
+      publicKey: '',
+      required: true,
+      store,
+    });
+
+    await expect(service.continueWithFree(TEST_USER)).resolves.toMatchObject({
+      plan: 'free',
+      state: 'active',
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.trocode.example/v1/access-code-redemptions/free',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
   it('returns an inactive production status with a stable reference code', async () => {
     const { publicKey } = generateKeyPairSync('ed25519');
     const { store } = memoryStore();

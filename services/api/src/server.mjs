@@ -505,6 +505,30 @@ export function createApiHandler({
         return;
       }
 
+      if (
+        request.method === 'POST' &&
+        path === '/v1/access-code-redemptions/free'
+      ) {
+        const session = await requireSession(request, sessionRepository);
+        await enforceSharedRateLimit(rateLimiter, {
+          key: session.user.id,
+          limit: 10,
+          scope: 'access-code.user',
+          windowMs: 15 * 60_000,
+        });
+        const result = await accessCodeRepository.continueWithFree(
+          session.user.id,
+        );
+        if (result.kind === 'account_blocked') {
+          throw new HttpError(
+            403,
+            'This account has been blocked by an administrator.',
+          );
+        }
+        sendJson(response, 200, result.status);
+        return;
+      }
+
       if (request.method === 'POST' && path === '/v1/agent-turns') {
         const session = await requireSession(request, sessionRepository);
         const access = await requireAccess(session, accessCodeRepository);

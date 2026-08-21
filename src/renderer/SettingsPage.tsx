@@ -2,6 +2,7 @@ import type {
   AutonomyMode,
   AppLanguage,
   AppUpdateStatus,
+  MembershipStatus,
   PrimaryLanguage,
 } from '../shared/contracts';
 
@@ -14,6 +15,7 @@ import {
   PRIMARY_LANGUAGE_OPTIONS,
   primaryLanguageLabel,
 } from './language-options';
+import { planTitle } from './usage-presentation';
 
 interface SettingsPageProps {
   autonomyMode: AutonomyMode;
@@ -23,12 +25,16 @@ interface SettingsPageProps {
   error: string | null;
   hasChanges: boolean;
   isSaving: boolean;
+  isActivatingMembership: boolean;
   isUpdatingApp: boolean;
+  membershipError: string | null;
+  membershipStatus: MembershipStatus | null;
   muteSystemAudioWhileSpeaking: boolean;
   onAutonomyModeChange(mode: AutonomyMode): void;
   onAppLanguageChange(language: AppLanguage): void;
   onCheckForUpdates(): void;
   onLanguageChange(language: PrimaryLanguage): void;
+  onActivateMembership(code: string): void;
   onMuteSystemAudioWhileSpeakingChange(enabled: boolean): void;
   onRestartAndInstall(): void;
   onSave(): void;
@@ -75,12 +81,16 @@ export function SettingsPage({
   error,
   hasChanges,
   isSaving,
+  isActivatingMembership,
   isUpdatingApp,
+  membershipError,
+  membershipStatus,
   muteSystemAudioWhileSpeaking,
   onAutonomyModeChange,
   onAppLanguageChange,
   onCheckForUpdates,
   onLanguageChange,
+  onActivateMembership,
   onMuteSystemAudioWhileSpeakingChange,
   onRestartAndInstall,
   onSave,
@@ -121,6 +131,76 @@ export function SettingsPage({
           )}
         </p>
       </div>
+
+      <section
+        className="settings-card settings-membership-card"
+        aria-labelledby="membership-settings-heading"
+      >
+        <div className="settings-card__heading">
+          <div>
+            <p className="eyebrow">{t('Plan access')}</p>
+            <h2 id="membership-settings-heading">{t('Promo code')}</h2>
+          </div>
+          <span className="settings-badge">
+            {planTitle(membershipStatus?.plan ?? 'free')}
+          </span>
+        </div>
+
+        <p className="settings-help">
+          {membershipStatus?.plan === 'free'
+            ? t(
+                'You can keep using Tro Free. Enter a promo code here whenever you are ready to upgrade.',
+              )
+            : t('Your promo code is active on this account.')}
+        </p>
+
+        {membershipStatus?.plan === 'free' && (
+          <form
+            className="settings-promo-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const code = String(
+                new FormData(event.currentTarget).get('promoCode') ?? '',
+              ).trim();
+              if (code.length >= 4) onActivateMembership(code);
+            }}
+          >
+            <label className="settings-promo-field">
+              <span>{t('Promo or access code')}</span>
+              <input
+                autoCapitalize="none"
+                autoComplete="off"
+                disabled={isActivatingMembership}
+                minLength={4}
+                name="promoCode"
+                placeholder={t('Enter your promo code')}
+                required
+                spellCheck={false}
+                type="text"
+              />
+            </label>
+            <p
+              className={`settings-feedback ${
+                membershipError ? 'settings-feedback--error' : ''
+              }`}
+              role={membershipError ? 'alert' : 'status'}
+            >
+              {membershipError ?? membershipStatus.summary}
+            </p>
+            <div className="settings-actions">
+              <button
+                className="primary-button"
+                disabled={isActivatingMembership}
+                type="submit"
+              >
+                {isActivatingMembership
+                  ? t('Checking…')
+                  : t('Apply promo code')}
+              </button>
+            </div>
+          </form>
+        )}
+      </section>
 
       <form
         className="settings-card"

@@ -36,6 +36,8 @@ const ADMIN_FAVICON = readFileSync(
 );
 const USER_ACCESS_PATH =
   /^\/v1\/admin\/users\/(?<userId>[^/]{1,768})\/access$/u;
+const USER_ACCESS_CODE_PATH =
+  /^\/v1\/admin\/users\/(?<userId>[^/]{1,768})\/access-code$/u;
 const ACCESS_CODE_USERS_PATH =
   /^\/v1\/admin\/access-codes\/(?<codeId>[^/]{1,128})\/users$/u;
 const ACCESS_CODE_PATH =
@@ -50,6 +52,9 @@ const USAGE_RANGES = ['24h', '7d', '30d', 'all'];
 
 const UserAccessSchema = z
   .object({ blocked: z.boolean() })
+  .strict();
+const UserAccessCodeSchema = z
+  .object({ accessCodeId: z.string().uuid() })
   .strict();
 const BulkCodeSchema = z
   .object({
@@ -424,6 +429,60 @@ export class AdminHttpController {
       const result = await this.repository.setUserBlocked(userId, body.blocked);
       if (!result) throw new HttpError(404, 'User not found.', 'user_not_found');
       sendJson(response, 200, result);
+      return true;
+    }
+
+    const userAccessCodeMatch = USER_ACCESS_CODE_PATH.exec(path);
+    if (request.method === 'POST' && userAccessCodeMatch?.groups?.userId) {
+      let userId;
+      try {
+        userId = decodeURIComponent(userAccessCodeMatch.groups.userId).trim();
+      } catch {
+        throw new HttpError(400, 'User ID is invalid.', 'invalid_request');
+      }
+      if (!userId || userId.length > 255) {
+        throw new HttpError(400, 'User ID is invalid.', 'invalid_request');
+      }
+      const body = parse(UserAccessCodeSchema, await readJson(request, 4_096));
+      const result = await this.repository.grantAccessCode(
+        userId,
+        body.accessCodeId,
+      );
+      if (result.kind === 'user_not_found') {
+        throw new HttpError(404, 'User not found.', 'user_not_found');
+      }
+      if (result.kind === 'code_not_found') {
+        throw new HttpError(404, 'Access code not found.', 'code_not_found');
+      }
+      if (result.kind === 'account_blocked') {
+        throw new HttpError(
+          409,
+          'Unblock this account before granting an access code.',
+          'account_blocked',
+        );
+      }
+      if (result.kind === 'account_already_linked') {
+        throw new HttpError(
+          409,
+          'This account is already linked to an access code.',
+          'account_already_linked',
+        );
+      }
+      if (result.kind === 'code_paused') {
+        throw new HttpError(
+          409,
+          'This access code is temporarily paused.',
+          'code_paused',
+        );
+      }
+      if (result.kind === 'code_full') {
+        throw new HttpError(
+          409,
+          'This access code has reached its user limit.',
+          'code_full',
+        );
+      }
+      sendJson(response, 201, result);
       return true;
     }
 

@@ -708,6 +708,20 @@ body {
   justify-content: center;
 }
 
+.membership-refresh-button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.membership-refresh-button:disabled {
+  cursor: wait;
+  opacity: 0.45;
+}
+
 .membership-sign-out {
   display: block;
   margin: 22px auto 0;
@@ -3865,6 +3879,39 @@ h1 {
 
 .settings-update-card {
   margin-top: 20px;
+}
+
+.settings-membership-card {
+  margin-bottom: 20px;
+}
+
+.settings-promo-form {
+  margin-top: 20px;
+}
+
+.settings-promo-field {
+  display: grid;
+  max-width: 520px;
+  gap: 8px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.settings-promo-field input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  outline: 0;
+  background: var(--panel);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.settings-promo-field input:focus {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 3px rgba(242, 201, 76, 0.2);
 }
 
 .settings-card__heading {

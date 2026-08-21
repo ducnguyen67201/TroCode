@@ -2,7 +2,12 @@
   color: #152019;
   background: #f4f5f0;
   font-family:
-    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -15,9 +20,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
-  background:
-    radial-gradient(circle at 80% -20%, rgb(205 225 204 / 44%), transparent 34rem),
-    #f4f5f0;
+  background: radial-gradient(circle at 80% -20%, rgb(205 225 204 / 44%), transparent 34rem), #f4f5f0;
 }
 
 button,
@@ -154,7 +157,9 @@ select {
   background: #fff;
   color: #17221b;
   padding: 0 13px;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
 }
 
 input:hover,
@@ -188,7 +193,10 @@ select:focus {
   padding: 0 17px;
   font-size: 13px;
   font-weight: 730;
-  transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  transition:
+    transform 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .button:not(:disabled):active {
@@ -379,7 +387,7 @@ select:focus {
   margin-right: 6px;
   border-radius: 50%;
   background: #6fa374;
-  content: "";
+  content: '';
 }
 
 .summary-foot--warning::before {
@@ -477,7 +485,7 @@ select:focus {
 }
 
 .chart-area {
-  fill: url("#usage-chart-gradient");
+  fill: url('#usage-chart-gradient');
 }
 
 .chart-line {
@@ -753,7 +761,7 @@ tbody tr:hover {
 
 .model-name {
   color: #3f5345;
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: 'SFMono-Regular', Consolas, monospace;
   font-size: 10px;
   font-weight: 690;
 }
@@ -818,7 +826,7 @@ tbody tr:hover {
   height: 5px;
   border-radius: 50%;
   background: currentcolor;
-  content: "";
+  content: '';
 }
 
 .status-badge--blocked {
@@ -844,7 +852,7 @@ tbody tr:hover {
 
 .access-code-cell code {
   color: #24452d;
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: 'SFMono-Regular', Consolas, monospace;
   font-size: 11px;
   font-weight: 720;
 }
@@ -893,6 +901,25 @@ tbody tr:hover {
 .code-actions {
   display: flex;
   gap: 7px;
+}
+
+.grant-code-dialog {
+  width: min(calc(100% - 32px), 560px);
+}
+
+.grant-code-dialog label + label {
+  margin-top: 14px;
+}
+
+.grant-code-pagination {
+  display: flex;
+  min-height: 35px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  color: #7d887f;
+  font-size: 11px;
 }
 
 .row-action--danger {
@@ -1051,7 +1078,7 @@ dialog::backdrop {
 .code-result code {
   overflow: hidden;
   color: #24452d;
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: 'SFMono-Regular', Consolas, monospace;
   font-size: 11px;
   font-weight: 700;
   text-overflow: ellipsis;
