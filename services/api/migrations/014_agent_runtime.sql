@@ -191,9 +191,20 @@ CREATE INDEX IF NOT EXISTS agent_worker_sessions_available_idx
   ON agent_worker_sessions(user_id, expires_at DESC)
   WHERE disconnected_at IS NULL;
 
-ALTER TABLE agent_tool_invocations
-  ADD CONSTRAINT agent_tool_invocations_worker_session_fk
-  FOREIGN KEY (worker_session_id) REFERENCES agent_worker_sessions(id) ON DELETE RESTRICT;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'agent_tool_invocations_worker_session_fk'
+      AND conrelid = 'agent_tool_invocations'::regclass
+  ) THEN
+    ALTER TABLE agent_tool_invocations
+      ADD CONSTRAINT agent_tool_invocations_worker_session_fk
+      FOREIGN KEY (worker_session_id) REFERENCES agent_worker_sessions(id) ON DELETE RESTRICT;
+  END IF;
+END
+$$;
 
 COMMENT ON TABLE agent_runs IS
   'Encrypted, API-owned durable agent runs. Screenshot bytes are never persisted.';

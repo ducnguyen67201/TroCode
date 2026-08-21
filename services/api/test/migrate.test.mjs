@@ -36,6 +36,10 @@ test('runs every checked-in SQL migration in filename order', async () => {
     /agent_runs[\s\S]+agent_run_events[\s\S]+agent_session_items[\s\S]+agent_run_checkpoints[\s\S]+agent_tool_invocations[\s\S]+agent_outcome_criteria[\s\S]+agent_evidence[\s\S]+agent_worker_sessions/u,
   );
   assert.match(
+    statements[13],
+    /IF NOT EXISTS[\s\S]+agent_tool_invocations_worker_session_fk/u,
+  );
+  assert.match(
     statements[14],
     /effect_kind[\s\S]+authorization_source[\s\S]+intent_revision[\s\S]+approval_required[\s\S]+effect_resource_consistency[\s\S]+policy_consistency/u,
   );
