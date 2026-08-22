@@ -1,3 +1,6 @@
+
+https://github.com/user-attachments/assets/ab86a7a6-d9e1-4645-bd5e-9090b13950b9
+
 # Tro
 
 Tro is a cross-platform, general-purpose agent foundation. Everyday and
