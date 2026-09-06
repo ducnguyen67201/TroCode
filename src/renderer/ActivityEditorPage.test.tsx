@@ -26,12 +26,12 @@ const source: KnowledgeSourceList['items'][number] = {
 describe('Activity authoring', () => {
   let root: Root;
   let container: HTMLDivElement;
-  let onPublished: ReturnType<typeof vi.fn>;
+  let onPublished: ReturnType<typeof vi.fn<() => void>>;
   beforeEach(async () => {
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
-    onPublished = vi.fn();
+    onPublished = vi.fn<() => void>();
     window.tro = {
       prepareKnowledgeActivity: vi.fn().mockResolvedValue(prepared),
       saveKnowledgeActivity: vi.fn().mockResolvedValue({ id: SPACE }),
@@ -105,7 +105,7 @@ describe('Activity authoring', () => {
       input('Ask learners to submit a file').click();
     });
     await act(async () => {
-      const help = Array.from(container.querySelectorAll('select'))[1];
+      const help = Array.from(container.querySelectorAll('select'))[1]!;
       help.value = 'socratic';
       help.dispatchEvent(new Event('change', { bubbles: true }));
     });
