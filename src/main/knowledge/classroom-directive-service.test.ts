@@ -44,8 +44,13 @@ function sessionService(autoOpenConsent: boolean) {
 }
 
 describe('ClassroomDirectiveService', () => {
-  it('claims then opens an eligible directive once when local consent is active', async () => {
-    const classroom = sessionService(true);
+  it('claims then opens an eligible directive once after joining with the default preference', async () => {
+    const classroom = new ClassroomSessionService({
+      getCurrentClassroomSession: vi.fn(),
+      joinRoom: vi.fn(async () => session),
+      leaveClassroom: vi.fn(),
+    });
+    await classroom.join({ code: 'TRO-ABCD-EFGH-JKLM', clientId: session.attemptId });
     const openExternal = vi.fn(async () => undefined);
     const claimDirective = vi.fn(async () => ({ execute: true as const, url: directive.url, origin: directive.origin, claimedAt: '2026-08-25T00:01:01.000Z' }));
     const service = new ClassroomDirectiveService({

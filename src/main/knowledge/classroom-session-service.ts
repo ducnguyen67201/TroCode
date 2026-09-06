@@ -37,9 +37,14 @@ export class ClassroomSessionService {
   }
 
   async join(input: JoinClassroomSessionRequest): Promise<ClassroomSessionProjection> {
-    const { autoOpenConsent = false, ...joinRequest } = input;
+    const { autoOpenConsent, ...joinRequest } = input;
     const session = await this.client.joinRoom(joinRequest);
-    return this.activate(session, autoOpenConsent);
+    const consent = autoOpenConsent ?? (
+      this.current?.attemptId === session.attemptId
+        ? this.current.autoOpenConsent
+        : true
+    );
+    return this.activate(session, consent);
   }
 
   async restore(): Promise<ClassroomSessionProjection | null> {

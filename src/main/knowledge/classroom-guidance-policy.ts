@@ -1,4 +1,9 @@
-import type { ClassroomBroadcast, CuaStatus } from '../../shared/contracts';
+import type { BroadcastNotice, ClassroomBroadcast, CuaStatus, GuidanceState } from '../../shared/contracts';
+
+export function defaultClassroomGuidanceConsent(notice: BroadcastNotice | null): GuidanceState['consent'] {
+  if (!notice?.sessionId || notice.offline) return null;
+  return { sessionId: notice.sessionId, enabled: true, contextMode: 'screen_if_permitted' };
+}
 
 export function canObserveClassroomExplanation(status: CuaStatus): boolean {
   if (status.state === 'error' || status.state === 'permission_required')
@@ -50,4 +55,17 @@ export function pendingClassroomExplanations(
     ),
     next,
   ].slice(-5);
+}
+
+export function classroomExplanationQueue(
+  current: ClassroomBroadcast[],
+  next: ClassroomBroadcast,
+  activeBroadcastId: string | null,
+): { pending: ClassroomBroadcast[]; releaseIds: string[] } {
+  const pending = pendingClassroomExplanations(current, next);
+  const releaseIds = current
+    .filter((broadcast) => broadcast.id !== activeBroadcastId &&
+      !pending.some((item) => item.id === broadcast.id))
+    .map((broadcast) => broadcast.id);
+  return { pending, releaseIds };
 }

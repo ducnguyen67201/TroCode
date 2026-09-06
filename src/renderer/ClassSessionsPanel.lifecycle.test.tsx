@@ -58,6 +58,25 @@ describe('Session lobby navigation', () => {
   const button = (text: string) => Array.from(container.querySelectorAll('button'))
     .find((item) => item.textContent?.includes(text))!;
 
+  it('joins without overriding the automatic classroom defaults and explains the controls', async () => {
+    window.tro.joinKnowledgeRoom = vi.fn().mockResolvedValue({ attemptId: RUN });
+    const onJoined = vi.fn();
+    await act(async () => root.render(<ClassSessionsPanel
+      appLanguage="en" canFacilitate={false} refreshToken={0} spaceId={SPACE} onJoined={onJoined} />));
+    expect(container.textContent).toContain('Approved class links open automatically.');
+    expect(container.textContent).toContain('You can turn either off in the class controls.');
+    await act(async () => {
+      const input = container.querySelector('input')!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'TRO-ABCD-EFGH-JKLM');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => button('Join Session').click());
+    expect(window.tro.joinKnowledgeRoom).toHaveBeenCalledWith({
+      code: 'TRO-ABCD-EFGH-JKLM', clientId: expect.any(String),
+    });
+    expect(onJoined).toHaveBeenCalledWith(RUN);
+  });
+
   it('opens and reopens a lobby without claiming the class is live or rotating its code', async () => {
     await render();
     expect(container.textContent).toContain('Room lobby');

@@ -22,6 +22,33 @@ const firstSession: KnowledgeClassroomSession = {
 };
 
 describe('ClassroomSessionService', () => {
+  it.each([undefined, false, true])('defaults new joins to automatic links while honoring an explicit %s preference', async (autoOpenConsent) => {
+    const service = new ClassroomSessionService({
+      getCurrentClassroomSession: vi.fn(async () => firstSession),
+      joinRoom: vi.fn(async () => firstSession),
+      leaveClassroom: vi.fn(),
+    });
+    const joined = await service.join({
+      code: 'TRO-ABCD-EFGH-JKLM',
+      clientId: '00000000-0000-4000-8000-000000000005',
+      autoOpenConsent,
+    });
+    expect(joined.autoOpenConsent).toBe(autoOpenConsent ?? true);
+  });
+
+  it('preserves a student opt-out when refreshing or rejoining the same Attempt', async () => {
+    const service = new ClassroomSessionService({
+      getCurrentClassroomSession: vi.fn(async () => firstSession),
+      joinRoom: vi.fn(async () => firstSession),
+      leaveClassroom: vi.fn(),
+    });
+    const request = { code: 'TRO-ABCD-EFGH-JKLM', clientId: '00000000-0000-4000-8000-000000000005' };
+    await service.join(request);
+    service.setAutoOpenConsent(false);
+    expect((await service.restore())?.autoOpenConsent).toBe(false);
+    expect((await service.join(request)).autoOpenConsent).toBe(false);
+  });
+
   it('keeps trusted join context in main and only inherits an open active Attempt', async () => {
     const client = {
       getCurrentClassroomSession: vi.fn(async () => firstSession),

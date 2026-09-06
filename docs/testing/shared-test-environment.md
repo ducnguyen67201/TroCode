@@ -78,11 +78,21 @@ access remains usable when no shared-code seat can be claimed.
 2. On the student computer, join with the new test room code.
 3. On the teacher computer, use regular Ask Tro voice to say:
    “Explain Assignment 1 to this class.” Review the prepared broadcast and send it.
-4. On the student computer, start the received guidance (or enable the existing
-   idle auto-start option). Allow the required OS screen/microphone permissions.
+4. New teacher explanations start automatically on idle student devices after
+   the live session feed is established. Existing or reconnecting feed snapshots
+   still require **Start explanation**. Allow the required OS screen/microphone
+   permissions; without screen access, explanations use text only. Students can
+   disable automatic explanations in the class controls.
 5. Verify the student gets guidance based on that computer's current screen and
    the selected assignment. Broadcasts distribute instructions; each student's
    local agent observes its own context.
+
+Joining a room enables automatic opening of links approved by the published
+Activity. Students can turn it off in the class controls; refreshing or rejoining
+the same active Attempt preserves that choice. Restoring a room after restarting
+the app keeps automatic links off until the student enables them or explicitly
+leaves and joins again. Sites absent from **Websites Tro may open automatically**
+remain manual-only, and old directives are not retried just because a toggle changes.
 
 ## Packaged test app
 
