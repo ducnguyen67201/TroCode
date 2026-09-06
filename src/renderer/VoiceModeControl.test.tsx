@@ -1,8 +1,9 @@
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+
+import { readStylesheet } from '../test-support/read-stylesheet';
 
 import {
   isVoiceModeToggleShortcut,
@@ -58,16 +59,10 @@ describe('VoiceModeControl', () => {
     };
 
     expect(
-      isVoiceModeToggleShortcut(
-        { ...baseEvent, metaKey: true },
-        'macos',
-      ),
+      isVoiceModeToggleShortcut({ ...baseEvent, metaKey: true }, 'macos'),
     ).toBe(true);
     expect(
-      isVoiceModeToggleShortcut(
-        { ...baseEvent, ctrlKey: true },
-        'windows',
-      ),
+      isVoiceModeToggleShortcut({ ...baseEvent, ctrlKey: true }, 'windows'),
     ).toBe(true);
     expect(
       isVoiceModeToggleShortcut(
@@ -81,7 +76,7 @@ describe('VoiceModeControl', () => {
   });
 
   it('keeps the task composer voice controls bounded by responsive CSS constraints', () => {
-    const css = readFileSync(resolve(__dirname, '../index.css'), 'utf8');
+    const css = readStylesheet(resolve(__dirname, '../index.css'));
 
     expect(css).toContain('container-name: task-composer;');
     expect(css).toContain('container-type: inline-size;');

@@ -32,6 +32,8 @@ jobs:
           node-version: 24
       - name: Test CI routing and migration safeguards
         run: node --test scripts/ci-plan.test.mts
+      - name: Check source size and ratchet existing exceptions
+        run: npm run check:source-size
       - name: Check migration history and select verification
         id: plan
         run: node scripts/ci-plan.mts

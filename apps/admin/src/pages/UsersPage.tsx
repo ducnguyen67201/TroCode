@@ -1,28 +1,13 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ChangeEvent,
-} from 'react';
+import { type ChangeEvent, useState } from 'react';
 
-import {
-  adminApi,
-  errorMessage,
-  isUnauthorized,
-} from '../api/adminApi';
-import type {
-  AdminUser,
-  ClassroomRole,
-  UsersResponse,
-} from '../api/contracts';
+import { adminApi, errorMessage, isUnauthorized } from '../api/adminApi';
+import type { AdminUser, ClassroomRole } from '../api/contracts';
 import { EmptyState } from '../components/EmptyState';
 import { GrantCodeDialog } from '../components/GrantCodeDialog';
 import { SummaryCard } from '../components/SummaryCard';
-import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import { dateLabel, initials } from '../lib/formatters';
-
-const PAGE_SIZE = 50;
+import { UsersTable } from '../components/UsersTable';
+import { useUsers } from '../hooks/useUsers';
+import type { RoleSaveState } from '../lib/role-save-state';
 
 interface UsersPageProps {
   active: boolean;
@@ -30,13 +15,6 @@ interface UsersPageProps {
   onCreateCodes: () => void;
   onSessionExpired: () => void;
 }
-
-interface RoleSaveState {
-  kind: 'error' | 'idle' | 'saved' | 'saving';
-  message: string;
-}
-
-const idleRoleState: RoleSaveState = { kind: 'idle', message: '' };
 
 export function UsersPage({
   active,
@@ -46,59 +24,23 @@ export function UsersPage({
 }: UsersPageProps) {
   const [busyUserId, setBusyUserId] = useState('');
   const [knowledgeBusyUserId, setKnowledgeBusyUserId] = useState('');
-  const [classroomRole, setClassroomRole] = useState('');
+  const {
+    loadUsers,
+    setResponse,
+    response,
+    loading,
+    setSearch,
+    search,
+    setClassroomRole,
+    classroomRole,
+    setStatus,
+    status,
+  } = useUsers({ onSessionExpired, notify, active });
+
   const [grantUser, setGrantUser] = useState<AdminUser | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [response, setResponse] = useState<UsersResponse | null>(null);
   const [roleStates, setRoleStates] = useState<Record<string, RoleSaveState>>(
     {},
   );
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const debouncedSearch = useDebouncedValue(search.trim(), 260);
-  const itemCountRef = useRef(0);
-  const requestSequence = useRef(0);
-
-  useEffect(() => {
-    itemCountRef.current = response?.items.length ?? 0;
-  }, [response?.items.length]);
-
-  const loadUsers = useCallback(
-    async (append = false) => {
-      const requestId = ++requestSequence.current;
-      setLoading(true);
-      try {
-        const result = await adminApi.listUsers({
-          classroomRole,
-          limit: PAGE_SIZE,
-          offset: append ? itemCountRef.current : 0,
-          search: debouncedSearch,
-          status,
-        });
-        if (requestId !== requestSequence.current) return;
-        setResponse((current) => ({
-          ...result,
-          items: append && current ? [...current.items, ...result.items] : result.items,
-        }));
-      } catch (caught) {
-        if (requestId !== requestSequence.current) return;
-        if (isUnauthorized(caught)) {
-          onSessionExpired();
-          return;
-        }
-        notify(errorMessage(caught));
-      } finally {
-        if (requestId === requestSequence.current) setLoading(false);
-      }
-    },
-    [classroomRole, debouncedSearch, notify, onSessionExpired, status],
-  );
-
-  useEffect(() => {
-    if (!active) return;
-    const timeout = window.setTimeout(() => void loadUsers(), 0);
-    return () => window.clearTimeout(timeout);
-  }, [active, loadUsers]);
 
   async function changeAccess(user: AdminUser) {
     const blocked = user.status !== 'blocked';
@@ -332,137 +274,16 @@ export function UsersPage({
         </div>
         {users.length ? (
           <div className="table-scroll">
-            <table className="users-table">
-              <thead>
-                <tr>
-                  <th scope="col">User</th>
-                  <th scope="col">Plan</th>
-                  <th scope="col">Classroom role</th>
-                  <th scope="col">Class workspaces</th>
-                  <th scope="col">Access code</th>
-                  <th scope="col">Last seen</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((user) => {
-                  const blocked = user.status === 'blocked';
-                  const roleState = roleStates[user.id] ?? idleRoleState;
-                  return (
-                    <tr key={user.id}>
-                      <td>
-                        <div className="user-cell">
-                          <span className="avatar">
-                            {initials(user.name, user.email)}
-                          </span>
-                          <span>
-                            <span className="user-name">
-                              {user.name || 'Unnamed user'}
-                            </span>
-                            <span className="user-email">{user.email}</span>
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`plan-badge plan-badge--${user.plan}`}>
-                          {user.plan}
-                        </span>
-                      </td>
-                      <td className="classroom-role-cell" data-label="Classroom role">
-                        <div
-                          className={`classroom-role-control classroom-role-control--${user.classroomRole}`}
-                          data-state={roleState.kind}
-                        >
-                          <span className="classroom-role-control__mark">●</span>
-                          <select
-                            aria-label={`Classroom role for ${user.email}`}
-                            className="classroom-role-select"
-                            disabled={roleState.kind === 'saving'}
-                            onChange={(event) =>
-                              void changeClassroomRole(user, event)
-                            }
-                            value={user.classroomRole}
-                          >
-                            <option value="unassigned">Unassigned</option>
-                            <option value="teacher">Teacher</option>
-                            <option value="student">Student</option>
-                          </select>
-                        </div>
-                        <span
-                          className={`classroom-role-save-state${roleState.kind === 'idle' ? '' : ` classroom-role-save-state--${roleState.kind}`}`}
-                          role="status"
-                        >
-                          {roleState.message}
-                        </span>
-                      </td>
-                      <td data-label="Class workspaces">
-                        <button
-                          aria-pressed={user.knowledgeSpacesEnabled}
-                          className={`row-action${user.knowledgeSpacesEnabled ? '' : ' row-action--block'}`}
-                          disabled={knowledgeBusyUserId === user.id}
-                          onClick={() => void changeKnowledgeSpacesAccess(user)}
-                          type="button"
-                        >
-                          {knowledgeBusyUserId === user.id
-                            ? 'Saving…'
-                            : user.knowledgeSpacesEnabled
-                              ? 'Enabled'
-                              : 'Disabled'}
-                        </button>
-                      </td>
-                      <td>
-                        {user.codeLabel ||
-                          (user.accessCodeId ? 'Unlabelled code' : '—')}
-                      </td>
-                      <td>{dateLabel(user.lastSeenAt)}</td>
-                      <td>
-                        <span
-                          className={`status-badge status-badge--${user.status}`}
-                        >
-                          {user.status}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="code-actions">
-                          {!user.accessCodeId && (
-                            <button
-                              className="row-action row-action--users"
-                              disabled={blocked}
-                              onClick={() => setGrantUser(user)}
-                              title={
-                                blocked
-                                  ? 'Unblock this user before granting a code.'
-                                  : undefined
-                              }
-                              type="button"
-                            >
-                              Grant code
-                            </button>
-                          )}
-                          <button
-                            className={`row-action${blocked ? '' : ' row-action--block'}`}
-                            disabled={busyUserId === user.id}
-                            onClick={() => void changeAccess(user)}
-                            type="button"
-                          >
-                            {busyUserId === user.id
-                              ? blocked
-                                ? 'Unblocking…'
-                                : 'Blocking…'
-                              : blocked
-                                ? 'Unblock'
-                                : 'Block'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <UsersTable
+              users={users}
+              roleStates={roleStates}
+              knowledgeBusyUserId={knowledgeBusyUserId}
+              setGrantUser={setGrantUser}
+              busyUserId={busyUserId}
+              changeClassroomRole={changeClassroomRole}
+              changeKnowledgeSpacesAccess={changeKnowledgeSpacesAccess}
+              changeAccess={changeAccess}
+            />
           </div>
         ) : (
           !loading && (

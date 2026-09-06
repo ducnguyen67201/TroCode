@@ -1,0 +1,446 @@
+
+
+.settings-dialog .settings-toggle input:checked {
+  border-color: var(--text);
+  background: var(--text);
+}
+
+.settings-dialog .settings-toggle input:checked::before {
+  transform: translateX(20px);
+}
+
+.settings-dialog .settings-toggle input:focus-visible {
+  outline: 3px solid rgba(242, 201, 76, 0.5);
+  outline-offset: 3px;
+}
+
+.settings-dialog .settings-toggle > span {
+  min-width: 0;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.settings-dialog .settings-toggle strong {
+  font-size: 13px;
+}
+
+.settings-dialog .settings-toggle small {
+  max-width: 560px;
+  font-size: 12px;
+}
+
+.settings-dialog .settings-card {
+  margin: 0 0 31px;
+  padding: 0 0 31px;
+  border: 0;
+  border-bottom: 1px solid rgba(39, 39, 34, 0.11);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-dialog .settings-card:last-child {
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+
+.settings-dialog .settings-card__heading {
+  margin-bottom: 20px;
+}
+
+.settings-dialog .companion-customization-card {
+  margin: 0;
+  padding: 24px;
+  border: 1px solid rgba(118, 86, 0, 0.15);
+  border-radius: 17px;
+  background: rgba(242, 201, 76, 0.07);
+}
+
+.settings-dialog .settings-update-card,
+.settings-dialog .settings-membership-card,
+.settings-dialog .settings-organization-card {
+  margin-top: 0;
+  margin-bottom: 31px;
+}
+
+.settings-dialog .settings-help {
+  max-width: 650px;
+}
+
+.settings-dialog .settings-actions {
+  margin-top: 22px;
+}
+
+.settings-dialog .settings-organization-summary > div {
+  background: rgba(245, 243, 236, 0.7);
+}
+
+.settings-dialog .settings-promo-field {
+  max-width: 440px;
+}
+
+.settings-save-shelf {
+  display: flex;
+  min-width: 0;
+  min-height: 76px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 38px;
+  border-top: 1px solid rgba(39, 39, 34, 0.12);
+  background: rgba(255, 254, 250, 0.96);
+  box-shadow: 0 -10px 30px rgba(51, 48, 38, 0.035);
+}
+
+.settings-save-shelf > div {
+  min-width: 0;
+}
+
+.settings-save-shelf .settings-feedback {
+  margin: 0;
+}
+
+.settings-save-shelf .primary-button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 1020px) {
+  .settings-dialog {
+    width: calc(100vw - 40px);
+    height: min(760px, calc(100dvh - 28px));
+  }
+
+  .settings-dialog[open] {
+    grid-template-columns: 204px minmax(0, 1fr);
+  }
+
+  .settings-dialog__rail {
+    padding-right: 13px;
+    padding-left: 13px;
+  }
+
+  .settings-dialog__header {
+    padding-right: 28px;
+    padding-left: 28px;
+  }
+
+  .settings-dialog__scroller {
+    padding-right: 28px;
+    padding-left: 28px;
+  }
+
+  .settings-save-shelf {
+    padding-right: 28px;
+    padding-left: 28px;
+  }
+
+  .settings-row {
+    gap: 24px;
+    grid-template-columns: minmax(0, 1fr) 190px;
+  }
+}
+
+@media (max-height: 640px) {
+  .settings-dialog {
+    height: calc(100dvh - 24px);
+  }
+
+  .settings-dialog__rail {
+    padding-top: 18px;
+    padding-bottom: 14px;
+  }
+
+  .settings-dialog__masthead {
+    padding-bottom: 17px;
+  }
+
+  .settings-dialog__nav-group {
+    margin-bottom: 12px;
+  }
+
+  .settings-dialog__nav-item {
+    min-height: 40px;
+  }
+
+  .settings-dialog__header {
+    padding-top: 20px;
+    padding-bottom: 17px;
+  }
+
+  .settings-dialog__title h1 {
+    font-size: 29px;
+  }
+
+  .settings-dialog__title > p:last-child {
+    margin-top: 6px;
+  }
+
+  .settings-dialog__scroller {
+    padding-top: 22px;
+    padding-bottom: 30px;
+  }
+
+  .settings-save-shelf {
+    min-height: 66px;
+  }
+}
+
+.insights-page {
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 44px 40px 80px;
+}
+
+.insights-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.insights-heading h1 {
+  margin-bottom: 12px;
+  font-size: clamp(36px, 4vw, 48px);
+}
+
+.insights-heading > div > p:last-child {
+  max-width: 660px;
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.session-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  padding: 8px 11px;
+  border: 1px solid rgba(214, 170, 33, 0.25);
+  border-radius: 999px;
+  background: rgba(242, 201, 76, 0.13);
+  color: var(--accent-text);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.session-badge > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-strong);
+  box-shadow: 0 0 0 4px rgba(242, 201, 76, 0.18);
+}
+
+.insights-tabs {
+  display: flex;
+  min-height: 53px;
+  align-items: flex-end;
+  gap: 28px;
+  margin: 28px 0 30px;
+  border-bottom: 1px solid var(--border);
+}
+
+.insights-tabs__active {
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+  padding: 0 1px;
+  border-bottom: 3px solid var(--text);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.insights-tabs > span:not(.insights-tabs__active) {
+  align-self: center;
+  padding-top: 4px;
+  color: var(--subtle);
+  font-size: 11px;
+}
+
+.insights-summary-grid,
+.insights-detail-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.insights-detail-grid {
+  margin-top: 16px;
+}
+
+.insight-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #faf9f6;
+}
+
+.insight-card--gauge {
+  grid-column: span 4;
+}
+
+.insight-card--tasks {
+  grid-column: span 3;
+}
+
+.insight-card--events {
+  grid-column: span 5;
+}
+
+.insight-card--learning {
+  min-height: 230px;
+  padding: 22px;
+  grid-column: span 12;
+}
+
+.insight-card--gauge,
+.insight-card--tasks,
+.insight-card--events {
+  min-height: 280px;
+  padding: 22px;
+}
+
+.insight-card__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 19px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.insight-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid rgba(214, 170, 33, 0.2);
+  border-radius: 9px;
+  background: rgba(242, 201, 76, 0.16);
+  color: var(--accent-text);
+}
+
+.insight-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.insight-value {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 38px;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.insight-label {
+  color: var(--subtle);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+}
+
+.completion-gauge {
+  position: relative;
+  width: min(100%, 190px);
+  margin: 18px auto -4px;
+}
+
+.completion-gauge svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+.completion-gauge path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-width: 13;
+}
+
+.completion-gauge__track {
+  stroke: #e9e7df;
+}
+
+.completion-gauge__value {
+  stroke: var(--accent-strong);
+  transition: stroke-dasharray 300ms ease;
+}
+
+.completion-gauge > div {
+  position: absolute;
+  right: 0;
+  bottom: 4px;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.completion-gauge > div strong {
+  font-size: 21px;
+  line-height: 1.05;
+}
+
+.completion-gauge > div span {
+  color: var(--subtle);
+  font-size: 10px;
+}
+
+.insight-stat-list,
+.event-summary {
+  display: grid;
+  gap: 1px;
+  margin-top: 25px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--border);
+}
+
+.insight-stat-list > div,
+.event-summary > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.insight-stat-list strong,
+.event-summary strong {
+  margin-left: auto;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.event-summary {
+  margin-top: 25px;
+}
+
+.event-summary__dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--accent-strong);
+}
+
+.event-summary__dot--error {
+  background: var(--danger);
+}

@@ -1,0 +1,363 @@
+
+
+.assignment-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.assignment-state i {
+  background: var(--class-blue);
+  box-shadow: 0 0 0 3px rgba(85, 116, 122, 0.12);
+}
+
+.assignment-card__copy {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.assignment-card__copy > strong {
+  max-width: 85%;
+  font-family: 'Iowan Old Style', Georgia, serif;
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.08;
+}
+
+.assignment-card__copy p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.assignment-card__open {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  align-self: end;
+  margin-top: auto;
+  padding-top: 13px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.assignment-card__open i {
+  color: var(--text);
+  font-size: 14px;
+  font-style: normal;
+  transition: transform 160ms ease;
+}
+
+.assignment-card:hover .assignment-card__open i {
+  transform: translateX(4px);
+}
+
+.assignment-loading {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.assignment-loading i {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--class-blue);
+  border-radius: 50%;
+  animation: class-loading 900ms linear infinite;
+}
+
+.assignment-empty {
+  display: grid;
+  min-height: 190px;
+  place-content: center;
+  align-items: center;
+  gap: 17px;
+  text-align: left;
+  grid-template-columns: auto minmax(0, 410px);
+}
+
+.assignment-empty__mark {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border: 1px solid rgba(85, 116, 122, 0.22);
+  border-radius: 50%;
+  background: var(--class-blue-soft);
+  color: var(--class-blue);
+  font-size: 21px;
+}
+
+.assignment-empty p:last-child {
+  margin-bottom: 0;
+}
+
+@keyframes class-loading {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.knowledge-page input:hover,
+.knowledge-page select:hover,
+.knowledge-page textarea:hover {
+  border-color: rgba(39, 40, 33, 0.34);
+}
+
+.knowledge-page input:focus,
+.knowledge-page select:focus,
+.knowledge-page textarea:focus {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 3px rgba(242, 201, 76, 0.14);
+  outline: none;
+}
+
+@media (max-width: 1120px) {
+  .knowledge-page {
+    width: calc(100% - 48px);
+  }
+
+  .class-landing-hero,
+  .assigned-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .class-landing-hero__identity {
+    align-self: flex-start;
+  }
+
+  .class-detail-hero {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .class-detail-hero__meta {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .people-console {
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+
+  .class-member-add {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .member-composer__actions {
+    display: grid;
+    align-items: end;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .class-entry-grid,
+  .space-grid,
+  .assignment-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .people-console {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .people-composition {
+    display: grid;
+    align-items: center;
+    gap: 18px;
+    grid-template-columns: minmax(90px, auto) minmax(220px, 1fr);
+  }
+
+  .people-composition .eyebrow,
+  .people-composition > p:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .people-composition__total {
+    margin: 0;
+  }
+
+  .member-add-result__stats,
+  .group-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .roster-toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(150px, 190px);
+  }
+
+  .roster-toolbar__result {
+    grid-column: 1 / -1;
+    grid-auto-flow: column;
+    justify-content: end;
+    justify-items: auto;
+    gap: 5px;
+    border-top: 1px solid var(--border);
+    border-left: 0;
+    padding-top: 9px;
+  }
+
+  .materials-empty {
+    gap: 28px;
+    grid-template-columns: minmax(130px, 170px) minmax(0, 1fr);
+  }
+
+  .materials-empty__visual {
+    width: 158px;
+    transform: scale(0.88);
+    transform-origin: center;
+  }
+}
+
+@media (max-width: 700px) {
+  .knowledge-page {
+    width: calc(100% - 28px);
+    padding-top: 22px;
+  }
+
+  .class-landing-hero,
+  .assigned-hero,
+  .class-detail-hero {
+    padding: 22px;
+    border-radius: 18px;
+  }
+
+  .class-detail-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .class-detail-hero__mark {
+    width: 58px;
+    height: 58px;
+  }
+
+  .class-detail-hero__meta {
+    grid-column: 1;
+  }
+
+  .class-workspace-identity {
+    gap: 13px;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .class-workspace-identity__mark {
+    width: 47px;
+    height: 50px;
+  }
+
+  .class-workspace-identity__role {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .space-tabs {
+    gap: 22px;
+    overflow-x: auto;
+  }
+
+  .people-panel__heading,
+  .library-panel__heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .people-panel__heading {
+    padding: 22px;
+  }
+
+  .library-panel__heading {
+    padding: 22px 0 18px;
+  }
+
+  .library-panel__heading > div:first-child {
+    flex-basis: auto;
+  }
+
+  .people-panel__total,
+  .library-count {
+    padding: 0;
+    border: 0;
+  }
+
+  .people-console,
+  .people-panel > .form-error,
+  .member-add-result,
+  .roster-heading,
+  .roster-toolbar,
+  .class-roster-wrap,
+  .groups-studio,
+  .library-panel > .form-error,
+  .library-panel > .upload-preview,
+  .library-table-wrap {
+    margin-right: 18px;
+    margin-left: 18px;
+  }
+
+  .library-panel > .form-error,
+  .library-panel > .upload-preview,
+  .library-table-wrap {
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  .member-composer__actions,
+  .member-add-result__stats,
+  .group-list,
+  .roster-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .roster-toolbar__result {
+    grid-column: 1;
+  }
+
+  .materials-header-tools {
+    width: 100%;
+  }
+
+  .materials-empty {
+    min-height: 0;
+    margin: 8px 0 20px;
+    padding: 24px 0;
+    grid-template-columns: minmax(110px, 145px) minmax(0, 1fr);
+  }
+
+  .materials-empty__visual {
+    width: 145px;
+    height: 136px;
+    transform: scale(0.78);
+    transform-origin: left center;
+  }
+
+  .assignment-class-folio {
+    padding: 17px 16px 17px 27px;
+  }
+
+  .assignment-class-folio__heading {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .assignment-class-folio__heading > span:last-child {
+    grid-column: 2;
+    justify-self: start;
+  }
+}

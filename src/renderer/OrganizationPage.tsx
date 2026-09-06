@@ -1,44 +1,13 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 
-import type {
-  AppLanguage,
-  OrganizationMember,
-  OrganizationSummary,
-} from '../shared/contracts';
-import {
-  MAX_ORGANIZATION_HOME_BANNER_BYTES,
-  OrganizationHomeBannerImageDataUrlSchema,
-} from '../shared/contracts';
+import type { AppLanguage, OrganizationSummary } from '../shared/contracts';
 
-import { appLocale, translate } from './app-language';
-
-const MEMBERS_PAGE_SIZE = 50;
-
-function readImageAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Tro could not read this image.'));
-    reader.onload = () => {
-      const result = OrganizationHomeBannerImageDataUrlSchema.safeParse(
-        reader.result,
-      );
-      if (!result.success) {
-        reject(new Error('Tro could not read this image.'));
-        return;
-      }
-      resolve(result.data);
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-function formatJoinedDate(value: string, appLanguage: AppLanguage): string {
-  return new Intl.DateTimeFormat(appLocale(appLanguage), {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(value));
-}
+import { translate } from './app-language';
+import { OrganizationBanner } from './features/account/OrganizationBanner';
+import { OrganizationMembers } from './features/account/OrganizationMembers';
+import { useOrganizationBanner } from './features/account/use-organization-banner';
+import { useOrganizationMembers } from './features/account/use-organization-members';
+import { useOrganizationProfile } from './features/account/use-organization-profile';
 
 export function OrganizationPage({
   appLanguage,
@@ -57,33 +26,7 @@ export function OrganizationPage({
   onRefresh: () => Promise<OrganizationSummary | null | void>;
   organization: OrganizationSummary | null;
 }) {
-  const bannerInputId = useId();
-  const [email, setEmail] = useState('');
-  const [organizationNameDraft, setOrganizationNameDraft] = useState(
-    organization?.name ?? '',
-  );
-  const [members, setMembers] = useState<OrganizationMember[]>([]);
-  const [memberCount, setMemberCount] = useState(0);
-  const [membersError, setMembersError] = useState<string | null>(null);
-  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
-  const [isSavingName, setIsSavingName] = useState(false);
-  const [profileError, setProfileError] = useState<string | null>(null);
-  const [bannerError, setBannerError] = useState<string | null>(null);
-  const [bannerDraft, setBannerDraft] = useState<string | null>(
-    organization?.homeBanner?.imageDataUrl ?? null,
-  );
-  const [isSavingBanner, setIsSavingBanner] = useState(false);
-  const [cancellingMemberId, setCancellingMemberId] = useState<string | null>(
-    null,
-  );
   const [notice, setNotice] = useState<string | null>(null);
-  const membersRequestIdRef = useRef(0);
-  const profileRequestIdRef = useRef(0);
-  const emailInputRef = useRef<HTMLInputElement | null>(null);
-  const membersHeadingRef = useRef<HTMLHeadingElement | null>(null);
-  const nameInputRef = useRef<HTMLInputElement | null>(null);
   const organizationId = organization?.id ?? null;
   const isOrganizer = organization?.role === 'organizer';
   const t = useCallback(
@@ -93,283 +36,62 @@ export function OrganizationPage({
     ) => translate(appLanguage, message, replacements),
     [appLanguage],
   );
+  const {
+    bannerError,
+    bannerDraft,
+    bannerInputId,
+    isSavingBanner,
+    selectBannerImage,
+    saveHomeBanner,
+    restoreDefaultHomeBanner,
+  } = useOrganizationBanner({
+    organization,
+    t,
+    setNotice,
+    isOrganizer,
+    onOrganizationChange,
+  });
 
-  const loadMembers = useCallback(
-    async ({
-      append = false,
-      offset = 0,
-    }: { append?: boolean; offset?: number } = {}) => {
-      if (!organizationId || !isOrganizer) {
-        membersRequestIdRef.current += 1;
-        setMembers([]);
-        setMemberCount(0);
-        setMembersError(null);
-        return;
-      }
+  const {
+    profileError,
+    saveOrganizationName,
+    isSavingName,
+    setOrganizationNameDraft,
+    setProfileError,
+    nameInputRef,
+    organizationNameDraft,
+  } = useOrganizationProfile({
+    organization,
+    isOrganizer,
+    t,
+    setNotice,
+    onOrganizationChange,
+  });
 
-      const requestId = membersRequestIdRef.current + 1;
-      membersRequestIdRef.current = requestId;
-      if (append) setIsLoadingMore(true);
-      else setIsLoadingMembers(true);
-      setMembersError(null);
-
-      try {
-        const response = await window.tro.listOrganizationMembers({
-          limit: MEMBERS_PAGE_SIZE,
-          offset,
-        });
-        if (membersRequestIdRef.current !== requestId) return;
-        setMembers((current) =>
-          append
-            ? [
-                ...current,
-                ...response.items.filter(
-                  (member) =>
-                    !current.some(
-                      (currentMember) => currentMember.id === member.id,
-                    ),
-                ),
-              ]
-            : response.items,
-        );
-        setMemberCount(response.page.total);
-        onOrganizationChange(response.organization);
-      } catch (loadError) {
-        if (membersRequestIdRef.current !== requestId) return;
-        setMembersError(
-          loadError instanceof Error
-            ? loadError.message
-            : t('Tro could not load organization members.'),
-        );
-      } finally {
-        if (membersRequestIdRef.current === requestId) {
-          setIsLoadingMembers(false);
-          setIsLoadingMore(false);
-        }
-      }
-    },
-    [isOrganizer, onOrganizationChange, organizationId, t],
-  );
-
-  useEffect(() => {
-    profileRequestIdRef.current += 1;
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (cancelled) return;
-      setOrganizationNameDraft(organization?.name ?? '');
-      setProfileError(null);
-      setIsSavingName(false);
-    });
-    return () => {
-      cancelled = true;
-      profileRequestIdRef.current += 1;
-    };
-  }, [organization?.id, organization?.name, organization?.role]);
-
-  useEffect(() => {
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (cancelled) return;
-      setBannerDraft(organization?.homeBanner?.imageDataUrl ?? null);
-      setBannerError(null);
-      setIsSavingBanner(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [organization?.homeBanner?.imageDataUrl, organization?.id]);
-
-  useEffect(() => {
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (cancelled) return;
-      setMembers([]);
-      setMemberCount(0);
-      setNotice(null);
-      void loadMembers();
-    });
-    return () => {
-      cancelled = true;
-      membersRequestIdRef.current += 1;
-    };
-  }, [loadMembers]);
-
-  const saveOrganizationName = useCallback(async () => {
-    if (!organization || !isOrganizer) return;
-    const name = organizationNameDraft.trim();
-    if (name.length < 1 || name.length > 100) {
-      setProfileError(t('Organization name must be between 1 and 100 characters.'));
-      return;
-    }
-    if (name === organization.name) {
-      setNotice(t('Organization name is already up to date.'));
-      nameInputRef.current?.focus();
-      return;
-    }
-
-    const requestId = profileRequestIdRef.current + 1;
-    profileRequestIdRef.current = requestId;
-    const expectedOrganizationId = organization.id;
-    setIsSavingName(true);
-    setProfileError(null);
-    setNotice(null);
-    try {
-      const response = await window.tro.updateOrganization({ name });
-      if (
-        profileRequestIdRef.current !== requestId ||
-        response.organization.id !== expectedOrganizationId
-      ) {
-        return;
-      }
-      onOrganizationChange(response.organization);
-      setOrganizationNameDraft(response.organization.name);
-      setNotice(t('Organization name saved.'));
-      nameInputRef.current?.focus();
-    } catch (updateError) {
-      if (profileRequestIdRef.current !== requestId) return;
-      setProfileError(
-        updateError instanceof Error
-          ? updateError.message
-          : t('Tro could not save the organization name.'),
-      );
-    } finally {
-      if (profileRequestIdRef.current === requestId) {
-        setIsSavingName(false);
-      }
-    }
-  }, [isOrganizer, onOrganizationChange, organization, organizationNameDraft, t]);
-
-  const selectBannerImage = useCallback(
-    async (file: File | null) => {
-      if (!file) return;
-      if (
-        !['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ||
-        file.size < 1 ||
-        file.size > MAX_ORGANIZATION_HOME_BANNER_BYTES
-      ) {
-        setBannerError(
-          t('Choose a PNG, JPEG, or WebP image no larger than 750 KB.'),
-        );
-        return;
-      }
-      setBannerError(null);
-      setNotice(null);
-      try {
-        setBannerDraft(await readImageAsDataUrl(file));
-      } catch (readError) {
-        setBannerError(
-          readError instanceof Error
-            ? t(readError.message)
-            : t('Tro could not read this image.'),
-        );
-      }
-    },
-    [t],
-  );
-
-  const saveHomeBanner = useCallback(async () => {
-    if (!organization || !isOrganizer || !bannerDraft) return;
-    setIsSavingBanner(true);
-    setBannerError(null);
-    setNotice(null);
-    try {
-      const response = await window.tro.updateOrganization({
-        homeBannerImageDataUrl: bannerDraft,
-      });
-      onOrganizationChange(response.organization);
-      setBannerDraft(response.organization.homeBanner?.imageDataUrl ?? null);
-      setNotice(t('Home banner saved for this organization.'));
-    } catch (saveError) {
-      setBannerError(
-        saveError instanceof Error
-          ? saveError.message
-          : t('Tro could not save the home banner.'),
-      );
-    } finally {
-      setIsSavingBanner(false);
-    }
-  }, [bannerDraft, isOrganizer, onOrganizationChange, organization, t]);
-
-  const restoreDefaultHomeBanner = useCallback(async () => {
-    if (!organization || !isOrganizer) return;
-    setIsSavingBanner(true);
-    setBannerError(null);
-    setNotice(null);
-    try {
-      const response = await window.tro.updateOrganization({
-        homeBannerImageDataUrl: null,
-      });
-      onOrganizationChange(response.organization);
-      setBannerDraft(null);
-      setNotice(t('The default Tro banner is active.'));
-    } catch (saveError) {
-      setBannerError(
-        saveError instanceof Error
-          ? saveError.message
-          : t('Tro could not restore the default banner.'),
-      );
-    } finally {
-      setIsSavingBanner(false);
-    }
-  }, [isOrganizer, onOrganizationChange, organization, t]);
-
-  const addMember = useCallback(async () => {
-    if (!organization || organization.capacity.state === 'full') return;
-    setIsAdding(true);
-    setMembersError(null);
-    setNotice(null);
-    try {
-      const response = await window.tro.addOrganizationMember({ email });
-      onOrganizationChange(response.organization);
-      setEmail('');
-      setNotice(
-        response.newlyCreated
-          ? t('Seat reserved for {email}.', { email: response.member.email })
-          : t('{email} already has a reserved seat.', {
-              email: response.member.email,
-            }),
-      );
-      await loadMembers();
-      emailInputRef.current?.focus();
-    } catch (addError) {
-      setMembersError(
-        addError instanceof Error
-          ? addError.message
-          : t('Tro could not reserve this seat.'),
-      );
-    } finally {
-      setIsAdding(false);
-    }
-  }, [email, loadMembers, onOrganizationChange, organization, t]);
-
-  const cancelPendingMember = useCallback(
-    async (member: OrganizationMember) => {
-      if (member.state !== 'pending') return;
-      setCancellingMemberId(member.id);
-      setMembersError(null);
-      setNotice(null);
-      try {
-        const response = await window.tro.cancelOrganizationMember({
-          memberId: member.id,
-        });
-        onOrganizationChange(response.organization);
-        setNotice(t('The reserved seat for {email} was cancelled.', {
-          email: member.email,
-        }));
-        await loadMembers();
-        membersHeadingRef.current?.focus();
-      } catch (cancelError) {
-        setMembersError(
-          cancelError instanceof Error
-            ? cancelError.message
-            : t('Tro could not cancel this reserved seat.'),
-        );
-      } finally {
-        setCancellingMemberId(null);
-      }
-    },
-    [loadMembers, onOrganizationChange, t],
-  );
+  const {
+    membersError,
+    addMember,
+    isAdding,
+    setEmail,
+    emailInputRef,
+    email,
+    membersHeadingRef,
+    memberCount,
+    isLoadingMembers,
+    loadMembers,
+    members,
+    cancellingMemberId,
+    cancelPendingMember,
+    canLoadMore,
+    isLoadingMore,
+  } = useOrganizationMembers({
+    organizationId,
+    isOrganizer,
+    onOrganizationChange,
+    t,
+    setNotice,
+    organization,
+  });
 
   if (isLoading && !organization) {
     return (
@@ -409,7 +131,6 @@ export function OrganizationPage({
     ),
   );
   const capacityFull = organization.capacity.state === 'full';
-  const canLoadMore = members.length < memberCount;
 
   return (
     <section className="organization-page">
@@ -431,36 +152,49 @@ export function OrganizationPage({
       </header>
 
       {error && (
-        <div className="organization-alert organization-alert--error" role="alert">
+        <div
+          className="organization-alert organization-alert--error"
+          role="alert"
+        >
           <strong>{t('Organization refresh failed')}</strong>
           <span>{error}</span>
         </div>
       )}
       {membersError && (
-        <div className="organization-alert organization-alert--error" role="alert">
+        <div
+          className="organization-alert organization-alert--error"
+          role="alert"
+        >
           <strong>{t('Something needs attention')}</strong>
           <span>{membersError}</span>
         </div>
       )}
       {profileError && (
-        <div className="organization-alert organization-alert--error" role="alert">
+        <div
+          className="organization-alert organization-alert--error"
+          role="alert"
+        >
           <strong>{t('Organization name was not saved')}</strong>
           <span>{profileError}</span>
         </div>
       )}
       {bannerError && (
-        <div className="organization-alert organization-alert--error" role="alert">
+        <div
+          className="organization-alert organization-alert--error"
+          role="alert"
+        >
           <strong>{t('Home banner was not saved')}</strong>
           <span>{bannerError}</span>
         </div>
       )}
       {isOrganizer && capacityFull && (
-        <div className="organization-alert organization-alert--full" role="alert">
+        <div
+          className="organization-alert organization-alert--full"
+          role="alert"
+        >
           <strong>{t('All seats are assigned')}</strong>
           <span>
-            {t(
-              'Cancel a pending reservation before adding another person.',
-            )}
+            {t('Cancel a pending reservation before adding another person.')}
           </span>
         </div>
       )}
@@ -535,78 +269,22 @@ export function OrganizationPage({
       )}
 
       {isOrganizer && (
-        <section
-          aria-labelledby="organization-home-banner-heading"
-          className="organization-home-banner"
-        >
-          <div className="organization-home-banner__copy">
-            <p className="eyebrow">{t('Home announcement')}</p>
-            <h2 id="organization-home-banner-heading">
-              {t('Organization home banner')}
-            </h2>
-            <p>
-              {t(
-                'Upload one image for your organization. It replaces the Tro artwork when members open the Agent home screen, and the default returns whenever you remove it.',
-              )}
-            </p>
-            <small>{t('PNG, JPEG, or WebP · maximum 750 KB')}</small>
-          </div>
-          <div className="organization-home-banner__preview">
-            {bannerDraft ? (
-              <img
-                alt={t('Organization home banner preview')}
-                src={bannerDraft}
-              />
-            ) : (
-              <div className="organization-home-banner__default">
-                <span aria-hidden="true">✦</span>
-                <strong>{t('Default Tro banner')}</strong>
-              </div>
-            )}
-          </div>
-          <div className="organization-home-banner__actions">
-            <label className="secondary-button" htmlFor={bannerInputId}>
-              {bannerDraft ? t('Choose another image') : t('Choose an image')}
-            </label>
-            <input
-              accept="image/png,image/jpeg,image/webp"
-              disabled={isSavingBanner}
-              id={bannerInputId}
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0] ?? null;
-                event.currentTarget.value = '';
-                void selectBannerImage(file);
-              }}
-              type="file"
-            />
-            <button
-              className="primary-button"
-              disabled={
-                isSavingBanner ||
-                !bannerDraft ||
-                bannerDraft === organization.homeBanner?.imageDataUrl
-              }
-              onClick={() => void saveHomeBanner()}
-              type="button"
-            >
-              {isSavingBanner ? t('Saving banner…') : t('Save banner')}
-            </button>
-            <button
-              className="organization-home-banner__reset"
-              disabled={
-                isSavingBanner ||
-                (organization.homeBanner === null && bannerDraft === null)
-              }
-              onClick={() => void restoreDefaultHomeBanner()}
-              type="button"
-            >
-              {t('Use default Tro banner')}
-            </button>
-          </div>
-        </section>
+        <OrganizationBanner
+          t={t}
+          bannerDraft={bannerDraft}
+          bannerInputId={bannerInputId}
+          isSavingBanner={isSavingBanner}
+          selectBannerImage={selectBannerImage}
+          organization={organization}
+          saveHomeBanner={saveHomeBanner}
+          restoreDefaultHomeBanner={restoreDefaultHomeBanner}
+        />
       )}
 
-      <section className="organization-capacity" aria-labelledby="capacity-heading">
+      <section
+        className="organization-capacity"
+        aria-labelledby="capacity-heading"
+      >
         <div className="organization-capacity__copy">
           <div>
             <p className="eyebrow">{t('Access capacity')}</p>
@@ -679,92 +357,19 @@ export function OrganizationPage({
       )}
 
       {isOrganizer && (
-        <section className="organization-members" aria-labelledby="members-heading">
-        <div className="organization-members__heading">
-          <div>
-            <p className="eyebrow">{t('People')}</p>
-            <h2 id="members-heading" ref={membersHeadingRef} tabIndex={-1}>
-              {t('{count} assigned seats', { count: memberCount })}
-            </h2>
-          </div>
-          <button
-            className="secondary-button"
-            disabled={isLoadingMembers}
-            onClick={() => void loadMembers()}
-            type="button"
-          >
-            {isLoadingMembers ? t('Refreshing…') : t('Refresh')}
-          </button>
-        </div>
-
-        {isLoadingMembers && members.length === 0 ? (
-          <p className="organization-members__loading" aria-live="polite">
-            {t('Loading members…')}
-          </p>
-        ) : members.length === 0 ? (
-          <p className="organization-members__loading">
-            {t('No seats have been assigned yet.')}
-          </p>
-        ) : (
-          <ul className="organization-member-list">
-            {members.map((member) => (
-              <li key={member.id}>
-                <span className="organization-member-avatar" aria-hidden="true">
-                  {(member.name ?? member.email).slice(0, 1).toUpperCase()}
-                </span>
-                <div className="organization-member-copy">
-                  <strong>{member.name ?? member.email}</strong>
-                  {member.name && <span>{member.email}</span>}
-                  <small>
-                    {member.state === 'active'
-                      ? t('Joined {date}', {
-                          date: formatJoinedDate(
-                            member.joinedAt ?? member.createdAt,
-                            appLanguage,
-                          ),
-                        })
-                      : t('Reserved {date}', {
-                          date: formatJoinedDate(member.createdAt, appLanguage),
-                        })}
-                  </small>
-                </div>
-                <div className="organization-member-actions">
-                  <span
-                    className={`organization-member-state organization-member-state--${member.state}`}
-                  >
-                    {member.state === 'active' ? t('Active') : t('Pending')}
-                  </span>
-                  {member.state === 'pending' && (
-                    <button
-                      className="organization-cancel-button"
-                      disabled={cancellingMemberId !== null}
-                      onClick={() => void cancelPendingMember(member)}
-                      type="button"
-                    >
-                      {cancellingMemberId === member.id
-                        ? t('Cancelling…')
-                        : t('Cancel reservation')}
-                    </button>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {canLoadMore && (
-          <button
-            className="organization-load-more secondary-button"
-            disabled={isLoadingMore}
-            onClick={() =>
-              void loadMembers({ append: true, offset: members.length })
-            }
-            type="button"
-          >
-            {isLoadingMore ? t('Loading…') : t('Load more')}
-          </button>
-        )}
-        </section>
+        <OrganizationMembers
+          t={t}
+          membersHeadingRef={membersHeadingRef}
+          memberCount={memberCount}
+          isLoadingMembers={isLoadingMembers}
+          loadMembers={loadMembers}
+          members={members}
+          appLanguage={appLanguage}
+          cancellingMemberId={cancellingMemberId}
+          cancelPendingMember={cancelPendingMember}
+          canLoadMore={canLoadMore}
+          isLoadingMore={isLoadingMore}
+        />
       )}
 
       {isOrganizer && (

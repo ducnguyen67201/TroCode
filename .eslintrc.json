@@ -33,8 +33,18 @@
     "import/order": [
       "error",
       {
-        "alphabetize": { "order": "asc", "caseInsensitive": true },
-        "groups": ["builtin", "external", "internal", "parent", "sibling", "index"],
+        "alphabetize": {
+          "order": "asc",
+          "caseInsensitive": true
+        },
+        "groups": [
+          "builtin",
+          "external",
+          "internal",
+          "parent",
+          "sibling",
+          "index"
+        ],
         "newlines-between": "always"
       }
     ]
@@ -46,5 +56,201 @@
     "node_modules",
     "out",
     "services/agent-runtime/dist"
+  ],
+  "overrides": [
+    {
+      "files": [
+        "src/renderer/**/*.{ts,tsx}",
+        "apps/admin/src/**/*.{ts,tsx}",
+        "src/renderer.tsx"
+      ],
+      "excludedFiles": [
+        "**/*.test.ts",
+        "**/*.test.tsx"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              "electron",
+              "assert",
+              "assert/strict",
+              "async_hooks",
+              "buffer",
+              "child_process",
+              "cluster",
+              "console",
+              "constants",
+              "crypto",
+              "dgram",
+              "diagnostics_channel",
+              "dns",
+              "dns/promises",
+              "domain",
+              "events",
+              "fs",
+              "fs/promises",
+              "http",
+              "http2",
+              "https",
+              "inspector",
+              "inspector/promises",
+              "module",
+              "net",
+              "os",
+              "path",
+              "path/posix",
+              "path/win32",
+              "perf_hooks",
+              "process",
+              "punycode",
+              "querystring",
+              "readline",
+              "readline/promises",
+              "repl",
+              "stream",
+              "stream/consumers",
+              "stream/promises",
+              "stream/web",
+              "string_decoder",
+              "sys",
+              "timers",
+              "timers/promises",
+              "tls",
+              "trace_events",
+              "tty",
+              "url",
+              "util",
+              "util/types",
+              "v8",
+              "vm",
+              "wasi",
+              "worker_threads",
+              "zlib",
+              "node:sea",
+              "node:sqlite",
+              "node:test",
+              "node:test/reporters"
+            ],
+            "patterns": [
+              {
+                "group": [
+                  "node:*",
+                  "**/main/**",
+                  "electron/*",
+                  "@trycua/*"
+                ],
+                "message": "Renderer code must use the narrow DesktopApi boundary."
+              }
+            ]
+          }
+        ],
+        "import/no-cycle": [
+          "error",
+          {
+            "ignoreExternal": true
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/renderer/features/**/*.{ts,tsx}",
+        "src/renderer/ui/**/*.{ts,tsx}"
+      ],
+      "excludedFiles": [
+        "**/*.test.ts",
+        "**/*.test.tsx"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              "electron",
+              "assert",
+              "assert/strict",
+              "async_hooks",
+              "buffer",
+              "child_process",
+              "cluster",
+              "console",
+              "constants",
+              "crypto",
+              "dgram",
+              "diagnostics_channel",
+              "dns",
+              "dns/promises",
+              "domain",
+              "events",
+              "fs",
+              "fs/promises",
+              "http",
+              "http2",
+              "https",
+              "inspector",
+              "inspector/promises",
+              "module",
+              "net",
+              "os",
+              "path",
+              "path/posix",
+              "path/win32",
+              "perf_hooks",
+              "process",
+              "punycode",
+              "querystring",
+              "readline",
+              "readline/promises",
+              "repl",
+              "stream",
+              "stream/consumers",
+              "stream/promises",
+              "stream/web",
+              "string_decoder",
+              "sys",
+              "timers",
+              "timers/promises",
+              "tls",
+              "trace_events",
+              "tty",
+              "url",
+              "util",
+              "util/types",
+              "v8",
+              "vm",
+              "wasi",
+              "worker_threads",
+              "zlib",
+              "node:sea",
+              "node:sqlite",
+              "node:test",
+              "node:test/reporters"
+            ],
+            "patterns": [
+              {
+                "group": [
+                  "node:*",
+                  "**/main/**",
+                  "**/app/**",
+                  "electron/*",
+                  "@trycua/*",
+                  "**/App",
+                  "**/App.*"
+                ],
+                "message": "Features cannot import the app composition layer or main process."
+              }
+            ]
+          }
+        ],
+        "import/no-cycle": [
+          "error",
+          {
+            "ignoreExternal": true
+          }
+        ]
+      }
+    }
   ]
 }
