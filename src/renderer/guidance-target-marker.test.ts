@@ -1,9 +1,10 @@
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+
+import { readStylesheet } from '../test-support/read-stylesheet';
 
 import { GuidanceTargetMarker } from './GuidanceTargetMarker';
 
@@ -22,7 +23,7 @@ describe('guidance target marker', () => {
   });
 
   it('keeps the teaching target steady instead of blinking or shimmering', () => {
-    const css = readFileSync(resolve(__dirname, '../index.css'), 'utf8');
+    const css = readStylesheet(resolve(__dirname, '../index.css'));
 
     expect(css).toMatch(
       /\.guidance-target-marker__highlight\s*\{[^}]*display: none;/u,

@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { act, createElement } from 'react';
@@ -9,12 +8,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { CompanionApi } from '../shared/desktop-api';
+import { readStylesheet } from '../test-support/read-stylesheet';
 
 import { CursorBuddy, CursorBuddyView } from './CursorBuddy';
 import { CursorCompanion } from './CursorCompanion';
 
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(
+  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('CursorBuddy', () => {
   it('renders the original action cursor independently from the desktop pet', () => {
@@ -88,7 +89,7 @@ describe('CursorBuddy', () => {
   });
 
   it('uses a transform-only spinner and leaves a static reduced-motion signal', () => {
-    const css = readFileSync(resolve(__dirname, '../index.css'), 'utf8');
+    const css = readStylesheet(resolve(__dirname, '../index.css'));
 
     expect(css).toContain('@keyframes cursor-buddy-loading-spin');
     expect(css).toContain('transform: rotate(1turn);');
@@ -104,11 +105,13 @@ describe('CursorBuddy', () => {
   it('subscribes to snapshots, renders updates, and cleans up', async () => {
     const container = document.createElement('div');
     const unsubscribe = vi.fn();
-    let publishSnapshot: ((snapshot: {
-      busy: boolean;
-      phase: 'demonstrating';
-      position: { x: number; y: number };
-    }) => void) | null = null;
+    let publishSnapshot:
+      | ((snapshot: {
+          busy: boolean;
+          phase: 'demonstrating';
+          position: { x: number; y: number };
+        }) => void)
+      | null = null;
     const onCursorBuddySnapshotChange = vi.fn((listener) => {
       publishSnapshot = listener;
       return unsubscribe;

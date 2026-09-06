@@ -46,7 +46,7 @@
     "api:audit": "cargo audit --file Cargo.lock",
     "api:build": "npm run admin:build && cargo build --manifest-path services/api/Cargo.toml --release --locked",
     "test": "vitest run && npm run api:test",
-    "test:typescript": "vitest run",
+    "test:typescript": "vitest run --coverage",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "check:rust-engine": "npm run engine -- rust-only-check",
@@ -54,7 +54,10 @@
     "start:test": "doppler run --project tro-app --config stg -- node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-app.mts start",
     "package:test": "doppler run --project tro-app --config stg -- node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-app.mts package",
     "check:source": "npm run agent-sdk:check && npm run lint && npm run typecheck && npm run test:typescript",
-    "check:renderer": "node --test scripts/check-renderer-bundle.test.mts && node scripts/check-renderer-bundle.mts"
+    "check:renderer": "node --test scripts/check-renderer-bundle.test.mts && node scripts/check-renderer-bundle.mts",
+    "check:source-size": "node --test scripts/source-size.test.mts && node scripts/source-size.mts",
+    "source:inventory": "node scripts/source-size.mts --report",
+    "test:frontend": "vitest run src/renderer apps/admin/src src/test-support --coverage"
   },
   "engines": {
     "node": ">=24.12.0"

@@ -1,46 +1,9 @@
-export interface VoiceSegmentationPolicy {
-  absoluteContinueRms: number;
-  absoluteStartRms: number;
-  continueNoiseMultiplier: number;
-  frameMs: number;
-  hardBoundaryOverlapMs: number;
-  hardSegmentMs: number;
-  initialNoiseFloorRms: number;
-  maximumNoiseFloorRms: number;
-  maximumSegments: number;
-  maximumUtteranceMs: number;
-  minimumSpeechMs: number;
-  noiseFloorAlpha: number;
-  outputSampleRate: number;
-  preRollMs: number;
-  silenceBoundaryMs: number;
-  speechStartFrames: number;
-  startNoiseMultiplier: number;
-  trailingSpeechPaddingMs: number;
-  uploadConcurrency: number;
-}
+import { rms } from './features/voice/audio-level';
+import {
+  DEFAULT_VOICE_SEGMENTATION_POLICY,
+  type VoiceSegmentationPolicy,
+} from './features/voice/segmentation-policy';
 
-export const DEFAULT_VOICE_SEGMENTATION_POLICY: Readonly<VoiceSegmentationPolicy> = Object.freeze({
-  frameMs: 20,
-  speechStartFrames: 3,
-  absoluteStartRms: 0.0035,
-  absoluteContinueRms: 0.0025,
-  startNoiseMultiplier: 1.6,
-  continueNoiseMultiplier: 1.25,
-  initialNoiseFloorRms: 0.0015,
-  maximumNoiseFloorRms: 0.015,
-  noiseFloorAlpha: 0.03,
-  minimumSpeechMs: 300,
-  preRollMs: 300,
-  trailingSpeechPaddingMs: 200,
-  silenceBoundaryMs: 700,
-  hardSegmentMs: 12_000,
-  hardBoundaryOverlapMs: 300,
-  maximumUtteranceMs: 60_000,
-  maximumSegments: 32,
-  outputSampleRate: 16_000,
-  uploadConcurrency: 2,
-});
 export type VoiceSegmentBoundary = 'hard' | 'release' | 'silence';
 
 export interface VoicePcmFrame {
@@ -68,19 +31,15 @@ interface BufferedFrame {
   speech: boolean;
 }
 
-function rms(samples: Float32Array): number {
-  if (samples.length === 0) return 0;
-  let squareSum = 0;
-  for (const sample of samples) squareSum += sample * sample;
-  return Math.sqrt(squareSum / samples.length);
-}
-
 function frameDurationMs(frame: BufferedFrame, sampleRate: number): number {
   return (frame.samples.length / sampleRate) * 1_000;
 }
 
 function copyFrames(frames: readonly BufferedFrame[]): Float32Array {
-  const length = frames.reduce((total, frame) => total + frame.samples.length, 0);
+  const length = frames.reduce(
+    (total, frame) => total + frame.samples.length,
+    0,
+  );
   const result = new Float32Array(length);
   let offset = 0;
   for (const frame of frames) {
@@ -155,7 +114,8 @@ export class VoiceSegmenter {
     if (!Number.isFinite(frame.sampleRate) || frame.sampleRate <= 0) {
       throw new Error('Voice frame sample rate must be positive.');
     }
-    if (frame.samples.length === 0) return { limitReached: false, segments: [] };
+    if (frame.samples.length === 0)
+      return { limitReached: false, segments: [] };
     if (this.#sampleRate !== null && this.#sampleRate !== frame.sampleRate) {
       throw new Error('Voice frame sample rate changed during an utterance.');
     }
@@ -230,8 +190,7 @@ export class VoiceSegmenter {
 
       if (this.#silenceMs >= this.#policy.silenceBoundaryMs) {
         if (
-          this.#speechDurationSinceBoundaryMs >=
-          this.#policy.minimumSpeechMs
+          this.#speechDurationSinceBoundaryMs >= this.#policy.minimumSpeechMs
         ) {
           const finalized = this.#finalizeNaturalBoundary();
           if (finalized) emitted.push(finalized);
@@ -265,7 +224,10 @@ export class VoiceSegmenter {
 
     const segment = this.#makeSegment('release', this.#segmentFrames);
     this.#resetPending();
-    return { limitReached: this.#limitReached, segments: segment ? [segment] : [] };
+    return {
+      limitReached: this.#limitReached,
+      segments: segment ? [segment] : [],
+    };
   }
 
   #trimPreRoll(): void {
@@ -338,7 +300,8 @@ export class VoiceSegmenter {
     this.#silenceMs = 0;
     this.#speechDurationMs = overlapFrames.reduce(
       (total, frame) =>
-        total + (frame.speech ? frameDurationMs(frame, this.#sampleRate ?? 1) : 0),
+        total +
+        (frame.speech ? frameDurationMs(frame, this.#sampleRate ?? 1) : 0),
       0,
     );
     this.#speechDurationSinceBoundaryMs = 0;
@@ -351,7 +314,10 @@ export class VoiceSegmenter {
     boundary: VoiceSegmentBoundary,
     frames: readonly BufferedFrame[],
   ): FinalizedVoiceSegment | null {
-    if (this.#sampleRate === null || this.#sequence >= this.#policy.maximumSegments) {
+    if (
+      this.#sampleRate === null ||
+      this.#sequence >= this.#policy.maximumSegments
+    ) {
       return null;
     }
     const samples = copyFrames(frames);
@@ -383,255 +349,20 @@ export class VoiceSegmenter {
   }
 }
 
-export interface EncodedPcm16Wav {
-  bytes: Uint8Array;
-  durationMs: number;
-  sampleRate: 16_000;
-}
+export {
+  encodePcm16Wav,
+  normalizeVoiceSamples,
+  type EncodedPcm16Wav,
+  type NormalizedVoiceSamples,
+} from './features/voice/pcm-encoding';
+export { SegmentUploadQueue } from './features/voice/segment-upload-queue';
+export {
+  joinTranscriptSegments,
+  OrderedTranscriptAssembler,
+  type TranscriptSegmentResult,
+} from './features/voice/transcript-assembler';
 
-export interface NormalizedVoiceSamples {
-  gain: number;
-  inputRms: number;
-  samples: Float32Array;
-}
-
-export function normalizeVoiceSamples(
-  samples: Float32Array,
-  targetRms = 0.08,
-  maximumGain = 8,
-): NormalizedVoiceSamples {
-  const inputRms = rms(samples);
-  let peak = 0;
-  for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
-  if (samples.length === 0 || inputRms < 0.000_01 || peak === 0) {
-    return { gain: 1, inputRms, samples: samples.slice() };
-  }
-  const gain = Math.max(
-    1,
-    Math.min(maximumGain, targetRms / inputRms, 0.95 / peak),
-  );
-  if (gain === 1) return { gain, inputRms, samples: samples.slice() };
-  return {
-    gain,
-    inputRms,
-    samples: Float32Array.from(samples, (sample) => sample * gain),
-  };
-}
-
-export function encodePcm16Wav(
-  samples: Float32Array,
-  inputSampleRate: number,
-  maximumInputMs = 15_000,
-): EncodedPcm16Wav {
-  if (samples.length === 0) throw new Error('Cannot encode empty voice audio.');
-  if (!Number.isFinite(inputSampleRate) || inputSampleRate <= 0) {
-    throw new Error('Voice input sample rate must be positive.');
-  }
-  const inputDurationMs = (samples.length / inputSampleRate) * 1_000;
-  if (inputDurationMs > maximumInputMs + 1) {
-    throw new Error('Voice segment exceeds the encoding duration limit.');
-  }
-
-  const outputSampleRate = 16_000 as const;
-  const outputLength = Math.max(
-    1,
-    Math.round((samples.length * outputSampleRate) / inputSampleRate),
-  );
-  const bytes = new Uint8Array(44 + outputLength * 2);
-  const view = new DataView(bytes.buffer);
-  const writeAscii = (offset: number, value: string): void => {
-    for (let index = 0; index < value.length; index += 1) {
-      view.setUint8(offset + index, value.charCodeAt(index));
-    }
-  };
-
-  writeAscii(0, 'RIFF');
-  view.setUint32(4, 36 + outputLength * 2, true);
-  writeAscii(8, 'WAVE');
-  writeAscii(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, outputSampleRate, true);
-  view.setUint32(28, outputSampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeAscii(36, 'data');
-  view.setUint32(40, outputLength * 2, true);
-
-  const ratio = inputSampleRate / outputSampleRate;
-  for (let index = 0; index < outputLength; index += 1) {
-    const sourcePosition = index * ratio;
-    const leftIndex = Math.min(samples.length - 1, Math.floor(sourcePosition));
-    const rightIndex = Math.min(samples.length - 1, leftIndex + 1);
-    const fraction = sourcePosition - leftIndex;
-    const left = samples[leftIndex] ?? 0;
-    const right = samples[rightIndex] ?? left;
-    const interpolated = left + (right - left) * fraction;
-    const clamped = Math.max(-1, Math.min(1, interpolated));
-    const pcm = clamped < 0 ? Math.round(clamped * 32_768) : Math.round(clamped * 32_767);
-    view.setInt16(44 + index * 2, pcm, true);
-  }
-
-  return {
-    bytes,
-    durationMs: (outputLength / outputSampleRate) * 1_000,
-    sampleRate: outputSampleRate,
-  };
-}
-
-export interface TranscriptSegmentResult {
-  overlapWithPrevious: boolean;
-  sequence: number;
-  text: string;
-}
-
-type TranscriptOutcome =
-  | { ok: true; result: TranscriptSegmentResult }
-  | { ok: false; error: Error };
-
-function normalizedToken(token: string): string {
-  return token
-    .normalize('NFKC')
-    .toLocaleLowerCase()
-    .replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, '');
-}
-
-export function joinTranscriptSegments(
-  previous: string,
-  current: string,
-  overlapWithPrevious: boolean,
-): string {
-  const previousText = previous.trim();
-  const currentText = current.trim();
-  if (!previousText) return currentText;
-  if (!currentText) return previousText;
-  if (!overlapWithPrevious) return `${previousText} ${currentText}`;
-
-  const previousTokens = previousText.split(/\s+/u);
-  const currentTokens = currentText.split(/\s+/u);
-  const maximum = Math.min(12, previousTokens.length, currentTokens.length);
-  let overlap = 0;
-  for (let size = maximum; size >= 2; size -= 1) {
-    const previousSuffix = previousTokens
-      .slice(-size)
-      .map(normalizedToken);
-    const currentPrefix = currentTokens.slice(0, size).map(normalizedToken);
-    if (
-      previousSuffix.every(
-        (token, index) => token.length > 0 && token === currentPrefix[index],
-      )
-    ) {
-      overlap = size;
-      break;
-    }
-  }
-
-  return [previousText, currentTokens.slice(overlap).join(' ')]
-    .filter(Boolean)
-    .join(' ');
-}
-
-export class OrderedTranscriptAssembler {
-  readonly #outcomes = new Map<number, TranscriptOutcome>();
-
-  addSuccess(result: TranscriptSegmentResult): void {
-    this.#outcomes.set(result.sequence, { ok: true, result });
-  }
-
-  addFailure(sequence: number, error: Error): void {
-    this.#outcomes.set(sequence, { ok: false, error });
-  }
-
-  get outcomes(): ReadonlyMap<number, TranscriptOutcome> {
-    return this.#outcomes;
-  }
-
-  provisionalTranscript(): string {
-    let transcript = '';
-    for (let sequence = 0; ; sequence += 1) {
-      const outcome = this.#outcomes.get(sequence);
-      if (!outcome?.ok) break;
-      transcript = joinTranscriptSegments(
-        transcript,
-        outcome.result.text,
-        outcome.result.overlapWithPrevious,
-      );
-    }
-    return transcript;
-  }
-
-  completeTranscript(expectedSegmentCount: number): string | null {
-    if (expectedSegmentCount <= 0 || this.#outcomes.size < expectedSegmentCount) {
-      return null;
-    }
-    let transcript = '';
-    for (let sequence = 0; sequence < expectedSegmentCount; sequence += 1) {
-      const outcome = this.#outcomes.get(sequence);
-      if (!outcome?.ok) return null;
-      transcript = joinTranscriptSegments(
-        transcript,
-        outcome.result.text,
-        outcome.result.overlapWithPrevious,
-      );
-    }
-    return transcript;
-  }
-}
-
-interface QueueEntry<Input, Output> {
-  input: Input;
-  reject: (error: unknown) => void;
-  resolve: (output: Output) => void;
-}
-
-export class SegmentUploadQueue<Input, Output> {
-  readonly #worker: (input: Input) => Promise<Output>;
-  readonly #concurrency: number;
-  readonly #pending: Array<QueueEntry<Input, Output>> = [];
-  #active = 0;
-
-  constructor(
-    worker: (input: Input) => Promise<Output>,
-    concurrency = DEFAULT_VOICE_SEGMENTATION_POLICY.uploadConcurrency,
-  ) {
-    if (!Number.isInteger(concurrency) || concurrency < 1) {
-      throw new Error('Upload concurrency must be a positive integer.');
-    }
-    this.#worker = worker;
-    this.#concurrency = concurrency;
-  }
-
-  get activeCount(): number {
-    return this.#active;
-  }
-
-  get pendingCount(): number {
-    return this.#pending.length;
-  }
-
-  enqueue(input: Input): Promise<Output> {
-    return new Promise<Output>((resolve, reject) => {
-      this.#pending.push({ input, reject, resolve });
-      this.#drain();
-    });
-  }
-
-  cancelPending(error: Error = new Error('Segment upload was cancelled.')): void {
-    for (const entry of this.#pending.splice(0)) entry.reject(error);
-  }
-
-  #drain(): void {
-    while (this.#active < this.#concurrency && this.#pending.length > 0) {
-      const entry = this.#pending.shift();
-      if (!entry) return;
-      this.#active += 1;
-      void this.#worker(entry.input)
-        .then(entry.resolve, entry.reject)
-        .finally(() => {
-          this.#active -= 1;
-          this.#drain();
-        });
-    }
-  }
-}
+export {
+  DEFAULT_VOICE_SEGMENTATION_POLICY,
+  type VoiceSegmentationPolicy,
+} from './features/voice/segmentation-policy';

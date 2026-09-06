@@ -3,17 +3,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VOICE_TRANSCRIPTION_MODEL } from '../shared/contracts';
 
 import {
+  logVoiceConnectionFailure,
+  voiceConnectionErrorMessage,
+} from './features/voice/voice-diagnostics';
+import {
   beginPushToTalkAttemptIfValid,
   handleVoiceShortcutEvent,
-  logVoiceConnectionFailure,
   shouldCancelVoiceTurnForAvailability,
   shouldFinishVoiceOnLocalRelease,
   shouldMuteSystemAudioForVoice,
+} from './features/voice/voice-input-policy';
+import {
   usePushToTalk,
   type VoiceAttemptDecision,
   type VoiceCommitDisposition,
   type VoiceTurnContext,
-  voiceConnectionErrorMessage,
 } from './use-push-to-talk';
 
 const reactHarness = vi.hoisted(() => ({
@@ -21,7 +25,8 @@ const reactHarness = vi.hoisted(() => ({
 }));
 
 const captureHarness = vi.hoisted(() => ({
-  onFrame: null as null | ((frame: { samples: Float32Array; sampleRate: number }) => void),
+  onFrame: null as
+    null | ((frame: { samples: Float32Array; sampleRate: number }) => void),
   open: vi.fn(),
   stop: vi.fn(async () => undefined),
 }));
@@ -255,7 +260,9 @@ describe('segmented push-to-talk lifecycle', () => {
   });
 
   it('shows a completed phrase before release and submits immediately on release', async () => {
-    const diagnostic = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const diagnostic = vi
+      .spyOn(console, 'info')
+      .mockImplementation(() => undefined);
     const upload = vi.fn(async (request) => ({
       audioDurationMs: request.durationMs,
       billedSeconds: request.durationMs / 1_000,
@@ -496,18 +503,22 @@ describe('segmented push-to-talk lifecycle', () => {
 
 describe('push-to-talk helpers', () => {
   it('does not cancel a finalizing voice turn during Task submission', () => {
-    expect(shouldCancelVoiceTurnForAvailability({
-      disabled: true,
-      enabled: true,
-      finalizing: true,
-      platform: 'macos',
-    })).toBe(false);
-    expect(shouldCancelVoiceTurnForAvailability({
-      disabled: true,
-      enabled: true,
-      finalizing: false,
-      platform: 'macos',
-    })).toBe(true);
+    expect(
+      shouldCancelVoiceTurnForAvailability({
+        disabled: true,
+        enabled: true,
+        finalizing: true,
+        platform: 'macos',
+      }),
+    ).toBe(false);
+    expect(
+      shouldCancelVoiceTurnForAvailability({
+        disabled: true,
+        enabled: true,
+        finalizing: false,
+        platform: 'macos',
+      }),
+    ).toBe(true);
   });
 
   it('starts only valid attempts', () => {
