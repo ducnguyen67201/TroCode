@@ -56,6 +56,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   classroomJoin: ReturnType<typeof vi.fn>;
   classroomOpenDirective: ReturnType<typeof vi.fn>;
   createClassroomDirective: ReturnType<typeof vi.fn>;
+  prepareKnowledgeActivity: ReturnType<typeof vi.fn>;
   checkForUpdates: ReturnType<typeof vi.fn>;
   companionCustomizationService: {
     activateCandidate: ReturnType<typeof vi.fn>;
@@ -359,6 +360,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   };
   const classroomJoin = vi.fn(async () => classroomSession);
   const classroomOpenDirective = vi.fn(async () => undefined);
+  const prepareKnowledgeActivity = vi.fn(async (request: unknown) => request);
   const createClassroomDirective = vi.fn(async (request: unknown) => request);
   const classroomSessionService = {
     clear: vi.fn(),
@@ -467,6 +469,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
     handleCompanionResponseAction,
     membershipService,
     knowledgeSpaceClient: {
+      prepareActivity: prepareKnowledgeActivity,
       createDirective: createClassroomDirective,
     },
     organizationClient,
@@ -513,6 +516,7 @@ function setup(authenticated: boolean, membershipActive = authenticated): {
   } as unknown as Parameters<typeof registerIpcHandlers>[1];
 
   return {
+    prepareKnowledgeActivity,
     authService,
     cancelActiveTasks,
     callOrder,
@@ -1571,5 +1575,27 @@ describe('registerIpcHandlers auth boundary', () => {
 
     consoleError.mockRestore();
     unregister();
+  });
+});
+
+describe('activity preparation IPC boundary', () => {
+  const input = {
+    spaceId: '11111111-1111-4111-8111-111111111111',
+    requestId: '22222222-2222-4222-8222-222222222222',
+    description: 'Practice a skill', language: 'en', sourceVersionIds: [],
+  };
+  it('validates input before calling the authenticated activity client', async () => {
+    const fixture = setup(true);
+    const handler = electronMock.handlers.get(IPC_CHANNELS.prepareKnowledgeActivity)!;
+    await expect(handler(fixture.event, { ...input, description: '' })).rejects.toThrow();
+    expect(fixture.prepareKnowledgeActivity).not.toHaveBeenCalled();
+    await expect(handler(fixture.event, input)).resolves.toEqual(input);
+    expect(fixture.prepareKnowledgeActivity).toHaveBeenCalledOnce();
+  });
+  it('blocks preparation before membership is active', async () => {
+    const fixture = setup(true, false);
+    const handler = electronMock.handlers.get(IPC_CHANNELS.prepareKnowledgeActivity)!;
+    await expect(handler(fixture.event, input)).rejects.toThrow('membership');
+    expect(fixture.prepareKnowledgeActivity).not.toHaveBeenCalled();
   });
 });

@@ -42,9 +42,6 @@ import {
   KnowledgeSpaceIdRequestSchema,
   SelectKnowledgeFilesRequestSchema,
   UploadKnowledgeSelectionRequestSchema,
-  SaveKnowledgeActivityRequestSchema,
-  PublishKnowledgeActivityRequestSchema,
-  CreateKnowledgeClassSessionRequestSchema,
   CreateKnowledgeRunRequestSchema,
   SetKnowledgeRunStateRequestSchema,
   KnowledgeAttemptIdRequestSchema,
@@ -101,6 +98,7 @@ import type { SystemAudioDuckingService } from '../voice/system-audio-ducking-se
 import type { VoiceService } from '../voice/voice-service';
 import type { WorkspaceSelectionService } from '../workspace/workspace-selection-service';
 
+import { registerActivityAuthoringIpc } from './register-activity-authoring-ipc';
 import {
   registerClassroomBroadcastIpc,
   type ClassroomBroadcastFeatures,
@@ -339,6 +337,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.listKnowledgeSources,
     IPC_CHANNELS.selectKnowledgeFiles,
     IPC_CHANNELS.uploadKnowledgeSelection,
+    IPC_CHANNELS.prepareKnowledgeActivity,
     IPC_CHANNELS.saveKnowledgeActivity,
     IPC_CHANNELS.publishKnowledgeActivity,
     IPC_CHANNELS.listPublishedKnowledgeActivities,
@@ -631,54 +630,9 @@ export function registerIpcHandlers(
     },
   );
 
-  ipcMain.handle(
-    IPC_CHANNELS.saveKnowledgeActivity,
-    async (event, input: unknown) => {
-      await assertMembershipAuthorizedSender(event, mainWindow, services);
-      return services.knowledgeSpaceClient.saveActivity(
-        SaveKnowledgeActivityRequestSchema.parse(input),
-      );
-    },
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.publishKnowledgeActivity,
-    async (event, input: unknown) => {
-      await assertMembershipAuthorizedSender(event, mainWindow, services);
-      return services.knowledgeSpaceClient.publishActivity(
-        PublishKnowledgeActivityRequestSchema.parse(input),
-      );
-    },
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.listPublishedKnowledgeActivities,
-    async (event, input: unknown) => {
-      await assertMembershipAuthorizedSender(event, mainWindow, services);
-      const request = KnowledgeSpaceIdRequestSchema.parse(input);
-      return services.knowledgeSpaceClient.listPublishedActivities(
-        request.spaceId,
-      );
-    },
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.listKnowledgeClassSessions,
-    async (event, input: unknown) => {
-      await assertMembershipAuthorizedSender(event, mainWindow, services);
-      const request = KnowledgeSpaceIdRequestSchema.parse(input);
-      return services.knowledgeSpaceClient.listClassSessions(request.spaceId);
-    },
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.createKnowledgeClassSession,
-    async (event, input: unknown) => {
-      await assertMembershipAuthorizedSender(event, mainWindow, services);
-      return services.knowledgeSpaceClient.createClassSession(
-        CreateKnowledgeClassSessionRequestSchema.parse(input),
-      );
-    },
+  registerActivityAuthoringIpc(
+    services.knowledgeSpaceClient,
+    (event) => assertMembershipAuthorizedSender(event, mainWindow, services),
   );
 
   ipcMain.handle(

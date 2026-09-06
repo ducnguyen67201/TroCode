@@ -79,6 +79,8 @@ import type {
   UploadKnowledgeSelectionRequest,
   KnowledgeUploadResult,
   SaveKnowledgeActivityRequest,
+  PrepareKnowledgeActivityRequest,
+  PreparedKnowledgeActivity,
   KnowledgeActivityDraft,
   PublishKnowledgeActivityRequest,
   KnowledgeActivityVersion,
@@ -205,6 +207,7 @@ export const IPC_CHANNELS = {
   listKnowledgeSources: 'knowledge:sources:list',
   selectKnowledgeFiles: 'knowledge:files:select',
   uploadKnowledgeSelection: 'knowledge:files:upload',
+  prepareKnowledgeActivity: 'knowledge:activity:prepare',
   saveKnowledgeActivity: 'knowledge:activity:save',
   publishKnowledgeActivity: 'knowledge:activity:publish',
   listPublishedKnowledgeActivities: 'knowledge:activities:list-published',
@@ -311,6 +314,9 @@ export interface DesktopApi extends ClassroomDesktopApi {
   uploadKnowledgeSelection(
     request: UploadKnowledgeSelectionRequest,
   ): Promise<KnowledgeUploadResult>;
+  prepareKnowledgeActivity(
+    request: PrepareKnowledgeActivityRequest,
+  ): Promise<PreparedKnowledgeActivity>;
   saveKnowledgeActivity(
     request: SaveKnowledgeActivityRequest,
   ): Promise<KnowledgeActivityDraft>;

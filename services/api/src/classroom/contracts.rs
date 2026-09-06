@@ -19,6 +19,8 @@ pub struct CreateRoomCodeRequest {
     pub expires_at: Option<OffsetDateTime>,
     #[serde(default = "default_room_uses")]
     pub max_uses: u32,
+    #[serde(default)]
+    pub reuse_active: bool,
 }
 
 impl CreateRoomCodeRequest {

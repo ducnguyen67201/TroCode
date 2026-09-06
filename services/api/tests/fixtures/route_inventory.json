@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "requiredCases": ["positive", "unauthenticated", "invalid", "not_found"],
   "routes": [
+    {"method":"POST","path":"/v1/spaces/{spaceId}/activities/prepare","family":"knowledge"},
     {"method":"GET","path":"/healthz","family":"core"},
     {"method":"GET","path":"/readyz","family":"core"},
     {"method":"POST","path":"/v1/auth/google/exchange","family":"auth"},

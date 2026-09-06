@@ -293,6 +293,7 @@ export function SpaceDetailPage({
             tabIndex={0}
           >
             <ActivityEditorPage
+              key={space.id}
               appLanguage={appLanguage}
               onPublished={() => {
                 setSessionRefreshToken((current) => current + 1);
