@@ -36,7 +36,7 @@ or proof of readability. The per-file rationale is recorded in
 | Batch | Local code status | Evidence or remaining acceptance |
 | --- | --- | --- |
 | 1. Baseline and guardrails | Implemented | Reproducible inventory, size ratchet, import restrictions/cycle rule, real React harness, measured coverage floors; live screenshots pending |
-| 2. Styles | Implemented | 30 desktop and four admin groups; exact expanded CSS hashes preserve order/content; visual acceptance pending |
+| 2. Styles | Implemented | 30 desktop and four admin groups; exact expanded CSS hashes preserve order/content (normalized line endings); visual acceptance pending |
 | 3. Translations/settings/companion | Implemented | Domain dictionaries and 1,008-key preservation; six mounted settings sections; preview/form/gallery split |
 | 4. App presentation | Implemented | Sidebar, workspace, settings composition, task views and context panel |
 | 5. Resource ownership | Implemented | Task session/commands, settings resources, membership/organization, teacher/class selection, voice routing |
@@ -108,7 +108,7 @@ must not be treated as repository-wide coverage.
 | `src/renderer/features/voice/use-voice-turn-routing.test.tsx` | 5 | Draft recovery, uncertain delivery, frozen destination and turn cleanup |
 | `src/renderer/features/voice/voice-lifecycle.test.tsx` | 2 | Real React idle/remount and delayed preflight after unmount |
 | `src/renderer/i18n/translations-preservation.test.ts` | 1 | Original merged translation content and precedence |
-| `src/test-support/styles-preservation.test.ts` | 2 | Original desktop/admin CSS expanded byte identity |
+| `src/test-support/styles-preservation.test.ts` | 2 | Original desktop/admin CSS content identity with normalized line endings |
 
 Existing semantic, settings focus/draft, App mounting, voice segmentation and
 shortcut tests remain intact. CSS-reading tests follow ordered imports while
@@ -323,3 +323,8 @@ The earlier local validation results above precede this integration; final CI
 will validate the rebased revision. User authorized PR creation and merge after
 checks pass. npm audit reports three existing moderate advisories and no high or
 critical advisories; dependencies remain unchanged.
+
+Windows CI identified CRLF checkout differences in the CSS hash assertions.
+The stylesheet test reader now normalizes CRLF to LF before expansion, with
+regressions for both line-ending formats and circular imports. Original hashes
+are unchanged. No production CSS or runtime code changed in this correction.

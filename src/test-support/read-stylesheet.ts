@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
-/** Expand our ordered local CSS entrypoints for source-level style assertions. */
+/** Expand local CSS in source order, normalizing checkout line endings. */
 export function readStylesheet(
   file: string,
   ancestors = new Set<string>(),
@@ -10,9 +10,9 @@ export function readStylesheet(
   if (ancestors.has(absolute))
     throw new Error(`Circular stylesheet import: ${absolute}`);
   const chain = new Set(ancestors).add(absolute);
-  return readFileSync(absolute, 'utf8').replace(
-    /@import\s+['"]([^'"]+)['"];\r?\n?/g,
-    (_match, imported: string) =>
+  return readFileSync(absolute, 'utf8')
+    .replace(/\r\n/g, '\n')
+    .replace(/@import\s+['"]([^'"]+)['"];\r?\n?/g, (_match, imported: string) =>
       readStylesheet(resolve(dirname(absolute), imported), chain),
-  );
+    );
 }
