@@ -3,6 +3,22 @@ import { describe, expect, it, vi } from 'vitest';
 import { KnowledgeSpaceClient } from './knowledge-space-client';
 
 describe('KnowledgeSpaceClient capabilities', () => {
+  it('prepares authenticated content without publishing or accepting model permissions', async () => {
+    const content = { title: 'Practice writing', objective: 'Explain an idea clearly.',
+      instructions: 'Write one paragraph.', criteria: [] };
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(content)));
+    const client = new KnowledgeSpaceClient('https://api.example.com', async () => 'token', fetchImpl);
+    const input = { spaceId: '11111111-1111-4111-8111-111111111111',
+      requestId: '22222222-2222-4222-8222-222222222222', language: 'en' as const,
+      description: 'Practice writing', sourceVersionIds: [] };
+    await expect(client.prepareActivity(input)).resolves.toEqual(content);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(`https://api.example.com/v1/spaces/${input.spaceId}/activities/prepare`);
+    expect(fetchImpl.mock.calls[0]?.[1]?.headers).toMatchObject({ Authorization: 'Bearer token' });
+    fetchImpl.mockResolvedValue(new Response(JSON.stringify({ ...content, sessionPolicy: { allowRoomJoin: true } })));
+    await expect(client.prepareActivity(input)).rejects.toThrow();
+  });
+
   it('reads deployed explanation directives without rejecting the classroom feed', async () => {
     const directive = {
       id: '11111111-1111-4111-8111-111111111111', sequence: 1,

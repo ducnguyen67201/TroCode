@@ -36,6 +36,62 @@ async fn teacher_and_student_complete_a_live_classroom_over_http() {
     let fixture = Fixture::create(&pool).await;
     let router = trocode_api::http::router(state.clone());
 
+    // Activity drafting must authorize the teacher and selected materials before
+    // dispatching any model call; these failures need no provider credentials.
+    let prepare_path = format!("/v1/spaces/{}/activities/prepare", fixture.space_id);
+    let prepare_input = json!({"requestId":Uuid::new_v4(),"description":"Practice a skill",
+        "language":"en","sourceVersionIds":[]});
+    assert_eq!(
+        call(
+            &router,
+            Method::POST,
+            &prepare_path,
+            None,
+            Some(prepare_input.clone())
+        )
+        .await
+        .status,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(
+            &router,
+            Method::POST,
+            &prepare_path,
+            Some(&fixture.student_token),
+            Some(prepare_input.clone())
+        )
+        .await
+        .status,
+        StatusCode::NOT_FOUND
+    );
+    let mut missing_source = prepare_input.clone();
+    missing_source["sourceVersionIds"] = json!([Uuid::new_v4()]);
+    let missing = call(
+        &router,
+        Method::POST,
+        &prepare_path,
+        Some(&fixture.teacher_token),
+        Some(missing_source),
+    )
+    .await;
+    assert_eq!(missing.status, StatusCode::BAD_REQUEST);
+    assert_eq!(missing.body["code"], "activity_materials_unavailable");
+    let mut invalid_draft = prepare_input;
+    invalid_draft["description"] = json!("");
+    assert_eq!(
+        call(
+            &router,
+            Method::POST,
+            &prepare_path,
+            Some(&fixture.teacher_token),
+            Some(invalid_draft)
+        )
+        .await
+        .status,
+        StatusCode::BAD_REQUEST
+    );
+
     let room_client_id = Uuid::new_v4();
     let room = call(
         &router,
@@ -66,6 +122,48 @@ async fn teacher_and_student_complete_a_live_classroom_over_http() {
     assert_eq!(repeated_room.status, StatusCode::OK);
     assert_eq!(repeated_room.body["code"], room_code);
     assert_eq!(repeated_room.body["newlyCreated"], false);
+
+    // Returning to the lobby from another client preserves its shared code.
+    let reopened_room = call(
+        &router,
+        Method::POST,
+        &format!(
+            "/v1/spaces/{}/runs/{}/room-code",
+            fixture.space_id, fixture.run_id
+        ),
+        Some(&fixture.teacher_token),
+        Some(json!({"clientId":Uuid::new_v4(),"maxUses":500,"reuseActive":true})),
+    )
+    .await;
+    assert_eq!(reopened_room.status, StatusCode::OK);
+    assert_eq!(reopened_room.body["id"], room.body["id"]);
+    assert_eq!(reopened_room.body["code"], room_code);
+    assert_eq!(reopened_room.body["expiresAt"], room.body["expiresAt"]);
+    assert_eq!(reopened_room.body["maxUses"], 200);
+    assert_eq!(reopened_room.body["newlyCreated"], false);
+
+    // The explicit Rotate action still issues a new code and revokes the old one.
+    let rotated_room = call(
+        &router,
+        Method::POST,
+        &format!(
+            "/v1/spaces/{}/runs/{}/room-code",
+            fixture.space_id, fixture.run_id
+        ),
+        Some(&fixture.teacher_token),
+        Some(json!({"clientId":Uuid::new_v4(),"maxUses":200})),
+    )
+    .await;
+    assert_eq!(rotated_room.status, StatusCode::CREATED);
+    assert_ne!(rotated_room.body["code"], room_code);
+    let old_revoked: bool =
+        query_scalar("SELECT revoked_at IS NOT NULL FROM knowledge_live_room_codes WHERE id=$1")
+            .bind(Uuid::parse_str(room.body["id"].as_str().unwrap()).unwrap())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(old_revoked);
+    let room_code = rotated_room.body["code"].as_str().unwrap().to_owned();
 
     let unassigned_id = format!("rust-e2e-unassigned-{}", Uuid::new_v4());
     let unassigned_token = token('u');
@@ -123,6 +221,20 @@ async fn teacher_and_student_complete_a_live_classroom_over_http() {
     .await;
     assert_eq!(rostered.status, StatusCode::OK);
     assert_eq!(rostered.body["addedEmails"].as_array().unwrap().len(), 1);
+
+    let student_draft = call(
+        &router,
+        Method::POST,
+        &prepare_path,
+        Some(&fixture.student_token),
+        Some(
+            json!({"requestId":Uuid::new_v4(),"description":"Practice a skill",
+            "language":"en","sourceVersionIds":[]}),
+        ),
+    )
+    .await;
+    assert_eq!(student_draft.status, StatusCode::FORBIDDEN);
+    assert_eq!(student_draft.body["code"], "space_forbidden");
 
     let joined = call(
         &router,

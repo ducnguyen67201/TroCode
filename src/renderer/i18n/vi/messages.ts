@@ -1,4 +1,5 @@
 import { accountMessages1 } from './account';
+import { activityAuthoringMessages } from './activity-authoring';
 import { classroomMessages1 } from './classroom-1';
 import { classroomMessages2 } from './classroom-2';
 import { commonMessages1 } from './common-1';
@@ -8,6 +9,7 @@ import { settingsMessages1 } from './settings';
 import { tasksMessages1 } from './tasks';
 
 export const VIETNAMESE_TRANSLATIONS: Readonly<Record<string, string>> = {
+  ...activityAuthoringMessages,
   ...tasksMessages1,
   ...commonMessages1,
   ...commonMessages2,

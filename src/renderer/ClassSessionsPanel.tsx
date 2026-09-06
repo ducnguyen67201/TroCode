@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type {
   AppLanguage,
@@ -47,6 +47,7 @@ export function ClassSessionsPanel({
   const [roomCode, setRoomCode] = useState('');
   const [loading, setLoading] = useState(canFacilitate);
   const [busy, setBusy] = useState<string | null>(null);
+  const opening = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const t = useCallback(
     (
@@ -139,7 +140,8 @@ export function ClassSessionsPanel({
 
   const openSession = async (session: KnowledgeClassSession) => {
     const primary = session.activities[0];
-    if (!primary) return;
+    if (!primary || opening.current) return;
+    opening.current = true;
     setBusy(`open:${session.id}`);
     setError(null);
     try {
@@ -150,6 +152,7 @@ export function ClassSessionsPanel({
               clientId: randomUUID(),
               expiresAt: null,
               maxUses: 500,
+              reuseActive: true,
               runId: primary.runId,
               spaceId,
             });
@@ -164,6 +167,7 @@ export function ClassSessionsPanel({
           : t('Could not open this Session.'),
       );
     } finally {
+      opening.current = false;
       setBusy(null);
     }
   };
@@ -276,12 +280,17 @@ export function ClassSessionsPanel({
         </header>
         {primary && (
           <FacilitatorRunPage
-            onRunStateChanged={async (state) =>
-              onTeacherSessionSelect?.(
+            key={primary.runId}
+            onRunStateChanged={async (state) => {
+              setSessions((current) => current.map((session) =>
+                session.id === activeSession.id ? { ...session, state } : session,
+              ));
+              setActiveSession({ ...activeSession, state });
+              await onTeacherSessionSelect?.(
                 spaceId,
                 state === 'open' ? activeSession.id : null,
-              )
-            }
+              );
+            }}
             allowedOrigins={primary.allowedOrigins}
             appLanguage={appLanguage}
             criteria={primary.criteria}
@@ -304,7 +313,7 @@ export function ClassSessionsPanel({
           <p className="eyebrow">{t('Teach live')}</p>
           <h2 id="class-sessions-heading">{t('Sessions')}</h2>
           <p>
-            {t('Put Activities in order, then start the whole lesson live.')}
+            {t('Open a Session lobby, invite learners, then start class.')}
           </p>
         </div>
         {!composing && (
@@ -443,9 +452,9 @@ export function ClassSessionsPanel({
                     {t(
                       session.state === 'open'
                         ? 'Live'
-                        : session.state === 'closed'
+                        : session.state === 'closed' || session.state === 'archived'
                           ? 'Ended'
-                          : 'Ready',
+                          : 'Room lobby',
                     )}
                   </span>
                   <h3>{session.title}</h3>
@@ -468,11 +477,11 @@ export function ClassSessionsPanel({
                   {t(
                     busy === `open:${session.id}`
                       ? 'Opening…'
-                      : session.state === 'closed'
+                      : session.state === 'closed' || session.state === 'archived'
                         ? 'Review'
                         : session.state === 'open'
                           ? 'Open live'
-                          : 'Start live',
+                          : 'Open lobby',
                   )}{' '}
                   <span aria-hidden="true">→</span>
                 </button>

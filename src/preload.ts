@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import { classroomDesktopApi } from './classroom-preload';
+import { activityAuthoringApi } from './preload/activity-authoring-api';
 import {
   ActivateMembershipRequestSchema,
   AgentActivityUpdateSchema,
@@ -82,14 +83,6 @@ import {
   KnowledgeFileSelectionSchema,
   UploadKnowledgeSelectionRequestSchema,
   KnowledgeUploadResultSchema,
-  SaveKnowledgeActivityRequestSchema,
-  KnowledgeActivityDraftSchema,
-  PublishKnowledgeActivityRequestSchema,
-  KnowledgeActivityVersionSchema,
-  PublishedKnowledgeActivityListSchema,
-  CreateKnowledgeClassSessionRequestSchema,
-  KnowledgeClassSessionSchema,
-  KnowledgeClassSessionListSchema,
   CreateKnowledgeRunRequestSchema,
   KnowledgeRunSchema,
   SetKnowledgeRunStateRequestSchema,
@@ -255,50 +248,7 @@ const desktopApi: DesktopApi = {
     return KnowledgeUploadResultSchema.parse(response);
   },
 
-  async saveKnowledgeActivity(input) {
-    const request = SaveKnowledgeActivityRequestSchema.parse(input);
-    const response: unknown = await ipcRenderer.invoke(
-      IPC_CHANNELS.saveKnowledgeActivity,
-      request,
-    );
-    return KnowledgeActivityDraftSchema.parse(response);
-  },
-
-  async publishKnowledgeActivity(input) {
-    const request = PublishKnowledgeActivityRequestSchema.parse(input);
-    const response: unknown = await ipcRenderer.invoke(
-      IPC_CHANNELS.publishKnowledgeActivity,
-      request,
-    );
-    return KnowledgeActivityVersionSchema.parse(response);
-  },
-
-  async listPublishedKnowledgeActivities(spaceId) {
-    const request = KnowledgeSpaceIdRequestSchema.parse({ spaceId });
-    const response: unknown = await ipcRenderer.invoke(
-      IPC_CHANNELS.listPublishedKnowledgeActivities,
-      request,
-    );
-    return PublishedKnowledgeActivityListSchema.parse(response);
-  },
-
-  async listKnowledgeClassSessions(spaceId) {
-    const request = KnowledgeSpaceIdRequestSchema.parse({ spaceId });
-    const response: unknown = await ipcRenderer.invoke(
-      IPC_CHANNELS.listKnowledgeClassSessions,
-      request,
-    );
-    return KnowledgeClassSessionListSchema.parse(response);
-  },
-
-  async createKnowledgeClassSession(input) {
-    const request = CreateKnowledgeClassSessionRequestSchema.parse(input);
-    const response: unknown = await ipcRenderer.invoke(
-      IPC_CHANNELS.createKnowledgeClassSession,
-      request,
-    );
-    return KnowledgeClassSessionSchema.parse(response);
-  },
+  ...activityAuthoringApi,
 
   async createKnowledgeRun(input) {
     const request = CreateKnowledgeRunRequestSchema.parse(input);

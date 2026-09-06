@@ -101,7 +101,7 @@ describe('SpaceDetailPage role presentation', () => {
   it('makes Sessions the teacher launch surface', () => {
     const markup = render('owner', 'sessions');
 
-    expect(markup).toContain('Put Activities in order');
+    expect(markup).toContain('Open a Session lobby, invite learners, then start class.');
     expect(markup).toContain('New Session');
     expect(markup).not.toContain('Create room lobby');
     expect(markup).not.toContain('Direct assignment');

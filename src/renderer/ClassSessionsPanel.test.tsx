@@ -16,7 +16,7 @@ describe('ClassSessionsPanel', () => {
 
     expect(markup).toContain('Sessions');
     expect(markup).toContain('New Session');
-    expect(markup).toContain('Put Activities in order');
+    expect(markup).toContain('Open a Session lobby, invite learners, then start class.');
     expect(markup).not.toContain('Direct assignment');
     expect(markup).not.toContain('Create room lobby');
   });

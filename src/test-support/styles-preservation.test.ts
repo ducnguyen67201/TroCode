@@ -12,7 +12,7 @@ describe('ordered stylesheet migration', () => {
       '',
     );
     expect(createHash('sha256').update(css).digest('hex')).toBe(
-      '8149df21590aaeb69f256ed2bde6eac23853f6446d0baf1a91b2893b5994d323',
+      '463b139df822cab16e9d8c486a0a4b3d91db2438356ca482b1ae8b4634102a93',
     );
   });
   it('preserves every admin rule, declaration and override in source order', () => {

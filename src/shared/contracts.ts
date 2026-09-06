@@ -1,11 +1,19 @@
 export * from './classroom-broadcast-contracts';
 import { z } from 'zod';
 
+import { validateClassroomUrl } from './classroom-url-policy';
 import {
-  isPublicClassroomHostname,
-  validateClassroomUrl,
-} from './classroom-url-policy';
+  ActivityGuidancePolicySchema,
+  ActivityCriterionSchema,
+  ClassroomOriginSchema,
+  SaveKnowledgeActivityRequestSchema,
+  type PrepareKnowledgeActivityRequestSchema,
+  type PreparedKnowledgeActivitySchema,
+  AppLanguageSchema,
+} from './knowledge-activity-contracts';
 import { VOICE_MODES } from './voice-mode';
+
+export * from './knowledge-activity-contracts';
 
 export const RuntimeToolIdSchema = z
   .string()
@@ -81,47 +89,6 @@ export const WorkspaceIdentitySchema = z.object({
   displayName: z.string().trim().min(1).max(255),
   selectedAt: z.string().datetime(),
 });
-
-export const ActivityGuidancePolicySchema = z.object({
-  answerReveal: z.enum(['allowed', 'after_attempt', 'never']),
-  hintMode: z.enum(['direct', 'guided', 'socratic']),
-  maxHintLevel: z.number().int().min(0).max(5),
-});
-
-export const ActivityCriterionSchema = z.object({
-  id: z.string().trim().min(1).max(80),
-  title: z.string().trim().min(1).max(240),
-  description: z.string().trim().max(2_000),
-  tags: z.array(z.string().trim().min(1).max(80)).max(20),
-});
-
-const ClassroomOriginSchema = z
-  .string()
-  .trim()
-  .url()
-  .max(2_000)
-  .superRefine((value, context) => {
-    try {
-      const url = new URL(value);
-      if (
-        url.protocol !== 'https:' ||
-        url.username ||
-        url.password ||
-        !isPublicClassroomHostname(url.hostname) ||
-        url.origin !== value
-      ) {
-        context.addIssue({
-          code: 'custom',
-          message: 'Use an exact HTTPS origin without credentials or a path.',
-        });
-      }
-    } catch {
-      context.addIssue({
-        code: 'custom',
-        message: 'Use a valid HTTPS origin.',
-      });
-    }
-  });
 
 const ClassroomPublicUrlSchema = z
   .string()
@@ -829,29 +796,6 @@ export const KnowledgeUploadResultSchema = z.object({
   processing: z.number().int().nonnegative(),
   cancelled: z.boolean(),
 });
-export const SaveKnowledgeActivityRequestSchema = z.object({
-  spaceId: z.string().uuid(),
-  clientId: z.string().uuid(),
-  definition: z.object({
-    title: z.string().trim().min(1).max(240),
-    objective: z.string().trim().min(1).max(4_000),
-    instructions: z.string().trim().min(1).max(24_000),
-    launchTarget: z.enum(['none', 'workspace', 'current_surface']),
-    guidancePolicy: ActivityGuidancePolicySchema,
-    criteria: z.array(ActivityCriterionSchema).max(40),
-    completionPolicy: z.object({
-      requiresSubmission: z.boolean(),
-      requiresFacilitatorConfirmation: z.boolean(),
-    }),
-    sessionPolicy: z
-      .object({
-        allowedOrigins: z.array(ClassroomOriginSchema).max(20),
-        allowRoomJoin: z.boolean(),
-      })
-      .default({ allowedOrigins: [], allowRoomJoin: false }),
-  }),
-  sourceVersionIds: z.array(z.string().uuid()).max(200),
-});
 export const KnowledgeActivityDraftSchema = z.object({
   id: z.string().uuid(),
   state: z.enum(['draft', 'published', 'archived']),
@@ -1172,6 +1116,7 @@ export const CreateKnowledgeRoomCodeRequestSchema = z.object({
   clientId: z.string().uuid(),
   expiresAt: z.string().datetime().nullable().default(null),
   maxUses: z.number().int().min(1).max(2_000).default(200),
+  reuseActive: z.boolean().optional(),
 });
 export const KnowledgeRoomCodeSchema = z.object({
   id: z.string().uuid(),
@@ -1499,7 +1444,6 @@ export const PrimaryLanguageSchema = z.enum([
   'zh',
 ]);
 
-export const AppLanguageSchema = z.enum(['en', 'vi']);
 export const VoiceModeSchema = z.enum(VOICE_MODES);
 
 export const AppPreferencesSchema = z.object({
@@ -2717,3 +2661,10 @@ export type VoiceModeToggleEvent = z.infer<
 >;
 export type VoiceShortcutEvent = z.infer<typeof VoiceShortcutEventSchema>;
 export type VoiceStatus = z.infer<typeof VoiceStatusSchema>;
+
+export type PrepareKnowledgeActivityRequest = z.infer<
+  typeof PrepareKnowledgeActivityRequestSchema
+>;
+export type PreparedKnowledgeActivity = z.infer<
+  typeof PreparedKnowledgeActivitySchema
+>;

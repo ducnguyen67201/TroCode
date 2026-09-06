@@ -5,6 +5,7 @@ mod dashboard;
 mod directives;
 mod guidance;
 mod policy;
+mod room_codes;
 mod rooms;
 mod service;
 

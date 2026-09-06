@@ -9,18 +9,18 @@ import {
   VIETNAMESE_TRANSLATIONS,
 } from './vi/messages';
 
-it('preserves all original Vietnamese messages and dictionary precedence', () => {
+it('preserves the reviewed Vietnamese messages and dictionary precedence', () => {
   const keys = [
     ...new Set([
       ...Object.keys(VIETNAMESE_TRANSLATIONS),
       ...Object.keys(CLASSROOM_VIETNAMESE_TRANSLATIONS),
     ]),
   ].sort();
-  expect(keys).toHaveLength(1008);
+  expect(keys).toHaveLength(1075);
   const entries = JSON.stringify(
     keys.map((key) => [key, translate('vi', key)]),
   );
   expect(createHash('sha256').update(entries).digest('hex')).toBe(
-    '34037d910cc3eb90700b3c6fd3081b73635b1517386ce700b910af0db1c6208e',
+    '111f3e7fb6cda13ac3b78c248508c33267c7522650211868bf44609e6e6ef2c5',
   );
 });
