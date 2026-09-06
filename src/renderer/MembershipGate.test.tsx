@@ -4,7 +4,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { MembershipGate } from './MembershipGate';
 
 describe('MembershipGate Free onboarding', () => {
-  it('requires a choice while offering access code and Free paths', () => {
+  it.each([
+    ['inactive', 'Enter an access code or continue with Free.'],
+    ['error', "Your teacher's access code has no seats available. Ask your teacher to increase capacity."],
+    ['error', "Your teacher's access code is paused. Ask your teacher to restore access."],
+    ['error', 'Your classes use different access codes. Ask your teacher to confirm your access.'],
+  ] as const)('offers Free for %s membership: %s', (state, summary) => {
     const markup = renderToStaticMarkup(
       <MembershipGate
         appLanguage="en"
@@ -22,8 +27,8 @@ describe('MembershipGate Free onboarding', () => {
           plan: 'free',
           referenceCode: null,
           required: true,
-          state: 'inactive',
-          summary: 'Enter an access code or continue with Free.',
+          state,
+          summary,
         }}
       />,
     );
@@ -31,5 +36,9 @@ describe('MembershipGate Free onboarding', () => {
     expect(markup).toContain('Continue with access code');
     expect(markup).toContain('Continue with Free');
     expect(markup).toContain('Final setup step');
+    if (state === 'error') {
+      expect(markup).toContain('Membership needs attention');
+      expect(markup).toContain('role="alert"');
+    }
   });
 });

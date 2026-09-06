@@ -58,6 +58,7 @@ impl AccessCodeRepository {
         })
     }
     pub async fn get_status(&self, user_id: &str) -> ApiResult<AccessStatus> {
+        super::classroom_access::claim_classroom_access(&self.pool, user_id).await?;
         let row=sqlx::query("SELECT users.plan,users.blocked_at,users.free_access_started_at,codes.max_users,CASE WHEN codes.distribution_mode='organization'THEN COUNT(DISTINCT memberships.id)::int ELSE COUNT(DISTINCT usage.user_id)::int END used_users FROM users LEFT JOIN access_code_redemptions own ON own.user_id=users.id LEFT JOIN access_codes codes ON codes.id=own.access_code_id LEFT JOIN access_code_redemptions usage ON usage.access_code_id=codes.id LEFT JOIN organizations ON organizations.access_code_id=codes.id LEFT JOIN organization_memberships memberships ON memberships.organization_id=organizations.id AND memberships.removed_at IS NULL WHERE users.id=$1 GROUP BY users.id,users.plan,users.blocked_at,users.free_access_started_at,codes.id,codes.max_users,codes.distribution_mode").bind(user_id).fetch_optional(&self.pool).await?;
         match row {
             Some(row) => Self::status_from(&row, false),

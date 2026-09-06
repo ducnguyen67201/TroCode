@@ -1,5 +1,6 @@
 mod access_codes;
 mod admin_session;
+mod classroom_access;
 mod crypto;
 mod google;
 mod organizations;

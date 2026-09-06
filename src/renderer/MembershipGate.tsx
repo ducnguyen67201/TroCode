@@ -166,18 +166,19 @@ export function MembershipGate({
                 )}
             {!isActivating && <span aria-hidden="true">→</span>}
           </button>
-          {usesSharedAccessCode && status?.state === 'inactive' && (
-            <button
-              className="secondary-button"
-              disabled={busy}
-              onClick={onContinueFree}
-              type="button"
-            >
-              {isContinuingFree
-                ? t('Opening Free…')
-                : t('Continue with Free')}
-            </button>
-          )}
+          {usesSharedAccessCode &&
+            (status?.state === 'inactive' || status?.state === 'error') && (
+              <button
+                className="secondary-button"
+                disabled={busy}
+                onClick={onContinueFree}
+                type="button"
+              >
+                {isContinuingFree
+                  ? t('Opening Free…')
+                  : t('Continue with Free')}
+              </button>
+            )}
           <button
             className="membership-refresh-button"
             disabled={busy}
