@@ -741,31 +741,6 @@ export function App({
     >(),
   );
   useEffect(() => {
-    if (!window.tro.onTeacherClassroomChanged) return;
-    let active = true;
-    let changed = false;
-    const apply = (next: TeacherClassroomSelection | null) => {
-      if (active) {
-        teacherSelectionRef.current = next;
-        setTeacherSelection(next);
-      }
-    };
-    const stop = window.tro.onTeacherClassroomChanged((next) => {
-      changed = true;
-      apply(next);
-    });
-    void window.tro
-      .getTeacherClassroom()
-      .then((next) => {
-        if (!changed) apply(next);
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-      stop();
-    };
-  }, []);
-  useEffect(() => {
     ++teacherSelectionGenerationRef.current;
     const selected = teacherSelectionRef.current;
     if (selected && selected.binding.spaceId !== selectedClassSpace?.id) {
@@ -940,6 +915,7 @@ export function App({
   const companionActionInFlightRef = useRef(false);
   const organizationRefreshIdRef = useRef(0);
   const classSpacesRefreshIdRef = useRef(0);
+  const knowledgeCapabilitiesRefreshIdRef = useRef(0);
   const openOrganizationAfterActivationRef = useRef(false);
   const t = useCallback(
     (
@@ -962,6 +938,41 @@ export function App({
   const classroomAccessAvailable =
     knowledgeSpacesEnabled && hasAssignedClassroomRole(classroomRole);
 
+  useEffect(() => {
+    let active = true;
+    if (!membershipAccessAllowed) {
+      teacherSelectionRef.current = null;
+      queueMicrotask(() => {
+        if (active) setTeacherSelection(null);
+      });
+      return () => {
+        active = false;
+      };
+    }
+    if (!window.tro.onTeacherClassroomChanged) return;
+    let changed = false;
+    const apply = (next: TeacherClassroomSelection | null) => {
+      if (active) {
+        teacherSelectionRef.current = next;
+        setTeacherSelection(next);
+      }
+    };
+    const stop = window.tro.onTeacherClassroomChanged((next) => {
+      changed = true;
+      apply(next);
+    });
+    void window.tro
+      .getTeacherClassroom()
+      .then((next) => {
+        if (!changed) apply(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      stop();
+    };
+  }, [currentUser.id, membershipAccessAllowed]);
+
   const clearError = useCallback(() => {
     dispatchTransientCursorError({ type: 'cleared' });
   }, []);
@@ -971,6 +982,7 @@ export function App({
   }, []);
 
   const refreshClassSpaces = useCallback(async (): Promise<void> => {
+    if (!membershipAccessAllowed) return;
     const refreshId = classSpacesRefreshIdRef.current + 1;
     classSpacesRefreshIdRef.current = refreshId;
     setClassSpacesLoading(true);
@@ -1004,9 +1016,11 @@ export function App({
         setClassSpacesLoading(false);
       }
     }
-  }, []);
+  }, [membershipAccessAllowed]);
 
   const refreshKnowledgeCapabilities = useCallback(async (): Promise<void> => {
+    if (!membershipAccessAllowed) return;
+    const refreshId = ++knowledgeCapabilitiesRefreshIdRef.current;
     const clearClassroomAccess = (): void => {
       classSpacesRefreshIdRef.current += 1;
       setClassroomRole('unassigned');
@@ -1021,6 +1035,7 @@ export function App({
 
     try {
       const capabilities = await window.tro.getKnowledgeCapabilities();
+      if (knowledgeCapabilitiesRefreshIdRef.current !== refreshId) return;
       const enabled = capabilities.knowledgeSpaces.enabled;
       setKnowledgeSpacesEnabled(enabled);
       if (enabled) {
@@ -1029,10 +1044,11 @@ export function App({
         clearClassroomAccess();
       }
     } catch {
+      if (knowledgeCapabilitiesRefreshIdRef.current !== refreshId) return;
       setKnowledgeSpacesEnabled(false);
       clearClassroomAccess();
     }
-  }, [refreshClassSpaces]);
+  }, [membershipAccessAllowed, refreshClassSpaces]);
 
   const recordSnapshot = useCallback((nextSnapshot: TaskSnapshot | null) => {
     latestSnapshotRef.current = nextSnapshot;
@@ -1173,8 +1189,6 @@ export function App({
       .then(setUsageBudget)
       .catch(() => undefined);
 
-    queueMicrotask(() => void refreshKnowledgeCapabilities());
-
     void window.tro
       .getTaskHistory()
       .then((history) => {
@@ -1251,9 +1265,33 @@ export function App({
       unsubscribeTaskComposerFocus();
       unsubscribeAppUpdates();
     };
-  }, [recordSnapshot, refreshKnowledgeCapabilities, reportError]);
+  }, [recordSnapshot, reportError]);
 
   useEffect(() => {
+    let active = true;
+    if (!membershipAccessAllowed) {
+      queueMicrotask(() => {
+        if (!active) return;
+        setKnowledgeSpacesEnabled(false);
+        setClassroomRole('unassigned');
+        setClassSpaces([]);
+        setSelectedClassSpace(null);
+        setClassSpacesLoading(false);
+        setClassSpacesError(null);
+        setActiveView((currentView) =>
+          currentView === 'spaces' || currentView === 'assigned'
+            ? 'agent'
+            : currentView,
+        );
+      });
+      return () => {
+        active = false;
+      };
+    }
+
+    queueMicrotask(() => {
+      if (active) void refreshKnowledgeCapabilities();
+    });
     const refreshOnFocus = (): void => {
       void refreshKnowledgeCapabilities();
     };
@@ -1266,10 +1304,13 @@ export function App({
     window.addEventListener('focus', refreshOnFocus);
     document.addEventListener('visibilitychange', refreshOnVisibility);
     return () => {
+      active = false;
+      knowledgeCapabilitiesRefreshIdRef.current += 1;
+      classSpacesRefreshIdRef.current += 1;
       window.removeEventListener('focus', refreshOnFocus);
       document.removeEventListener('visibilitychange', refreshOnVisibility);
     };
-  }, [refreshKnowledgeCapabilities]);
+  }, [currentUser.id, membershipAccessAllowed, refreshKnowledgeCapabilities]);
 
   useEffect(() => {
     document.documentElement.lang = appLanguageDraft;
