@@ -18,7 +18,8 @@ import type { ActivityContextService } from './activity-context-service';
 import type { ClassroomBroadcastService } from './classroom-broadcast-service';
 import {
   canAutomaticallyExplain,
-  pendingClassroomExplanations,
+  classroomExplanationQueue,
+  defaultClassroomGuidanceConsent,
 } from './classroom-guidance-policy';
 import type { KnowledgeSpaceClient } from './knowledge-space-client';
 
@@ -71,6 +72,9 @@ export class ClassroomGuidanceCoordinator {
         if ((notice?.sessionId ?? null) !== this.state.sessionId) {
           void this.invalidate();
           this.state.sessionId = notice?.sessionId ?? null;
+          this.state.consent = defaultClassroomGuidanceConsent(notice);
+          this.consentEnabledAt = this.now();
+          this.consentSequence = notice?.broadcast?.sequence ?? 0;
           this.publish();
         }
         if (notice?.offline) {
@@ -80,19 +84,14 @@ export class ClassroomGuidanceCoordinator {
         }
       }),
       this.options.broadcasts.onBroadcast((broadcast, provenance) => {
-        const previous = this.state.pending;
-        this.state.pending = pendingClassroomExplanations(
+        const { pending, releaseIds } = classroomExplanationQueue(
           this.state.pending,
           broadcast,
+          this.state.active?.broadcastId ?? null,
         );
-        previous
-          .filter(
-            (b) =>
-              !this.state.pending.some((next) => next.id === b.id) &&
-              b.id !== this.state.active?.broadcastId,
-          )
-          .forEach((b) => this.options.broadcasts.release(b.id));
-        this.state.pending.forEach((b) => this.options.broadcasts.retain(b.id));
+        this.state.pending = pending;
+        releaseIds.forEach((id) => this.options.broadcasts.release(id));
+        pending.forEach((b) => this.options.broadcasts.retain(b.id));
         this.publish();
         if (
           canAutomaticallyExplain({

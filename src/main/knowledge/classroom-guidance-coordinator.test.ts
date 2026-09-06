@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {
+  BroadcastNotice,
   GuidanceClaim,
   GuidanceStartRequest,
   LocalGuidanceStartJournal,
@@ -79,11 +81,31 @@ function fixture() {
       journals.set(journal.broadcastId, structuredClone(journal));
     }),
   };
+  const feedEvents = new EventEmitter();
+  let notice: BroadcastNotice | null = {
+    sessionId: f.binding.sessionId,
+    anchorAttemptId: f.session.attemptId,
+    revision: 1,
+    broadcast: null,
+    offline: false,
+  };
+  const publishNotice = (next: BroadcastNotice | null) => {
+    notice = next;
+    feedEvents.emit('change', next);
+  };
   const broadcasts = {
     retain: vi.fn(),
     release: vi.fn(),
     trusted: () => ({ anchor: f.session.attemptId, broadcast: f.broadcast }),
-    get: () => ({ sessionId: f.binding.sessionId, offline: false }),
+    get: () => notice,
+    onChange: (listener: Parameters<ClassroomBroadcastService['onChange']>[0]) => {
+      feedEvents.on('change', listener);
+      return () => { feedEvents.off('change', listener); };
+    },
+    onBroadcast: (listener: Parameters<ClassroomBroadcastService['onBroadcast']>[0]) => {
+      feedEvents.on('broadcast', listener);
+      return () => { feedEvents.off('broadcast', listener); };
+    },
     openAssignment: async () => ({ attemptId: f.attempt.attemptId }),
   };
   const onExplanationText = vi.fn();
@@ -100,9 +122,51 @@ function fixture() {
     language: async () => 'vi',
     onExplanationText,
   });
-  return { ...f, journals, tasks, client, coordinator, broadcasts, onExplanationText, store };
+  return { ...f, journals, tasks, client, coordinator, broadcasts, onExplanationText, store, feedEvents, publishNotice };
 }
 describe('independent student explanation starts', () => {
+  it('enables new explanations by default but waits for a fresh live broadcast', async () => {
+    const f = fixture();
+    f.coordinator.start();
+    f.publishNotice(f.broadcasts.get());
+    expect(f.coordinator.get().consent).toEqual({
+      sessionId: f.binding.sessionId, enabled: true, contextMode: 'screen_if_permitted',
+    });
+    f.feedEvents.emit('broadcast', f.broadcast, 'initial_snapshot');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.tasks.submitClassroomExplanation).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    f.broadcast.createdAt = new Date().toISOString();
+    f.feedEvents.emit('broadcast', f.broadcast, 'live_delta');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.tasks.submitClassroomExplanation).toHaveBeenCalledOnce();
+    // Auto-start does not grant screen permissions.
+    expect(f.tasks.submitClassroomExplanation).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), expect.objectContaining({ contextMode: 'text_only' }),
+    );
+    await f.coordinator.shutdown();
+  });
+
+  it.each(['opted_out', 'busy'] as const)('does not auto-start while %s or reset an opt-out on feed updates', async (reason) => {
+    const f = fixture();
+    f.coordinator.start();
+    f.publishNotice(f.broadcasts.get());
+    if (reason === 'opted_out') {
+      f.coordinator.setConsent({ sessionId: f.binding.sessionId, enabled: false, contextMode: 'screen_if_permitted' });
+    } else {
+      f.tasks.reserveClassroomExplanation();
+    }
+    await vi.advanceTimersByTimeAsync(1);
+    f.broadcast.createdAt = new Date().toISOString();
+    f.publishNotice({ ...f.broadcasts.get()!, revision: 2, broadcast: f.broadcast });
+    f.feedEvents.emit('broadcast', f.broadcast, 'live_delta');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.tasks.submitClassroomExplanation).not.toHaveBeenCalled();
+    if (reason === 'opted_out') expect(f.coordinator.get().consent?.enabled).toBe(false);
+    await f.coordinator.shutdown();
+  });
+
   it('does not arm an expiry timer after completion during the final start write', async () => {
     const f = fixture();
     const original = f.store.writeGuidanceJournal.getMockImplementation()!;

@@ -158,7 +158,7 @@ export class ClassroomBroadcastService {
         this.reset(null);
         return;
       }
-      // A joined student can opt in before the teacher sends the first notice.
+      // Establish the verified session and its defaults before the first notice.
       if (!this.notice) {
         this.publish({
           anchorAttemptId: anchor,

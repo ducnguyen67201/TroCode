@@ -180,7 +180,6 @@ export function ClassSessionsPanel({
     try {
       const classroom: ClassroomSessionProjection =
         await window.tro.joinKnowledgeRoom({
-          autoOpenConsent: false,
           clientId: randomUUID(),
           code,
         });
@@ -207,6 +206,9 @@ export function ClassSessionsPanel({
             {t(
               'Enter the code your Teacher shares. All Activities for this Session will appear in your Assigned work.',
             )}
+          </p>
+          <p>
+            {t('Approved class links open automatically. New teacher explanations start while you are idle. You can turn either off in the class controls.')}
           </p>
         </div>
         <form

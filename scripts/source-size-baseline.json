@@ -20,7 +20,7 @@
   "src/main/cua/cua-service.ts": 1542,
   "src/main/cua/cua-surface-router.ts": 907,
   "src/main/ipc/register-ipc.ts": 1222,
-  "src/main/knowledge/classroom-guidance-coordinator.ts": 664,
+  "src/main/knowledge/classroom-guidance-coordinator.ts": 663,
   "src/main/knowledge/knowledge-space-client.ts": 653,
   "src/preload.ts": 1131,
   "src/shared/contracts.ts": 2670

@@ -1,4 +1,6 @@
 export const classroomMessages2: Readonly<Record<string, string>> = {
+  'Approved class links open automatically. New teacher explanations start while you are idle. You can turn either off in the class controls.':
+    'Các liên kết lớp đã được cho phép sẽ tự động mở. Phần giải thích mới của giáo viên bắt đầu khi thiết bị rảnh. Bạn có thể tắt từng tùy chọn trong phần điều khiển lớp học.',
   withdrawn: 'đã rút lại',
   'Auto-open eligible': 'Có thể tự động mở',
   'Could not start this Activity.': 'Không thể bắt đầu Hoạt động này.',

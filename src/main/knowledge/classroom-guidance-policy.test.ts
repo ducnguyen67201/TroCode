@@ -4,9 +4,28 @@ import { classroomFixture } from './classroom-broadcast.fixture';
 import {
   canAutomaticallyExplain,
   canObserveClassroomExplanation,
+  classroomExplanationQueue,
+  defaultClassroomGuidanceConsent,
   pendingClassroomExplanations,
 } from './classroom-guidance-policy';
 describe('student explanation admission', () => {
+  it('only enables defaults for a verified online classroom feed', () => {
+    const f = classroomFixture();
+    const notice = { revision: 1, sessionId: f.binding.sessionId, anchorAttemptId: f.session.attemptId, broadcast: null, offline: false };
+    expect(defaultClassroomGuidanceConsent(notice)?.enabled).toBe(true);
+    expect(defaultClassroomGuidanceConsent(null)).toBeNull();
+    expect(defaultClassroomGuidanceConsent({ ...notice, offline: true })).toBeNull();
+  });
+  it('releases replaced pending explanations while retaining the active one', () => {
+    const { broadcast } = classroomFixture();
+    const replacement = { ...broadcast, id: classroomFixture().broadcast.id };
+    expect(classroomExplanationQueue([broadcast], replacement, null)).toEqual({
+      pending: [replacement], releaseIds: [broadcast.id],
+    });
+    expect(classroomExplanationQueue([broadcast], replacement, broadcast.id)).toEqual({
+      pending: [replacement], releaseIds: [],
+    });
+  });
   it('uses granted macOS permissions or an already connected Windows/Linux source', () => {
     const status = { state: 'ready' as const, platform: 'darwin' as const, available: true, summary: 'Ready', nextActions: [] };
     expect(canObserveClassroomExplanation(status)).toBe(false);
