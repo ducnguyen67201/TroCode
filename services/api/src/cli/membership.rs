@@ -44,7 +44,7 @@ pub fn membership_keygen(
         write_new(path, format!("{public_base64}\n").as_bytes(), false)
             .context("public key creation failed")?;
     }
-    println!("TROCODE_MEMBERSHIP_PUBLIC_KEY={public_base64}");
+    println!("{public_base64}");
     Ok(())
 }
 
