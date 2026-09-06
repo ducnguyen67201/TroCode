@@ -193,6 +193,9 @@ describe('App membership and settings safety', () => {
         items: [],
       }),
       onTeacherClassroomChanged: vi.fn().mockReturnValue(unsubscribe),
+      onClassroomSessionChanged: vi.fn().mockReturnValue(unsubscribe),
+      onClassroomDirectiveChanged: vi.fn().mockReturnValue(unsubscribe),
+      restoreClassroomSession: vi.fn().mockResolvedValue(null),
       getTaskHistory: vi.fn().mockResolvedValue({
         events: [],
         persistence: { mode: 'session_only', summary: 'Session only.' },
