@@ -127,6 +127,14 @@ were generated independently. Test provider calls use the development provider
 accounts and are billable normally. PostHog collection is disabled for this
 launcher.
 
+Doppler can flag a secret as missing simply because another config defines it.
+`TROCODE_POSTGRES_PASSWORD` belongs only in local development configs: Docker
+Compose reads it, while hosted staging uses `DATABASE_URL`. Do not copy the local
+database password into staging to clear that warning. The retired hosted-agent
+protocol, state-encryption, backend-agent rollout, intent-authorization rollout,
+membership public-key, and planner model variables are no longer runtime
+configuration. Historical implementation plans may still mention them.
+
 Railway runtime variables were populated from `stg`; this is not an automatic
 Doppler integration. After changing a backend secret in Doppler, update that
 variable in both test services through Railway's Variables panel and redeploy
