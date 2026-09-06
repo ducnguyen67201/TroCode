@@ -16,11 +16,11 @@ it('preserves the reviewed Vietnamese messages and dictionary precedence', () =>
       ...Object.keys(CLASSROOM_VIETNAMESE_TRANSLATIONS),
     ]),
   ].sort();
-  expect(keys).toHaveLength(1075);
+  expect(keys).toHaveLength(1076);
   const entries = JSON.stringify(
     keys.map((key) => [key, translate('vi', key)]),
   );
   expect(createHash('sha256').update(entries).digest('hex')).toBe(
-    '111f3e7fb6cda13ac3b78c248508c33267c7522650211868bf44609e6e6ef2c5',
+    '523c12920945281291689c0d8f0e971af847c7e8e35a06cf78e517da67e7423c',
   );
 });

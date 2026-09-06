@@ -8,6 +8,8 @@ use trocode_api::{
 use url::Url;
 use uuid::Uuid;
 
+static DATABASE_RESET: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+
 struct Fixture {
     pool: PgPool,
     teacher: String,
@@ -30,6 +32,20 @@ impl Fixture {
             .connect(&value)
             .await
             .unwrap();
+        // Other suites deliberately leave incompatible migration history. Reset once
+        // per test process so subsequent fixtures can coexist in the same schema.
+        DATABASE_RESET
+            .get_or_init(|| async {
+                query("DROP SCHEMA IF EXISTS public CASCADE")
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+                query("CREATE SCHEMA public")
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            })
+            .await;
         db::migrate(&pool).await.unwrap();
         let nonce = Uuid::new_v4();
         let teacher = format!("class-access-teacher-{nonce}");
