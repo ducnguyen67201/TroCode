@@ -5,7 +5,10 @@ import type {
   CompanionResponseCard as CompanionResponse,
 } from '../shared/contracts';
 
+import { translate } from './app-language';
 import type { GuidanceAudioStatus } from './guidance-audio-playback';
+import { WorkCheckResultCard } from './WorkCheckResultCard';
+
 
 interface CompanionResponseCardProps {
   audioStatus: GuidanceAudioStatus | null;
@@ -117,7 +120,7 @@ export function CompanionResponseCard({
     : 'read_aloud';
 
   useEffect(() => {
-    if (!isCompleted || isBusy) return undefined;
+    if (response.workCheck || !isCompleted || isBusy) return undefined;
     const handleKeyDown = (event: KeyboardEvent): void => {
       const action = getCompanionResponseNumberAction(
         event,
@@ -129,7 +132,31 @@ export function CompanionResponseCard({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isBusy, isCompleted, onAction, readAction]);
+  }, [isBusy, isCompleted, onAction, readAction, response.workCheck]);
+
+  if (response.workCheck) {
+    const panel = response.workCheck;
+    const t = (text: string) => translate(panel.language ?? 'en', text);
+    const busy = panel.busy || isBusy;
+    return <aside className={`guidance-callout companion-response-card work-check-panel guidance-callout--${response.side}`} aria-label={t('Assignment check')}>
+      <header><strong>{panel.assignmentTitle}</strong><button type="button" onClick={() => onAction('dismiss')} aria-label={t('Close check panel')}>×</button></header>
+      <div className="work-check-panel__content">
+      {(!panel.projection?.report || response.message !== 'Check finished.') && <p role="status">{t(response.message)}</p>}
+      {panel.policyNotice && <p>{t(panel.policyNotice)}</p>}
+      {panel.projection && <WorkCheckResultCard projection={panel.projection} sync={panel.sync} appLanguage={panel.language}/>}
+      {error && <p role="alert">{error}</p>}
+      {panel.submissionFiles && <ul aria-label={t('Files to submit')}>{panel.submissionFiles.map((file,i) => <li key={i}>{file.displayName} · {file.byteSize} bytes</li>)}</ul>}
+      </div>
+      <footer className="work-check-panel__actions">
+        {panel.projection?.phase === 'checking' && <button type="button" onClick={() => onAction('stop_check')}>{t('Stop check')}</button>}
+        {panel.needsWorkspace && <button disabled={busy} type="button" onClick={() => onAction('choose_check_workspace')}>{t('Choose folder')}</button>}
+        {(!panel.projection || panel.policyNotice) && <button disabled={busy || !panel.canCheck} type="button" onClick={() => onAction('start_assignment')}>{t(panel.policyNotice ? 'Start working and acknowledge policy' : 'Start working')}</button>}
+        <button disabled={busy || !panel.canCheck || panel.needsWorkspace} type="button" onClick={() => onAction('check_again')}>{t(panel.projection ? 'Check again' : 'Check my work')}</button>
+        <button className="work-check-panel__review" disabled={busy || !panel.canReview} type="button" onClick={() => onAction(panel.submissionFiles ? 'confirm_submit_files' : 'send_for_review')}>{t(panel.submissionFiles ? 'Submit files' : 'Send for teacher review')}</button>
+        <button type="button" onClick={() => onAction('dismiss')}>{t('Keep working')}</button>
+      </footer>
+    </aside>;
+  }
 
   return (
     <aside

@@ -1,3 +1,5 @@
+export * from './work-check-contracts';
+
 export * from './classroom-broadcast-contracts';
 import { z } from 'zod';
 
@@ -6,6 +8,8 @@ import {
   validateClassroomUrl,
 } from './classroom-url-policy';
 import { VOICE_MODES } from './voice-mode';
+import { WorkCheckProjectionSchema, WorkCheckPanelSchema, WorkCheckActionSchema } from './work-check-contracts';
+
 
 export const RuntimeToolIdSchema = z
   .string()
@@ -577,6 +581,8 @@ export const TaskSnapshotSchema = z
   .object({
     taskId: z.string().uuid(),
     request: z.string().min(2).max(8_000),
+    workCheck: WorkCheckProjectionSchema.nullable().optional(),
+    workSessionSync: z.enum(['pending', 'synced', 'unknown']).nullable().optional(),
     phase: TaskPhaseSchema,
     lifecycle: TaskLifecycleSchema.nullable().optional(),
     goal: GoalSpecSchema.nullable(),
@@ -599,6 +605,13 @@ export const TaskSnapshotSchema = z
     lastEvent: TaskEventSchema.nullable(),
   })
   .superRefine((snapshot, context) => {
+    const report = snapshot.workCheck?.report;
+    const activity = snapshot.goal?.activity;
+    if (snapshot.workCheck && (!activity || activity.purpose !== 'check' || (report && (
+      report.taskId !== snapshot.taskId || report.attemptId !== activity.attemptId || report.activityVersionId !== activity.activityVersionId
+    )))) {
+      context.addIssue({code:'custom',message:'Check feedback must belong to this task and assignment version.',path:['workCheck']});
+    }
     const mismatchedMessage = snapshot.messages.some(
       (message) => message.taskId !== snapshot.taskId,
     );
@@ -985,6 +998,7 @@ export const AssignedActivityListSchema = z.object({
   items: z.array(AssignedActivitySchema).max(500),
 });
 export const HostedAttemptContextSchema = z.object({
+  startedAt: z.string().datetime().nullable().optional(),
   attemptId: z.string().uuid(),
   userId: z.string().min(1).max(255),
   state: z.enum([
@@ -1055,6 +1069,8 @@ export const KnowledgeDashboardSchema = z.object({
         joinedAt: z.string().datetime().nullable().optional().default(null),
         leftAt: z.string().datetime().nullable().optional().default(null),
         updatedAt: z.string().datetime(),
+        startedAt: z.string().datetime().nullable().optional(),
+        lastCheck: z.object({workSessionId: z.string().uuid(), state: z.string().max(40), updatedAt: z.string().datetime()}).nullable().optional(),
         sessionCount: z.number().int().nonnegative(),
         evidenceCount: z.number().int().nonnegative(),
         helpRequestedAt: z.string().datetime().nullable(),
@@ -1099,6 +1115,8 @@ export const KnowledgeDashboardSchema = z.object({
         joinedAt: z.string().datetime().nullable().optional().default(null),
         leftAt: z.string().datetime().nullable().optional().default(null),
         updatedAt: z.string().datetime(),
+        startedAt: z.string().datetime().nullable().optional(),
+        lastCheck: z.object({workSessionId: z.string().uuid(), state: z.string().max(40), updatedAt: z.string().datetime()}).nullable().optional(),
         sessionCount: z.number().int().nonnegative(),
         evidenceCount: z.number().int().nonnegative(),
         helpRequestedAt: z.string().datetime().nullable(),
@@ -1976,6 +1994,7 @@ export const CompanionPetNudgeSchema = CompanionPetNudgeDraftSchema.extend({
 
 export const CompanionResponseCardSchema = z
   .object({
+    workCheck: WorkCheckPanelSchema.optional(),
     cardId: z.string().uuid(),
     taskId: z.string().uuid(),
     phase: z.enum(['streaming', 'completed']),
@@ -1999,7 +2018,7 @@ export const CompanionResponseActionSchema = z.enum([
   'ask_follow_up',
   'read_aloud',
   'stop_reading',
-]);
+]).or(WorkCheckActionSchema);
 
 export const CompanionResponseActionRequestSchema = z
   .object({

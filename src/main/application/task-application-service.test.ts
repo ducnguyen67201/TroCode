@@ -10,6 +10,7 @@ import type {
 } from '../../shared/contracts';
 import { TaskRuntime } from '../agent/task-runtime';
 import { classroomFixture } from '../knowledge/classroom-broadcast.fixture';
+import { workCheckFixture } from '../knowledge/work-check.fixture';
 
 import { TaskApplicationService } from './task-application-service';
 
@@ -436,4 +437,18 @@ describe('TaskApplicationService', () => {
       expect.objectContaining({ taskId: snapshot.taskId }),
     );
   });
+});
+
+it('forces a dedicated check with fast Coach disabled and binds only private workspace context',async()=>{
+  const f=workCheckFixture(); const local=localDependencies(); const runtime=new TaskRuntime();
+  const workChecks={bind:vi.fn(),release:vi.fn()};
+  const service=new TaskApplicationService(runtime,{
+    ...local,state:local.state as never,currentOwnerId:async()=> 'student',fastCoachEnabled:false,
+    activityContextService:{inspect:async()=>f.attempt,create:async()=>f.activity} as never,workChecks,
+  });
+  const task=await service.submitAndStart({text:'Check the work.',activityAttemptId:f.attempt.attemptId,activityIntent:'check',requestedMode:'agent'});
+  expect(task.goal).toMatchObject({route:'coach',workspace:null,executionProfile:'everyday',activity:{purpose:'check'}});
+  expect(local.localRuntime.start).not.toHaveBeenCalled(); expect(local.coachRuntime.start).toHaveBeenCalledOnce();
+  expect(workChecks.bind).toHaveBeenCalledWith(task.taskId,f.activity,null);
+  service.finish(task.taskId); expect(workChecks.release).toHaveBeenCalledWith(task.taskId);
 });

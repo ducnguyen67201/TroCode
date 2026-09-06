@@ -7,6 +7,7 @@ import type { DesktopObservation } from '../agent/execution-contracts';
 import { ActivityContextService } from '../knowledge/activity-context-service';
 import { classroomFixture } from '../knowledge/classroom-broadcast.fixture';
 import type { KnowledgeSpaceClient } from '../knowledge/knowledge-space-client';
+import { workCheckFixture } from '../knowledge/work-check.fixture';
 
 import { CoachDecisionSchema, type CoachRuntimeStart } from './coach-contracts';
 import {
@@ -769,5 +770,49 @@ describe('individual classroom explanations', () => {
       expect(decisionInput.presentedSteps).toEqual([]);
       expect(f.releaseObservationSession).toHaveBeenCalledWith(input.taskId);
     }
+  });
+});
+
+describe('dedicated assignment checks',()=>{
+  it('makes one tool-free check, records evidence and never presents pointers',async()=>{
+    const f=workCheckFixture(); const s=setup(async()=>({kind:'work_check',...f.decision}));
+    s.dependencies.workChecks={prepare:vi.fn(async()=>f.packet),verify:vi.fn(async()=>undefined),release:vi.fn()};
+    s.dependencies.onWorkCheck=vi.fn();
+    await s.runtime.start({taskId:f.packet.taskId,request:'Check my work',activity:f.activity,requiresObservation:false,priorProgress:null});
+    await vi.waitFor(()=>expect(s.terminal).toHaveBeenCalledOnce());
+    expect(s.dependencies.decide).toHaveBeenCalledOnce(); expect(s.observe).not.toHaveBeenCalled();
+    expect(s.presentSequence).not.toHaveBeenCalled();
+    expect(s.dependencies.onWorkCheck).toHaveBeenLastCalledWith(f.packet.taskId,expect.objectContaining({phase:'checked',report:expect.objectContaining({overall:'looks_ready'})}));
+    expect(s.dependencies.workChecks.release).toHaveBeenCalledWith(f.packet.taskId);
+    const request=coachResponseRequest({taskId:f.packet.taskId,request:'Check',observation:null,activity:f.activity,priorProgress:null,checkContext:f.packet},'test-model');
+    expect(request).toMatchObject({tools:[],store:false,max_output_tokens:8000});
+    expect(JSON.stringify(request)).toContain('untrusted evidence');
+  });
+  it('uses deterministic incomplete feedback without model cost when context is missing',async()=>{
+    const f=workCheckFixture(); f.packet.evidence=[]; f.packet.sources=[]; f.packet.coverage.partial=true;
+    const s=setup(async()=>({kind:'complete',recap:'Done'}));
+    s.dependencies.workChecks={prepare:vi.fn(async()=>f.packet),verify:vi.fn(async()=>undefined),release:vi.fn()}; s.dependencies.onWorkCheck=vi.fn();
+    await s.runtime.start({taskId:f.packet.taskId,request:'Check my work',activity:f.activity,requiresObservation:false,priorProgress:null});
+    await vi.waitFor(()=>expect(s.terminal).toHaveBeenCalledOnce());
+    expect(s.dependencies.decide).not.toHaveBeenCalled();
+    expect(s.dependencies.onWorkCheck).toHaveBeenLastCalledWith(f.packet.taskId,expect.objectContaining({report:expect.objectContaining({overall:'incomplete_context'})}));
+  });
+  it('rejects ordinary answers for checks and does not retry',async()=>{
+    const f=workCheckFixture(); const s=setup(async()=>({kind:'answer',text:'Perfect',language:'en'}));
+    s.dependencies.workChecks={prepare:vi.fn(async()=>f.packet),verify:vi.fn(async()=>undefined),release:vi.fn()};
+    s.dependencies.onWorkCheck=vi.fn();
+    await s.runtime.start({taskId:f.packet.taskId,request:'Check my work',activity:f.activity,requiresObservation:false,priorProgress:null});
+    await vi.waitFor(()=>expect(s.terminal).toHaveBeenCalledOnce());
+    expect(s.terminal).toHaveBeenCalledWith(f.packet.taskId,expect.objectContaining({status:'failed'}));
+    expect(s.dependencies.decide).toHaveBeenCalledOnce();
+  });
+  it('drops a late model response after cancellation',async()=>{
+    const f=workCheckFixture(); let release!: (value: {kind:'work_check'} & typeof f.decision)=>void;
+    const s=setup(()=>new Promise(resolve=>{release=resolve;}));
+    s.dependencies.workChecks={prepare:vi.fn(async()=>f.packet),verify:vi.fn(async()=>undefined),release:vi.fn()}; s.dependencies.onWorkCheck=vi.fn();
+    await s.runtime.start({taskId:f.packet.taskId,request:'Check my work',activity:f.activity,requiresObservation:false,priorProgress:null});
+    await vi.waitFor(()=>expect(s.dependencies.decide).toHaveBeenCalledOnce()); s.runtime.cancel(f.packet.taskId);
+    release({kind:'work_check',...f.decision}); await Promise.resolve(); await Promise.resolve();
+    expect(s.terminal).not.toHaveBeenCalled(); expect(s.dependencies.onWorkCheck).toHaveBeenCalledTimes(1);
   });
 });

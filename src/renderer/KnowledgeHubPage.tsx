@@ -5,6 +5,7 @@ import type {
   ClassroomAccountRole,
   KnowledgeSpaceSummary,
   SubmitTaskRequest,
+  TaskSnapshot,
 } from '../shared/contracts';
 
 import { AssignedActivitiesPage } from './AssignedActivitiesPage';
@@ -13,6 +14,7 @@ import { SpaceDetailPage, type SpaceDetailTab } from './SpaceDetailPage';
 import { SpacesPage } from './SpacesPage';
 
 export function KnowledgeHubPage({
+  checkSnapshots = [],
   onTeacherSessionSelect,
   teacherSessionId,
   appLanguage,
@@ -29,6 +31,7 @@ export function KnowledgeHubPage({
   space,
   spaceInitialTab = 'library',
 }: {
+  checkSnapshots?: readonly TaskSnapshot[];
   onTeacherSessionSelect?: (
     spaceId: string,
     sessionId: string | null,
@@ -56,6 +59,7 @@ export function KnowledgeHubPage({
   if (attemptId) {
     return (
       <AttemptLaunchPage
+        checkSnapshots={checkSnapshots}
         appLanguage={appLanguage}
         attemptId={attemptId}
         onBack={() => {

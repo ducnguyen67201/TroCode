@@ -332,6 +332,9 @@ pub struct RunStateResponse {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DashboardParticipant {
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub started_at: Option<OffsetDateTime>,
+    pub last_check: Option<Value>,
     pub id: String,
     pub attempt_id: Uuid,
     pub state: String,

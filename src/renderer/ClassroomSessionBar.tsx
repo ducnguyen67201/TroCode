@@ -205,7 +205,7 @@ export function ClassroomSessionBar({
           >
             {busyAction === 'ready'
               ? t('Marking ready…')
-              : t('Ready for review')}
+              : t('Send for teacher review')}
           </button>
         )}
         <button

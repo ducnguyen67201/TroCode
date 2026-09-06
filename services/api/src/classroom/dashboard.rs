@@ -91,12 +91,15 @@ impl ClassroomService {
         run_state: String,
     ) -> Result<DashboardResponse, ApiError> {
         let rows = query(
-            r#"SELECT attempts.id,attempts.user_id,attempts.state,attempts.updated_at,
+            r#"SELECT attempts.id,attempts.user_id,attempts.state,attempts.updated_at,attempts.started_at,
                       participations.joined_at,participations.left_at,runs.state AS run_state,
-                      (SELECT latest.state FROM knowledge_activity_work_sessions latest
+                      (SELECT jsonb_build_object('state',latest.state,'purpose',latest.purpose) FROM knowledge_activity_work_sessions latest
                        WHERE latest.attempt_id=attempts.id
                        ORDER BY latest.updated_at DESC,latest.id DESC LIMIT 1)
-                        AS latest_session_state,
+                        AS latest_session,
+                      (SELECT jsonb_build_object('workSessionId',checks.id,'state',checks.state,'updatedAt',to_char(checks.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+                       FROM knowledge_activity_work_sessions checks WHERE checks.attempt_id=attempts.id AND checks.purpose='check'
+                       ORDER BY checks.updated_at DESC,checks.id DESC LIMIT 1) AS last_check,
                       COUNT(DISTINCT sessions.id)::int AS session_count,
                       COUNT(DISTINCT evidence.id)::int AS evidence_count,
                       MAX(help.requested_at) AS help_requested_at
@@ -123,7 +126,7 @@ impl ClassroomService {
             let joined_at: Option<OffsetDateTime> = row.get("joined_at");
             let left_at: Option<OffsetDateTime> = row.get("left_at");
             let help_requested_at: Option<OffsetDateTime> = row.get("help_requested_at");
-            let latest_session_state: Option<String> = row.get("latest_session_state");
+            let latest_session: Option<serde_json::Value> = row.get("latest_session");
             let session_count: i32 = row.get("session_count");
             let row_run_state: String = row.get("run_state");
             let status = participant_status(
@@ -131,11 +134,18 @@ impl ClassroomService {
                 joined_at.is_some(),
                 left_at.is_some(),
                 help_requested_at.is_some(),
-                latest_session_state.as_deref(),
+                latest_session.as_ref().and_then(|value| {
+                    Some((
+                        value.get("state")?.as_str()?,
+                        value.get("purpose")?.as_str()?,
+                    ))
+                }),
                 session_count,
                 &row_run_state,
             );
             participants.push(DashboardParticipant {
+                started_at: row.get("started_at"),
+                last_check: row.get("last_check"),
                 id: row.get("user_id"),
                 attempt_id: row.get("id"),
                 state,
@@ -215,7 +225,7 @@ fn participant_status(
     joined: bool,
     left: bool,
     help_requested: bool,
-    latest_session_state: Option<&str>,
+    latest_session_state: Option<(&str, &str)>,
     session_count: i32,
     run_state: &str,
 ) -> &'static str {
@@ -227,7 +237,7 @@ fn participant_status(
         _ if left => "left",
         _ if help_requested => "needs_help",
         _ if joined && run_state == "draft" => "lobby",
-        _ if latest_session_state == Some("failed") => "launch_failed",
+        _ if latest_session_state == Some(("failed", "work")) => "launch_failed",
         _ if !joined && session_count == 0 => "not_joined",
         _ => "working",
     }
@@ -272,9 +282,45 @@ mod tests {
     use super::participant_status;
 
     #[test]
+    fn failed_checks_do_not_replace_assignment_status() {
+        assert_eq!(
+            participant_status(
+                "in_progress",
+                false,
+                false,
+                false,
+                Some(("failed", "check")),
+                1,
+                "open"
+            ),
+            "working"
+        );
+        assert_eq!(
+            participant_status(
+                "in_progress",
+                false,
+                false,
+                false,
+                Some(("failed", "work")),
+                1,
+                "open"
+            ),
+            "launch_failed"
+        );
+    }
+
+    #[test]
     fn explicit_and_terminal_states_win_over_presence_signals() {
         assert_eq!(
-            participant_status("completed", true, true, true, Some("failed"), 1, "open"),
+            participant_status(
+                "completed",
+                true,
+                true,
+                true,
+                Some(("failed", "work")),
+                1,
+                "open"
+            ),
             "completed"
         );
         assert_eq!(

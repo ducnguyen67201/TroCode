@@ -185,3 +185,48 @@ the desktop build. Capabilities
 `knowledgeSpaces` remains version 2. Absent capabilities keep the existing manual
 classroom workflow available. Rollback should disable the capabilities and retain
 broadcast/start data, never drop tables or reinterpret guided work as Help.
+
+## Assignment checks from the work app
+
+During an open student assignment, **⌘⌥K** on macOS or **Ctrl+Alt+K** on
+Windows/Linux checks the current work and shows a floating Tro panel. The main
+window does not need to be opened. If the shortcut is already taken, the panel
+provides **Check my work**. Normal typing, including number keys, remains in the
+work app. Opening this panel does not register a start; **Start working** or an
+accepted Check creates a Work Session and records the first `startedAt`.
+
+The published teacher criteria define what is checked. A current-screen check
+uses one capture and explicitly has partial coverage: hidden Scratch sprites,
+unseen PDF pages, and off-screen code are not verified. A workspace check reads
+supported saved text/code files only from a folder explicitly selected through
+the native picker. It excludes hidden/build directories and symlinks, limits
+discovery to 200 entries/depth 10, and reads at most 20 files, 20,000 characters
+per file and 100,000 total. Oversized files (over 5 MiB), PDFs and `.sb3` archives
+are omitted. Discovered entries are sorted before reading; a directory that
+exceeds the enumeration budget is explicitly partial. Unsaved editor changes
+and program execution are not checked. Up to six published reference excerpts
+(12,000 characters total) can supply requirements, never proof of student work.
+
+Tro makes one read-only model request with no tools. Each criterion receives
+**Looks met**, **Needs work**, or **Could not verify**, backed by captured evidence
+IDs. Missing context never becomes a pass. Typed feedback and relative evidence
+labels/hashes are kept in the student's encrypted local task history; raw files
+and screenshots are not added to the check report. Code and document text are
+untrusted evidence and cannot authorize actions or change the teacher's criteria.
+
+**Send for teacher review** is an explicit student action. For file assignments,
+the panel opens the native picker, previews selected filenames and requires
+**Submit files** before uploading. A successful check does not send work, award a
+grade, or complete the assignment. Teacher **Complete** and **Return** remain the
+official outcomes. Cancelled, stale or uncertain checks do not retry themselves.
+Unknown submission responses are not replayed automatically.
+
+The teacher dashboard shows start time and latest check execution state, without
+sending private AI feedback or source content. Work Session PATCH requests are
+ordered locally and lock the server session row; terminal states cannot regress.
+A failed Check does not turn the assignment into a failed launch. If reporting
+fails, the student sees that progress sync could not be confirmed.
+
+Future Python execution, Scratch project readers, and full PDF extraction require
+separate bounded reader/checker capabilities. Screen visibility alone does not
+provide those capabilities.

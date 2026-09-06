@@ -61,6 +61,12 @@ export class CompanionResponseController {
     this.responseSide = options.side ?? (() => 'right');
   }
 
+  setCard(card: CompanionResponseCard): void {
+    this.currentCard = CompanionResponseCardSchema.parse(card);
+    this.activeTaskId = card.taskId;
+    this.suppressedTaskId = null;
+  }
+
   get current(): CompanionResponseCard | null {
     return this.currentCard;
   }

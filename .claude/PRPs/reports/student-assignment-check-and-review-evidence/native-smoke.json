@@ -1,0 +1,23 @@
+{
+  "result": {
+    "registered": true,
+    "checks": 1,
+    "presented": 1,
+    "mainVisible": false,
+    "editorFocused": true
+  },
+  "layout": {
+    "width": 420,
+    "height": 360,
+    "scrollHeight": 346,
+    "clientHeight": 346,
+    "buttons": [
+      "×",
+      "Check again",
+      "Send for teacher review",
+      "Keep working"
+    ]
+  },
+  "typingPreserved": true,
+  "note": "Native Electron smoke with synthetic server/model and actual macOS shortcut and typing through System Events."
+}

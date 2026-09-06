@@ -363,6 +363,68 @@ async fn teacher_and_student_complete_a_live_classroom_over_http() {
     assert_eq!(resolved.body["state"], "in_progress");
     assert_eq!(resolved.body["resolved"], true);
 
+    // A check is an operational session, never an official completion.
+    let check_client = Uuid::new_v4();
+    let check_task = Uuid::new_v4();
+    let check_payload = json!({"clientId":check_client,"taskId":check_task,"launchKind":"current_surface","purpose":"check"});
+    let check = call(
+        &router,
+        Method::POST,
+        &format!("/v1/attempts/{attempt_id}/work-sessions"),
+        Some(&fixture.student_token),
+        Some(check_payload.clone()),
+    )
+    .await;
+    assert_eq!(check.status, StatusCode::CREATED);
+    let check_id = check.body["id"].as_str().unwrap();
+    let repeat_check = call(
+        &router,
+        Method::POST,
+        &format!("/v1/attempts/{attempt_id}/work-sessions"),
+        Some(&fixture.student_token),
+        Some(check_payload),
+    )
+    .await;
+    assert_eq!(repeat_check.body["id"], check.body["id"]);
+    for (status, expected) in [
+        ("active", "active"),
+        ("failed", "failed"),
+        ("completed", "failed"),
+        ("active", "failed"),
+    ] {
+        let updated = call(
+            &router,
+            Method::PATCH,
+            &format!("/v1/work-sessions/{check_id}"),
+            Some(&fixture.student_token),
+            Some(json!({"state":status})),
+        )
+        .await;
+        assert_eq!(updated.status, StatusCode::OK, "{}", updated.body);
+        assert_eq!(updated.body["state"], expected);
+    }
+    let after_check = dashboard(&router, &fixture).await;
+    assert_eq!(after_check["participants"][0]["status"], "working");
+    assert!(after_check["participants"][0]["startedAt"].is_string());
+    assert_eq!(
+        after_check["participants"][0]["lastCheck"]["state"],
+        "failed"
+    );
+    assert_eq!(
+        after_check["participants"][0]["lastCheck"]["workSessionId"],
+        check_id
+    );
+    let check_attempt = call(
+        &router,
+        Method::GET,
+        &format!("/v1/attempts/{attempt_id}"),
+        Some(&fixture.student_token),
+        None,
+    )
+    .await;
+    assert_eq!(check_attempt.body["state"], "in_progress");
+    assert!(check_attempt.body["startedAt"].is_string());
+
     let ready = call(
         &router,
         Method::POST,

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { AgentTaskContractV10, AgentTaskContractV11 } from '../../shared/contracts';
 import { TaskRuntime } from '../agent/task-runtime';
+import { workCheckFixture } from '../knowledge/work-check.fixture';
 
 import {
   type AgentStateCipher,
@@ -299,4 +300,14 @@ it('isolates durable guidance intents before a task exists and retains counters'
     modelRequests: 2,
     observations: 4,
   });
+});
+
+it('keeps check feedback in owner-scoped encrypted history without work contents',async()=>{
+ const {baseDirectory,snapshot,store}=await fixture(); const f=workCheckFixture();
+ const updated={...snapshot,taskId:f.packet.taskId,messages:[],lastEvent:null,goal:{...snapshot.goal!,activity:f.activity},workCheck:{phase:'checked' as const,report:f.report,message:null}};
+ await store.create('owner-1',updated);
+ const history=await store.load('owner-1'); expect(history.snapshots.find(s=>s.taskId===f.packet.taskId)?.workCheck?.report).toEqual(f.report);
+ expect((await store.load('owner-2')).snapshots).toEqual([]);
+ const encoded=await readFile(path.join(baseDirectory,'threads',f.packet.taskId,'snapshot.enc'),'utf8');
+ expect(encoded).not.toContain(f.report.summary); expect(JSON.stringify(history.snapshots)).not.toContain('for i in range');
 });

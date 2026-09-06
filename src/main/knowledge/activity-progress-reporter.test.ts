@@ -50,3 +50,26 @@ describe('ActivityProgressReporter', () => {
     );
   });
 });
+
+it('serializes active before terminal and publishes confirmed sync', async () => {
+  let release!: () => void;
+  const updateWorkSession = vi.fn().mockImplementationOnce(() => new Promise<void>(r => {release=r;})).mockResolvedValue(undefined);
+  const sync=vi.fn(); const reporter=new ActivityProgressReporter({updateWorkSession},Date.now,sync);
+  const taskId=update('planning').snapshot.taskId; reporter.bind(taskId,'session');
+  const active=reporter.report(update('planning')); const terminal=reporter.report(update('completed'));
+  await Promise.resolve(); expect(updateWorkSession).toHaveBeenCalledOnce(); release(); await Promise.all([active,terminal]);
+  expect(updateWorkSession.mock.calls.map(call=>call[1].state)).toEqual(['active','completed']);
+  expect(sync).toHaveBeenLastCalledWith(taskId,'synced');
+});
+it('stops queued mutations after uncertainty or account clear', async () => {
+  for (const clear of [false,true]) {
+    let reject!: (reason:Error)=>void;
+    const updateWorkSession=vi.fn(()=>new Promise<void>((_,r)=>{reject=r;})); const sync=vi.fn();
+    const reporter=new ActivityProgressReporter({updateWorkSession},Date.now,sync); const taskId=update('planning').snapshot.taskId;
+    reporter.bind(taskId,'session'); const active=reporter.report(update('planning')); const terminal=reporter.report(update('completed'));
+    await Promise.resolve(); if(clear) reporter.clear(); reject(new Error('lost response')); await Promise.all([active,terminal]);
+    expect(updateWorkSession).toHaveBeenCalledOnce();
+    if(!clear) expect(sync).toHaveBeenLastCalledWith(taskId,'unknown');
+    else expect(sync).toHaveBeenCalledTimes(1);
+  }
+});

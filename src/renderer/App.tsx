@@ -3133,6 +3133,7 @@ export function App({
         {classroomAccessAvailable &&
         (activeView === 'spaces' || activeView === 'assigned') ? (
           <KnowledgeHubPage
+            checkSnapshots={Object.values(sessionSnapshots)}
             onTeacherSessionSelect={selectTeacherSession}
             teacherSessionId={teacherSelection?.binding.sessionId ?? null}
             appLanguage={appLanguageDraft}

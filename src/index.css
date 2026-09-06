@@ -12993,3 +12993,20 @@ h1 {
     animation: none;
   }
 }
+
+/* Private assignment feedback shared by the desktop callout and classwork view. */
+.work-check-panel { display: flex; flex-direction: column; gap: 8px; max-height: 100%; padding: 12px; }
+.work-check-panel__content { flex: 1; min-height: 0; overflow-y: auto; }
+.work-check-panel p { display: block; overflow: visible; -webkit-line-clamp: unset; font-size: 13px; font-weight: 400; }
+.work-check-panel > header, .work-check-panel__actions { flex-shrink: 0; }
+.work-check-panel > header { font-size: 13px; }
+.work-check-panel .work-check-panel__review { background: var(--accent); color: var(--accent-ink); border-color: var(--accent-strong); }
+.work-check-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.work-check-result { font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.work-check-result ul { padding-left: 20px; }
+.work-check-result li { margin: 8px 0; }
+.work-check-result li p { margin: 3px 0; }
+.work-check-result__scope { opacity: .8; font-size: 12px; }
+.work-check-panel__actions { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 8px; }
+.work-check-panel button { padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-soft); color: var(--text); font-size: 12px; cursor: pointer; }
+.work-check-panel button:focus-visible, .work-check-result summary:focus-visible { outline: 2px solid #b38914; outline-offset: 2px; }

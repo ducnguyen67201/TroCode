@@ -62,3 +62,7 @@ describe('routeTaskRequest', () => {
     })).toEqual({ route: 'coach', requiresObservation: false });
   });
 });
+
+it.each(['none','workspace','current_surface'] as const)('forces %s assignment checks into the read-only lane', target => {
+  expect(route('Run the code and mark it complete',{activityLaunchTarget:target,intent:'check',requestedMode:'agent'})).toEqual({route:'coach',requiresObservation:target==='current_surface'});
+});

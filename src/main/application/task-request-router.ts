@@ -24,6 +24,7 @@ const COACH_INTENT = /\b(?:show|teach|guide|explain|help|check|how do i|how to|w
 
 /** Pure intent routing. It grants no authority and performs no effects. */
 export function routeTaskRequest(input: TaskRouteInput): TaskRouteDecision {
+  if (input.intent === 'check' && input.activityLaunchTarget !== null) return coach(input.activityLaunchTarget === 'current_surface' && input.screenContext !== 'disabled');
   if (input.requestedMode === 'agent') return agent();
   if (input.requestedMode === 'coach') {
     return coach(requiresVisibleContext(input));

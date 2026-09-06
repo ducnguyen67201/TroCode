@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AgentTaskContractV10 } from '../../shared/contracts';
+import { workCheckFixture } from '../knowledge/work-check.fixture';
 
 import { TaskRuntime } from './task-runtime';
 
@@ -154,4 +155,18 @@ describe('TaskRuntime local projection', () => {
     expect(blocked.phase).toBe('blocked');
     expect(blocked.lastEvent?.summary).toContain('may have completed');
   });
+});
+
+it('persists bounded feedback with immutable identity and rejects stale results',()=>{
+ const f=workCheckFixture(); const runtime=new TaskRuntime();
+ const task=runtime.submit({text:'Check my work.'},{taskId:f.packet.taskId,authority:{...authority('Check my work.'),activity:f.activity}});
+ expect(task.workCheck).toBeUndefined();
+ const projection={phase:'checked',report:f.report,message:null};
+ expect(()=>runtime.updateWorkCheck(task.taskId,{...projection,report:{...f.report,attemptId:randomUUID()}})).toThrow('mismatch');
+ const updated=runtime.updateWorkCheck(task.taskId,projection);
+ expect(task.workCheck).toBeUndefined(); expect(updated.workCheck?.report).toEqual(f.report);
+ const restored=new TaskRuntime().restore(JSON.parse(JSON.stringify(updated))); expect(restored.workCheck?.report).toEqual(f.report);
+ expect(()=>new TaskRuntime().restore({...updated,workCheck:{...projection,report:{...f.report,taskId:randomUUID()}}})).toThrow();
+ runtime.complete(task.taskId,{status:'completed',finalOutput:null,message:'Checked.'});
+ expect(()=>runtime.updateWorkCheck(task.taskId,projection)).toThrow('active task');
 });

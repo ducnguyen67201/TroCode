@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import {
   ActivityContextSchema,
+  WorkCheckDecisionSchema,
   CoachProgressSchema,
   MAX_COACH_SEQUENCE_STEPS,
   MAX_COACH_SPEECH_CHARACTERS,
@@ -23,6 +24,7 @@ export const CoachSequenceStepSchema = z.object({
 }).strict();
 
 export const CoachDecisionSchema = z.discriminatedUnion('kind', [
+  WorkCheckDecisionSchema.extend({kind: z.literal('work_check')}),
   z.object({
     kind: z.literal('answer'),
     text: z.string().trim().min(1).max(1_200),

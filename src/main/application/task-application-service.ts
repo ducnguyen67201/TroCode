@@ -25,6 +25,7 @@ import type { ActivityProgressReporter } from '../knowledge/activity-progress-re
 import type { ClassroomBroadcastDraftService } from '../knowledge/classroom-broadcast-draft-service';
 import type { ClassroomSessionService } from '../knowledge/classroom-session-service';
 import type { TeacherClassroomContextService } from '../knowledge/teacher-classroom-context-service';
+import type { WorkCheckContextService } from '../knowledge/work-check-context-service';
 import type { WorkspaceSelectionService } from '../workspace/workspace-selection-service';
 
 import { routeTaskRequest } from './task-request-router';
@@ -38,6 +39,7 @@ const DEFAULT_LIMITS = {
 } as const;
 
 interface TaskApplicationServiceOptions {
+  workChecks?: Pick<WorkCheckContextService, 'bind' | 'release'>;
   onTaskCancelled?: (taskId: string) => void;
   teacherClassroomContext?: TeacherClassroomContextService;
   broadcastDrafts?: ClassroomBroadcastDraftService;
@@ -122,6 +124,8 @@ export class TaskApplicationService {
       ? await this.options.activityContextService?.inspect(activityAttemptId)
       : null;
     if (activityAttemptId && !attempt) throw new Error('This assigned Activity is unavailable.');
+    const isCheck = Boolean(attempt && request.activityIntent === 'check');
+    if (isCheck && attempt && !['assigned','in_progress','blocked'].includes(attempt.state)) throw new Error('This assignment is waiting for review or no longer active.');
     const executionProfile = attempt?.definition.launchTarget === 'workspace'
       ? 'workspace'
       : activityAttemptId ? 'everyday' : request.executionProfile;
@@ -136,7 +140,7 @@ export class TaskApplicationService {
     }
     const routeDecision = teacherClassroom
       ? { route: 'agent' as const, requiresObservation: false }
-      : this.fastCoachEnabled()
+      : (this.fastCoachEnabled() || isCheck)
       ? routeTaskRequest({
           activityLaunchTarget: attempt?.definition.launchTarget ?? null,
           executionProfile,
@@ -191,6 +195,7 @@ export class TaskApplicationService {
       limits: DEFAULT_LIMITS,
     });
     try {
+      if (isCheck && activity) this.options.workChecks?.bind(taskId, activity, workspace ?? null);
       const snapshot = this.runtime.submit(
         { ...request, activityAttemptId, executionProfile },
         { authority, taskId },
@@ -252,6 +257,7 @@ export class TaskApplicationService {
       }
       return started;
     } catch (error) {
+      this.options.workChecks?.release(taskId);
       this.executionContexts.delete(taskId);
       this.inheritedClassroomTasks.delete(taskId);
       this.routes.delete(taskId);
@@ -486,6 +492,7 @@ export class TaskApplicationService {
   }
 
   finish(taskId: string): void {
+    this.options.workChecks?.release(taskId);
     this.releaseReservation(taskId);
     this.executionContexts.delete(taskId);
     this.inheritedClassroomTasks.delete(taskId);
@@ -509,7 +516,7 @@ export class TaskApplicationService {
         session.attemptId !== activity.attemptId ||
         session.activityVersionId !== activity.activityVersionId ||
         session.run.state !== 'open' ||
-        ['submitted', 'completed', 'withdrawn'].includes(session.attemptState);
+        ['ready_for_review', 'submitted', 'completed', 'withdrawn'].includes(session.attemptState);
       if (!invalid) continue;
       if (route === 'coach') this.options.coachRuntime?.cancel(taskId);
       else this.options.localRuntime?.cancel(taskId, 'replacement');

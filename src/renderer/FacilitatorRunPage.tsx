@@ -742,6 +742,8 @@ export function FacilitatorRunPage({
               <tr>
                 <th>{t('Student')}</th>
                 <th>{t('Explicit status')}</th>
+                <th>{t('Started')}</th>
+                <th>{t('Assignment check')}</th>
                 <th>{t('Sessions')}</th>
                 <th>{t('Evidence')}</th>
                 <th>
@@ -767,6 +769,8 @@ export function FacilitatorRunPage({
                     </span>
                     <small>{formatter.format(new Date(row.updatedAt))}</small>
                   </td>
+                  <td>{row.startedAt ? formatter.format(new Date(row.startedAt)) : '—'}</td>
+                  <td>{row.lastCheck ? <>{t(row.lastCheck.state === 'completed' ? 'Check finished' : row.lastCheck.state === 'failed' ? 'Check unavailable' : row.lastCheck.state === 'cancelled' ? 'Check interrupted' : 'Checking your work…')}<small>{formatter.format(new Date(row.lastCheck.updatedAt))}</small></> : '—'}</td>
                   <td>{row.sessionCount}</td>
                   <td>{row.evidenceCount}</td>
                   <td>

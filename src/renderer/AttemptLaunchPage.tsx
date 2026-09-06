@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import type {
+  TaskSnapshot,
   AppLanguage,
   ClassroomSessionProjection,
   HostedAttemptContext,
@@ -11,15 +12,19 @@ import type {
 import { randomUUID } from '../shared/renderer-uuid';
 
 import { translate } from './app-language';
+import { latestCheckForAttempt } from './work-check-view';
+import { WorkCheckResultCard } from './WorkCheckResultCard';
 
 type ActivityIntent = SubmitTaskRequest['activityIntent'];
 
 export function AttemptLaunchPage({
+  checkSnapshots = [],
   appLanguage,
   attemptId,
   onBack,
   onLaunch,
 }: {
+  checkSnapshots?: readonly TaskSnapshot[];
   appLanguage: AppLanguage;
   attemptId: string;
   onBack: () => void;
@@ -255,6 +260,7 @@ export function AttemptLaunchPage({
     }
   };
 
+  const latestCheck = latestCheckForAttempt(checkSnapshots, attempt.attemptId, attempt.activityVersionId);
   const workspaceRequired = attempt.definition.launchTarget === 'workspace';
   const launchDisabled =
     busyAction !== null || (workspaceRequired && !workspace);
@@ -545,6 +551,8 @@ export function AttemptLaunchPage({
           </section>
 
           <section className="attempt-finish-card">
+            {attempt.startedAt && <p>{t('Started')}: {new Date(attempt.startedAt).toLocaleString()}</p>}
+            {latestCheck && <WorkCheckResultCard projection={latestCheck.workCheck ?? null} sync={latestCheck.workSessionSync} appLanguage={appLanguage}/>}
             <p className="eyebrow">{t('When you are satisfied')}</p>
             <h3>
               {isReady || isSubmitted
@@ -580,7 +588,7 @@ export function AttemptLaunchPage({
                     ? t('Submitted for review')
                     : attempt.definition.completionPolicy.requiresSubmission
                       ? t('Submit files above')
-                  : t('I’m ready for review')}
+                  : t('Send for teacher review')}
             </button>
           </section>
 

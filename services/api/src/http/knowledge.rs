@@ -1416,7 +1416,7 @@ async fn attempt_context(state: &AppState, user: &str, attempt: Uuid) -> ApiResu
     };
     json_response(
         StatusCode::OK,
-        json!({"attemptId":attempt,"userId":user,"state":row.get::<String,_>("state"),"acknowledgedPolicyVersion":row.get::<Option<String>,_>("acknowledged_policy_version"),"run":{"id":row.get::<Uuid,_>("run_id"),"state":row.get::<String,_>("run_state"),"mode":row.get::<String,_>("mode"),"opensAt":row.get::<Option<time::OffsetDateTime>,_>("opens_at").map(format_time),"closesAt":row.get::<Option<time::OffsetDateTime>,_>("closes_at").map(format_time),"insightPolicy":row.get::<String,_>("insight_policy"),"insightPolicyVersion":row.get::<String,_>("insight_policy_version")},"space":{"id":row.get::<Uuid,_>("space_id"),"name":row.get::<String,_>("space_name")},"activityVersionId":activity_version,"definition":row.get::<Value,_>("definition"),"sourceCatalog":source_catalog,"starterAvailable":starter_available,"priorProgress":{"completedCriterionIds":completed_criterion_ids,"sessionCount":session_count,"summary":summary}}),
+        json!({"startedAt":row.get::<Option<time::OffsetDateTime>,_>("started_at").map(format_time),"attemptId":attempt,"userId":user,"state":row.get::<String,_>("state"),"acknowledgedPolicyVersion":row.get::<Option<String>,_>("acknowledged_policy_version"),"run":{"id":row.get::<Uuid,_>("run_id"),"state":row.get::<String,_>("run_state"),"mode":row.get::<String,_>("mode"),"opensAt":row.get::<Option<time::OffsetDateTime>,_>("opens_at").map(format_time),"closesAt":row.get::<Option<time::OffsetDateTime>,_>("closes_at").map(format_time),"insightPolicy":row.get::<String,_>("insight_policy"),"insightPolicyVersion":row.get::<String,_>("insight_policy_version")},"space":{"id":row.get::<Uuid,_>("space_id"),"name":row.get::<String,_>("space_name")},"activityVersionId":activity_version,"definition":row.get::<Value,_>("definition"),"sourceCatalog":source_catalog,"starterAvailable":starter_available,"priorProgress":{"completedCriterionIds":completed_criterion_ids,"sessionCount":session_count,"summary":summary}}),
     )
 }
 async fn starter_files(state: &AppState, user: &str, attempt: Uuid) -> ApiResult<Response> {
@@ -1642,12 +1642,34 @@ async fn update_work_session(
     }
     let hint = hint.and_then(|value| i32::try_from(value).ok());
     let mut tx = state.pool.begin().await?;
+    let prior = sqlx::query("SELECT sessions.* FROM knowledge_activity_work_sessions sessions JOIN knowledge_activity_attempts attempts ON attempts.id=sessions.attempt_id WHERE sessions.id=$1 AND attempts.user_id=$2 FOR UPDATE OF sessions")
+        .bind(work).bind(user).fetch_optional(&mut *tx).await?
+        .ok_or_else(|| ApiError::coded(StatusCode::NOT_FOUND,"work_session_not_found","Work Session not found."))?;
+    let prior_state: String = prior.get("state");
+    if matches!(prior_state.as_str(), "completed" | "cancelled" | "failed")
+        || (prior_state == status && !help && hint.is_none())
+    {
+        tx.commit().await?;
+        return json_response(
+            StatusCode::OK,
+            json!({"id":work,"state":prior_state,"helpRequestedAt":prior.get::<Option<time::OffsetDateTime>,_>("help_requested_at").map(format_time),"hintLevel":prior.get::<i32,_>("hint_level")}),
+        );
+    }
+    if status == "created" && prior_state != "created" {
+        return Err(ApiError::coded(
+            StatusCode::CONFLICT,
+            "invalid_work_session_transition",
+            "A Work Session cannot restart itself.",
+        ));
+    }
     let row=sqlx::query("UPDATE knowledge_activity_work_sessions sessions SET state=$2,help_requested_at=CASE WHEN $3 THEN COALESCE(sessions.help_requested_at,NOW())ELSE sessions.help_requested_at END,hint_level=COALESCE($4,sessions.hint_level),started_at=CASE WHEN $2='active'THEN COALESCE(sessions.started_at,NOW())ELSE sessions.started_at END,ended_at=CASE WHEN $2 IN('completed','cancelled','failed')THEN NOW()ELSE sessions.ended_at END,updated_at=NOW()FROM knowledge_activity_attempts attempts WHERE sessions.id=$1 AND sessions.attempt_id=attempts.id AND attempts.user_id=$5 RETURNING sessions.id,sessions.attempt_id,sessions.state,sessions.help_requested_at,sessions.hint_level").bind(work).bind(status).bind(help).bind(hint).bind(user).fetch_optional(&mut*tx).await?.ok_or_else(||ApiError::coded(StatusCode::NOT_FOUND,"work_session_not_found","Work Session not found."))?;
-    sqlx::query("INSERT INTO knowledge_activity_run_events(run_id,attempt_id,event_type,payload)SELECT run_id,id,'work_session_updated',jsonb_build_object('state',$2::text,'helpRequested',$3::boolean,'hintLevel',$4::int)FROM knowledge_activity_attempts WHERE id=$1")
+    sqlx::query("INSERT INTO knowledge_activity_run_events(run_id,attempt_id,event_type,payload)SELECT run_id,id,'work_session_updated',jsonb_build_object('state',$2::text,'helpRequested',$3::boolean,'hintLevel',$4::int,'purpose',$5::text,'workSessionId',$6::uuid)FROM knowledge_activity_attempts WHERE id=$1")
         .bind(row.get::<Uuid, _>("attempt_id"))
         .bind(status)
         .bind(help)
         .bind(row.get::<i32, _>("hint_level"))
+        .bind(prior.get::<String, _>("purpose"))
+        .bind(work)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;

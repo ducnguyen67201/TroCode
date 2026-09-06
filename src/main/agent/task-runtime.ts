@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 
 import type { LocalTurnEventKind } from '../../../services/agent-runtime/src/protocol';
 import {
+  WorkCheckProjectionSchema,
   CancelTaskRequestSchema,
   CoachProgressSchema,
   RequestTaskInputSchema,
@@ -97,6 +98,22 @@ export class TaskRuntime extends EventEmitter {
     );
   }
 
+  updateWorkCheck(taskId: string, input: unknown): TaskSnapshot {
+    const workCheck = WorkCheckProjectionSchema.parse(input);
+    const snapshot = this.getTask(taskId);
+    const activity = snapshot.goal?.activity;
+    if (!activity || activity.purpose !== 'check' || ['completed','cancelled','failed','blocked'].includes(snapshot.phase)) throw new Error('Check result no longer belongs to an active task.');
+    if (workCheck.report && (workCheck.report.taskId !== taskId || workCheck.report.attemptId !== activity.attemptId || workCheck.report.activityVersionId !== activity.activityVersionId)) throw new Error('Check result assignment mismatch.');
+    return this.commit({...snapshot, workCheck}, {summary: workCheck.phase === 'checked' ? 'Check feedback is ready.' : 'Assignment check updated.'});
+  }
+
+  updateWorkSessionSync(taskId: string, sync: 'pending' | 'synced' | 'unknown'): void {
+    const snapshot = this.tasks.get(taskId);
+    if (!snapshot) return;
+    if (snapshot.workSessionSync === sync) return;
+    this.commit({...snapshot, workSessionSync:sync}, {summary:'Work Session reporting updated.'});
+  }
+
   updateCoachProgress(taskId: string, input: unknown): TaskSnapshot {
     const progress = CoachProgressSchema.parse(input);
     const snapshot = this.getTask(taskId);
@@ -179,7 +196,8 @@ export class TaskRuntime extends EventEmitter {
         : terminal.status === 'unknown'
           ? 'blocked'
           : 'failed';
-    return this.commit({ ...snapshot, phase, pendingInteraction: null }, {
+    const workCheck = snapshot.workCheck?.phase === 'checking' ? {phase: terminal.status === 'cancelled' ? 'cancelled' as const : terminal.status === 'unknown' ? 'unknown' as const : 'failed' as const, report:null, message:terminal.message.slice(0,1200)} : snapshot.workCheck;
+    return this.commit({ ...snapshot, workCheck, phase, pendingInteraction: null }, {
       summary: terminal.finalOutput ?? terminal.message,
       status: terminal.status === 'completed' ? 'success' : 'error',
     });
