@@ -939,13 +939,17 @@ export function App({
     knowledgeSpacesEnabled && hasAssignedClassroomRole(classroomRole);
 
   useEffect(() => {
+    let active = true;
     if (!membershipAccessAllowed) {
       teacherSelectionRef.current = null;
-      setTeacherSelection(null);
-      return;
+      queueMicrotask(() => {
+        if (active) setTeacherSelection(null);
+      });
+      return () => {
+        active = false;
+      };
     }
     if (!window.tro.onTeacherClassroomChanged) return;
-    let active = true;
     let changed = false;
     const apply = (next: TeacherClassroomSelection | null) => {
       if (active) {
@@ -1264,22 +1268,27 @@ export function App({
   }, [recordSnapshot, reportError]);
 
   useEffect(() => {
+    let active = true;
     if (!membershipAccessAllowed) {
-      setKnowledgeSpacesEnabled(false);
-      setClassroomRole('unassigned');
-      setClassSpaces([]);
-      setSelectedClassSpace(null);
-      setClassSpacesLoading(false);
-      setClassSpacesError(null);
-      setActiveView((currentView) =>
-        currentView === 'spaces' || currentView === 'assigned'
-          ? 'agent'
-          : currentView,
-      );
-      return;
+      queueMicrotask(() => {
+        if (!active) return;
+        setKnowledgeSpacesEnabled(false);
+        setClassroomRole('unassigned');
+        setClassSpaces([]);
+        setSelectedClassSpace(null);
+        setClassSpacesLoading(false);
+        setClassSpacesError(null);
+        setActiveView((currentView) =>
+          currentView === 'spaces' || currentView === 'assigned'
+            ? 'agent'
+            : currentView,
+        );
+      });
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
     queueMicrotask(() => {
       if (active) void refreshKnowledgeCapabilities();
     });
