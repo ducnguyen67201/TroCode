@@ -40,10 +40,7 @@ impl Fixture {
                     .execute(&pool)
                     .await
                     .unwrap();
-                query("CREATE SCHEMA public")
-                    .execute(&pool)
-                    .await
-                    .unwrap();
+                query("CREATE SCHEMA public").execute(&pool).await.unwrap();
             })
             .await;
         db::migrate(&pool).await.unwrap();
