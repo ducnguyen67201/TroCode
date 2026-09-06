@@ -82,4 +82,3 @@ export const PreparedKnowledgeActivitySchema =
     instructions: true,
     criteria: true,
   }).strict();
-

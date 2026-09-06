@@ -7,8 +7,8 @@ import {
   ActivityCriterionSchema,
   ClassroomOriginSchema,
   SaveKnowledgeActivityRequestSchema,
-  PrepareKnowledgeActivityRequestSchema,
-  PreparedKnowledgeActivitySchema,
+  type PrepareKnowledgeActivityRequestSchema,
+  type PreparedKnowledgeActivitySchema,
   AppLanguageSchema,
 } from './knowledge-activity-contracts';
 import { VOICE_MODES } from './voice-mode';

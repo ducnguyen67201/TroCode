@@ -63,7 +63,7 @@ async fn teacher_and_student_complete_a_live_classroom_over_http() {
         )
         .await
         .status,
-        StatusCode::FORBIDDEN
+        StatusCode::NOT_FOUND
     );
     let mut missing_source = prepare_input.clone();
     missing_source["sourceVersionIds"] = json!([Uuid::new_v4()]);
@@ -221,6 +221,20 @@ async fn teacher_and_student_complete_a_live_classroom_over_http() {
     .await;
     assert_eq!(rostered.status, StatusCode::OK);
     assert_eq!(rostered.body["addedEmails"].as_array().unwrap().len(), 1);
+
+    let student_draft = call(
+        &router,
+        Method::POST,
+        &prepare_path,
+        Some(&fixture.student_token),
+        Some(
+            json!({"requestId":Uuid::new_v4(),"description":"Practice a skill",
+            "language":"en","sourceVersionIds":[]}),
+        ),
+    )
+    .await;
+    assert_eq!(student_draft.status, StatusCode::FORBIDDEN);
+    assert_eq!(student_draft.body["code"], "space_forbidden");
 
     let joined = call(
         &router,

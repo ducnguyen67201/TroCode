@@ -93,4 +93,3 @@ export type KnowledgeSearchResponse = z.infer<
   typeof KnowledgeSearchResponseSchema
 >;
 export type ActivityStarterFiles = z.infer<typeof ActivityStarterFilesSchema>;
-
