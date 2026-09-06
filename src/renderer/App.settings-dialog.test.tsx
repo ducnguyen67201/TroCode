@@ -4,7 +4,12 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { TaskUpdate, VoiceModeToggleEvent } from '../shared/contracts';
+import type {
+  KnowledgeCapabilities,
+  MembershipStatus,
+  TaskUpdate,
+  VoiceModeToggleEvent,
+} from '../shared/contracts';
 import type { DesktopApi } from '../shared/desktop-api';
 
 import { App } from './App';
@@ -77,7 +82,7 @@ const PERMISSION_TASK_UPDATE: TaskUpdate = {
   },
 };
 
-describe('App settings dialog safety', () => {
+describe('App membership and settings safety', () => {
   let cancelTask: ReturnType<typeof vi.fn>;
   let container: HTMLDivElement;
   let root: Root;
@@ -171,7 +176,7 @@ describe('App settings dialog safety', () => {
         summary: 'Computer access is ready.',
       }),
       getKnowledgeCapabilities: vi.fn().mockResolvedValue({
-        knowledgeSpaces: { enabled: false },
+        knowledgeSpaces: { enabled: false, contractVersion: 2 },
       }),
       getMembershipStatus: vi.fn().mockResolvedValue({
         expiresAt: null,
@@ -182,6 +187,12 @@ describe('App settings dialog safety', () => {
         summary: 'Free plan active.',
       }),
       getOrganization: vi.fn().mockResolvedValue({ organization: null }),
+      getTeacherClassroom: vi.fn().mockResolvedValue(null),
+      listKnowledgeSpaces: vi.fn().mockResolvedValue({
+        classroomRole: 'teacher',
+        items: [],
+      }),
+      onTeacherClassroomChanged: vi.fn().mockReturnValue(unsubscribe),
       getTaskHistory: vi.fn().mockResolvedValue({
         events: [],
         persistence: { mode: 'session_only', summary: 'Session only.' },
@@ -228,6 +239,157 @@ describe('App settings dialog safety', () => {
     await act(async () => root.unmount());
     container.remove();
     vi.restoreAllMocks();
+  });
+
+  const membership = (state: MembershipStatus['state']): MembershipStatus => ({
+    expiresAt: null,
+    plan: state === 'active' ? 'pro' : null,
+    referenceCode: null,
+    required: true,
+    state,
+    summary: state === 'active' ? 'Pro plan active.' : 'Access required.',
+  });
+
+  async function renderApp(): Promise<void> {
+    await act(async () => {
+      root.render(
+        <App
+          currentUser={{
+            email: 'teacher@example.com',
+            id: 'teacher',
+            name: 'Teacher',
+          }}
+          isSigningOut={false}
+          onSignOut={signOut}
+        />,
+      );
+    });
+  }
+
+  async function focusApp(): Promise<void> {
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+    });
+  }
+
+  it.each(['inactive', 'expired', 'error'] as const)(
+    'does not request classroom data while membership is checking or %s',
+    async (state) => {
+      let resolveMembership!: (status: MembershipStatus) => void;
+      vi.mocked(window.tro.getMembershipStatus).mockReturnValue(
+        new Promise((resolve) => {
+          resolveMembership = resolve;
+        }),
+      );
+      vi.mocked(window.tro.getKnowledgeCapabilities).mockResolvedValue({
+        knowledgeSpaces: { enabled: true, contractVersion: 2 },
+      });
+
+      await renderApp();
+      await focusApp();
+      expect(window.tro.getTeacherClassroom).not.toHaveBeenCalled();
+      expect(window.tro.getKnowledgeCapabilities).not.toHaveBeenCalled();
+      expect(window.tro.listKnowledgeSpaces).not.toHaveBeenCalled();
+
+      await act(async () => resolveMembership(membership(state)));
+      await focusApp();
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(window.tro.getTeacherClassroom).not.toHaveBeenCalled();
+      expect(window.tro.onTeacherClassroomChanged).not.toHaveBeenCalled();
+      expect(window.tro.getKnowledgeCapabilities).not.toHaveBeenCalled();
+      expect(window.tro.listKnowledgeSpaces).not.toHaveBeenCalled();
+    },
+  );
+
+  it('loads classroom data immediately after code activation without restarting startup services', async () => {
+    vi.mocked(window.tro.getMembershipStatus).mockResolvedValue(
+      membership('inactive'),
+    );
+    vi.mocked(window.tro.getKnowledgeCapabilities).mockResolvedValue({
+      knowledgeSpaces: { enabled: true, contractVersion: 2 },
+    });
+    window.tro.activateMembership = vi
+      .fn()
+      .mockResolvedValue(membership('active'));
+    await renderApp();
+
+    const input = container.querySelector<HTMLTextAreaElement>(
+      '#activation-code',
+    )!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!
+        .set!.call(input, 'TRO-TEST-CODE');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const activate = container.querySelector<HTMLButtonElement>(
+      '.membership-actions .primary-button',
+    )!;
+    expect(activate.disabled).toBe(false);
+    await act(async () => activate.click());
+
+    expect(window.tro.activateMembership).toHaveBeenCalledWith({
+      code: 'TRO-TEST-CODE',
+    });
+    expect(window.tro.getTeacherClassroom).toHaveBeenCalledOnce();
+    expect(window.tro.getKnowledgeCapabilities).toHaveBeenCalledOnce();
+    expect(window.tro.listKnowledgeSpaces).toHaveBeenCalledOnce();
+    expect(window.tro.getTaskHistory).toHaveBeenCalledOnce();
+    expect(window.tro.onTaskUpdate).toHaveBeenCalledOnce();
+
+    vi.mocked(window.tro.getMembershipStatus).mockResolvedValue(
+      membership('active'),
+    );
+    await focusApp();
+    expect(window.tro.getTeacherClassroom).toHaveBeenCalledOnce();
+    expect(window.tro.listKnowledgeSpaces).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops refreshes and ignores delayed capabilities after membership becomes inactive', async () => {
+    let resolveCapabilities!: (value: KnowledgeCapabilities) => void;
+    vi.mocked(window.tro.getKnowledgeCapabilities).mockReturnValue(
+      new Promise((resolve) => {
+        resolveCapabilities = resolve;
+      }),
+    );
+    const stopTeacher = vi.fn();
+    vi.mocked(window.tro.onTeacherClassroomChanged).mockReturnValue(stopTeacher);
+    await renderApp();
+    expect(window.tro.getTeacherClassroom).toHaveBeenCalledOnce();
+    expect(window.tro.getKnowledgeCapabilities).toHaveBeenCalledOnce();
+
+    vi.mocked(window.tro.getMembershipStatus).mockResolvedValue(
+      membership('inactive'),
+    );
+    await focusApp();
+    expect(stopTeacher).toHaveBeenCalledOnce();
+    const capabilityCalls = vi.mocked(window.tro.getKnowledgeCapabilities)
+      .mock.calls.length;
+    await act(async () => {
+      resolveCapabilities({
+        knowledgeSpaces: { enabled: true, contractVersion: 2 },
+      });
+    });
+    await focusApp();
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(window.tro.getKnowledgeCapabilities).toHaveBeenCalledTimes(
+      capabilityCalls,
+    );
+    expect(window.tro.listKnowledgeSpaces).not.toHaveBeenCalled();
+    expect(container.querySelector('.membership-screen')).not.toBeNull();
+
+    vi.mocked(window.tro.getKnowledgeCapabilities).mockResolvedValue({
+      knowledgeSpaces: { enabled: true, contractVersion: 2 },
+    });
+    vi.mocked(window.tro.getMembershipStatus).mockResolvedValue(
+      membership('active'),
+    );
+    await focusApp();
+    expect(window.tro.getTeacherClassroom).toHaveBeenCalledTimes(2);
+    expect(window.tro.listKnowledgeSpaces).toHaveBeenCalledOnce();
   });
 
   it('keeps an active workspace mounted and isolates Escape while Settings closes', async () => {
