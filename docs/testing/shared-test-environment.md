@@ -54,6 +54,25 @@ its admin credential from **Doppler `tro-app/stg`, `TROCODE_ADMIN_ACCESS_TOKEN`*
 Grant a test access code in that admin if the chosen test needs a paid plan.
 Production access codes and room codes do not apply here.
 
+### Access for teacher-added students
+
+Give the class owner a shared access code with enough seats for the teacher and
+students. After the teacher adds an existing Student account to the class roster,
+the student's next access check claims a seat on that code without code entry.
+This also applies to rosters created before the fix: sign in, or select **Check
+again** on the access screen. The hosted staging API must run the updated backend;
+updating only the desktop checkout does not change staging access checks.
+
+Verify the student receives the code's plan and that repeated checks consume only
+one seat. Paused/full codes and classes with different owner codes report an
+actionable error. Existing redemptions and reserved organization seats are left
+unchanged; organization codes still require organization assignment. A claimed
+shared-code seat is a normal persistent redemption, not a class-scoped lease, so
+removing a student from the roster does not revoke that redemption. Existing Free
+access remains usable when no shared-code seat can be claimed.
+
+### Classroom broadcast acceptance
+
 1. On the teacher computer, create the class workspace, publish Assignment 1,
    and start a live class.
 2. On the student computer, join with the new test room code.

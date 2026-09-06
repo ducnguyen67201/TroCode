@@ -105,6 +105,12 @@ trocode_rust_integration_test(
 )
 
 trocode_rust_integration_test(
+    name = "classroom_access_test",
+    src = "tests/classroom_access.rs",
+    tags = ["requires-postgres"],
+)
+
+trocode_rust_integration_test(
     name = "organization_managed_access_test",
     size = "small",
     src = "tests/organization_managed_access.rs",
@@ -131,6 +137,7 @@ trocode_rust_integration_test(
 
 RUST_TEST_TARGETS = [
     ":api_lib_test",
+    ":classroom_access_test",
     ":classroom_e2e_test",
     ":contract_corpus_test",
     ":connectors_compat_test",
