@@ -16,6 +16,7 @@ import { AppUpdateButton } from '../AppUpdateButton';
 import { ClassroomBroadcastPreview } from '../ClassroomBroadcastPreview';
 import { ClassroomExplanationPanel } from '../ClassroomExplanationPanel';
 import { ClassroomSessionBar } from '../ClassroomSessionBar';
+import { ClassroomWorkspaceLayout } from '../ClassroomWorkspaceLayout';
 import { TaskContextPanel } from '../features/tasks/TaskContextPanel';
 import { TaskWorkspace } from '../features/tasks/TaskWorkspace';
 import { HistoryPage } from '../HistoryPage';
@@ -44,7 +45,9 @@ interface AppWorkspaceProps {
   appUpdateStatus: AppUpdateStatus | null;
   classroomAccessAvailable: boolean;
   launchKnowledgeActivity: (request: SubmitTaskRequest) => Promise<void>;
-  setClassroomAttemptFocus: React.Dispatch<React.SetStateAction<string | null>>;
+  setClassroomAttemptFocus: React.Dispatch<
+    React.SetStateAction<string | null>
+  >;
   setActiveView: React.Dispatch<React.SetStateAction<ActiveView>>;
   teacherSelectionPending: boolean;
   teacherSelection: TeacherClassroomSelection | null;
@@ -168,7 +171,8 @@ export function AppWorkspace({
               onClick={() => void stopTask()}
               type="button"
             >
-              {isStoppingTask ? t('Stopping…') : t('Stop task')} <kbd>Esc</kbd>
+              {isStoppingTask ? t('Stopping…') : t('Stop task')}{' '}
+              <kbd>Esc</kbd>
             </button>
           )}
           <AppUpdateButton
@@ -179,17 +183,6 @@ export function AppWorkspace({
           />
         </div>
       </header>
-
-      {classroomAccessAvailable && (
-        <ClassroomSessionBar
-          appLanguage={appLanguageDraft}
-          onLaunch={launchKnowledgeActivity}
-          onOpenClasswork={(attemptId) => {
-            setClassroomAttemptFocus(attemptId);
-            setActiveView('assigned');
-          }}
-        />
-      )}
 
       {teacherSelectionPending && (
         <p role="status">
@@ -208,84 +201,106 @@ export function AppWorkspace({
         appLanguage={appLanguageDraft}
         taskId={snapshot?.taskId ?? null}
       />
-      {classroomAccessAvailable && (
-        <ClassroomExplanationPanel
-          appLanguage={appLanguageDraft}
-          onOpenClasswork={(attemptId) => {
-            setClassroomAttemptFocus(attemptId);
-            setActiveView('assigned');
-          }}
-        />
-      )}
 
-      {classroomAccessAvailable &&
-      (activeView === 'spaces' || activeView === 'assigned') ? (
-        <KnowledgeHubPage
-          onTeacherSessionSelect={selectTeacherSession}
-          teacherSessionId={teacherSelection?.binding.sessionId ?? null}
-          appLanguage={appLanguageDraft}
-          classroomError={classSpacesError}
-          classroomLoading={classSpacesLoading}
-          classroomRole={classroomRole}
-          classSpaces={classSpaces}
-          focusAttemptId={
-            activeView === 'assigned' ? classroomAttemptFocus : null
-          }
-          mode={activeView}
-          onAttemptFocusCleared={() => setClassroomAttemptFocus(null)}
-          onLaunch={launchKnowledgeActivity}
-          onRefreshClassSpaces={refreshClassSpaces}
-          onSelectSpace={(space) => {
-            setSelectedClassSpace(space);
-            setSelectedClassSpaceTab('library');
-          }}
-          space={selectedClassSpace}
-          spaceInitialTab={selectedClassSpaceTab}
-        />
-      ) : activeView === 'history' ? (
-        <HistoryPage
-          appLanguage={appLanguageDraft}
-          events={sessionEvents}
-          hasLiveTask={hasLiveTask}
-          onOpenAgent={() => {
-            setActiveView('agent');
-            if (!hasLiveTask) void resetTask();
-          }}
-          persistence={taskPersistence}
-          tasks={sessionTaskSnapshots}
-        />
-      ) : activeView === 'insights' ? (
-        <InsightsPage
-          appLanguage={appLanguageDraft}
-          events={sessionEvents}
-          persistence={taskPersistence}
-          tasks={sessionTaskSnapshots}
-        />
-      ) : activeView === 'organization' ? (
-        <OrganizationPage
-          appLanguage={appLanguageDraft}
-          error={organizationError}
-          isLoading={isLoadingOrganization}
-          onOpenClasses={
-            classroomAccessAvailable
-              ? () => {
-                  setSelectedClassSpace(null);
-                  setSelectedClassSpaceTab('library');
-                  setActiveView('spaces');
-                }
-              : undefined
-          }
-          onOrganizationChange={setOrganization}
-          onRefresh={refreshOrganization}
-          organization={organization}
-        />
-      ) : (
-        <div className="content-grid" id="task">
-          <TaskWorkspace {...taskProps} />
+      <ClassroomWorkspaceLayout
+        enabled={activeView === 'spaces' || activeView === 'assigned'}
+        appLanguage={appLanguageDraft}
+        sidebar={
+          <>
+            {classroomAccessAvailable && (
+              <ClassroomSessionBar
+                compact={activeView === 'spaces' || activeView === 'assigned'}
+                appLanguage={appLanguageDraft}
+                onLaunch={launchKnowledgeActivity}
+                onOpenClasswork={(attemptId) => {
+                  setClassroomAttemptFocus(attemptId);
+                  setActiveView('assigned');
+                }}
+              />
+            )}
 
-          <TaskContextPanel {...contextProps} />
-        </div>
-      )}
+            {classroomAccessAvailable && (
+              <ClassroomExplanationPanel
+                compact={activeView === 'spaces' || activeView === 'assigned'}
+                appLanguage={appLanguageDraft}
+                onOpenClasswork={(attemptId) => {
+                  setClassroomAttemptFocus(attemptId);
+                  setActiveView('assigned');
+                }}
+              />
+            )}
+          </>
+        }
+      >
+        {classroomAccessAvailable &&
+        (activeView === 'spaces' || activeView === 'assigned') ? (
+          <KnowledgeHubPage
+            onTeacherSessionSelect={selectTeacherSession}
+            teacherSessionId={teacherSelection?.binding.sessionId ?? null}
+            appLanguage={appLanguageDraft}
+            classroomError={classSpacesError}
+            classroomLoading={classSpacesLoading}
+            classroomRole={classroomRole}
+            classSpaces={classSpaces}
+            focusAttemptId={
+              activeView === 'assigned' ? classroomAttemptFocus : null
+            }
+            mode={activeView}
+            onAttemptFocusCleared={() => setClassroomAttemptFocus(null)}
+            onLaunch={launchKnowledgeActivity}
+            onRefreshClassSpaces={refreshClassSpaces}
+            onSelectSpace={(space) => {
+              setSelectedClassSpace(space);
+              setSelectedClassSpaceTab('library');
+            }}
+            space={selectedClassSpace}
+            spaceInitialTab={selectedClassSpaceTab}
+          />
+        ) : activeView === 'history' ? (
+          <HistoryPage
+            appLanguage={appLanguageDraft}
+            events={sessionEvents}
+            hasLiveTask={hasLiveTask}
+            onOpenAgent={() => {
+              setActiveView('agent');
+              if (!hasLiveTask) void resetTask();
+            }}
+            persistence={taskPersistence}
+            tasks={sessionTaskSnapshots}
+          />
+        ) : activeView === 'insights' ? (
+          <InsightsPage
+            appLanguage={appLanguageDraft}
+            events={sessionEvents}
+            persistence={taskPersistence}
+            tasks={sessionTaskSnapshots}
+          />
+        ) : activeView === 'organization' ? (
+          <OrganizationPage
+            appLanguage={appLanguageDraft}
+            error={organizationError}
+            isLoading={isLoadingOrganization}
+            onOpenClasses={
+              classroomAccessAvailable
+                ? () => {
+                    setSelectedClassSpace(null);
+                    setSelectedClassSpaceTab('library');
+                    setActiveView('spaces');
+                  }
+                : undefined
+            }
+            onOrganizationChange={setOrganization}
+            onRefresh={refreshOrganization}
+            organization={organization}
+          />
+        ) : (
+          <div className="content-grid" id="task">
+            <TaskWorkspace {...taskProps} />
+
+            <TaskContextPanel {...contextProps} />
+          </div>
+        )}
+      </ClassroomWorkspaceLayout>
       {settingsOpen && <AppSettings {...settingsProps} />}
     </main>
   );

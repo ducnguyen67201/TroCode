@@ -7,9 +7,11 @@ import type {
 } from '../shared/contracts';
 export function ClassroomExplanationPanel({
   appLanguage,
+  compact = false,
   onOpenClasswork,
 }: {
   appLanguage: AppLanguage;
+  compact?: boolean;
   onOpenClasswork: (attemptId: string) => void;
 }) {
   const [notice, setNotice] = useState<BroadcastNotice | null>(null);
@@ -70,7 +72,8 @@ export function ClassroomExplanationPanel({
   };
   const broadcast = notice?.broadcast;
   const active = state?.active;
-  if (!broadcast && !active && !state?.pending.length && !state?.sessionId) return null;
+  if (!broadcast && !active && !state?.pending.length && !state?.sessionId)
+    return null;
   const activeRunning =
     active &&
     !['finished', 'cancelled', 'failed', 'unknown'].includes(active.phase);
@@ -203,26 +206,34 @@ export function ClassroomExplanationPanel({
           </div>
         ))}
       {state?.sessionId && (
-        <label className="classroom-guidance-consent">
-          <input
-            type="checkbox"
-            checked={state.consent?.enabled ?? false}
-            disabled={busy}
-            onChange={(event) => {
-              const enabled = event.target.checked;
-              void run(() =>
-                window.tro.setClassroomGuidanceConsent({
-                  sessionId: state.sessionId!,
-                  enabled,
-                  contextMode: 'screen_if_permitted',
-                }),
-              );
-            }}
-          />
-          {vi
-            ? 'Tự động bắt đầu giải thích mới trong phiên này khi thiết bị rảnh'
-            : 'Automatically start new teacher explanations in this session when my device is idle'}
-        </label>
+        <details
+          className="classroom-session-settings"
+          open={compact ? undefined : true}
+        >
+          <summary>
+            {vi ? 'Cài đặt giải thích' : 'Explanation settings'}
+          </summary>
+          <label className="classroom-guidance-consent">
+            <input
+              type="checkbox"
+              checked={state.consent?.enabled ?? false}
+              disabled={busy}
+              onChange={(event) => {
+                const enabled = event.target.checked;
+                void run(() =>
+                  window.tro.setClassroomGuidanceConsent({
+                    sessionId: state.sessionId!,
+                    enabled,
+                    contextMode: 'screen_if_permitted',
+                  }),
+                );
+              }}
+            />
+            {vi
+              ? 'Tự động bắt đầu giải thích mới trong phiên này khi thiết bị rảnh'
+              : 'Automatically start new teacher explanations in this session when my device is idle'}
+          </label>
+        </details>
       )}
       {active && (
         <div className="classroom-explanation-active">

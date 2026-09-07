@@ -27,8 +27,6 @@ export function AttemptLaunchPage({
   onLaunch: (request: SubmitTaskRequest) => Promise<void>;
 }) {
   const [attempt, setAttempt] = useState<HostedAttemptContext | null>(null);
-  const [classroomSession, setClassroomSession] =
-    useState<ClassroomSessionProjection | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceSelection | null>(null);
   const [submission, setSubmission] = useState<KnowledgeFileSelection | null>(
     null,
@@ -44,7 +42,6 @@ export function AttemptLaunchPage({
     let active = true;
     const applySession = (session: ClassroomSessionProjection | null) => {
       if (active && (!session || session.attemptId === attemptId)) {
-        setClassroomSession(session);
         if (session) {
           setAttempt((current) =>
             current ? { ...current, state: session.attemptState } : current,
@@ -282,26 +279,6 @@ export function AttemptLaunchPage({
           {t(attempt.state)}
         </span>
       </header>
-
-      {classroomSession?.currentDirective && (
-        <section
-          className="attempt-current-direction"
-          aria-labelledby="current-direction-heading"
-        >
-          <div className="attempt-current-direction__mark" aria-hidden="true">
-            →
-          </div>
-          <div>
-            <p className="eyebrow">{t('Current teacher direction')}</p>
-            <h2 id="current-direction-heading">
-              {classroomSession.currentDirective.instruction}
-            </h2>
-            {classroomSession.currentDirective.kind === 'open_url' && (
-              <span>{classroomSession.currentDirective.origin}</span>
-            )}
-          </div>
-        </section>
-      )}
 
       <div className="attempt-layout">
         <main className="attempt-main">
