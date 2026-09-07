@@ -1,17 +1,25 @@
-export * from './classroom-broadcast-contracts';
 import { z } from 'zod';
 
 import { validateClassroomUrl } from './classroom-url-policy';
 import {
-  ActivityGuidancePolicySchema,
   ActivityCriterionSchema,
+  ActivityGuidancePolicySchema,
+  AppLanguageSchema,
   ClassroomOriginSchema,
   SaveKnowledgeActivityRequestSchema,
-  type PrepareKnowledgeActivityRequestSchema,
   type PreparedKnowledgeActivitySchema,
-  AppLanguageSchema,
+  type PrepareKnowledgeActivityRequestSchema,
 } from './knowledge-activity-contracts';
+import { ClassroomAccountRoleSchema, type KnowledgeCapabilitiesSchema } from './knowledge-capabilities';
 import { VOICE_MODES } from './voice-mode';
+
+export * from './classroom-broadcast-contracts';
+export * from './classroom-lesson-contracts';
+export { ClassroomAccountRoleSchema,KnowledgeCapabilitiesSchema } from './knowledge-capabilities';
+
+
+
+
 
 export * from './knowledge-activity-contracts';
 
@@ -619,19 +627,6 @@ export const SubmitTaskRequestSchema = z
     }
   });
 
-export const KnowledgeCapabilitiesSchema = z.object({
-  classroomBroadcasts: z.object({ contractVersion: z.literal(1) }).optional(),
-  classroomGuidance: z.object({ contractVersion: z.literal(1) }).optional(),
-  knowledgeSpaces: z.object({
-    enabled: z.boolean(),
-    contractVersion: z.literal(2),
-  }),
-});
-export const ClassroomAccountRoleSchema = z.enum([
-  'unassigned',
-  'teacher',
-  'student',
-]);
 export const KnowledgeSpaceSummarySchema = z.object({
   id: z.string().uuid(),
   name: z.string().trim().min(1).max(240),
@@ -1920,6 +1915,7 @@ export const CompanionPetNudgeSchema = CompanionPetNudgeDraftSchema.extend({
 
 export const CompanionResponseCardSchema = z
   .object({
+    lesson: z.object({ revision: z.number().int().nonnegative(), status: z.string().max(40), language: z.enum(['en', 'vi']) }).strict().optional(),
     cardId: z.string().uuid(),
     taskId: z.string().uuid(),
     phase: z.enum(['streaming', 'completed']),
@@ -1938,6 +1934,7 @@ export const CompanionResponseCardSchema = z
   });
 
 export const CompanionResponseActionSchema = z.enum([
+  'lesson_pause', 'lesson_stop', 'lesson_next',
   'dismiss',
   'open_task',
   'ask_follow_up',

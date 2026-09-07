@@ -1,0 +1,209 @@
+[
+  {
+    "name": "vietnamese-and-astral-text",
+    "valid": true,
+    "plan": {
+      "schemaVersion": 1,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "web",
+          "title": "Editor",
+          "url": "https://class.example/editor",
+          "origin": "https://class.example"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null
+        }
+      ]
+    },
+    "digest": "fe91e412efe4af639eac21964b68207e23027263b8e3a506bc8d21975f8ef98b"
+  },
+  {
+    "name": "unknown-field",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 1,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "web",
+          "title": "Editor",
+          "url": "https://class.example/editor",
+          "origin": "https://class.example"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null
+        }
+      ],
+      "tools": [
+        "cua.click"
+      ]
+    }
+  },
+  {
+    "name": "private-url",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 1,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "web",
+          "title": "Editor",
+          "url": "https://127.0.0.1/editor",
+          "origin": "https://127.0.0.1"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "missing-demo",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 1,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "web",
+          "title": "Editor",
+          "url": "https://class.example/editor",
+          "origin": "https://class.example"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "demonstrate",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "surrounding-space",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 1,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": " padded ",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "web",
+          "title": "Editor",
+          "url": "https://class.example/editor",
+          "origin": "https://class.example"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "missing-null",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 1,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "web",
+          "title": "Editor",
+          "url": "https://class.example/editor",
+          "origin": "https://class.example"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ]
+        }
+      ]
+    }
+  }
+]

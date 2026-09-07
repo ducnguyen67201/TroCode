@@ -94,8 +94,8 @@ async fn rust_migrations_are_idempotent_on_an_empty_database() {
     .fetch_one(&pool)
     .await
     .expect("domain table count");
-    assert_eq!(sqlx_count, 36);
-    assert_eq!(table_count, 62, "61 domain tables plus SQLx bookkeeping");
+    assert_eq!(sqlx_count, 37);
+    assert_eq!(table_count, 66, "65 domain tables plus SQLx bookkeeping");
 }
 
 #[tokio::test]
@@ -132,7 +132,7 @@ async fn rust_migrations_adopt_a_legacy_initialized_database() {
         .fetch_one(&pool)
         .await
         .expect("SQLx bookkeeping count");
-    assert_eq!(sqlx_count, 36);
+    assert_eq!(sqlx_count, 37);
 }
 
 // Reproduce both recorded SQLx histories: deployed PR #61 and local PR #63.
@@ -259,7 +259,7 @@ async fn upgrades_deployed_classroom_history_without_rewriting_checksums() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(count, 36);
+    assert_eq!(count, 37);
     for table in [
         "knowledge_class_session_broadcasts",
         "knowledge_classroom_guidance_starts",
@@ -318,7 +318,7 @@ async fn upgrades_pr63_history_without_resetting_local_databases() {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(count, 36);
+        assert_eq!(count, 37);
         let constraint: String = query_scalar("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='knowledge_run_directives'::regclass AND conname='knowledge_run_directives_kind_check'").fetch_one(&pool).await.unwrap();
         assert!(constraint.contains("explain_assignment"));
         let table_exists: bool =

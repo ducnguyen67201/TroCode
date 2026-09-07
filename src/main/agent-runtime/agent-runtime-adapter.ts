@@ -20,8 +20,8 @@ import {
   LOCAL_AGENT_SDK_VERSION,
   LocalAgentChildMessageSchema,
   LocalAgentHostMessageSchema,
-  type LocalAgentChildMessage,
   type LocalAgentCapability,
+  type LocalAgentChildMessage,
   type LocalAgentHostMessage,
   type LocalRuntimeCatalogValidation,
   type LocalRuntimeToolSpec,
@@ -30,8 +30,7 @@ import {
   type RequiredInitialToolCall,
 } from '../../../services/agent-runtime/src/protocol';
 import { digest } from '../../../services/agent-runtime/src/serialization';
-import type { ToolExecutionResult } from '../agent/agent-contracts';
-import type { DesktopObservation } from '../agent/execution-contracts';
+import type { ResolvedToolInvocation, ToolExecutionResult } from '../agent/agent-contracts';
 import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
 import type {
   RuntimeToolRegistry,
@@ -41,6 +40,21 @@ import type {
 
 import type { EncryptedAgentStateStore } from './encrypted-agent-state-store';
 import type { LocalInvocation } from './local-agent-state';
+import { normalizeLocalToolResult } from './local-tool-result';
+
+export { normalizeLocalToolResult } from './local-tool-result';
+
+
+
+
+
+
+
+
+
+
+
+
 
 const AgentTurnResponseSchema = z.object({ id: z.string().uuid() }).passthrough();
 const RUNTIME_READY_TIMEOUT_MS = 15_000;
@@ -109,6 +123,7 @@ export interface LocalAgentRuntimeOptions {
   runtimeReadyTimeoutMs?: number;
   state: EncryptedAgentStateStore;
   tools: RuntimeToolRegistry;
+  beforeTool?(taskId: string, invocation: ResolvedToolInvocation): Promise<void>;
 }
 
 export class LocalAgentRuntime implements AgentRuntimeAdapter {
@@ -309,6 +324,7 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
     const token = await this.options.accessTokenProvider();
     await this.ensureReady(token);
     const state = await this.options.state.readThread(threadId);
+    if (state.classroomLessonId || executionContext.lesson) throw new Error('Lesson children cannot replay after interruption. Use the lesson controls.');
     const checkpoint = state.checkpoint;
     if (!checkpoint) throw new Error('Local task has no durable SDK checkpoint.');
     const pendingToolDisposition = checkpoint.pendingCallId
@@ -665,6 +681,18 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
       });
       return;
     }
+    if (active.executionContext.lesson) {
+      try {
+        const preview = this.options.tools.preview({ arguments: JSON.stringify(message.arguments), callId: message.callId, name: message.modelName }, active.executionContext);
+        if (!this.options.beforeTool) throw new Error('Lesson tool policy is unavailable.');
+        await this.options.beforeTool(message.threadId, preview);
+      } catch (error) {
+        const denied: LocalToolExecutionResult = { status: 'failed', summary: safeError(error), data: null, imageDataUrl: null };
+        await this.options.state.transitionInvocation(message.threadId, message.callId, 'checkpointed', 'failed', denied);
+        this.respond(message, { kind: 'tool.execute.result', responseTo: message.requestId, result: denied });
+        return;
+      }
+    }
     record = await this.options.state.transitionInvocation(message.threadId, message.callId, 'checkpointed', 'executing');
     if (record.status !== 'executing') throw new Error('invocation_transition_conflict');
     this.emitToolLifecycle(message, 'tool_started', `Executing ${message.modelName}.`);
@@ -887,48 +915,6 @@ export function pendingToolResumeDisposition(
     : 'replay';
 }
 
-function modelObservationData(observation: DesktopObservation) {
-  return {
-    capturedAt: observation.capturedAt,
-    degraded: observation.degraded,
-    observationId: observation.observationId,
-    route: observation.route,
-    text: observation.text,
-    ...(observation.structuredState
-      ? { structuredState: observation.structuredState }
-      : {}),
-    ...(observation.coordinateSpace
-      ? { coordinateSpace: observation.coordinateSpace }
-      : {}),
-    ...(observation.surface ? { surface: observation.surface } : {}),
-    ...(observation.elements ? { elements: observation.elements } : {}),
-  };
-}
-
-export function normalizeLocalToolResult(
-  result: ToolExecutionResult,
-): LocalToolExecutionResult {
-  const status = result.status === 'confirmed'
-    ? 'completed'
-    : result.status === 'unknown'
-      ? 'unknown'
-      : 'failed';
-  const data = result.observation
-    ? {
-        ...(result.data ?? {}),
-        observation: modelObservationData(result.observation),
-      }
-    : result.data ?? null;
-  const observationImageDataUrl = result.observation?.screenshot
-    ? `data:${result.observation.screenshot.mimeType};base64,${result.observation.screenshot.dataBase64}`
-    : null;
-  return {
-    status,
-    summary: result.summary.slice(0, 1_000),
-    data,
-    imageDataUrl: result.imageDataUrl ?? observationImageDataUrl,
-  };
-}
 
 function safeError(error: unknown): string {
   if (!(error instanceof Error)) return 'The tool result could not be confirmed.';

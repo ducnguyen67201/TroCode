@@ -12,8 +12,8 @@ import type { ToolExecutionResult } from '../agent/agent-contracts';
 import type { DesktopObservation } from '../agent/execution-contracts';
 
 import {
-  LocalAgentRuntime,
   executionContextAfterToolResult,
+  LocalAgentRuntime,
   normalizeLocalToolResult,
   pendingToolResumeDisposition,
 } from './agent-runtime-adapter';
@@ -336,4 +336,18 @@ describe('LocalAgentRuntime observation delivery', () => {
     expect(updated.latestObservation).toBe(observation);
     expect(context).not.toHaveProperty('latestObservation');
   });
+});
+
+it('refuses to resume a durable classroom lesson child through the ordinary SDK path', async () => {
+  const process = new FakeUtilityProcess('ready');
+  const runtime = new LocalAgentRuntime({ accessTokenProvider: async () => 'test-session', apiBaseUrl: 'https://api.example.test',
+    coordinator: { dispatchTool: vi.fn(), endTask: vi.fn(async () => undefined) },
+    forkUtilityProcess: () => { process.launch(); return process as unknown as UtilityProcess; },
+    isPackaged: false, repositoryRoot: '/repo', resourcesPath: '/resources', runtimeReadyTimeoutMs: 100,
+    state: { readThread: vi.fn(async () => ({ classroomLessonId: randomUUID(), checkpoint: {} })) } as never,
+    tools: { endTask: vi.fn(), freeze: vi.fn(), resolve: vi.fn() } as never });
+  try {
+    await expect(runtime.resume(randomUUID(), {} as never)).rejects.toThrow('cannot replay');
+    expect(process.messages.some((message) => message.kind === 'turn.resume')).toBe(false);
+  } finally { await runtime.shutdown(); }
 });

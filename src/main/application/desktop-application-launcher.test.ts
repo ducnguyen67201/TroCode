@@ -76,3 +76,12 @@ describe('DesktopApplicationLauncher', () => {
     );
   });
 });
+
+it('opens lesson URLs explicitly in Chrome, independent of the default browser', async () => {
+  const openUrlWithApplication=vi.fn(async()=>undefined);
+  const launcher=new DesktopApplicationLauncher({ platform:'darwin',environment:{},homeDirectory:'/Users/ada',openPath:vi.fn(),pathExists:async(p)=>p==='/Applications/Google Chrome.app',openUrlWithApplication });
+  await launcher.openLessonUrl('https://example.com/editor?lesson=one');
+  expect(openUrlWithApplication).toHaveBeenCalledWith('/Applications/Google Chrome.app','https://example.com/editor?lesson=one','darwin');
+  await expect(launcher.openLessonUrl('https://secret@example.com/editor')).rejects.toThrow('public HTTPS');
+  expect(openUrlWithApplication).toHaveBeenCalledOnce();
+});

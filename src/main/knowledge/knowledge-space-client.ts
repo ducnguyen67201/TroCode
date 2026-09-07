@@ -1,118 +1,109 @@
 import { z } from 'zod';
 
 import {
-  TeacherClassroomContextSchema,
-  ClassroomBroadcastReceiptSchema,
   ClassroomBroadcastFeedSchema,
+  ClassroomBroadcastReceiptSchema,
   GuidanceClaimSchema,
   GuidanceSummarySchema,
+  TeacherClassroomContextSchema,
   type ClassroomBroadcastPayload,
-  type GuidanceStartRequest,
   type GuidanceReport,
+  type GuidanceStartRequest,
 } from '../../shared/classroom-broadcast-contracts';
 import {
-  AssignedActivityListSchema,
-  CreateKnowledgeSpaceResponseSchema,
-  HostedAttemptContextSchema,
-  KnowledgeActivityDraftSchema,
-  PreparedKnowledgeActivitySchema,
-  type PrepareKnowledgeActivityRequest,
-  type PreparedKnowledgeActivity,
-  KnowledgeActivityVersionSchema,
-  KnowledgeCapabilitiesSchema,
-  PublishedKnowledgeActivityListSchema,
-  KnowledgeClassSessionSchema,
-  KnowledgeClassSessionListSchema,
-  KnowledgeDashboardSchema,
-  KnowledgeRunSchema,
-  KnowledgeSourceListSchema,
-  KnowledgeSpaceListSchema,
-  KnowledgeSpaceSummarySchema,
-  KnowledgeGroupListSchema,
-  KnowledgeGroupSchema,
-  KnowledgeInviteSchema,
   AddKnowledgeSpaceMembersResultSchema,
-  KnowledgeSpaceMemberListSchema,
-  RedeemKnowledgeInviteResponseSchema,
+  AssignedActivityListSchema,
   ClassroomDirectiveClaimSchema,
   ClassroomDirectiveListSchema,
   ClassroomDirectiveSchema,
+  CreateKnowledgeSpaceResponseSchema,
+  HostedAttemptContextSchema,
+  KnowledgeActivityDraftSchema,
+  KnowledgeActivityVersionSchema,
   KnowledgeAttemptTransitionSchema,
+  KnowledgeCapabilitiesSchema,
   KnowledgeClassroomSessionSchema,
+  KnowledgeClassSessionListSchema,
+  KnowledgeClassSessionSchema,
+  KnowledgeDashboardSchema,
+  KnowledgeGroupListSchema,
+  KnowledgeGroupSchema,
+  KnowledgeInviteSchema,
   KnowledgeRoomCodeSchema,
   KnowledgeRoomRevocationSchema,
+  KnowledgeRunSchema,
+  KnowledgeSourceListSchema,
+  KnowledgeSpaceListSchema,
+  KnowledgeSpaceMemberListSchema,
+  KnowledgeSpaceSummarySchema,
   LeaveKnowledgeClassroomResponseSchema,
-  type AssignedActivityList,
-  type CreateKnowledgeRunRequest,
-  type CreateKnowledgeSpaceRequest,
-  type CreateKnowledgeSpaceResponse,
-  type HostedAttemptContext,
-  type KnowledgeActivityDraft,
-  type KnowledgeActivityVersion,
-  type KnowledgeCapabilities,
-  type KnowledgeDashboard,
-  type KnowledgeRun,
-  type PublishedKnowledgeActivityList,
-  type CreateKnowledgeClassSessionRequest,
-  type KnowledgeClassSession,
-  type KnowledgeClassSessionList,
-  type KnowledgeSourceList,
-  type KnowledgeSpaceList,
-  type KnowledgeSpaceSummary,
-  type PublishKnowledgeActivityRequest,
-  type SaveKnowledgeActivityRequest,
-  type CreateKnowledgeGroupRequest,
-  type CreateKnowledgeInviteRequest,
+  PreparedKnowledgeActivitySchema,
+  PublishedKnowledgeActivityListSchema,
+  RedeemKnowledgeInviteResponseSchema,
   type AddKnowledgeSpaceMembersRequest,
   type AddKnowledgeSpaceMembersResult,
-  type KnowledgeSpaceMemberList,
-  type KnowledgeGroup,
-  type KnowledgeGroupList,
-  type KnowledgeInvite,
-  type RedeemKnowledgeInviteResponse,
+  type AssignedActivityList,
   type ClaimClassroomDirectiveRequest,
   type ClassroomDirective,
   type ClassroomDirectiveClaim,
   type ClassroomDirectiveList,
   type CreateClassroomDirectiveRequest,
+  type CreateKnowledgeClassSessionRequest,
+  type CreateKnowledgeGroupRequest,
+  type CreateKnowledgeInviteRequest,
   type CreateKnowledgeRoomCodeRequest,
+  type CreateKnowledgeRunRequest,
+  type CreateKnowledgeSpaceRequest,
+  type CreateKnowledgeSpaceResponse,
+  type HostedAttemptContext,
   type JoinKnowledgeRoomRequest,
+  type KnowledgeActivityDraft,
+  type KnowledgeActivityVersion,
   type KnowledgeAttemptTransition,
+  type KnowledgeCapabilities,
   type KnowledgeClassroomSession,
+  type KnowledgeClassSession,
+  type KnowledgeClassSessionList,
+  type KnowledgeDashboard,
+  type KnowledgeGroup,
+  type KnowledgeGroupList,
+  type KnowledgeInvite,
   type KnowledgeRoomCode,
   type KnowledgeRoomRevocation,
+  type KnowledgeRun,
+  type KnowledgeSourceList,
+  type KnowledgeSpaceList,
+  type KnowledgeSpaceMemberList,
+  type KnowledgeSpaceSummary,
   type LeaveKnowledgeClassroomResponse,
+  type PreparedKnowledgeActivity,
+  type PrepareKnowledgeActivityRequest,
+  type PublishedKnowledgeActivityList,
+  type PublishKnowledgeActivityRequest,
+  type RedeemKnowledgeInviteResponse,
   type ResolveKnowledgeAttemptHelpRequest,
   type ReviewKnowledgeAttemptRequest,
   type RevokeKnowledgeRoomCodeRequest,
+  type SaveKnowledgeActivityRequest,
 } from '../../shared/contracts';
 
+import { KnowledgeHttpClient } from './knowledge-http-client';
 import {
-  InitiateResponseSchema,
-  CompleteResponseSchema,
-  WorkSessionSchema,
-  KnowledgeSearchResponseSchema,
   ActivityEvidenceResponseSchema,
   ActivityStarterFilesSchema,
-  type InitiateUploadResponse,
-  type HostedWorkSession,
-  type KnowledgeSearchResponse,
+  CompleteResponseSchema,
+  InitiateResponseSchema,
+  KnowledgeSearchResponseSchema,
+  WorkSessionSchema,
   type ActivityStarterFiles,
+  type HostedWorkSession,
+  type InitiateUploadResponse,
+  type KnowledgeSearchResponse,
 } from './knowledge-response-contracts';
 
-export type { InitiateUploadResponse, HostedWorkSession, KnowledgeSearchResponse, ActivityStarterFiles } from './knowledge-response-contracts';
+export type { ActivityStarterFiles,HostedWorkSession,InitiateUploadResponse,KnowledgeSearchResponse } from './knowledge-response-contracts';
 
-export class KnowledgeSpaceRequestError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly code: string,
-  ) {
-    super(message);
-    this.name = 'KnowledgeSpaceRequestError';
-  }
-}
-
+export { KnowledgeSpaceRequestError } from './knowledge-http-client';
 export class KnowledgeSpaceClient {
   constructor(
     private readonly apiBaseUrl: string,
@@ -613,41 +604,7 @@ export class KnowledgeSpaceClient {
       body: JSON.stringify(body),
     };
   }
-  private async request<T>(
-    path: string,
-    init: RequestInit,
-    schema: z.ZodType<T>,
-    authenticated = true,
-  ): Promise<T> {
-    const baseUrl = this.apiBaseUrl.trim().replace(/\/+$/u, '');
-    if (!baseUrl)
-      throw new Error('Knowledge Spaces require the hosted TroCode service.');
-    const token = authenticated ? await this.accessTokenProvider() : null;
-    if (authenticated && !token)
-      throw new Error('Sign in to use Knowledge Spaces.');
-    const response = await this.fetchImpl(`${baseUrl}${path}`, {
-      ...init,
-      headers: {
-        ...init.headers,
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      signal: init.signal ?? AbortSignal.timeout(20_000),
-    });
-    if (!response.ok) {
-      const detail = (await response.json().catch(() => null)) as {
-        code?: unknown;
-        error?: unknown;
-      } | null;
-      const code =
-        typeof detail?.code === 'string' && detail.code.length <= 80
-          ? detail.code
-          : 'knowledge_request_failed';
-      const message =
-        typeof detail?.error === 'string' && detail.error.length <= 500
-          ? detail.error
-          : `Class workspaces returned HTTP ${response.status}.`;
-      throw new KnowledgeSpaceRequestError(message, response.status, code);
-    }
-    return schema.parse(await response.json());
+  private request<T>(path: string, init: RequestInit, schema: z.ZodType<T>, authenticated = true): Promise<T> {
+    return new KnowledgeHttpClient(this.apiBaseUrl, this.accessTokenProvider, this.fetchImpl).request(path, init, schema, authenticated);
   }
 }

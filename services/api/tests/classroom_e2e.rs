@@ -850,6 +850,7 @@ async fn reset_database(database_url: &str) {
 
 fn test_config(database_url: String) -> Config {
     Config {
+        classroom_test_fixture_enabled: false,
         admin: AdminConfig { access_token: None },
         connectors: ConnectorConfig {
             callback_url: None,

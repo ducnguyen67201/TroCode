@@ -186,3 +186,21 @@ fn knowledge_spaces_access_defaults_on_per_user() {
     assert!(migration.contains("knowledge_spaces_enabled BOOLEAN NOT NULL DEFAULT TRUE"));
     assert!(migration.contains("user.knowledge_spaces_access_updated"));
 }
+
+#[test]
+fn classroom_lesson_contracts_match_typescript() {
+    use sha2::{Digest, Sha256};
+    use trocode_api::classroom::LessonPlan;
+    let cases: Value =
+        serde_json::from_str(include_str!("fixtures/classroom-lesson-contracts.json")).unwrap();
+    for case in cases.as_array().unwrap() {
+        let parsed = serde_json::from_value::<LessonPlan>(case["plan"].clone());
+        let valid = parsed.as_ref().is_ok_and(|p| p.validate().is_ok());
+        assert_eq!(valid, case["valid"].as_bool().unwrap(), "{}", case["name"]);
+        if valid {
+            let value = parsed.unwrap().value().unwrap();
+            let digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&value).unwrap()));
+            assert_eq!(digest, case["digest"].as_str().unwrap());
+        }
+    }
+}

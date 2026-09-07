@@ -112,6 +112,7 @@ jobs:
           //services/api:provider_budget_compat_test
           //services/api:classroom_e2e_test
           //services/api:classroom_access_test
+          //services/api:classroom_lesson_test
       - name: Run Rust HTTP compatibility test with Bazel
         run: >-
           bazel test --config=ci

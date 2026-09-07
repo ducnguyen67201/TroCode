@@ -182,3 +182,80 @@ separate database, bucket, and session keys. No production data was copied.
 - `npm run start:test` launched to Google sign-in. Two-person Google sign-in,
   voice broadcast, and student screen-guidance acceptance still require the
   two test accounts and computers.
+
+## Teacher lesson execution acceptance
+
+This flow requires the classroom lesson change on the API **and both desktop
+checkouts**, not only a merged PR. Restart Tro Test after updating each checkout.
+Confirm the signed-in capabilities response includes
+`classroomLessons.contractVersion: 1`. Migration 037 must be applied by the API.
+Use different teacher/student accounts and the shared staging configuration above.
+The teacher's lesson progress panel shows student build and heartbeat information.
+An absent heartbeat is unknown connectivity/version, not proof of a finished run.
+
+For a deterministic browser interaction test, the test API operator can enable
+`TROCODE_CLASSROOM_TEST_FIXTURE_ENABLED=true` in the **test deployment only**, after
+an authorized deployment. Open
+`https://api-test-test-d2da.up.railway.app/classroom-test/python-editor` in Chrome.
+Its output is deliberately simulated. Repeat the full flow against the teacher's
+real Python editor before accepting Python execution behavior. No request/query
+parameter enables the fixture when its deployment flag is false.
+
+Prepare a published `current_surface` Activity with the exact test material origin
+in **Websites Tro may open automatically**, and a guidance policy that allows
+answers for this teacher demonstration. Publish criteria for reading input,
+constructing a greeting, and explaining the result. Workspace activities and
+restricted-answer demonstrations are unsupported by the first release.
+
+1. Start the class. On the student computer, grant screen recording/accessibility,
+   open Chrome, and join with the current room code. Wait for the live feed before
+   sending. New joins disclose automatic lessons; restored sessions require the
+   student to enable the control or select **Start lesson**.
+2. Teacher: select the assignment, **Teach a lesson**, **Browser exercise**, and
+   enter the complete approved HTTPS URL. Set a short objective such as “Read a
+   name, then extend the greeting with a hobby.”
+3. Fill four steps: Explain the name input; Demonstrate a small name-only example
+   with an explicit expected output; Practice adding the hobby independently;
+   Check against the published criteria. Use an empty editor for the demo. Select
+   **Preview exact lesson**, review audience/material/modes/example, then
+   **Broadcast lesson**. Preparing alone must not send or move the student cursor.
+4. Student: verify **Opening material** is visible before guidance. Chrome must
+   display the exact reviewed page. The explanation points/narrates without typing.
+   Select **Next step** to start the demonstration. Observe actual typing/clicks
+   and result verification, then select **Next step** to practice. A received
+   announcement or an HTTP send receipt alone does not pass this test.
+5. During practice, verify Tro stops typing. Enter student work, select **Ask for
+   help**, and ask a concrete question. The help child must use the current student
+   work, leave it unchanged and return to the same practice step. Select **Check
+   my work**; verify criterion feedback and teacher progress agree. No submission,
+   numerical grade, or assignment completion should occur automatically.
+6. Select **Next step** for the planned Check and **Finish lesson** at the end.
+   Teacher: review roster outcomes, step, blocked reason and build. Use
+   **Prepare another lesson** to test a fresh broadcast.
+
+Failure exercises (record observed results separately on each platform):
+
+- Use different student screen/window sizes; no teacher coordinates are replayed.
+- Select Pause/Stop both from Class updates and the floating Tro/task controls.
+  Verify native actions stop and a later ordinary task can acquire the device.
+- Open the fixture with `?prefilled=true`; the demonstration must leave existing
+  work intact and explain the blocker. Also test a wrong URL/app and missing OS
+  permissions before any input effect.
+- Opt out, send while another task is busy, reconnect, and restart. Initial
+  snapshots require explicit Start. Unknown in-flight effects remain unknown and
+  cannot automatically resume. Teacher Stop/close/removal blocks subsequent work.
+- Lose a commit/start response and retry only the receipt lookup. Repeated feed
+  delivery, duplicate Next, and two devices using the same student account must
+  not create duplicate work sessions or simultaneous demonstration owners.
+- Try assignment instructions and a pinned ready source as materials. Verify
+  source text is acknowledged in Tro, pages can be read, and no original PDF
+  layout or unseen screenshot is claimed. Check without visible work returns
+  insufficient evidence.
+- Test a class larger than 100 recipients with progress pagination, plus an old
+  desktop/API combination. Missing lesson support must be actionable; legacy
+  broadcasts retain their previous behavior.
+
+Record API revision, both desktop revisions, OS/Chrome versions, lesson/step/task
+IDs, observed native effects, final feedback and teacher progress. Keep student
+work, screenshots and credentials out of the public report. This implementation's
+local report distinguishes source review, CI status and physical acceptance.

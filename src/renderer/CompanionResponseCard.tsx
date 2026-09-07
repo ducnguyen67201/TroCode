@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 
 import type {
-  CompanionResponseAction,
   CompanionResponseCard as CompanionResponse,
+  CompanionResponseAction,
 } from '../shared/contracts';
 
 import type { GuidanceAudioStatus } from './guidance-audio-playback';
@@ -117,7 +117,7 @@ export function CompanionResponseCard({
     : 'read_aloud';
 
   useEffect(() => {
-    if (!isCompleted || isBusy) return undefined;
+    if (!isCompleted || isBusy || response.lesson) return undefined;
     const handleKeyDown = (event: KeyboardEvent): void => {
       const action = getCompanionResponseNumberAction(
         event,
@@ -129,7 +129,7 @@ export function CompanionResponseCard({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isBusy, isCompleted, onAction, readAction]);
+  }, [isBusy, isCompleted, onAction, readAction, response.lesson]);
 
   return (
     <aside
@@ -152,7 +152,7 @@ export function CompanionResponseCard({
           aria-live="polite"
           className="guidance-callout__status"
         >
-          {getCompanionResponseStatus(response.phase, audioStatus)}
+          {response.lesson ? response.lesson.status.replaceAll('_', ' ') : getCompanionResponseStatus(response.phase, audioStatus)}
         </span>
       </header>
 
@@ -169,7 +169,12 @@ export function CompanionResponseCard({
         </p>
       ) : null}
 
-      {isCompleted ? (
+      {response.lesson ? <footer className="companion-response-card__actions">
+        <button type="button" disabled={isBusy} onClick={() => onAction('open_task')}>{response.lesson.language === 'vi' ? 'Mở lớp học' : 'Open class'}</button>
+        {!['unknown', 'failed'].includes(response.lesson.status) && <button type="button" disabled={isBusy} onClick={() => onAction('lesson_pause')}>{response.lesson.language === 'vi' ? 'Tạm dừng' : 'Pause'}</button>}
+        <button type="button" disabled={isBusy} onClick={() => onAction('lesson_stop')}>{response.lesson.language === 'vi' ? 'Dừng' : 'Stop'}</button>
+        {response.lesson.status === 'waiting_for_student' && <button type="button" disabled={isBusy} onClick={() => onAction('lesson_next')}>{response.lesson.language === 'vi' ? 'Tiếp theo' : 'Next'}</button>}
+      </footer> : isCompleted ? (
         <footer className="companion-response-card__actions">
           <button
             aria-keyshortcuts="1"

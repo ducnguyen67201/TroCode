@@ -29,6 +29,11 @@ pub async fn route(
     headers: &HeaderMap,
     body: &Bytes,
 ) -> ApiResult<Option<Response>> {
+    if let Some(response) =
+        super::classroom_lessons::route(state, user_id, method, uri, headers, body).await?
+    {
+        return Ok(Some(response));
+    }
     let path = uri.path();
     let parts: Vec<_> = path.trim_start_matches('/').split('/').collect();
 

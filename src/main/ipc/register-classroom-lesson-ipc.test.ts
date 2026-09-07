@@ -1,0 +1,50 @@
+import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { LESSON_CHANNELS } from '../../shared/classroom-lesson-desktop-api';
+
+import { registerClassroomLessonIpc, type ClassroomLessonFeatures } from './register-classroom-lesson-ipc';
+
+const handlers = vi.hoisted(() => new Map<string, (event: unknown, value?: unknown) => Promise<unknown>>());
+vi.mock('electron', () => ({
+  ipcMain: {
+    handle: (channel: string, fn: (event: unknown, value?: unknown) => Promise<unknown>) => handlers.set(channel, fn),
+    removeHandler: (channel: string) => handlers.delete(channel),
+  },
+}));
+describe('lesson IPC authority', () => {
+  beforeEach(() => handlers.clear());
+  it('authorizes the sender before interpreting any lesson command and cleans up', async () => {
+    const prepare = vi.fn();
+    const stop = vi.fn();
+    const authorize = vi.fn(async () => {
+      throw new Error('Untrusted sender');
+    });
+    const cleanup = registerClassroomLessonIpc(
+      {} as BrowserWindow,
+      { drafts: { prepare }, controller: { onChange: () => stop } } as unknown as ClassroomLessonFeatures,
+      authorize,
+    );
+    await expect(
+      handlers.get(LESSON_CHANNELS.prepare)!({} as IpcMainInvokeEvent, { rawTool: 'click' }),
+    ).rejects.toThrow('Untrusted sender');
+    expect(prepare).not.toHaveBeenCalled();
+    cleanup();
+    expect(stop).toHaveBeenCalledOnce();
+    expect(handlers.size).toBe(0);
+  });
+  it('refuses raw or stale control payloads without invoking the runner', async () => {
+    const resume = vi.fn();
+    const cleanup = registerClassroomLessonIpc(
+      {} as BrowserWindow,
+      { controller: { continue: resume, onChange: () => vi.fn() } } as unknown as ClassroomLessonFeatures,
+      async () => undefined,
+    );
+    await expect(
+      handlers.get(LESSON_CHANNELS.continue)!({}, { action: 'execute', command: 'click' }),
+    ).rejects.toThrow();
+    expect(resume).not.toHaveBeenCalled();
+    cleanup();
+  });
+});

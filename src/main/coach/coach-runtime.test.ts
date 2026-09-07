@@ -10,8 +10,8 @@ import type { KnowledgeSpaceClient } from '../knowledge/knowledge-space-client';
 
 import { CoachDecisionSchema, type CoachRuntimeStart } from './coach-contracts';
 import {
-  CoachRuntime,
   coachResponseRequest,
+  CoachRuntime,
   createAuthenticatedCoachDecisionClient,
   type CoachRuntimeDependencies,
 } from './coach-runtime';
@@ -770,4 +770,16 @@ describe('individual classroom explanations', () => {
       expect(f.releaseObservationSession).toHaveBeenCalledWith(input.taskId);
     }
   });
+});
+
+it('falls back to reviewed lesson text when screen permission is unavailable', async () => {
+  const f = setup(async () => ({ kind: 'answer', text: 'Read a name with input().', language: 'en' }));
+  f.startObservationSession.mockRejectedValueOnce(new Error('Screen recording permission required'));
+  const authorize = vi.fn(async () => undefined); f.dependencies.beforeLessonRound = authorize;
+  await f.runtime.start({ taskId: randomUUID(), request: 'Explain name input', activity: null, requiresObservation: true, priorProgress: null,
+    lesson: { mode: 'explain', language: 'en', materialText: 'Use input().', demonstratedExamples: [], step: { id: randomUUID(), resourceId: randomUUID(), mode: 'explain', objective: 'Read input', instruction: 'Explain input()', criterionIds: [], demonstration: null } } });
+  await vi.waitFor(() => expect(f.terminal).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: 'completed' })));
+  expect(f.dependencies.decide).toHaveBeenCalledWith(expect.objectContaining({ observation: null }), expect.any(AbortSignal));
+  expect(authorize).toHaveBeenCalledTimes(2);
+  expect(f.presentSequence).not.toHaveBeenCalled();
 });

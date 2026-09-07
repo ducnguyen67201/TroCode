@@ -77,6 +77,7 @@ export function DirectiveComposer({
           </span>
         )}
       </div>
+      <p>{t('Messages display instructions. Use Teach a lesson for guided execution.')}</p>
       <div
         className="directive-kind-switch"
         role="radiogroup"
@@ -93,7 +94,7 @@ export function DirectiveComposer({
             type="radio"
           />
           <span aria-hidden="true">→</span>
-          {t('Exercise')}
+          {t('Message')}
         </label>
         <label className={directiveKind === 'open_url' ? 'is-selected' : ''}>
           <input

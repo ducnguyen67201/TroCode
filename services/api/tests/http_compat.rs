@@ -88,6 +88,7 @@ fn test_config(database_url: String) -> Config {
 
 fn test_config_with_store(database_url: String, object_store: Option<ObjectStoreConfig>) -> Config {
     Config {
+        classroom_test_fixture_enabled: false,
         admin: AdminConfig {
             access_token: Some(ADMIN_TOKEN.to_owned()),
         },

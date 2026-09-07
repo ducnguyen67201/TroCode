@@ -190,6 +190,11 @@ static MIGRATOR: LazyLock<Migrator> = LazyLock::new(|| Migrator {
             "student classroom guidance",
             include_str!("../migrations/036_student_classroom_guidance.sql"),
         ),
+        migration(
+            37,
+            "classroom lessons",
+            include_str!("../migrations/037_classroom_lessons.sql"),
+        ),
     ]),
     ..Migrator::DEFAULT
 });
@@ -278,7 +283,7 @@ mod tests {
     #[test]
     fn classroom_migrations_are_registered_in_order() {
         let versions: Vec<_> = MIGRATOR.iter().map(|migration| migration.version).collect();
-        assert_eq!(versions, (1..=36).collect::<Vec<_>>());
+        assert_eq!(versions, (1..=37).collect::<Vec<_>>());
         let historical_versions: Vec<_> = BROADCASTS_FIRST_MIGRATOR
             .iter()
             .map(|migration| migration.version)

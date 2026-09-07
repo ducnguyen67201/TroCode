@@ -23,7 +23,7 @@ rust_library(
         exclude = ["src/main.rs"],
     ),
     aliases = aliases(),
-    compile_data = glob([
+    compile_data = ["tests/fixtures/classroom-python-editor.html"] + glob([
         "admin-dist/**/*",
         "migrations/*.sql",
     ]),
@@ -46,6 +46,13 @@ rust_binary(
         "clap",
         "tokio",
     ]),
+)
+
+trocode_rust_integration_test(
+    name = "classroom_lesson_test",
+    size = "large",
+    src = "tests/classroom_lesson.rs",
+    tags = ["requires-postgres"],
 )
 
 trocode_rust_integration_test(
@@ -136,6 +143,7 @@ trocode_rust_integration_test(
 )
 
 RUST_TEST_TARGETS = [
+    ":classroom_lesson_test",
     ":api_lib_test",
     ":classroom_access_test",
     ":classroom_e2e_test",
