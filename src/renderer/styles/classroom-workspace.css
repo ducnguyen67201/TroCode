@@ -1,0 +1,240 @@
+.classroom-workspace {
+  display: grid;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.classroom-workspace__main {
+  min-width: 0;
+}
+.classroom-workspace .knowledge-page {
+  padding-top: 22px;
+}
+.classroom-workspace__rail {
+  display: none;
+}
+
+.classroom-workspace:has(.classroom-bar, .classroom-broadcast-card) {
+  grid-template-columns: minmax(0, 1fr) 310px;
+}
+
+.classroom-workspace:has(.classroom-bar, .classroom-broadcast-card)
+  > .classroom-workspace__rail {
+  display: block;
+  position: sticky;
+  top: 84px;
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  margin: 20px 16px 20px 0;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel, #fffefa);
+}
+
+.classroom-workspace__updates {
+  padding: 16px;
+}
+.classroom-workspace__updates > h2 {
+  margin: 0 0 16px;
+  font-size: 16px;
+}
+.classroom-workspace__toggle {
+  display: none;
+}
+
+.classroom-workspace .classroom-workspace__rail .classroom-bar {
+  position: static;
+  display: grid;
+  grid-template-columns: 6px minmax(0, 1fr);
+  gap: 14px 10px;
+  margin: 0;
+  padding: 14px;
+  box-shadow: none;
+}
+
+.classroom-workspace
+  .classroom-workspace__rail
+  .classroom-bar__identity
+  strong {
+  white-space: normal;
+  font-size: 13px;
+}
+.classroom-workspace
+  .classroom-workspace__rail
+  .classroom-bar__identity
+  > span:last-child {
+  font-size: 11px;
+}
+.classroom-workspace .classroom-workspace__rail .classroom-bar__context {
+  display: flex;
+  grid-column: 1 / -1;
+  border-left: 0;
+  border-top: 1px solid var(--border);
+  padding: 12px 0 0;
+}
+.classroom-workspace .classroom-workspace__rail .classroom-bar__context p {
+  white-space: normal;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.classroom-workspace .classroom-workspace__rail .classroom-bar__actions {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+  gap: 6px;
+}
+.classroom-workspace
+  .classroom-workspace__rail
+  .classroom-bar__actions
+  button {
+  font-size: 11px;
+  white-space: normal;
+  min-height: 36px;
+}
+.classroom-session-settings {
+  grid-column: 1 / -1;
+  font-size: 12px;
+}
+.classroom-session-settings summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font-weight: 700;
+}
+.classroom-workspace .classroom-workspace__rail .classroom-consent {
+  border: 0;
+}
+.classroom-workspace .classroom-workspace__rail .classroom-consent strong,
+.classroom-workspace .classroom-workspace__rail .classroom-consent small {
+  font-size: 11px;
+}
+.classroom-workspace .classroom-workspace__rail .classroom-directive {
+  grid-column: 1 / -1;
+  grid-template-columns: 24px minmax(0, 1fr);
+  padding: 10px;
+  gap: 8px;
+}
+.classroom-workspace
+  .classroom-workspace__rail
+  .classroom-directive__actions {
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+}
+.classroom-workspace .classroom-workspace__rail .classroom-directive strong,
+.classroom-workspace .classroom-workspace__rail .classroom-directive small {
+  overflow-wrap: anywhere;
+}
+.classroom-workspace .classroom-workspace__rail .classroom-broadcast-card {
+  margin: 14px 0 0;
+  padding: 14px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.classroom-workspace .classroom-workspace__rail .classroom-guidance-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  padding: 8px 0;
+}
+.classroom-workspace__rail input:not([type='checkbox']) {
+  min-width: 0;
+  max-width: 100%;
+}
+.classroom-workspace .attempt-hero {
+  min-height: 0;
+  padding: 22px;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.classroom-workspace .attempt-hero h1 {
+  font-size: clamp(26px, 2.5vw, 36px);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}
+.classroom-workspace:has(.classroom-bar, .classroom-broadcast-card)
+  .attempt-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 1200px) {
+  .classroom-workspace:has(.classroom-bar, .classroom-broadcast-card) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .classroom-workspace:has(.classroom-bar, .classroom-broadcast-card)
+    > .classroom-workspace__rail {
+    grid-row: 1;
+    position: static;
+    margin: 12px 20px 0;
+    max-height: none;
+    overflow: visible;
+  }
+  .classroom-workspace__toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 12px 16px;
+    border: 0;
+    border-radius: 16px;
+    background: #fffcee;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .classroom-workspace__updates {
+    display: none;
+  }
+  .classroom-workspace__updates.is-open {
+    display: block;
+    max-height: 60vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .classroom-workspace:has(.classroom-bar, .classroom-broadcast-card)
+    > .classroom-workspace__rail:has(.is-open) {
+    position: fixed;
+    z-index: 10;
+    top: 90px;
+    right: 24px;
+    width: min(360px, calc(100vw - 48px));
+    margin: 0;
+    box-shadow: 0 16px 48px rgba(39, 39, 34, 0.2);
+  }
+}
+.classroom-workspace--horizontal {
+  display: flex;
+  flex-direction: column;
+}
+
+.classroom-workspace--horizontal > .classroom-workspace__main {
+  order: 2;
+}
+
+.classroom-workspace--horizontal > .classroom-workspace__rail {
+  display: block;
+}
+
+.classroom-workspace--horizontal .classroom-workspace__updates {
+  display: block;
+  padding: 0;
+  max-height: none;
+  overflow: visible;
+}
+
+.classroom-workspace--horizontal .classroom-workspace__toggle,
+.classroom-workspace--horizontal .classroom-workspace__updates > h2,
+.classroom-workspace--horizontal .classroom-session-settings > summary {
+  display: none;
+}
+
+.classroom-workspace--horizontal .classroom-session-settings {
+  grid-column: 3 / -1;
+}
+
+@media (max-width: 1280px) {
+  .classroom-workspace--horizontal .classroom-session-settings {
+    grid-column: 2 / -1;
+  }
+}

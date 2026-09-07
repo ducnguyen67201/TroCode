@@ -16,10 +16,12 @@ import {
 
 export function ClassroomSessionBar({
   appLanguage,
+  compact = false,
   onLaunch,
   onOpenClasswork,
 }: {
   appLanguage: AppLanguage;
+  compact?: boolean;
   onLaunch: (request: SubmitTaskRequest) => Promise<void>;
   onOpenClasswork: (attemptId: string) => void;
 }) {
@@ -227,22 +229,30 @@ export function ClassroomSessionBar({
       </div>
 
       {session.run.status === 'live' && (
-        <label className="classroom-consent">
-          <input
-            checked={session.autoOpenConsent}
-            disabled={busyAction === 'consent'}
-            onChange={(event) => void setConsent(event.target.checked)}
-            type="checkbox"
-          />
-          <span>
-            <strong>{t('Open approved class links automatically')}</strong>
-            <small>
-              {t(
-                'Only published HTTPS sites allowed by this Activity. You can turn this off anytime.',
-              )}
-            </small>
-          </span>
-        </label>
+        <details
+          className="classroom-session-settings"
+          open={compact ? undefined : true}
+        >
+          <summary>
+            {appLanguage === 'vi' ? 'Cài đặt liên kết' : 'Link settings'}
+          </summary>
+          <label className="classroom-consent">
+            <input
+              checked={session.autoOpenConsent}
+              disabled={busyAction === 'consent'}
+              onChange={(event) => void setConsent(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              <strong>{t('Open approved class links automatically')}</strong>
+              <small>
+                {t(
+                  'Only published HTTPS sites allowed by this Activity. You can turn this off anytime.',
+                )}
+              </small>
+            </span>
+          </label>
+        </details>
       )}
 
       {activeNotice && (
