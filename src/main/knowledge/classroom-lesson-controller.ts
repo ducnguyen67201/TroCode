@@ -16,7 +16,7 @@ import {
 
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 import { LessonBlockedError } from './classroom-lesson-errors';
-import { assertLessonTransition, canAutoStartLesson, lessonDigest } from './classroom-lesson-policy';
+import { assertLessonTransition, canAutoStartLesson, lessonDigest, lessonRunningPhase } from './classroom-lesson-policy';
 import type { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 
 export interface LessonRunner {
@@ -330,13 +330,20 @@ export class ClassroomLessonController {
     state.effect = 'dispatching';
     await this.persist();
     await this.options.runner.prepare(state, state.material, signal);
+    signal.throwIfAborted();
     state.effect = 'confirmed';
     await this.persist();
-    if (mode === 'practice') {
-      state.text = step.instruction;
-      state.phase = 'Your turn';
+    if (mode === 'practice' || mode === 'open') {
+      state.text = mode === 'open'
+        ? (envelope.plan.language === 'vi' ? 'Tài liệu đã mở.' : 'Material opened.')
+        : step.instruction;
+      state.phase = mode === 'open' ? 'Material opened' : 'Your turn';
       state.child = null;
       await this.transition('waiting_for_student');
+      if (mode === 'open' && state.stepIndex + 1 === envelope.plan.steps.length) {
+        await this.transition('finished');
+        this.options.runner.release(envelope.lessonId);
+      }
       return;
     }
     const purpose = mode === 'help' ? 'help' : mode === 'check' ? 'check' : 'work';
@@ -360,14 +367,7 @@ export class ClassroomLessonController {
     if (!state.child.ownedByThisRequest) throw new Error('Step is owned by another request.');
     state.pendingChild = null;
     state.observationCount = 0;
-    state.phase =
-      mode === 'demonstrate'
-        ? 'Demonstrating'
-        : mode === 'check'
-          ? 'Checking your work'
-          : mode === 'help'
-            ? 'Helping'
-            : 'Explaining';
+    state.phase = lessonRunningPhase(mode);
     const childModelLimit = mode === 'demonstrate' ? Math.min(6, 8 - (state.stepBudgets[step.id]?.models ?? 0)) : 1;
     if (childModelLimit < 1)
       throw new LessonBlockedError(

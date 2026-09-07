@@ -84,6 +84,9 @@ export function ClassroomLessonProgress({ draft, vi }: { draft: LessonDraft; vi:
                       : 'connection stale'}
                   </small>
                 )}
+                {row.device && row.device.lessonsVersion < draft.plan.schemaVersion && (
+                  <small>{vi ? ' · Cần cập nhật và khởi động lại Tro trên máy học sinh.' : ' · Update and restart Tro on this student computer to receive this lesson.'}</small>
+                )}
               </li>
             ))}
           </ul>

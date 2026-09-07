@@ -4,8 +4,16 @@ import {
   ClassroomLessonPlanSchema,
   type ClassroomLessonPlan,
   type LessonContext,
+  type LessonMode,
   type LessonStatus,
 } from '../../shared/classroom-lesson-contracts';
+
+export function lessonRunningPhase(mode: LessonMode | 'help'): string {
+  return {
+    open: 'Opening material', explain: 'Explaining', demonstrate: 'Demonstrating',
+    practice: 'Your turn', check: 'Checking your work', help: 'Helping',
+  }[mode];
+}
 
 export function lessonDigest(value: ClassroomLessonPlan): string {
   const canonical = (item: unknown): string => {
@@ -24,6 +32,8 @@ export function lessonDigest(value: ClassroomLessonPlan): string {
     .digest('hex');
 }
 export function validateLessonContext(plan: ClassroomLessonPlan, context: LessonContext): void {
+  if (plan.schemaVersion > (context.maxPlanVersion ?? 1))
+    throw new Error('The class server needs the material-opening update before this lesson can be sent.');
   if (
     plan.targetRunId !== context.targetRunId ||
     plan.activityVersionId !== context.activityVersionId ||

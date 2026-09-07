@@ -1393,11 +1393,7 @@ function showWalkthroughRecap(task: TaskSnapshot): boolean {
   return true;
 }
 
-function clearCompanionResponse(): void {
-  const response = companionResponseController.current;
-  if (response) {
-    companionResponseController.dismiss(response.cardId, response.taskId);
-  }
+function hideCompanionResponseWindow(): void {
   activeCompanionResponse = null;
   sendCompanionResponse();
   if (
@@ -1413,26 +1409,27 @@ function clearCompanionResponse(): void {
   }
 }
 
+function clearCompanionResponse(): void {
+  const response = companionResponseController.current;
+  if (response) {
+    companionResponseController.dismiss(response.cardId, response.taskId);
+  }
+  hideCompanionResponseWindow();
+}
+
 function syncCompanionResponse(
   response: CompanionResponseCard | null,
 ): void {
+  // Child run/start/completion events must not erase the parent's lesson controls.
+  const lessonView = classroomLessons.controller.view();
+  if (lessonView.active?.child) {
+    response = companionResponseController.showLesson(lessonCompanionCard(lessonView));
+  }
   if (response) {
     showCompanionResponseCard(response);
     return;
   }
-  activeCompanionResponse = null;
-  sendCompanionResponse();
-  if (
-    !activeCompanionInteraction &&
-    !activeCompanionGuidance &&
-    !activeCompanionPetNudge &&
-    guidanceWindow &&
-    !guidanceWindow.isDestroyed()
-  ) {
-    globalNumberedChoiceShortcuts?.deactivate();
-    setGuidanceWindowInteractive(false);
-    guidanceWindow.hide();
-  }
+  hideCompanionResponseWindow();
 }
 
 function clearCompanionInteraction(taskId?: string): void {

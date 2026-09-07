@@ -25,6 +25,7 @@ async function admitLessonChild(
   )
     throw new Error('Lesson admission is unavailable.');
   const taskId = state.child.taskId;
+  if (mode === 'open') throw new Error('Opening material does not require an agent task.');
   const step = state.envelope.plan.steps[state.stepIndex];
   if (!step) throw new Error('Lesson step is unavailable.');
   const route = mode === 'demonstrate' ? 'agent' : 'coach';

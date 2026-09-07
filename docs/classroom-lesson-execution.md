@@ -6,6 +6,27 @@ the lesson. Source text is shown in Tro; approved web material is opened and
 verified in Chrome. A lesson may explain, demonstrate, practice, help, or check.
 Ask Tro may prepare the same preview, but only the teacher can confirm it.
 
+“Open google.com” resolves the bare host to HTTPS and produces an **Open** step.
+It must still be an approved material origin. Opening finishes after the material
+is verified; it does not create a Coach task or attach assignment criteria.
+“Open google.com and explain it” produces **Explain**, which opens its material
+before coaching. Unknown source filenames and missing link targets are rejected
+instead of silently selecting the assignment. Explicit language requests override
+the teacher's interface language.
+
+The student companion retains the lesson card while child tasks run, with a
+loading indicator through opening and explaining, and Pause/Stop controls.
+Completion remains visible until dismissed. Repository test launches include
+their Git revision in the device build shown in teacher progress.
+
+Open uses plan schema version 2 inside the existing delivery envelope. Deploy the
+API update, then update and restart teacher and student clients. Updated clients
+negotiate `maxPlanVersion=2` on context/feed reads. Without that query the API
+keeps the v1 response shape, filters v2 plans, and advances the original feed
+cursor. Teachers cannot prepare v2 plans against older servers; progress marks
+older student devices as needing an update. Existing explanation plans stay v1.
+The plan is stored in the existing JSONB column; no database migration is needed.
+
 ## Ownership
 
 The teacher specifies semantic objectives and examples. The API validates and

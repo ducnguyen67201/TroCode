@@ -9,7 +9,7 @@ import { ClassroomLessonController, type LessonRunner } from './classroom-lesson
 import type { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 import { lessonFixture } from './classroom-lesson.fixture';
 
-function fixture(mode: 'explain' | 'practice' = 'explain') {
+function fixture(mode: 'open' | 'explain' | 'practice' = 'explain') {
   const f = lessonFixture(mode);
   const anchor = randomUUID();
   const states = new Map<string, LessonLocalState>();
@@ -77,6 +77,29 @@ function fixture(mode: 'explain' | 'practice' = 'explain') {
   return { ...f, anchor, client, store, states, runner, controller };
 }
 describe('student lesson lifecycle', () => {
+  it('does not mark an open-only lesson finished when the surface could not be verified', async () => {
+    const f = fixture('open');
+    f.runner.prepare.mockRejectedValueOnce(new Error('lesson_surface_unverified'));
+    await f.controller.activate(f.anchor, true);
+    await f.controller.receive(f.envelope, true);
+    await vi.waitFor(() => expect(f.controller.view().active?.status).toBe('unknown'));
+    expect(f.runner.run).not.toHaveBeenCalled();
+    await expect(f.controller.continue({ lessonId: f.envelope.lessonId, expectedRevision: f.controller.view().active!.revision, action: 'resume' })).rejects.toThrow();
+    expect(f.runner.prepare).toHaveBeenCalledOnce();
+  });
+  it('opens the material, verifies it and finishes without a model or exercise task', async () => {
+    const f = fixture('open');
+    await f.controller.activate(f.anchor, true);
+    await f.controller.receive(f.envelope, true);
+    await vi.waitFor(() => expect(f.controller.view().active?.status).toBe('finished'));
+    expect(f.runner.prepare).toHaveBeenCalledOnce();
+    expect(f.runner.run).not.toHaveBeenCalled();
+    expect(f.client.startStep).not.toHaveBeenCalled();
+    expect(f.controller.view().active?.modelRequestCount).toBe(0);
+    expect(f.runner.release).toHaveBeenCalledWith(f.envelope.lessonId);
+    await f.controller.receive(f.envelope, true);
+    expect(f.runner.prepare).toHaveBeenCalledOnce();
+  });
   it('receives an initial snapshot without effects, then starts explicitly', async () => {
     const f = fixture();
     await f.controller.activate(f.anchor, true);
