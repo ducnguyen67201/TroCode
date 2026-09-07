@@ -30,7 +30,7 @@ import {
   type RequiredInitialToolCall,
 } from '../../../services/agent-runtime/src/protocol';
 import { digest } from '../../../services/agent-runtime/src/serialization';
-import type { ToolExecutionResult } from '../agent/agent-contracts';
+import type { ResolvedToolInvocation, ToolExecutionResult } from '../agent/agent-contracts';
 import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
 import type {
   RuntimeToolRegistry,
@@ -123,7 +123,7 @@ export interface LocalAgentRuntimeOptions {
   runtimeReadyTimeoutMs?: number;
   state: EncryptedAgentStateStore;
   tools: RuntimeToolRegistry;
-  beforeTool?(taskId: string, invocation: import('../agent/agent-contracts').ResolvedToolInvocation): Promise<void>;
+  beforeTool?(taskId: string, invocation: ResolvedToolInvocation): Promise<void>;
 }
 
 export class LocalAgentRuntime implements AgentRuntimeAdapter {

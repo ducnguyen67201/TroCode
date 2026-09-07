@@ -18,9 +18,8 @@ export function ClassroomLessonPreview({
   const [context, setContext] = useState<LessonContext | null>(null);
   useEffect(() => {
     let live = true;
-    setContext(null);
     void window.tro.lessons
-      ?.context({ ...draft.binding, runId: draft.plan.targetRunId })
+      ?.context({ spaceId: draft.binding.spaceId, sessionId: draft.binding.sessionId, runId: draft.plan.targetRunId })
       .then((next) => {
         if (!live) return;
         if (next.activityVersionId !== draft.plan.activityVersionId)

@@ -16,8 +16,6 @@ import {
 } from 'electron';
 import path from 'node:path';
 
-import { LocalAgentRuntime } from './main/agent-runtime/agent-runtime-adapter';
-import { EncryptedAgentStateStore } from './main/agent-runtime/encrypted-agent-state-store';
 import { AgentActivityService } from './main/agent/agent-activity-service';
 import { createCuaDriverToolDefinitions } from './main/agent/cua-driver-agent-tools';
 import { createCuaSemanticToolDefinitions } from './main/agent/cua-semantic-agent-tools';
@@ -29,6 +27,8 @@ import {
 } from './main/agent/runtime-tool-registry';
 import { TaskRuntime } from './main/agent/task-runtime';
 import { createWorkspaceRuntimeToolAdapters } from './main/agent/workspace-runtime-tool-adapters';
+import { LocalAgentRuntime } from './main/agent-runtime/agent-runtime-adapter';
+import { EncryptedAgentStateStore } from './main/agent-runtime/encrypted-agent-state-store';
 import { FileAnalyticsIdentityStore } from './main/analytics/analytics-identity-store';
 import { AnalyticsService } from './main/analytics/analytics-service';
 import {

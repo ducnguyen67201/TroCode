@@ -72,7 +72,7 @@ export function ClassroomLessonPanel({ appLanguage }: { appLanguage: AppLanguage
                   : 'Check permissions and material, then choose Resume.'}
             </p>
           )}
-          <ClassroomLessonMaterialPanel state={state} vi={vi} />
+          <ClassroomLessonMaterialPanel key={`${state.envelope.lessonId}:${state.material?.resource.id}`} state={state} vi={vi} />
           {state.text && <p className="lesson-explanation">{state.text}</p>}
           {state.feedback.length > 0 && (
             <ul>

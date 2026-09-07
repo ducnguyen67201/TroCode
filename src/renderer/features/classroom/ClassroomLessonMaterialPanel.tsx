@@ -6,10 +6,6 @@ export function ClassroomLessonMaterialPanel({ state, vi }: { state: LessonLocal
   const [page, setPage] = useState<LessonMaterial | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  useEffect(() => {
-    setPage(null);
-    setError('');
-  }, [state.envelope.lessonId, state.material?.resource.id]);
   const material = page?.resource.id === state.material?.resource.id ? page : state.material;
   useEffect(() => {
     if (!material || material.resource.kind === 'web' || state.phase !== 'Opening material' || !window.tro.lessons)
@@ -32,7 +28,7 @@ export function ClassroomLessonMaterialPanel({ state, vi }: { state: LessonLocal
       live = false;
       clearTimeout(timer);
     };
-  }, [state.envelope.lessonId, state.revision, state.phase, material?.resource.id]);
+  }, [state.envelope.lessonId, state.revision, state.phase, material]);
   if (!material || material.resource.kind === 'web') return null;
   return (
     <section className="lesson-material" aria-label={vi ? 'Tài liệu bài học' : 'Lesson material'}>

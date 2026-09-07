@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
-import {
+import type {
+  LessonContinueSchema,
   ClassroomLessonPlanSchema,
   LessonBindingSchema,
-  LessonContinueSchema,
   type LessonContext,
   type LessonDraft,
   type LessonMaterial,

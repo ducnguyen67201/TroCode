@@ -14,7 +14,7 @@ export function ClassroomLessonProgress({ draft, vi }: { draft: LessonDraft; vi:
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        const next = await window.tro.lessons!.progress({ ...draft.binding, lessonId, cursor });
+        const next = await window.tro.lessons!.progress({ spaceId: draft.binding.spaceId, sessionId: draft.binding.sessionId, lessonId, cursor });
         if (live) {
           setProgress(next);
           setError('');

@@ -16,7 +16,7 @@ import {
   type LessonReport,
 } from '../../shared/classroom-lesson-contracts';
 
-import { KnowledgeHttpClient } from './knowledge-http-client';
+import type { KnowledgeHttpClient } from './knowledge-http-client';
 
 const ok = z.object({ ok: z.literal(true) }).strict();
 export class ClassroomLessonClient {

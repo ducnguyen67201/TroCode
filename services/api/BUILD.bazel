@@ -23,10 +23,9 @@ rust_library(
         exclude = ["src/main.rs"],
     ),
     aliases = aliases(),
-    compile_data = glob([
+    compile_data = ["tests/fixtures/classroom-python-editor.html"] + glob([
         "admin-dist/**/*",
         "migrations/*.sql",
-        "tests/fixtures/classroom-python-editor.html",
     ]),
     crate_name = "trocode_api",
     edition = crate_edition(),

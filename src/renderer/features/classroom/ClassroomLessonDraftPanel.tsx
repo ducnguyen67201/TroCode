@@ -30,5 +30,5 @@ export function ClassroomLessonDraftPanel({ appLanguage }: { appLanguage: AppLan
       stop?.();
     };
   }, []);
-  return draft ? <ClassroomLessonPreview draft={draft} onChange={setDraft} vi={appLanguage === 'vi'} /> : null;
+  return draft ? <ClassroomLessonPreview key={draft.draftId} draft={draft} onChange={setDraft} vi={appLanguage === 'vi'} /> : null;
 }

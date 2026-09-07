@@ -123,13 +123,12 @@ impl LessonPlan {
             {
                 return Err(invalid_request());
             }
-            if let Some(example) = &s.demonstration {
-                if !matches!(resource, LessonResource::Web { .. })
+            if let Some(example) = &s.demonstration
+                && (!matches!(resource, LessonResource::Web { .. })
                     || !bounded(&example.example_description, 4000)
-                    || !bounded(&example.expected_result, 4000)
-                {
-                    return Err(invalid_request());
-                }
+                    || !bounded(&example.expected_result, 4000))
+            {
+                return Err(invalid_request());
             }
         }
         Ok(())

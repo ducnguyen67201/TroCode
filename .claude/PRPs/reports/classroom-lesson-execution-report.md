@@ -5,8 +5,8 @@
 The local implementation is ready for its first CI review on `codex/classroom-lesson-execution`, based on
 `68abf99` (main's classroom sidebar update). The plan remains in `plans/`.
 Do not treat this report as a completed release or physical acceptance result.
-No push, PR, merge, deployment, Doppler change or running-app replacement has been
-performed for this implementation.
+PR #75 is open. No merge, deployment, Doppler change or running-app replacement
+has been performed for this implementation.
 
 The local change connects immutable teacher lesson preparation/confirmation,
 versioned API delivery and claims, encrypted student parent state, material
@@ -95,8 +95,17 @@ lessons; initial/recovered sessions do not silently launch a demonstration.
 
 ## Remaining release gates
 
-1. Obtain authorization for a push/PR; run the applicable final-revision CI checks,
+1. Run the applicable final-revision CI checks on PR #75,
    fix reported failures together, and rerun only failed gates where appropriate.
 2. Deploy the test API/client revision under the existing external-action approval
    rules and run both fixture and real-editor acceptance on separate accounts.
 3. Attach observed results before marking the full plan complete or merging.
+
+## PR verification update
+
+PR #75 first revision passed preflight and SDK tests (24 tests). The root source
+job stopped on lint errors before typecheck/tests. Import style and React state
+reset findings were corrected; focused lint was used for those reported files.
+Other CI gates and physical acceptance are still pending. The required pre-commit
+npm audit found three moderate advisories in the unchanged dependency tree
+(body-parser, express, qs), with no high or critical advisories.

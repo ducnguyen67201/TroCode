@@ -301,7 +301,7 @@ export function ClassroomLessonComposer({
               {vi ? 'Chuẩn bị bài học khác' : 'Prepare another lesson'}
             </button>
           )}
-          {draft && <ClassroomLessonPreview draft={draft} onChange={setDraft} vi={vi} />}
+          {draft && <ClassroomLessonPreview key={draft.draftId} draft={draft} onChange={setDraft} vi={vi} />}
         </>
       )}
     </section>

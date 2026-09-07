@@ -15,7 +15,7 @@ function fixture(mode: 'explain' | 'practice' = 'explain') {
   const states = new Map<string, LessonLocalState>();
   const executionId = randomUUID();
   const client = {
-    receipt: vi.fn(async (_anchor: string, _lesson: string, _report: LessonReport) => ({ ok: true })),
+    receipt: vi.fn(async (...args: [string, string, LessonReport]) => { void args; return { ok: true }; }),
     report: vi.fn(async () => ({ ok: true })),
     start: vi.fn(async (_a: string, _l: string, clientStartId: string, clientInstanceId: string) => ({
       executionId,

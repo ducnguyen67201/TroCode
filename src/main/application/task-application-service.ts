@@ -17,11 +17,11 @@ import {
   type TaskRoute,
   type TaskSnapshot,
 } from '../../shared/contracts';
-import type { AgentRuntimeAdapter } from '../agent-runtime/agent-runtime-adapter';
-import type { EncryptedAgentStateStore } from '../agent-runtime/encrypted-agent-state-store';
 import type { TrustedToolExecutionContext } from '../agent/runtime-tool-registry';
 import { shouldObserveInitialScreenContext } from '../agent/screen-context-policy';
 import type { TaskRuntime } from '../agent/task-runtime';
+import type { AgentRuntimeAdapter } from '../agent-runtime/agent-runtime-adapter';
+import type { EncryptedAgentStateStore } from '../agent-runtime/encrypted-agent-state-store';
 import type { CoachRuntimeStart } from '../coach/coach-contracts';
 import type { CoachRuntime } from '../coach/coach-runtime';
 import type { ActivityContextService } from '../knowledge/activity-context-service';

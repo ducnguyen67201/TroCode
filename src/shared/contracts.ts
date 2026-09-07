@@ -10,10 +10,7 @@ import {
   type PreparedKnowledgeActivitySchema,
   type PrepareKnowledgeActivityRequestSchema,
 } from './knowledge-activity-contracts';
-import {
-  ClassroomAccountRoleSchema,
-  KnowledgeCapabilitiesSchema,
-} from './knowledge-capabilities';
+import { ClassroomAccountRoleSchema, type KnowledgeCapabilitiesSchema } from './knowledge-capabilities';
 import { VOICE_MODES } from './voice-mode';
 
 export * from './classroom-broadcast-contracts';
