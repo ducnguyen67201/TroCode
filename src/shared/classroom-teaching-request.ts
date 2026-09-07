@@ -10,8 +10,8 @@ export function planFromRequest(context: LessonContext, runId: string, request: 
     const title = item.title.toLocaleLowerCase();
     return normalized.includes(title) || normalized.includes(title.replace(/\.md$/u, ''));
   });
-  const language = /tiếng việt|vietnamese/iu.test(text) ? 'vi' : /\benglish\b/iu.test(text) ? 'en' : vi ? 'vi' : 'en';
-  const wantsOpen = /\b(open(?:ing)?|navigate|visit)\b|mở (?:link|liên kết|tài liệu|trang)/iu.test(text);
+  const language = /tiếng việt|vietnamese/iu.test(text) ? 'vi' : /\benglish\b|tiếng anh/iu.test(text) ? 'en' : vi ? 'vi' : 'en';
+  const wantsOpen = /\b(open(?:ing)?|navigate|visit)\b|(?:^|\s)mở(?:\s|$)/iu.test(text);
   const wantsExplain = /\b(explain(?:ing)?|walk\s*through|teach|summarize|describe)\b|giải thích|hướng dẫn/iu.test(text);
   const wantsDemo = /\b(demonstrate|demo|do it)\b|làm mẫu|thực hiện trên máy/iu.test(text);
   const wantsPractice = /\b(practice|try)\b|thực hành|tự làm/iu.test(text);
