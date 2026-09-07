@@ -210,6 +210,7 @@ export function ClassSessionsPanel({
           <p>
             {t('Approved class links open automatically. New teacher explanations start while you are idle. You can turn either off in the class controls.')}
           </p>
+          <p>{t('Teacher lessons may open approved material and demonstrate an example on your screen while you are idle. Pause or stop at any time, or turn off automatic lessons in Class updates.')}</p>
         </div>
         <form
           className="class-session-code-entry"

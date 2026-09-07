@@ -12,6 +12,7 @@ import { randomUUID } from '../shared/renderer-uuid';
 
 import { translate } from './app-language';
 import { ClassDashboard } from './features/classroom/ClassDashboard';
+import { ClassroomLessonComposer } from './features/classroom/ClassroomLessonComposer';
 import { DirectiveComposer } from './features/classroom/DirectiveComposer';
 import { RunControls } from './features/classroom/RunControls';
 
@@ -337,6 +338,7 @@ export function FacilitatorRunPage({
         changeRunState={changeRunState}
       />
 
+      <ClassroomLessonComposer spaceId={spaceId} runId={runId} vi={appLanguage === 'vi'} enabled={runState === 'open'} />
       <DirectiveComposer
         runState={runState}
         t={t}

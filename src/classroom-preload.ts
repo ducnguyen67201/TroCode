@@ -2,11 +2,14 @@ import { ipcRenderer, type IpcRendererEvent } from 'electron';
 
 import { z } from 'zod';
 
+import { lessonDesktopApi } from './classroom-lesson-preload';
 import * as C from './shared/classroom-broadcast-contracts';
 import {
   CLASSROOM_BROADCAST_CHANNELS as channels,
   type ClassroomDesktopApi,
 } from './shared/classroom-desktop-api';
+import type { ClassroomLessonDesktopApi } from './shared/classroom-lesson-desktop-api';
+
 const taskId = z.object({ taskId: z.string().uuid() }).strict();
 const guidanceId = z.object({ guidanceId: z.string().uuid() }).strict();
 const summaryInput = z
@@ -26,7 +29,8 @@ function subscribe<T>(
   ipcRenderer.on(channel, handler);
   return () => ipcRenderer.removeListener(channel, handler);
 }
-export const classroomDesktopApi: ClassroomDesktopApi = {
+export const classroomDesktopApi: ClassroomDesktopApi & { lessons: ClassroomLessonDesktopApi } = {
+  lessons: lessonDesktopApi,
   selectTeacherClassroom: async (input) =>
     C.TeacherClassroomSelectionSchema.parse(
       await ipcRenderer.invoke(

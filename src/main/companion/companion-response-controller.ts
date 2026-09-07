@@ -65,6 +65,12 @@ export class CompanionResponseController {
     return this.currentCard;
   }
 
+  showLesson(card: CompanionResponseCard | null): CompanionResponseCard | null {
+    if (!card) { if (this.currentCard?.lesson) this.currentCard = null; return this.currentCard; }
+    this.activeTaskId = card.taskId; this.suppressedTaskId = null;
+    this.currentCard = CompanionResponseCardSchema.parse(card); return this.currentCard;
+  }
+
   startRun(taskId: string): CompanionResponseCard | null {
     if (taskId === this.activeTaskId && this.suppressedTaskId !== taskId) {
       return this.currentCard;

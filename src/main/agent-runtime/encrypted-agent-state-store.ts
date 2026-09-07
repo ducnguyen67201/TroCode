@@ -1,12 +1,11 @@
-import { app, safeStorage } from 'electron';
-import { createHash, randomUUID } from 'node:crypto';
+import { app } from 'electron';
+import { createHash } from 'node:crypto';
 import {
   chmod,
   mkdir,
   open,
-  readFile,
   readdir,
-  rename,
+  readFile,
   stat,
   truncate,
   writeFile,
@@ -17,16 +16,21 @@ import type { ZodType } from 'zod';
 
 import {
   LocalGuidanceStartJournalSchema,
-  type LocalGuidanceStartJournal,
   TaskHistorySchema,
   TaskUpdateSchema,
   type CoachProgress,
+  type LocalGuidanceStartJournal,
   type TaskHistory,
   type TaskSnapshot,
   type TaskUpdate,
 } from '../../shared/contracts';
 import type { TaskHistoryStore } from '../history/task-history-store';
 
+import {
+  atomicWrite,
+  operatingSystemCipher,
+  type AgentStateCipher,
+} from './agent-state-cipher';
 import {
   LocalEventFrameSchema,
   LocalInvocationJournalSchema,
@@ -40,23 +44,20 @@ import {
   type LocalThreadState,
 } from './local-agent-state';
 
+export type { AgentStateCipher } from './agent-state-cipher';
+
+
+
+
+
+
+
+
 const EMPTY_INDEX = { schemaVersion: 1 as const, threads: [] };
 const EMPTY_JOURNAL = { schemaVersion: 1 as const, records: [] };
 const EVENT_COMPACTION_COUNT = 1_000;
 const EVENT_COMPACTION_BYTES = 8 * 1024 * 1024;
 const RETAINED_EVENT_COUNT = 500;
-
-export interface AgentStateCipher {
-  decrypt(value: Buffer): Promise<string>;
-  encrypt(value: string): Promise<Buffer>;
-  isAvailable(): Promise<boolean>;
-}
-
-const operatingSystemCipher: AgentStateCipher = {
-  isAvailable: () => safeStorage.isAsyncEncryptionAvailable(),
-  encrypt: async (value) => safeStorage.encryptStringAsync(value),
-  decrypt: async (value) => (await safeStorage.decryptStringAsync(value)).result,
-};
 
 export interface EncryptedAgentStateStoreOptions {
   baseDirectory?: string;
@@ -99,7 +100,7 @@ export class EncryptedAgentStateStore implements TaskHistoryStore {
 
   async close(): Promise<void> { await this.queue; }
 
-  async create(ownerId: string, snapshot: TaskSnapshot): Promise<void> {
+  async create(ownerId: string, snapshot: TaskSnapshot, classroomLessonId: string | null = null): Promise<void> {
     await this.serial(async () => {
       const index = await this.readIndex();
       const existing = index.threads.find((entry) => entry.threadId === snapshot.taskId);
@@ -113,6 +114,7 @@ export class EncryptedAgentStateStore implements TaskHistoryStore {
         schemaVersion: 1,
         ownerId,
         snapshot,
+        classroomLessonId,
         session: { revision: 0, items: [], appliedOperations: {} },
         checkpoint: null,
       });
@@ -531,24 +533,6 @@ export class EncryptedAgentStateStore implements TaskHistoryStore {
   private snapshotPath(threadId: string): string { return path.join(this.threadDirectory(threadId), 'snapshot.enc'); }
   private eventsPath(threadId: string): string { return path.join(this.threadDirectory(threadId), 'events.enc'); }
   private invocationsPath(threadId: string): string { return path.join(this.threadDirectory(threadId), 'invocations.enc'); }
-}
-
-async function atomicWrite(target: string, value: string | Buffer): Promise<void> {
-  await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-  const temporary = path.join(path.dirname(target), `.${path.basename(target)}.${randomUUID()}.tmp`);
-  const handle = await open(temporary, 'wx', 0o600);
-  try {
-    if (typeof value === 'string') await handle.writeFile(value, 'utf8');
-    else await handle.writeFile(value);
-    await handle.sync();
-  } finally { await handle.close(); }
-  await rename(temporary, target);
-  // Windows does not support opening a directory for fsync. The temporary file
-  // itself is still flushed before the atomic rename on every platform.
-  if (process.platform !== 'win32') {
-    const directory = await open(path.dirname(target), 'r');
-    try { await directory.sync(); } finally { await directory.close(); }
-  }
 }
 
 async function exists(target: string): Promise<boolean> {

@@ -1,10 +1,12 @@
 import { z } from 'zod';
 
 import {
-  TeacherClassroomBindingSchema,
   ClassroomBroadcastDraftSchema,
   LocalGuidanceStartJournalSchema,
-  TaskSnapshotSchema, TaskUpdateSchema } from '../../shared/contracts';
+  TaskSnapshotSchema,
+  TaskUpdateSchema,
+  TeacherClassroomBindingSchema,
+} from '../../shared/contracts';
 
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const AgentItemSchema = z.record(z.string().min(1).max(200), z.unknown());
@@ -46,6 +48,7 @@ export const LocalThreadStateSchema = z.object({
   snapshot: TaskSnapshotSchema,
   session: LocalSessionSchema,
   checkpoint: LocalCheckpointSchema.nullable(),
+  classroomLessonId: z.string().uuid().nullable().default(null),
     teacherClassroom: TeacherClassroomBindingSchema.nullable().default(null),
     broadcastRevision: z.number().int().nonnegative().default(0),
     broadcastDrafts: z.array(ClassroomBroadcastDraftSchema).max(20).default([]),

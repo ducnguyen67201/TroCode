@@ -17,6 +17,8 @@ import { ClassroomBroadcastPreview } from '../ClassroomBroadcastPreview';
 import { ClassroomExplanationPanel } from '../ClassroomExplanationPanel';
 import { ClassroomSessionBar } from '../ClassroomSessionBar';
 import { ClassroomWorkspaceLayout } from '../ClassroomWorkspaceLayout';
+import { ClassroomLessonDraftPanel } from '../features/classroom/ClassroomLessonDraftPanel';
+import { ClassroomLessonPanel } from '../features/classroom/ClassroomLessonPanel';
 import { TaskContextPanel } from '../features/tasks/TaskContextPanel';
 import { TaskWorkspace } from '../features/tasks/TaskWorkspace';
 import { HistoryPage } from '../HistoryPage';
@@ -197,6 +199,7 @@ export function AppWorkspace({
           {teacherSelection.binding.sessionTitle}
         </p>
       )}
+      <ClassroomLessonDraftPanel appLanguage={appLanguageDraft} />
       <ClassroomBroadcastPreview
         appLanguage={appLanguageDraft}
         taskId={snapshot?.taskId ?? null}
@@ -207,6 +210,7 @@ export function AppWorkspace({
         appLanguage={appLanguageDraft}
         sidebar={
           <>
+            {classroomAccessAvailable && <ClassroomLessonPanel appLanguage={appLanguageDraft} />}
             {classroomAccessAvailable && (
               <ClassroomSessionBar
                 compact={activeView === 'spaces' || activeView === 'assigned'}

@@ -69,6 +69,12 @@ export function ClassroomSessionBar({
     setBusyAction(intent);
     setError(null);
     try {
+      const lesson = await window.tro.lessons?.view();
+      if (lesson?.active && !['finished', 'stopped', 'expired'].includes(lesson.active.status)) {
+        await window.tro.lessons!.continue({ lessonId: lesson.active.envelope.lessonId, expectedRevision: lesson.active.revision,
+          action: intent === 'help' ? 'question' : 'check', ...(intent === 'help' ? { text: 'Help me understand the next step.' } : {}) });
+        return;
+      }
       if (intent === 'help') {
         await window.tro.requestKnowledgeAttemptHelp({
           attemptId: session.attemptId,

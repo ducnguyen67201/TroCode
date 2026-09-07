@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
 import {
+  LessonCheckResultSchema,
+  LessonStepSchema,
+} from '../../shared/classroom-lesson-contracts';
+import {
   ActivityContextSchema,
   CoachProgressSchema,
   MAX_COACH_SEQUENCE_STEPS,
@@ -23,6 +27,7 @@ export const CoachSequenceStepSchema = z.object({
 }).strict();
 
 export const CoachDecisionSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('lesson_check'), feedback: LessonCheckResultSchema }).strict(),
   z.object({
     kind: z.literal('answer'),
     text: z.string().trim().min(1).max(1_200),
@@ -56,6 +61,7 @@ export const CoachDecisionSchema = z.discriminatedUnion('kind', [
 });
 
 export const CoachRuntimeStartSchema = z.object({
+  lesson: z.object({ demonstratedExamples: z.array(z.string().max(8000)).max(8).default([]), mode: z.enum(['explain', 'practice', 'check', 'help']), step: LessonStepSchema, materialText: z.string().max(24000), language: z.enum(['en', 'vi']) }).strict().optional(),
     explanation: z
       .object({
         guidanceId: z.string().uuid(),

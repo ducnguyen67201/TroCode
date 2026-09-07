@@ -1,4 +1,9 @@
+
+
 export const classroomMessages2: Readonly<Record<string, string>> = {
+  'Teacher lessons may open approved material and demonstrate an example on your screen while you are idle. Pause or stop at any time, or turn off automatic lessons in Class updates.': 'Bài học của giáo viên có thể mở tài liệu được phép và làm mẫu trên màn hình khi máy đang rảnh. Bạn có thể tạm dừng, dừng hoặc tắt bài học tự động trong Cập nhật lớp.',
+  'Message': 'Thông báo',
+  'A message displays instructions. Use Teach a lesson to start guidance or a demonstration.': 'Thông báo hiển thị hướng dẫn. Dùng Dạy một bài học để bắt đầu hướng dẫn hoặc làm mẫu.',
   'Approved class links open automatically. New teacher explanations start while you are idle. You can turn either off in the class controls.':
     'Các liên kết lớp đã được cho phép sẽ tự động mở. Phần giải thích mới của giáo viên bắt đầu khi thiết bị rảnh. Bạn có thể tắt từng tùy chọn trong phần điều khiển lớp học.',
   withdrawn: 'đã rút lại',

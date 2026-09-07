@@ -1,5 +1,7 @@
 mod admin;
 mod classroom;
+mod classroom_lessons;
+mod classroom_test_fixture;
 mod connectors;
 mod core;
 mod knowledge;
@@ -35,6 +37,11 @@ async fn dispatch(
     body: Bytes,
 ) -> ApiResult<Response> {
     let path = uri.path();
+    if let Some(response) =
+        classroom_test_fixture::handle(state.config.classroom_test_fixture_enabled, &method, &uri)?
+    {
+        return Ok(response);
+    }
     if let Some(response) = connectors::handle_public(&state, &method, &uri).await? {
         return Ok(response);
     }

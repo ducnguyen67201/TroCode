@@ -3,9 +3,14 @@ import { access } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { validatePublicHttpsUrl } from '../../shared/classroom-url-policy';
+
+import { openChromeUrl } from './open-chrome-url';
+
 export type LaunchableApplication = 'chrome';
 
 interface DesktopApplicationLauncherOptions {
+  openUrlWithApplication?: typeof openChromeUrl;
   environment?: NodeJS.ProcessEnv;
   homeDirectory?: string;
   openPath(path: string): Promise<string>;
@@ -86,6 +91,8 @@ function chromeCandidates(
 }
 
 export class DesktopApplicationLauncher {
+  private readonly openUrlWithApplication: typeof openChromeUrl;
+
   private readonly environment: NodeJS.ProcessEnv;
 
   private readonly homeDirectory: string;
@@ -101,6 +108,7 @@ export class DesktopApplicationLauncher {
   private readonly createReceipt: () => string;
 
   constructor(options: DesktopApplicationLauncherOptions) {
+    this.openUrlWithApplication = options.openUrlWithApplication ?? openChromeUrl;
     this.environment = options.environment ?? process.env;
     this.homeDirectory = options.homeDirectory ?? os.homedir();
     this.openPath = options.openPath;
@@ -131,6 +139,13 @@ export class DesktopApplicationLauncher {
       acceptedAt: this.now().toISOString(),
       receipt: this.createReceipt(),
     };
+  }
+
+  async openLessonUrl(url: string): Promise<void> {
+    if (!validatePublicHttpsUrl(url) || !['darwin', 'win32'].includes(this.platform)) throw new Error('A public HTTPS lesson URL and supported Chrome platform are required.');
+    const target = await this.firstInstalledCandidate(chromeCandidates(this.platform, this.environment, this.homeDirectory));
+    if (!target) throw new Error('Google Chrome is not installed in a supported location.');
+    await this.openUrlWithApplication(target, url, this.platform);
   }
 
   private async firstInstalledCandidate(

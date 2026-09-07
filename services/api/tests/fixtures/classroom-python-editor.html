@@ -1,0 +1,10 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tro classroom interaction fixture</title>
+<style>body{font:18px system-ui;max-width:900px;margin:40px auto;padding:20px;background:#fffdf4;color:#222}label{display:block;margin:16px 0}textarea{width:100%;height:240px;font:18px monospace}input,button{font:inherit;padding:10px}pre{padding:20px;background:#ecebdf;white-space:pre-wrap}</style>
+<h1>Python greeting — interaction fixture</h1><p>This page simulates output for testing Tro's classroom controls. It is not a Python interpreter. Use a real Python editor to verify code execution.</p>
+<label for="code">Example code editor</label><textarea id="code" aria-label="Example code editor" spellcheck="false"></textarea>
+<label>Name <input id="name" aria-label="Name" value="An"></label><label>Hobby <input id="hobby" aria-label="Hobby" value="reading"></label>
+<button id="run" type="button">Run</button><h2>Simulated output</h2><pre id="output" aria-live="polite">Ready</pre>
+<script>
+const code=document.getElementById('code');if(new URL(location.href).searchParams.get('prefilled')==='true')code.value='# Existing student work — do not overwrite\nmy_project = 42';
+document.getElementById('run').onclick=()=>{document.getElementById('output').textContent='Simulated greeting: Hello '+document.getElementById('name').value+(code.value.includes('hobby')?', your hobby is '+document.getElementById('hobby').value:'')+'.';};
+</script></html>

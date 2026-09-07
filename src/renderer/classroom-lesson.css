@@ -1,0 +1,82 @@
+.classroom-lesson-composer,
+.classroom-lesson-panel,
+.lesson-preview {
+  background: var(--surface, #fffdf6);
+  color: var(--text, #24251f);
+  border: 1px solid #ddd9cb;
+  border-radius: 14px;
+  padding: 18px;
+  margin: 16px 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.classroom-lesson-composer fieldset,
+.lesson-preview fieldset {
+  border: 1px solid #ddd9cb;
+  border-radius: 10px;
+  margin: 12px 0;
+  padding: 14px;
+  min-width: 0;
+}
+.classroom-lesson-composer label,
+.classroom-lesson-panel form label {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+  font-weight: 600;
+}
+.classroom-lesson-composer textarea,
+.classroom-lesson-composer input,
+.classroom-lesson-composer select,
+.classroom-lesson-panel textarea {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid #aaa;
+  border-radius: 8px;
+  font: inherit;
+}
+.classroom-lesson-composer textarea {
+  min-height: 80px;
+}
+.classroom-lesson-panel button,
+.classroom-lesson-composer button,
+.lesson-preview button {
+  padding: 10px 14px;
+  margin: 4px;
+  border: 1px solid #ab902b;
+  border-radius: 9px;
+  background: #f4cf50;
+  color: #252419;
+  cursor: pointer;
+  font: inherit;
+}
+.classroom-lesson-panel button:disabled,
+.classroom-lesson-composer button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.lesson-material {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid #ddd9cb;
+  padding: 10px;
+}
+.lesson-material pre,
+.lesson-explanation {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+.lesson-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.lesson-preview li {
+  margin: 8px 0;
+}
+.classroom-lesson-panel small {
+  display: block;
+}

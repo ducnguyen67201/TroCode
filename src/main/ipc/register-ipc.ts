@@ -1,75 +1,75 @@
 import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 
 import {
-  ActivateMembershipRequestSchema,
+  AcknowledgeKnowledgeAttemptRequestSchema,
   ActivateCompanionCandidateRequestSchema,
+  ActivateMembershipRequestSchema,
   ActivateSavedCompanionRequestSchema,
+  AddKnowledgeSpaceMembersRequestSchema,
+  AddOrganizationMemberRequestSchema,
   AgentActivityUpdateSchema,
   BeginDictationRequestSchema,
   BeginDictationResultSchema,
   CancelDictationRequestSchema,
-  CursorBuddySnapshotSchema,
+  CancelOrganizationMemberRequestSchema,
+  ClassroomDirectiveNoticeSchema,
+  ClassroomSessionProjectionSchema,
+  CommitDictationRequestSchema,
   CompanionResponseActionRequestSchema,
   CompanionSpeechPlaybackReportSchema,
   CompanionStateSchema,
   CompanionVoiceActivitySchema,
-  CommitDictationRequestSchema,
-  DictationCommitResultSchema,
-  GenerateCompanionImageRequestSchema,
   ConnectConnectorRequestSchema,
   ConnectorAttemptRequestSchema,
+  CreateClassroomDirectiveRequestSchema,
+  CreateKnowledgeGroupRequestSchema,
+  CreateKnowledgeInviteRequestSchema,
+  CreateKnowledgeRoomCodeRequestSchema,
+  CreateKnowledgeRunRequestSchema,
+  CreateKnowledgeSpaceRequestSchema,
+  CursorBuddySnapshotSchema,
+  DictationCommitResultSchema,
   DisconnectConnectorRequestSchema,
+  DismissClassroomDirectiveRequestSchema,
+  GenerateCompanionImageRequestSchema,
+  GetKnowledgeDashboardRequestSchema,
   GetUsageBudgetRequestSchema,
+  JoinClassroomSessionRequestSchema,
+  KnowledgeAttemptIdRequestSchema,
+  KnowledgeAttemptMutationRequestSchema,
+  KnowledgeSpaceIdRequestSchema,
+  ListOrganizationMembersRequestSchema,
+  OpenClassroomDirectiveRequestSchema,
+  PrepareActivityStarterRequestSchema,
   RecordVoiceTranscriptRequestSchema,
-  RespondToInteractionRequestSchema,
+  RedeemKnowledgeInviteRequestSchema,
+  RequestKnowledgeAttemptHelpSchema,
   ResolveComputerPermissionRequestSchema,
+  ResolveKnowledgeAttemptHelpRequestSchema,
+  RespondToInteractionRequestSchema,
+  ReviewKnowledgeAttemptRequestSchema,
+  RevokeKnowledgeRoomCodeRequestSchema,
+  SelectKnowledgeFilesRequestSchema,
+  SetClassroomLinkConsentRequestSchema,
+  SetKnowledgeRunStateRequestSchema,
   SetVoiceAudioDuckingRequestSchema,
+  SubmitKnowledgeSelectionRequestSchema,
   SystemPermissionSchema,
   TaskUpdateSchema,
   TranscribeVoiceSegmentRequestSchema,
   UpdateAppPreferencesRequestSchema,
+  UpdateOrganizationRequestSchema,
+  UploadKnowledgeSelectionRequestSchema,
   VoiceDiagnosticSchema,
   type AuthUser,
-  type CursorBuddySnapshot,
-  type CompanionState,
   type CompanionResponseActionRequest,
-  type CompanionVoiceActivity,
   type CompanionSpeechPlaybackReport,
+  type CompanionState,
+  type CompanionVoiceActivity,
+  type CursorBuddySnapshot,
   type RecordVoiceTranscriptRequest,
   type SystemPermission,
   type UsageBudgetSnapshot,
-  CreateKnowledgeSpaceRequestSchema,
-  KnowledgeSpaceIdRequestSchema,
-  SelectKnowledgeFilesRequestSchema,
-  UploadKnowledgeSelectionRequestSchema,
-  CreateKnowledgeRunRequestSchema,
-  SetKnowledgeRunStateRequestSchema,
-  KnowledgeAttemptIdRequestSchema,
-  AcknowledgeKnowledgeAttemptRequestSchema,
-  GetKnowledgeDashboardRequestSchema,
-  PrepareActivityStarterRequestSchema,
-  SubmitKnowledgeSelectionRequestSchema,
-  CreateKnowledgeGroupRequestSchema,
-  AddKnowledgeSpaceMembersRequestSchema,
-  CreateKnowledgeInviteRequestSchema,
-  RedeemKnowledgeInviteRequestSchema,
-  RequestKnowledgeAttemptHelpSchema,
-  AddOrganizationMemberRequestSchema,
-  CancelOrganizationMemberRequestSchema,
-  ClassroomDirectiveNoticeSchema,
-  ClassroomSessionProjectionSchema,
-  CreateClassroomDirectiveRequestSchema,
-  CreateKnowledgeRoomCodeRequestSchema,
-  DismissClassroomDirectiveRequestSchema,
-  JoinClassroomSessionRequestSchema,
-  KnowledgeAttemptMutationRequestSchema,
-  OpenClassroomDirectiveRequestSchema,
-  ResolveKnowledgeAttemptHelpRequestSchema,
-  ReviewKnowledgeAttemptRequestSchema,
-  RevokeKnowledgeRoomCodeRequestSchema,
-  SetClassroomLinkConsentRequestSchema,
-  ListOrganizationMembersRequestSchema,
-  UpdateOrganizationRequestSchema,
 } from '../../shared/contracts';
 import { IPC_CHANNELS } from '../../shared/desktop-api';
 import type { AgentActivityService } from '../agent/agent-activity-service';
@@ -103,9 +103,15 @@ import {
   registerClassroomBroadcastIpc,
   type ClassroomBroadcastFeatures,
 } from './register-classroom-broadcast-ipc';
+import {
+  registerClassroomLessonIpc,
+  type ClassroomLessonFeatures,
+} from './register-classroom-lesson-ipc';
+import { isTrustedWindowSender } from './trusted-window-sender';
 
 interface IpcServices {
   classroomBroadcastFeatures?: ClassroomBroadcastFeatures;
+  classroomLessonFeatures?: ClassroomLessonFeatures;
   agentActivityService: AgentActivityService;
   appUpdateService: Pick<
     AppUpdateService,
@@ -206,17 +212,6 @@ async function assertMembershipAuthorizedSender(
   await services.membershipService.assertActive(user);
 }
 
-function isTrustedWindowSender(
-  event: IpcMainInvokeEvent,
-  window: BrowserWindow | null,
-): boolean {
-  return Boolean(
-    window &&
-    !window.isDestroyed() &&
-    event.sender.id === window.webContents.id &&
-    event.senderFrame === window.webContents.mainFrame,
-  );
-}
 
 function assertTrustedInteractionSender(
   event: IpcMainInvokeEvent,
@@ -1183,6 +1178,7 @@ export function registerIpcHandlers(
     mainWindow.webContents.send(IPC_CHANNELS.agentActivity, activity);
   };
   services.agentActivityService.on('activity', forwardAgentActivity);
+  const stopClassroomLessonIpc = registerClassroomLessonIpc(mainWindow, services.classroomLessonFeatures, (event) => assertMembershipAuthorizedSender(event, mainWindow, services));
   const stopClassroomBroadcastIpc = registerClassroomBroadcastIpc(
     mainWindow,
     services.classroomBroadcastFeatures,
@@ -1212,6 +1208,7 @@ export function registerIpcHandlers(
 
   return () => {
     stopClassroomBroadcastIpc();
+    stopClassroomLessonIpc();
     stopForwardingClassroomDirective();
     stopForwardingClassroomSession();
     stopForwardingAppUpdateStatus();

@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
+import type {
+  LessonLocalState,
+  LessonMode,
+} from '../../shared/classroom-lesson-contracts';
 import {
   AgentTaskContractV11Schema,
   CancelTaskRequestSchema,
@@ -8,16 +12,16 @@ import {
   SteerTaskRequestSchema,
   SubmitTaskRequestSchema,
   type ActivityContext,
-  type LocalGuidanceStartJournal,
   type ClassroomSessionProjection,
+  type LocalGuidanceStartJournal,
   type TaskRoute,
   type TaskSnapshot,
 } from '../../shared/contracts';
+import type { AgentRuntimeAdapter } from '../agent-runtime/agent-runtime-adapter';
+import type { EncryptedAgentStateStore } from '../agent-runtime/encrypted-agent-state-store';
 import type { TrustedToolExecutionContext } from '../agent/runtime-tool-registry';
 import { shouldObserveInitialScreenContext } from '../agent/screen-context-policy';
 import type { TaskRuntime } from '../agent/task-runtime';
-import type { AgentRuntimeAdapter } from '../agent-runtime/agent-runtime-adapter';
-import type { EncryptedAgentStateStore } from '../agent-runtime/encrypted-agent-state-store';
 import type { CoachRuntimeStart } from '../coach/coach-contracts';
 import type { CoachRuntime } from '../coach/coach-runtime';
 import type { ActivityContextService } from '../knowledge/activity-context-service';
@@ -27,6 +31,8 @@ import type { ClassroomSessionService } from '../knowledge/classroom-session-ser
 import type { TeacherClassroomContextService } from '../knowledge/teacher-classroom-context-service';
 import type { WorkspaceSelectionService } from '../workspace/workspace-selection-service';
 
+import { submitLessonChild } from './classroom-lesson-task';
+import { isTaskDeviceBusy } from './task-device-admission';
 import { routeTaskRequest } from './task-request-router';
 
 const DEFAULT_LIMITS = {
@@ -37,7 +43,7 @@ const DEFAULT_LIMITS = {
   maxToolCalls: 30,
 } as const;
 
-interface TaskApplicationServiceOptions {
+export interface TaskApplicationServiceOptions {
   onTaskCancelled?: (taskId: string) => void;
   teacherClassroomContext?: TeacherClassroomContextService;
   broadcastDrafts?: ClassroomBroadcastDraftService;
@@ -274,32 +280,24 @@ export class TaskApplicationService {
     }
   }
 
+  reserveLesson(parentId: string): void {
+    if (this.reservation === parentId) return;
+    this.reserveClassroomExplanation(parentId);
+  }
+  submitLesson(state: LessonLocalState, activity: ActivityContext, mode: LessonMode | 'help', question?: string): Promise<TaskSnapshot> {
+    if (this.reservation !== state.envelope.lessonId) throw new Error('Lesson device reservation is unavailable.');
+    return submitLessonChild(this.runtime, this.options, state, activity, mode, question, (taskId, route, context) => {
+      this.executionContexts.set(taskId, context); this.routes.set(taskId, route);
+    }, (taskId) => this.finish(taskId));
+  }
   reserveClassroomExplanation(taskId: string): void {
-    if (
-      this.reservation ||
-      [...this.routes.keys()].some(
-        (id) =>
-          !['completed', 'failed', 'cancelled', 'blocked'].includes(
-            this.runtime.getSnapshot(id).phase,
-          ),
-      )
-    )
+    if (this.isDeviceBusy())
       throw new Error(
         'Finish or stop the current task, then start the explanation.',
       );
     this.reservation = taskId;
   }
-  isDeviceBusy(): boolean {
-    return (
-      Boolean(this.reservation) ||
-      [...this.routes.keys()].some(
-        (id) =>
-          !['completed', 'failed', 'cancelled', 'blocked'].includes(
-            this.runtime.getSnapshot(id).phase,
-          ),
-      )
-    );
-  }
+  isDeviceBusy(): boolean { return isTaskDeviceBusy(this.runtime, this.routes.keys(), this.reservation); }
   releaseReservation(taskId: string): void {
     if (this.reservation === taskId) this.reservation = null;
   }
@@ -446,12 +444,12 @@ export class TaskApplicationService {
     let restored = 0;
     for (const state of states) {
       const goal = state.snapshot.goal;
-      if (!goal || (goal.schemaVersion === 11 && goal.route === 'coach')) {
+      if (state.classroomLessonId || !goal || (goal.schemaVersion === 11 && goal.route === 'coach')) {
         this.runtime.restore(state.snapshot);
         this.runtime.complete(state.snapshot.taskId, {
           status: 'failed',
           finalOutput: null,
-          message: 'Restart Coach to capture fresh screen context.',
+          message: state.classroomLessonId ? 'Lesson interrupted. Review its outcome in Class updates; actions will not replay.' : 'Restart Coach to capture fresh screen context.',
         });
         continue;
       }

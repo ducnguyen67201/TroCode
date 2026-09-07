@@ -1,3 +1,5 @@
+mod route_match;
+use route_match::matches_knowledge;
 mod activity_definition;
 mod activity_draft;
 
@@ -62,7 +64,7 @@ pub async fn handle(
     if reads_capabilities {
         return Ok(Some(json_response(
             StatusCode::OK,
-            json!({"knowledgeSpaces":{"enabled":knowledge_spaces_enabled,"contractVersion":2},"classroomBroadcasts":{"contractVersion":1},"classroomGuidance":{"contractVersion":1}}),
+            json!({"knowledgeSpaces":{"enabled":knowledge_spaces_enabled,"contractVersion":2},"classroomBroadcasts":{"contractVersion":1},"classroomGuidance":{"contractVersion":1},"classroomLessons":{"contractVersion":1}}),
         )?));
     }
     if !knowledge_spaces_enabled {
@@ -142,18 +144,6 @@ pub async fn handle(
     }
     let response = route(state, &current.user.id, plan, method, uri, headers, body).await?;
     Ok(Some(response))
-}
-fn matches_knowledge(path: &str) -> bool {
-    path.starts_with("/v1/live-rooms")
-        || path.starts_with("/v1/spaces")
-        || path.starts_with("/v1/activities")
-        || path.starts_with("/v1/runs")
-        || path.starts_with("/v1/attempts")
-        || path.starts_with("/v1/work-sessions")
-        || matches!(
-            path,
-            "/v1/uploads/complete" | "/v1/assignments/me" | "/v1/space-invites/redeem"
-        )
 }
 async fn route(
     state: &AppState,
