@@ -26,6 +26,7 @@ async function admitLessonChild(
     throw new Error('Lesson admission is unavailable.');
   const taskId = state.child.taskId;
   const step = state.envelope.plan.steps[state.stepIndex];
+  if (!step) throw new Error('Lesson step is unavailable.');
   const route = mode === 'demonstrate' ? 'agent' : 'coach';
   const resource = state.envelope.plan.resources.find((r) => r.id === step.resourceId);
   const request = JSON.stringify({

@@ -348,7 +348,7 @@ export class CoachRuntime {
               observation,
               priorProgress: input.priorProgress,
               request: input.request,
-              lesson: input.lesson ? { ...input.lesson, assignment: explanationAssignmentContext(input) } : null,
+              lesson: input.lesson,
               taskId: input.taskId,
               explanation: { ...explanation, contextMode: mode },
               question,

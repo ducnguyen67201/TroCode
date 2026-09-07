@@ -12,8 +12,8 @@ describe('typed lesson HTTP client', () => {
       new KnowledgeHttpClient('https://stage.example/', async () => 'test-token', fetcher),
     );
     expect(await client.context(f.plan.targetRunId, f.context.sessionId, f.plan.targetRunId)).toEqual(f.context);
-    expect(fetcher.mock.calls[0][0]).toContain('/lesson-context?runId=');
-    expect(fetcher.mock.calls[0][1]).toMatchObject({ headers: { Authorization: 'Bearer test-token' } });
+    expect(fetcher.mock.calls[0]![0]).toContain('/lesson-context?runId=');
+    expect(fetcher.mock.calls[0]![1]).toMatchObject({ headers: { Authorization: 'Bearer test-token' } });
     fetcher.mockResolvedValueOnce(new Response('{}'));
     await expect(client.context(f.plan.targetRunId, f.context.sessionId, f.plan.targetRunId)).rejects.toThrow();
   });

@@ -15,7 +15,7 @@ function input(): CoachDecisionInput {
     observation: null,
     lesson: {
       mode: 'check',
-      step: f.plan.steps[0],
+      step: f.plan.steps[0]!,
       language: 'vi',
       materialText: '',
       demonstratedExamples: ['Teacher printed a name.'],

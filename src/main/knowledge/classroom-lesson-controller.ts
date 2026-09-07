@@ -185,7 +185,7 @@ export class ClassroomLessonController {
       if (this.active?.status === 'unknown') throw new Error('Inspect the uncertain action before continuing.');
     }
     if (this.work) throw new Error('Wait for the current step or press Pause.');
-    if (request.action === 'check' && !['practice', 'check'].includes(state.envelope.plan.steps[state.stepIndex]?.mode))
+    if (request.action === 'check' && !['practice', 'check'].includes(state.envelope.plan.steps[state.stepIndex]?.mode ?? ''))
       throw new Error('Check your work during practice or the check step.');
     if (request.action === 'next') {
       if (state.status !== 'waiting_for_student') throw new Error('Finish the current step first.');

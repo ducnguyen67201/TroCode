@@ -41,7 +41,7 @@ export function createClassroomLessonFeatures(
     build: string;
   },
 ) {
-  const runner = new ClassroomLessonStepRunner({
+  const runner: ClassroomLessonStepRunner = new ClassroomLessonStepRunner({
     tasks: options.tasks,
     client: options.knowledge,
     cua: options.cua,
@@ -51,7 +51,7 @@ export function createClassroomLessonFeatures(
     authorize: () => controller.authorize(),
     consume: (kind, count) => controller.consume(kind, count),
   });
-  const controller = new ClassroomLessonController({
+  const controller: ClassroomLessonController = new ClassroomLessonController({
     client: base.client,
     store: base.store,
     runner,

@@ -266,8 +266,9 @@ export function ClassroomLessonComposer({
               ))}
               <button
                 type="button"
-                disabled={steps.length >= 8}
+                disabled={!steps[0] || steps.length >= 8}
                 onClick={() => {
+                  if (!steps[0]) return;
                   invalidate();
                   setSteps([
                     ...steps,

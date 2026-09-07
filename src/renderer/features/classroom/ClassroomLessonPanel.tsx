@@ -111,7 +111,7 @@ export function ClassroomLessonPanel({ appLanguage }: { appLanguage: AppLanguage
                       ? 'Bước tiếp theo'
                       : 'Next step'}
                 </button>
-                {['practice', 'check'].includes(state.envelope.plan.steps[state.stepIndex]?.mode) && (
+                {['practice', 'check'].includes(state.envelope.plan.steps[state.stepIndex]?.mode ?? '') && (
                   <button type="button" onClick={() => act('check')}>
                     {vi ? 'Kiểm tra bài của em' : 'Check my work'}
                   </button>

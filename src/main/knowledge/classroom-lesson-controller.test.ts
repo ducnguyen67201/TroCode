@@ -98,7 +98,7 @@ describe('student lesson lifecycle', () => {
     f.runner.busy.mockReturnValue(true);
     await f.controller.receive(f.envelope, true);
     expect(f.runner.run).not.toHaveBeenCalled();
-    expect(f.client.receipt.mock.calls[0][2]).toMatchObject({ status: 'blocked', reasonCode: 'device_busy' });
+    expect(f.client.receipt.mock.calls[0]![2]).toMatchObject({ status: 'blocked', reasonCode: 'device_busy' });
     const idle = fixture();
     await idle.controller.activate(idle.anchor, true);
     await idle.controller.receive(idle.envelope, true);
@@ -117,8 +117,8 @@ describe('student lesson lifecycle', () => {
       text: 'Where does the name go?',
     });
     await vi.waitFor(() => expect(f.runner.run).toHaveBeenCalledOnce());
-    expect(f.runner.run.mock.calls[0][1]).toBe('help');
-    expect(f.client.startStep.mock.calls[0][2].purpose).toBe('help');
+    expect(f.runner.run.mock.calls[0]![1]).toBe('help');
+    expect(f.client.startStep.mock.calls[0]![2].purpose).toBe('help');
     await vi.waitFor(() => expect(f.controller.view().active?.status).toBe('waiting_for_student'));
     expect(f.controller.view().active?.stepIndex).toBe(0);
   });
