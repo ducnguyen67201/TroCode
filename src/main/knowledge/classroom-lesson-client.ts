@@ -20,6 +20,7 @@ import type { KnowledgeHttpClient } from './knowledge-http-client';
 
 const ok = z.object({ ok: z.literal(true) }).strict();
 export class ClassroomLessonClient {
+  private maxPlanVersion = 1;
   constructor(private readonly http: KnowledgeHttpClient) {}
   private base(space: string, session: string) {
     LessonBindingSchema.parse({ spaceId: space, sessionId: session });
@@ -38,7 +39,7 @@ export class ClassroomLessonClient {
   }
   context(space: string, session: string, runId: string) {
     return this.http.request(
-      `${this.base(space, session)}/lesson-context?runId=${z.uuid().parse(runId)}`,
+      `${this.base(space, session)}/lesson-context?runId=${z.uuid().parse(runId)}&maxPlanVersion=2`,
       {},
       LessonContextSchema,
     );
@@ -71,17 +72,19 @@ export class ClassroomLessonClient {
       LessonProgressSchema,
     );
   }
-  feed(anchor: string, after?: number, signal?: AbortSignal) {
-    return this.http.request(
-      `${this.anchor(anchor)}${after === undefined ? '' : `?afterSequence=${after}`}`,
+  async feed(anchor: string, after?: number, signal?: AbortSignal) {
+    const feed = await this.http.request(
+      `${this.anchor(anchor)}?maxPlanVersion=2${after === undefined ? '' : `&afterSequence=${after}`}`,
       { signal },
       LessonFeedSchema,
     );
+    this.maxPlanVersion = feed.maxPlanVersion ?? 1;
+    return feed;
   }
   device(anchor: string, clientInstanceId: string, build: string, ready: boolean) {
     return this.http.request(
       `/v1/attempts/${z.uuid().parse(anchor)}/lesson-device`,
-      this.post({ clientInstanceId, build, ready, lessonsVersion: 1 }),
+      this.post({ clientInstanceId, build, ready, lessonsVersion: this.maxPlanVersion }),
       ok,
     );
   }

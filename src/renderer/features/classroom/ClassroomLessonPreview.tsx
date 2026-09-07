@@ -85,6 +85,9 @@ export function ClassroomLessonPreview({
         {draft.plan.steps.map((step) => (
           <li key={step.id}>
             <strong>{step.mode}</strong>: {step.instruction}
+            {step.mode === 'explain' && draft.plan.resources.some((resource) => resource.id === step.resourceId && resource.kind === 'web') && (
+              <p>{vi ? 'Mở trang trên máy học sinh, sau đó giải thích nội dung.' : 'Open the page on the student computer, then explain its content.'}</p>
+            )}
             <p>
               {vi ? 'Mục tiêu' : 'Objective'}: {step.objective}
             </p>

@@ -330,13 +330,20 @@ export class ClassroomLessonController {
     state.effect = 'dispatching';
     await this.persist();
     await this.options.runner.prepare(state, state.material, signal);
+    signal.throwIfAborted();
     state.effect = 'confirmed';
     await this.persist();
-    if (mode === 'practice') {
-      state.text = step.instruction;
-      state.phase = 'Your turn';
+    if (mode === 'practice' || mode === 'open') {
+      state.text = mode === 'open'
+        ? (envelope.plan.language === 'vi' ? 'Tài liệu đã mở.' : 'Material opened.')
+        : step.instruction;
+      state.phase = mode === 'open' ? 'Material opened' : 'Your turn';
       state.child = null;
       await this.transition('waiting_for_student');
+      if (mode === 'open' && state.stepIndex + 1 === envelope.plan.steps.length) {
+        await this.transition('finished');
+        this.options.runner.release(envelope.lessonId);
+      }
       return;
     }
     const purpose = mode === 'help' ? 'help' : mode === 'check' ? 'check' : 'work';

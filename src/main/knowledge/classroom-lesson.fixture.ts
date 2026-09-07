@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import type { ClassroomLessonPlan, LessonContext, LessonEnvelope } from '../../shared/classroom-lesson-contracts';
+import type { ClassroomLessonPlan, LessonContext, LessonEnvelope, LessonMode } from '../../shared/classroom-lesson-contracts';
 
 import { lessonDigest } from './classroom-lesson-policy';
 
-export function lessonFixture(mode: 'explain' | 'demonstrate' | 'practice' | 'check' = 'explain') {
+export function lessonFixture(mode: LessonMode = 'explain') {
   const resource = {
     id: randomUUID(),
     kind: 'web' as const,
@@ -13,7 +13,7 @@ export function lessonFixture(mode: 'explain' | 'demonstrate' | 'practice' | 'ch
     origin: 'https://example.com',
   };
   const plan: ClassroomLessonPlan = {
-    schemaVersion: 1,
+    schemaVersion: mode === 'open' ? 2 : 1,
     targetRunId: randomUUID(),
     activityVersionId: randomUUID(),
     title: 'Greeting',
@@ -27,13 +27,14 @@ export function lessonFixture(mode: 'explain' | 'demonstrate' | 'practice' | 'ch
         objective: 'Read a name',
         instruction: 'Explain name input.',
         resourceId: resource.id,
-        criterionIds: ['name'],
+        criterionIds: mode === 'open' ? [] : ['name'],
         demonstration:
           mode === 'demonstrate' ? { exampleDescription: 'Print a name', expectedResult: 'Greeting visible' } : null,
       },
     ],
   };
   const context: LessonContext = {
+    maxPlanVersion: 2,
     sessionId: randomUUID(),
     targetRunId: plan.targetRunId,
     activityVersionId: plan.activityVersionId,

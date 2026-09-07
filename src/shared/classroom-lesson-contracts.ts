@@ -20,7 +20,7 @@ const text = z
   .min(1)
   .max(4000)
   .refine((value) => value.trim() === value, 'Remove surrounding whitespace.');
-export const LessonModeSchema = z.enum(['explain', 'demonstrate', 'practice', 'check']);
+export const LessonModeSchema = z.enum(['open', 'explain', 'demonstrate', 'practice', 'check']);
 export const LessonStatusSchema = z.enum([
   'received',
   'preparing',
@@ -111,7 +111,7 @@ export const LessonStepSchema = z
   .strict();
 export const ClassroomLessonPlanSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.union([z.literal(1), z.literal(2)]),
     targetRunId: id,
     activityVersionId: id,
     title: z
@@ -138,6 +138,8 @@ export const ClassroomLessonPlanSchema = z
         fail('Enter a valid public HTTPS material URL.');
     }
     for (const step of plan.steps) {
+      if (step.mode === 'open' && plan.schemaVersion < 2) fail('Opening material requires lesson plan version 2.');
+      if (step.mode === 'open' && step.criterionIds.length) fail('Opening material has no assessment criteria.');
       const resource = plan.resources.find((r) => r.id === step.resourceId);
       if (!resource) fail('Select a material for every step.');
       if ((step.mode === 'demonstrate') !== Boolean(step.demonstration))
@@ -252,6 +254,7 @@ export const LessonMaterialSchema = z
   .strict();
 export const LessonContextSchema = z
   .object({
+    maxPlanVersion: z.number().int().min(1).max(2).optional(),
     sessionId: id,
     targetRunId: id,
     activityVersionId: id,
@@ -266,6 +269,7 @@ export const LessonContextSchema = z
   .strict();
 export const LessonFeedSchema = z
   .object({
+    maxPlanVersion: z.number().int().min(1).max(2).optional(),
     sessionId: id,
     sessionState: z.string(),
     serverTime: z.string(),

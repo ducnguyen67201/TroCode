@@ -534,6 +534,63 @@ async fn lesson_delivery_claims_and_stop_are_authorized_and_idempotent() {
     )
     .await;
     assert_eq!(stopped.body["stoppedIds"][0], lesson);
+    // Opening material is a v2 plan. Old clients keep their v1 feed and cursor.
+    let mut open_input = input.clone();
+    open_input["clientId"] = json!(Uuid::new_v4());
+    open_input["plan"]["schemaVersion"] = json!(2);
+    open_input["plan"]["steps"][0]["mode"] = json!("open");
+    open_input["plan"]["steps"][0]["demonstration"] = json!(null);
+    open_input["plan"]["steps"][0]["criterionIds"] = json!([]);
+    let opened_material = call(
+        &router,
+        Method::POST,
+        &commit,
+        Some(&f.teacher_token),
+        Some(open_input),
+    )
+    .await;
+    assert_eq!(
+        opened_material.status,
+        StatusCode::OK,
+        "{}",
+        opened_material.body
+    );
+    let legacy = call(
+        &router,
+        Method::GET,
+        &format!("/v1/attempts/{anchor}/session-lessons?afterSequence=1"),
+        Some(&f.student_token),
+        None,
+    )
+    .await;
+    assert_eq!(legacy.status, StatusCode::OK);
+    assert_eq!(legacy.body["items"], json!([]));
+    assert_eq!(legacy.body["maxSequence"], 2);
+    assert!(legacy.body.get("maxPlanVersion").is_none());
+    let modern = call(
+        &router,
+        Method::GET,
+        &format!("/v1/attempts/{anchor}/session-lessons?afterSequence=1&maxPlanVersion=2"),
+        Some(&f.student_token),
+        None,
+    )
+    .await;
+    assert_eq!(modern.status, StatusCode::OK);
+    assert_eq!(
+        modern.body["items"][0]["lessonId"],
+        opened_material.body["lesson"]["lessonId"]
+    );
+    assert_eq!(modern.body["maxPlanVersion"], 2);
+    let modern_context = call(
+        &router,
+        Method::GET,
+        &format!("{base}/lesson-context?runId={}&maxPlanVersion=2", f.run_id),
+        Some(&f.teacher_token),
+        None,
+    )
+    .await;
+    assert_eq!(modern_context.body["maxPlanVersion"], 2);
+    assert!(context.body.get("maxPlanVersion").is_none());
     state.shutdown.cancel();
     pool.close().await;
 }

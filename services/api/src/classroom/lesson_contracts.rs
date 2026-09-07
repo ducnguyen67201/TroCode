@@ -73,7 +73,7 @@ fn bounded(s: &str, n: usize) -> bool {
 }
 impl LessonPlan {
     pub fn validate(&self) -> Result<(), ApiError> {
-        if self.schema_version != 1
+        if !matches!(self.schema_version, 1 | 2)
             || !matches!(self.language.as_str(), "en" | "vi")
             || !bounded(&self.title, 240)
             || !bounded(&self.objective, 4000)
@@ -108,8 +108,9 @@ impl LessonPlan {
             if !ids.insert(s.id)
                 || !matches!(
                     s.mode.as_str(),
-                    "explain" | "demonstrate" | "practice" | "check"
+                    "open" | "explain" | "demonstrate" | "practice" | "check"
                 )
+                || (s.mode == "open" && (self.schema_version < 2 || !s.criterion_ids.is_empty()))
                 || !bounded(&s.instruction, 4000)
                 || !bounded(&s.objective, 4000)
                 || (s.mode == "demonstrate") != s.demonstration.is_some()

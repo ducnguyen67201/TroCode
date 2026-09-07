@@ -1,81 +1,10 @@
 import { useEffect, useState } from 'react';
 
-import {
-  ClassroomLessonPlanSchema,
-  type LessonContext,
-  type LessonDraft,
-  type LessonStep,
-} from '../../../shared/classroom-lesson-contracts';
-import { randomUUID } from '../../../shared/renderer-uuid';
+import type { LessonContext, LessonDraft } from '../../../shared/classroom-lesson-contracts';
+import { planFromRequest } from '../../../shared/classroom-teaching-request';
 import '../../classroom-lesson.css';
 
 import { ClassroomLessonPreview } from './ClassroomLessonPreview';
-
-function findSource(context: LessonContext, request: string) {
-  const normalized = request.toLocaleLowerCase();
-  return context.sources.find((source) => {
-    const title = source.title.toLocaleLowerCase();
-    return normalized.includes(title) || normalized.includes(title.replace(/\.md$/u, ''));
-  });
-}
-
-function makeStep(mode: LessonStep['mode'], resourceId: string, instruction: string, criteria: string[]) {
-  return {
-    id: randomUUID(),
-    mode,
-    resourceId,
-    objective: instruction,
-    instruction,
-    criterionIds: criteria,
-    demonstration:
-      mode === 'demonstrate'
-        ? {
-            exampleDescription: instruction,
-            expectedResult: 'The reviewed example is visible and verified.',
-          }
-        : null,
-  } satisfies LessonStep;
-}
-
-function planFromRequest(context: LessonContext, runId: string, request: string, vi: boolean) {
-  const text = request.trim();
-  const source = findSource(context, text);
-  const url = text.match(/https:\/\/[^\s]+/u)?.[0]?.replace(/[),.]+$/u, '');
-  const wantsDemo = /\b(demonstrate|demo|do it|click|type|làm mẫu|thực hiện trên máy)\b/iu.test(text);
-  const wantsPractice = /\b(practice|try|thực hành|tự làm)\b/iu.test(text);
-  const wantsCheck = /\b(check|review|kiểm tra|chấm)\b/iu.test(text);
-  if (wantsDemo && !url) {
-    throw new Error(
-      vi
-        ? 'Để làm mẫu trên máy học sinh, hãy thêm liên kết HTTPS của bài tập trình duyệt được phép.'
-        : 'To demonstrate on student computers, include the approved HTTPS browser exercise URL.',
-    );
-  }
-  if (url && !context.allowedOrigins.includes(new URL(url).origin)) {
-    throw new Error(vi ? 'Liên kết này chưa nằm trong danh sách miền được phép.' : 'This URL is not in the approved material origins.');
-  }
-  const resourceId = randomUUID();
-  const resource = url
-    ? { id: resourceId, kind: 'web' as const, title: context.title, url, origin: new URL(url).origin }
-    : source
-      ? { id: resourceId, kind: 'source_text' as const, title: source.title, sourceVersionId: source.sourceVersionId }
-      : { id: resourceId, kind: 'assignment' as const, title: context.title };
-  const criteria = context.criteria.map((criterion) => criterion.id);
-  const steps: LessonStep[] = [makeStep('explain', resourceId, text, criteria)];
-  if (wantsDemo) steps.push(makeStep('demonstrate', resourceId, text, []));
-  if (wantsPractice) steps.push(makeStep('practice', resourceId, vi ? 'Hãy tự thực hành phần vừa học.' : 'Practice the section independently.', []));
-  if (wantsCheck) steps.push(makeStep('check', resourceId, vi ? 'Kiểm tra bài làm theo tiêu chí đã công bố.' : 'Check your work against the published criteria.', criteria));
-  return ClassroomLessonPlanSchema.parse({
-    schemaVersion: 1,
-    targetRunId: runId,
-    activityVersionId: context.activityVersionId,
-    title: context.title,
-    objective: text,
-    language: vi ? 'vi' : 'en',
-    resources: [resource],
-    steps,
-  });
-}
 
 export function ClassroomLessonComposer({
   spaceId,

@@ -24,6 +24,8 @@ export function lessonDigest(value: ClassroomLessonPlan): string {
     .digest('hex');
 }
 export function validateLessonContext(plan: ClassroomLessonPlan, context: LessonContext): void {
+  if (plan.schemaVersion > (context.maxPlanVersion ?? 1))
+    throw new Error('The class server needs the material-opening update before this lesson can be sent.');
   if (
     plan.targetRunId !== context.targetRunId ||
     plan.activityVersionId !== context.activityVersionId ||

@@ -309,12 +309,12 @@ impl ClassroomService {
         anchor: Uuid,
         input: LessonDevice,
     ) -> Result<Value, ApiError> {
-        if input.build.len() > 100 || input.lessons_version != 1 {
+        if input.build.len() > 100 || !matches!(input.lessons_version, 1 | 2) {
             return Err(invalid_request());
         }
         let session = self.broadcast_student_session(user, anchor).await?;
         query("INSERT INTO knowledge_classroom_lesson_devices(session_id,user_id,client_instance_id,capabilities) VALUES($1,$2,$3,$4) ON CONFLICT(session_id,user_id,client_instance_id) DO UPDATE SET capabilities=EXCLUDED.capabilities,last_seen_at=NOW()")
-          .bind(session.get::<Uuid,_>("id")).bind(user).bind(input.client_instance_id).bind(json!({"build":input.build,"lessonsVersion":1,"ready":input.ready})).execute(&self.pool).await?;
+          .bind(session.get::<Uuid,_>("id")).bind(user).bind(input.client_instance_id).bind(json!({"build":input.build,"lessonsVersion":input.lessons_version,"ready":input.ready})).execute(&self.pool).await?;
         Ok(json!({"ok":true}))
     }
 }

@@ -1416,6 +1416,11 @@ function clearCompanionResponse(): void {
 function syncCompanionResponse(
   response: CompanionResponseCard | null,
 ): void {
+  // Child run/start/completion events must not erase the parent's lesson controls.
+  const lessonView = classroomLessons.controller.view();
+  if (lessonView.active?.child) {
+    response = companionResponseController.showLesson(lessonCompanionCard(lessonView));
+  }
   if (response) {
     showCompanionResponseCard(response);
     return;

@@ -7,6 +7,10 @@ if (command !== 'start' && command !== 'package') {
   throw new Error('Use npm run start:test or npm run package:test.');
 }
 const env = testAppEnvironment(process.env, command);
+const revision = spawnSync('git', ['rev-parse', '--short=12', 'HEAD'], { encoding: 'utf8' });
+if (revision.status === 0 && /^[a-f0-9]{12}$/u.test(revision.stdout.trim())) {
+  env.TROCODE_BUILD_COMMIT = revision.stdout.trim();
+}
 console.log(`Tro Test → ${TEST_API_BASE_URL} (Doppler tro-app/stg)`);
 if (command === 'start') {
   const response = await fetch(`${env.TROCODE_API_BASE_URL}/readyz`, {

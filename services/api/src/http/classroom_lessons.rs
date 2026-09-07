@@ -41,13 +41,18 @@ pub async fn route(
     let c = &state.classroom;
     let value = match (method, parts.as_slice()) {
         (&Method::GET, ["v1", "spaces", space, "sessions", session, "lesson-context"]) => {
-            c.lesson_context(
-                user,
-                id(space)?,
-                id(session)?,
-                id(&query(uri, "runId").ok_or_else(crate::classroom::invalid_request)?)?,
-            )
-            .await?
+            let mut context = c
+                .lesson_context(
+                    user,
+                    id(space)?,
+                    id(session)?,
+                    id(&query(uri, "runId").ok_or_else(crate::classroom::invalid_request)?)?,
+                )
+                .await?;
+            if number(uri, "maxPlanVersion")?.is_some() {
+                context["maxPlanVersion"] = serde_json::json!(2);
+            }
+            context
         }
         (&Method::POST, ["v1", "spaces", space, "sessions", session, "lessons"]) => {
             c.commit_lesson(user, id(space)?, id(session)?, body(headers, bytes)?)
@@ -108,8 +113,21 @@ pub async fn route(
             .await?
         }
         (&Method::GET, ["v1", "attempts", anchor, "session-lessons"]) => {
-            c.lesson_feed(user, id(anchor)?, number(uri, "afterSequence")?)
-                .await?
+            let mut feed = c
+                .lesson_feed(user, id(anchor)?, number(uri, "afterSequence")?)
+                .await?;
+            // Keep the original cursor so an older client advances past unsupported plans.
+            let requested = number(uri, "maxPlanVersion")?;
+            let supported = requested.unwrap_or(1).clamp(1, 2);
+            if let Some(items) = feed["items"].as_array_mut() {
+                items.retain(|item| {
+                    item["plan"]["schemaVersion"].as_i64().unwrap_or(1) <= supported
+                });
+            }
+            if requested.is_some() {
+                feed["maxPlanVersion"] = serde_json::json!(2);
+            }
+            feed
         }
         (&Method::POST, ["v1", "attempts", anchor, "lesson-device"]) => {
             c.lesson_device(user, id(anchor)?, body(headers, bytes)?)

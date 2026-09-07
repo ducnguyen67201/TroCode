@@ -40,6 +40,17 @@ function renderResponse(
 }
 
 describe('companion response card view', () => {
+  it('shows progress and parent controls while a lesson runs, then a dismissible completion', () => {
+    const running = renderResponse(response({ phase: 'streaming', lesson: { revision: 3, status: 'running', language: 'en' } }));
+    expect(running).toContain('lesson-loading-spinner');
+    expect(running).toContain('Pause');
+    expect(running).toContain('Stop');
+    const finished = renderResponse(response({ lesson: { revision: 4, status: 'finished', language: 'en' } }));
+    expect(finished).not.toContain('lesson-loading-spinner');
+    expect(finished).not.toContain('Pause');
+    expect(finished).not.toContain('Stop');
+    expect(finished).toContain('Done');
+  });
   it('keeps clarification above guidance and responses', () => {
     expect(
       getCompanionCalloutKind({

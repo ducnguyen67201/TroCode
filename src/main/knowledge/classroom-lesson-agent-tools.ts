@@ -66,7 +66,7 @@ export function lessonToolDefinitions(): RuntimeToolDefinition[] {
       modelName: 'prepare_classroom_lesson',
       operations: ['prepare'],
       description:
-        'Prepare a teacher-reviewed lesson preview. List session assignments and obtain lesson context first. planJson is a strict ClassroomLessonPlan v1 semantic plan with resources and explain/demonstrate/practice/check steps; no tool commands. This cannot broadcast. The teacher must review and confirm in the lesson panel.',
+        'Prepare a teacher-reviewed lesson preview. List session assignments and obtain lesson context first. planJson is a strict ClassroomLessonPlan semantic plan; no tool commands. Use schemaVersion 1 for explain/demonstrate/practice/check. For opening material without explanation, use schemaVersion 2 and an open step with no criterionIds, only when context.maxPlanVersion >= 2. Explain already opens its material; do not add explanation to an open-only request. This cannot broadcast. The teacher must review and confirm in the lesson panel.',
       available: (context) => Boolean(context?.teacherClassroom) && !context?.activity,
       parameters: objectSchema({ planJson: { type: 'string', maxLength: 65_536 } }, ['planJson']),
       parse: (json) =>

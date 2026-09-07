@@ -54,6 +54,7 @@ export function ClassroomLessonPanel({ appLanguage }: { appLanguage: AppLanguage
         <>
           <h4>{state.envelope.plan.title}</h4>
           <p role="status">
+            {['received', 'preparing', 'running'].includes(state.status) && <span className="lesson-loading-spinner" aria-hidden="true" />}
             {state.phase} · {state.status.replaceAll('_', ' ')}
           </p>
           <p>

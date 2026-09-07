@@ -5,6 +5,20 @@ import { lessonFixture } from './classroom-lesson.fixture';
 import { KnowledgeHttpClient, KnowledgeSpaceRequestError } from './knowledge-http-client';
 
 describe('typed lesson HTTP client', () => {
+  it.each([undefined, 2])('negotiates plans without breaking older servers (version %s)', async (maxPlanVersion) => {
+    const f = lessonFixture();
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => new Response(JSON.stringify(
+      init?.method === 'POST' ? { ok: true } : {
+        sessionId: f.context.sessionId, sessionState: 'open', serverTime: f.envelope.serverTime,
+        maxSequence: 0, items: [], stoppedIds: [], ...(maxPlanVersion ? { maxPlanVersion } : {}),
+      },
+    )));
+    const client = new ClassroomLessonClient(new KnowledgeHttpClient('https://stage.example', async () => 'test-token', fetcher));
+    await client.feed(f.plan.targetRunId, 0);
+    expect(fetcher.mock.calls[0]?.[0]).toContain('maxPlanVersion=2&afterSequence=0');
+    await client.device(f.plan.targetRunId, f.envelope.lessonId, 'test-build', true);
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body)).lessonsVersion).toBe(maxPlanVersion ?? 1);
+  });
   it('uses the authenticated lesson endpoint and validates responses', async () => {
     const f = lessonFixture();
     const fetcher = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(f.context), { status: 200 }));
