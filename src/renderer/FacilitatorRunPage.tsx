@@ -1,34 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { validateClassroomUrl } from '../shared/classroom-url-policy';
 import type {
   AppLanguage,
-  ClassroomDirective,
   KnowledgeDashboard,
   KnowledgeRoomCode,
-  SaveKnowledgeActivityRequest,
 } from '../shared/contracts';
 import { randomUUID } from '../shared/renderer-uuid';
 
 import { translate } from './app-language';
 import { ClassDashboard } from './features/classroom/ClassDashboard';
 import { ClassroomLessonComposer } from './features/classroom/ClassroomLessonComposer';
-import { DirectiveComposer } from './features/classroom/DirectiveComposer';
 import { RunControls } from './features/classroom/RunControls';
 
 export function FacilitatorRunPage({
   onRunStateChanged,
-  allowedOrigins,
   appLanguage,
-  criteria,
   initialRoomCode = null,
   runId,
   spaceId,
 }: {
   onRunStateChanged?: (state: 'open' | 'closed') => Promise<void>;
-  allowedOrigins: string[];
   appLanguage: AppLanguage;
-  criteria: SaveKnowledgeActivityRequest['definition']['criteria'];
   initialRoomCode?: KnowledgeRoomCode | null;
   runId: string;
   spaceId: string;
@@ -40,16 +32,6 @@ export function FacilitatorRunPage({
   const [runState, setRunState] = useState<
     'archived' | 'closed' | 'draft' | 'open'
   >('draft');
-  const [directiveKind, setDirectiveKind] = useState<'exercise' | 'open_url'>(
-    'exercise',
-  );
-  const [instruction, setInstruction] = useState('');
-  const [url, setUrl] = useState('');
-  const [criterionIds, setCriterionIds] = useState<string[]>([]);
-  const [showPreview, setShowPreview] = useState(false);
-  const [lastDirective, setLastDirective] = useState<ClassroomDirective | null>(
-    null,
-  );
   const [pendingReview, setPendingReview] = useState<{
     action: 'complete' | 'return';
     attemptId: string;
@@ -196,44 +178,6 @@ export function FacilitatorRunPage({
     }
   };
 
-  const broadcast = async () => {
-    setBusyAction('broadcast');
-    setError(null);
-    try {
-      const directive = await window.tro.createClassroomDirective({
-        spaceId,
-        runId,
-        clientId: randomUUID(),
-        directive:
-          directiveKind === 'exercise'
-            ? {
-                kind: 'exercise',
-                instruction: instruction.trim(),
-                criterionIds,
-              }
-            : {
-                kind: 'open_url',
-                instruction: instruction.trim(),
-                criterionIds,
-                url: url.trim(),
-              },
-      });
-      setLastDirective(directive);
-      setInstruction('');
-      setUrl('');
-      setCriterionIds([]);
-      setShowPreview(false);
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : t('Could not broadcast this direction.'),
-      );
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
   const resolveHelp = async (attemptId: string) => {
     setBusyAction(`resolve:${attemptId}`);
     setError(null);
@@ -283,15 +227,6 @@ export function FacilitatorRunPage({
   const participants = dashboard?.participants ?? [];
   const countFor = (status: string) =>
     participants.filter((participant) => participant.status === status).length;
-  const previewOrigin =
-    directiveKind === 'open_url'
-      ? (validateClassroomUrl(url.trim())?.origin ?? null)
-      : null;
-  const autoEligible =
-    previewOrigin !== null && allowedOrigins.includes(previewOrigin);
-  const canPreview =
-    instruction.trim().length > 0 &&
-    (directiveKind === 'exercise' || previewOrigin !== null);
   const runEnded = runState === 'closed' || runState === 'archived';
 
   return (
@@ -338,27 +273,11 @@ export function FacilitatorRunPage({
         changeRunState={changeRunState}
       />
 
-      <ClassroomLessonComposer spaceId={spaceId} runId={runId} vi={appLanguage === 'vi'} enabled={runState === 'open'} />
-      <DirectiveComposer
-        runState={runState}
-        t={t}
-        directiveKind={directiveKind}
-        setDirectiveKind={setDirectiveKind}
-        setShowPreview={setShowPreview}
-        setInstruction={setInstruction}
-        instruction={instruction}
-        setUrl={setUrl}
-        url={url}
-        previewOrigin={previewOrigin}
-        autoEligible={autoEligible}
-        criteria={criteria}
-        criterionIds={criterionIds}
-        setCriterionIds={setCriterionIds}
-        showPreview={showPreview}
-        canPreview={canPreview}
-        busyAction={busyAction}
-        broadcast={broadcast}
-        lastDirective={lastDirective}
+      <ClassroomLessonComposer
+        spaceId={spaceId}
+        runId={runId}
+        vi={appLanguage === 'vi'}
+        enabled={runState === 'open'}
       />
 
       <ClassDashboard

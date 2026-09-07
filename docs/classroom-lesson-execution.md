@@ -1,9 +1,10 @@
 # Classroom lesson execution
 
-Teacher lessons are separate from classroom messages, links, and legacy assignment
-explanations. A message displays instructions; it does not launch computer use.
-The teacher uses **Teach a lesson**, reviews the exact steps, and selects
-**Broadcast lesson**. Ask Tro can prepare the same preview, but cannot confirm it.
+Classroom teaching uses one **Teach the class** flow. The teacher describes what
+students should see or do, reviews the resolved material and steps, and confirms
+the lesson. Source text is shown in Tro; approved web material is opened and
+verified in Chrome. A lesson may explain, demonstrate, practice, help, or check.
+Ask Tro may prepare the same preview, but only the teacher can confirm it.
 
 ## Ownership
 

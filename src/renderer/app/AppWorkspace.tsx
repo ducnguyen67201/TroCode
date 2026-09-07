@@ -13,8 +13,6 @@ import type {
 } from '../../shared/contracts';
 import { type ActiveView, navigationTitle } from '../app-navigation';
 import { AppUpdateButton } from '../AppUpdateButton';
-import { ClassroomBroadcastPreview } from '../ClassroomBroadcastPreview';
-import { ClassroomExplanationPanel } from '../ClassroomExplanationPanel';
 import { ClassroomSessionBar } from '../ClassroomSessionBar';
 import { ClassroomWorkspaceLayout } from '../ClassroomWorkspaceLayout';
 import { ClassroomLessonDraftPanel } from '../features/classroom/ClassroomLessonDraftPanel';
@@ -200,10 +198,6 @@ export function AppWorkspace({
         </p>
       )}
       <ClassroomLessonDraftPanel appLanguage={appLanguageDraft} />
-      <ClassroomBroadcastPreview
-        appLanguage={appLanguageDraft}
-        taskId={snapshot?.taskId ?? null}
-      />
 
       <ClassroomWorkspaceLayout
         enabled={activeView === 'spaces' || activeView === 'assigned'}
@@ -213,7 +207,6 @@ export function AppWorkspace({
             {classroomAccessAvailable && <ClassroomLessonPanel appLanguage={appLanguageDraft} />}
             {classroomAccessAvailable && (
               <ClassroomSessionBar
-                compact={activeView === 'spaces' || activeView === 'assigned'}
                 appLanguage={appLanguageDraft}
                 onLaunch={launchKnowledgeActivity}
                 onOpenClasswork={(attemptId) => {
@@ -223,16 +216,6 @@ export function AppWorkspace({
               />
             )}
 
-            {classroomAccessAvailable && (
-              <ClassroomExplanationPanel
-                compact={activeView === 'spaces' || activeView === 'assigned'}
-                appLanguage={appLanguageDraft}
-                onOpenClasswork={(attemptId) => {
-                  setClassroomAttemptFocus(attemptId);
-                  setActiveView('assigned');
-                }}
-              />
-            )}
           </>
         }
       >
