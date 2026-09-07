@@ -47,8 +47,6 @@ Tests and generated admin output are excluded from these production metrics.
 | `src/renderer/AuthGate.tsx` | 167 | 167 | Retained: Desktop authentication and login gate |
 | `src/renderer/BrandMark.tsx` | 19 | 19 | Retained: Brand Mark presentation/policy |
 | `src/renderer/ClassSessionsPanel.tsx` | 486 | 486 | Retained: Class session management |
-| `src/renderer/ClassroomBroadcastPreview.tsx` | 213 | 213 | Retained: Broadcast preview and review |
-| `src/renderer/ClassroomExplanationPanel.tsx` | 295 | 295 | Retained: Student explanation lifecycle |
 | `src/renderer/ClassroomSessionBar.tsx` | 307 | 307 | Retained: Classroom binding and participation actions |
 | `src/renderer/CompanionCustomizationCard.tsx` | 690 | 355 | Split: Companion customization composition; form/gallery extracted |
 | `src/renderer/CompanionPetNudge.tsx` | 62 | 62 | Retained: Companion Pet Nudge presentation/policy |
@@ -132,7 +130,6 @@ connect features; they do not move subscriptions out of their resource hooks.
 | `src/renderer/features/account/use-organization.ts` | 124 | account |
 | `src/renderer/features/classroom/AttemptControls.tsx` | 213 | classroom |
 | `src/renderer/features/classroom/ClassDashboard.tsx` | 249 | classroom |
-| `src/renderer/features/classroom/DirectiveComposer.tsx` | 267 | classroom |
 | `src/renderer/features/classroom/RunControls.tsx` | 146 | classroom |
 | `src/renderer/features/classroom/participant-status.ts` | 12 | classroom |
 | `src/renderer/features/classroom/use-class-spaces.ts` | 165 | classroom |

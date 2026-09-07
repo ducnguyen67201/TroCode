@@ -294,9 +294,7 @@ export function ClassSessionsPanel({
                 state === 'open' ? activeSession.id : null,
               );
             }}
-            allowedOrigins={primary.allowedOrigins}
             appLanguage={appLanguage}
-            criteria={primary.criteria}
             initialRoomCode={initialRoomCode}
             runId={primary.runId}
             spaceId={spaceId}

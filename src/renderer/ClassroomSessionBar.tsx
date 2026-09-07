@@ -2,33 +2,26 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type {
   AppLanguage,
-  ClassroomDirectiveNotice,
   ClassroomSessionProjection,
   SubmitTaskRequest,
 } from '../shared/contracts';
 import { randomUUID } from '../shared/renderer-uuid';
 
 import { translate } from './app-language';
-import {
-  classroomDirectiveMessage,
-  classroomSessionView,
-} from './classroom-session-view';
+import { classroomSessionView } from './classroom-session-view';
 
 export function ClassroomSessionBar({
   appLanguage,
-  compact = false,
   onLaunch,
   onOpenClasswork,
 }: {
   appLanguage: AppLanguage;
-  compact?: boolean;
   onLaunch: (request: SubmitTaskRequest) => Promise<void>;
   onOpenClasswork: (attemptId: string) => void;
 }) {
   const [session, setSession] = useState<ClassroomSessionProjection | null>(
     null,
   );
-  const [notice, setNotice] = useState<ClassroomDirectiveNotice | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const t = (message: string) => translate(appLanguage, message);
@@ -37,9 +30,6 @@ export function ClassroomSessionBar({
     let active = true;
     const stopSession = window.tro.onClassroomSessionChanged((next) => {
       if (active) setSession(next);
-    });
-    const stopDirective = window.tro.onClassroomDirectiveChanged((next) => {
-      if (active) setNotice(next);
     });
     void window.tro
       .restoreClassroomSession()
@@ -50,7 +40,6 @@ export function ClassroomSessionBar({
     return () => {
       active = false;
       stopSession();
-      stopDirective();
     };
   }, []);
 
@@ -138,7 +127,6 @@ export function ClassroomSessionBar({
         clientId: randomUUID(),
       });
       setSession(null);
-      setNotice(null);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -149,24 +137,6 @@ export function ClassroomSessionBar({
       setBusyAction(null);
     }
   };
-
-  const setConsent = async (consent: boolean) => {
-    setBusyAction('consent');
-    setError(null);
-    try {
-      setSession(await window.tro.setClassroomLinkConsent({ consent }));
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : t('Could not update link permission.'),
-      );
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
-  const activeNotice = notice?.status === 'dismissed' ? null : notice;
 
   return (
     <aside
@@ -182,8 +152,8 @@ export function ClassroomSessionBar({
         <span>{session.space.name}</span>
       </div>
       <div className="classroom-bar__context">
-        <span>{t('Current direction')}</span>
-        <p>{session.currentDirective?.instruction ?? t(view.description)}</p>
+        <span>{t('Current lesson')}</span>
+        <p>{t(view.description)}</p>
       </div>
       <div className="classroom-bar__actions">
         {view.canAskForHelp && (
@@ -233,85 +203,6 @@ export function ClassroomSessionBar({
           </button>
         )}
       </div>
-
-      {session.run.status === 'live' && (
-        <details
-          className="classroom-session-settings"
-          open={compact ? undefined : true}
-        >
-          <summary>
-            {appLanguage === 'vi' ? 'Cài đặt liên kết' : 'Link settings'}
-          </summary>
-          <label className="classroom-consent">
-            <input
-              checked={session.autoOpenConsent}
-              disabled={busyAction === 'consent'}
-              onChange={(event) => void setConsent(event.target.checked)}
-              type="checkbox"
-            />
-            <span>
-              <strong>{t('Open approved class links automatically')}</strong>
-              <small>
-                {t(
-                  'Only published HTTPS sites allowed by this Activity. You can turn this off anytime.',
-                )}
-              </small>
-            </span>
-          </label>
-        </details>
-      )}
-
-      {activeNotice && (
-        <section
-          className={`classroom-directive classroom-directive--${activeNotice.status}`}
-          aria-live="polite"
-        >
-          <div className="classroom-directive__mark" aria-hidden="true">
-            {activeNotice.directive.kind === 'open_url' ? '↗' : '→'}
-          </div>
-          <div>
-            <span>{t(classroomDirectiveMessage(activeNotice))}</span>
-            <strong>{activeNotice.directive.instruction}</strong>
-            {activeNotice.directive.kind === 'open_url' && (
-              <small>{activeNotice.directive.origin}</small>
-            )}
-          </div>
-          <div className="classroom-directive__actions">
-            {activeNotice.directive.kind === 'open_url' &&
-              activeNotice.status !== 'opened' && (
-                <button
-                  className="primary-button"
-                  onClick={() =>
-                    void window.tro
-                      .openClassroomDirective({
-                        directive: activeNotice.directive,
-                      })
-                      .catch((cause: unknown) =>
-                        setError(
-                          cause instanceof Error
-                            ? cause.message
-                            : t('Could not open this link.'),
-                        ),
-                      )
-                  }
-                  type="button"
-                >
-                  {t('Open link')}
-                </button>
-              )}
-            <button
-              onClick={() =>
-                void window.tro
-                  .dismissClassroomDirective(activeNotice.directive.id)
-                  .then(() => setNotice(null))
-              }
-              type="button"
-            >
-              {t('Dismiss')}
-            </button>
-          </div>
-        </section>
-      )}
 
       {error && (
         <p className="classroom-bar__error" role="alert">

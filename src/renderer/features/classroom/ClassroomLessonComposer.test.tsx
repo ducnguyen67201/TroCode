@@ -51,7 +51,7 @@ describe('teacher lesson entry point', () => {
       window.tro = previous;
     }
   });
-  it('opens a semantic mode composer without sending or launching a general task', async () => {
+  it('opens one simple teaching request composer without sending or launching a general task', async () => {
     const f = lessonFixture();
     const prepare = vi.fn();
     const previous = window.tro;
@@ -69,11 +69,11 @@ describe('teacher lesson entry point', () => {
         ),
       );
       await act(async () => host.querySelector('button')!.click());
-      expect(host.textContent).toContain('Preview exact lesson');
-      expect(host.textContent).toContain('Example to demonstrate');
-      expect(host.querySelectorAll('textarea').length).toBeGreaterThan(3);
+      expect(host.textContent).toContain('What should students see or do?');
+      expect(host.textContent).toContain('Teaching request');
+      expect(host.querySelectorAll('textarea').length).toBe(1);
       expect(prepare).not.toHaveBeenCalled();
-      expect(host.textContent).toContain('Choose a browser exercise');
+      expect(host.textContent).toContain('Describe it briefly');
     } finally {
       await act(async () => root.unmount());
       host.remove();
