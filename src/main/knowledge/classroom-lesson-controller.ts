@@ -16,7 +16,7 @@ import {
 
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 import { LessonBlockedError } from './classroom-lesson-errors';
-import { assertLessonTransition, canAutoStartLesson, lessonDigest } from './classroom-lesson-policy';
+import { assertLessonTransition, canAutoStartLesson, lessonDigest, lessonRunningPhase } from './classroom-lesson-policy';
 import type { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 
 export interface LessonRunner {
@@ -367,14 +367,7 @@ export class ClassroomLessonController {
     if (!state.child.ownedByThisRequest) throw new Error('Step is owned by another request.');
     state.pendingChild = null;
     state.observationCount = 0;
-    state.phase =
-      mode === 'demonstrate'
-        ? 'Demonstrating'
-        : mode === 'check'
-          ? 'Checking your work'
-          : mode === 'help'
-            ? 'Helping'
-            : 'Explaining';
+    state.phase = lessonRunningPhase(mode);
     const childModelLimit = mode === 'demonstrate' ? Math.min(6, 8 - (state.stepBudgets[step.id]?.models ?? 0)) : 1;
     if (childModelLimit < 1)
       throw new LessonBlockedError(

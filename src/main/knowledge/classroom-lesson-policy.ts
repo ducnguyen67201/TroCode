@@ -4,8 +4,16 @@ import {
   ClassroomLessonPlanSchema,
   type ClassroomLessonPlan,
   type LessonContext,
+  type LessonMode,
   type LessonStatus,
 } from '../../shared/classroom-lesson-contracts';
+
+export function lessonRunningPhase(mode: LessonMode | 'help'): string {
+  return {
+    open: 'Opening material', explain: 'Explaining', demonstrate: 'Demonstrating',
+    practice: 'Your turn', check: 'Checking your work', help: 'Helping',
+  }[mode];
+}
 
 export function lessonDigest(value: ClassroomLessonPlan): string {
   const canonical = (item: unknown): string => {
