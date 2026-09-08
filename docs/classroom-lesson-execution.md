@@ -93,9 +93,11 @@ live delivery on an idle, consenting device auto-starts.
 
 The main workspace shows material, current step, feedback, errors and
 Pause/Resume/Stop outside the collapsed Class updates sidebar. Non-web material
-must contain readable text and be visible in the viewport before its renderer
-acknowledges readiness. Coach keeps this material window visible during capture
-while hiding floating overlays; ordinary and web observations still hide Tro.
+must contain readable text and be visible in the viewport, with its visible center
+uncovered by another DOM element, before its renderer acknowledges readiness.
+Coach keeps this material window visible for explanations and help while hiding
+floating overlays. Checks hide Tro so Coach can observe the student's work;
+ordinary and web observations also hide Tro.
 The floating Tro card supplies controls while opening and
 between steps; child tasks use existing task/Coach presentation. Teacher progress
 separates receipt from execution and displays step, reason, build and heartbeat.
@@ -118,6 +120,9 @@ Completed explanations and help exchanges remain in the encrypted lesson journal
 identity/text and the last four exchanges, with answers capped at 1,500 characters
 each. This is lesson context, not evidence of student completion. Unknown or
 failed actions do not create completed history entries.
+The task request carries the mode and current question or instruction; the full
+reviewed step travels separately in typed lesson context so valid long lessons
+do not exceed the task request limit.
 
 Local structured logs use `[classroom:lesson]` with lesson, step and child task IDs,
 status, phase and reason, plus resource identity/kind, character counts and history
@@ -130,7 +135,10 @@ shared staging API and the same client revision. Restart the joined student,
 confirm automatic lessons are on, then send a fresh explanation of
 `01-python-bai-hoc.md`. With Class updates collapsed, the material should appear
 in the main workspace and remain visible as Tro observes and explains. Ask a
-follow-up about that explanation, then opt out and restart: the opt-out should
+follow-up about that explanation. Open the student's editor and use Check my work:
+Tro should hide during observation so feedback can refer to the visible work.
+Cover material with Settings before readiness: coaching must wait or show a
+resumable visibility error. Then opt out and restart: the opt-out should
 remain off. A blank or unreadable source must block with a visible error. This
 two-machine check remains necessary in addition to the simulated regressions.
 

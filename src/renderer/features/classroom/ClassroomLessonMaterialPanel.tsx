@@ -24,6 +24,12 @@ export function ClassroomLessonMaterialPanel({ state, vi }: { state: LessonLocal
         timer = setTimeout(ack, 400);
         return;
       }
+      const x = (Math.max(0, rect.left) + Math.min(window.innerWidth, rect.right)) / 2;
+      const y = (Math.max(0, rect.top) + Math.min(window.innerHeight, rect.bottom)) / 2;
+      if (!panel.current?.contains(document.elementFromPoint(x, y))) {
+        timer = setTimeout(ack, 400);
+        return;
+      }
       void window.tro
         .lessons!.materialAck({
           lessonId: state.envelope.lessonId,

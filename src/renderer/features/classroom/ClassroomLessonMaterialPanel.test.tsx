@@ -9,9 +9,10 @@ import type { DesktopApi } from '../../../shared/desktop-api';
 import { ClassroomLessonMaterialPanel } from './ClassroomLessonMaterialPanel';
 
 describe('material visibility acknowledgement', () => {
-  it.each(['collapsed', 'background', 'empty', 'offscreen'] as const)(
+  it.each(['collapsed', 'background', 'empty', 'offscreen', 'covered'] as const)(
     'waits when material is %s and acknowledges after it becomes readable and visible', async (reason) => {
       vi.useFakeTimers();
+      vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
       const state = lessonStateFixture();
       const ack = vi.fn(async () => undefined);
       const previous = window.tro;
@@ -25,6 +26,8 @@ describe('material visibility acknowledgement', () => {
       if (reason === 'empty') state.material!.text = '';
       const host = document.createElement('div');
       document.body.append(host);
+      const hit = vi.spyOn(document, 'elementFromPoint').mockImplementation(() =>
+        reason === 'covered' ? document.body : host.querySelector('pre'));
       const root = createRoot(host);
       try {
         await act(async () => root.render(<ClassroomLessonMaterialPanel state={state} vi={false} />));
@@ -33,6 +36,7 @@ describe('material visibility acknowledgement', () => {
         expect(scroll).toHaveBeenCalled();
         rect.mockReturnValue(new DOMRect(0, 10, 600, 200));
         visibility.mockReturnValue('visible');
+        hit.mockImplementation(() => host.querySelector('pre'));
         state.material!.text = 'name = input("Name: ")';
         await act(async () => root.render(<ClassroomLessonMaterialPanel state={{ ...state }} vi={false} />));
         await act(async () => vi.advanceTimersByTimeAsync(500));
@@ -44,6 +48,7 @@ describe('material visibility acknowledgement', () => {
         host.remove();
         window.tro = previous;
         vi.restoreAllMocks();
+        vi.unstubAllGlobals();
         vi.useRealTimers();
       }
     },

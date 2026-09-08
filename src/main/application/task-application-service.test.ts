@@ -9,6 +9,7 @@ import type {
   TaskSnapshot,
 } from '../../shared/contracts';
 import { TaskRuntime } from '../agent/task-runtime';
+import { CoachRuntimeStartSchema } from '../coach/coach-contracts';
 import { classroomFixture } from '../knowledge/classroom-broadcast.fixture';
 import { lessonStateFixture } from '../knowledge/classroom-lesson.fixture';
 
@@ -99,9 +100,17 @@ function classroomDependencies() {
 }
 
 describe('TaskApplicationService', () => {
-  it('passes the actual help question, pinned material and bounded lesson history to the coach', async () => {
+  it.each([
+    { name: 'explanation', question: undefined },
+    { name: 'help', question: 'Why does input return a string?' },
+    { name: 'long help', question: 'Why? '.repeat(800) },
+    { name: 'escaped help', question: '"\n'.repeat(2000) },
+  ])('admits long lesson guidance and preserves context: $name', async ({ question }) => {
     const deps = localDependencies();
     const state = lessonStateFixture();
+    state.envelope.plan.steps[0]!.instruction = 'i'.repeat(4000);
+    state.envelope.plan.steps[0]!.objective = 'o'.repeat(4000);
+    deps.coachRuntime.start.mockImplementation(async (input) => { CoachRuntimeStartSchema.parse(input); });
     const executionId = randomUUID();
     state.claim = {
       executionId, lessonId: state.envelope.lessonId, planDigest: state.envelope.planDigest,
@@ -115,12 +124,14 @@ describe('TaskApplicationService', () => {
     await submitLessonChild(new TaskRuntime(), {
       ...deps, currentOwnerId: async () => 'student',
     } as unknown as TaskApplicationServiceOptions, state, CLASSROOM_ACTIVITY,
-    'help', 'Why does input return a string?', vi.fn(), vi.fn());
+    question ? 'help' : 'explain', question, vi.fn(), vi.fn());
     expect(deps.localRuntime.start).not.toHaveBeenCalled();
     const input = deps.coachRuntime.start.mock.calls[0]![0] as {
       request: string; lesson: { resource: unknown; materialText: string; history: Array<{ text: string }> };
     };
-    expect(JSON.parse(input.request)).toMatchObject({ question: 'Why does input return a string?', mode: 'help' });
+    expect(input.request).toContain((question ?? state.envelope.plan.steps[0]!.instruction).trim());
+    expect(input.request.length).toBeLessThanOrEqual(8000);
+    expect(input.lesson).toMatchObject({ step: { instruction: 'i'.repeat(4000), objective: 'o'.repeat(4000) } });
     expect(input.lesson.resource).toEqual(state.material!.resource);
     expect(input.lesson.materialText).toContain('name = input');
     expect(input.lesson.history).toHaveLength(4);

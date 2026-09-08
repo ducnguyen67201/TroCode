@@ -7,7 +7,7 @@ import { lessonStateFixture } from '../knowledge/classroom-lesson.fixture';
 import { createCoachObserver } from './observe-coach-screen';
 
 describe('Coach lesson observation', () => {
-  it.each(['source', 'web', 'other-task', 'no-material'] as const)(
+  it.each(['source', 'web', 'other-task', 'no-material', 'check'] as const)(
     'retains Tro only for the matching child with material inside Tro (%s)', async (kind) => {
       const state = lessonStateFixture();
       const taskId = randomUUID();
@@ -15,6 +15,7 @@ describe('Coach lesson observation', () => {
         attemptNumber: 1, workSessionId: randomUUID(), purpose: 'work', ownedByThisRequest: true };
       if (kind === 'web') state.material!.resource = state.envelope.plan.resources[0]!;
       if (kind === 'no-material') state.material = null;
+      if (kind === 'check') state.child.purpose = 'check';
       const cleanup = vi.fn(async () => undefined);
       const prepare = vi.fn(async () => cleanup);
       const observe = vi.fn(async () => 'fresh screen');
