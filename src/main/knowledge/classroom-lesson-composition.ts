@@ -78,6 +78,10 @@ export function createClassroomLessonFeatures(
       status: state.status,
       phase: state.phase,
       reason: state.reasonCode,
+      resourceId: state.material?.resource.id,
+      resourceKind: state.material?.resource.kind,
+      materialCharacters: (state.material?.text?.length ?? 0) + (state.material?.chunks.reduce((n, c) => n + c.body.length, 0) ?? 0),
+      historyEntries: state.history.length,
     });
   });
   return { client: base.client, drafts: base.drafts, runner, controller, feed };

@@ -42,7 +42,9 @@ export function ClassroomLessonPanel({ appLanguage }: { appLanguage: AppLanguage
           type="checkbox"
           checked={view.autoRunConsent}
           onChange={(e) => {
-            void window.tro.lessons?.consent({ enabled: e.target.checked });
+            void window.tro.lessons?.consent({ enabled: e.target.checked }).catch((e: unknown) => {
+              setError(e instanceof Error ? e.message : 'Could not save lesson preference.');
+            });
           }}
         />
         {vi

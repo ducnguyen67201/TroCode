@@ -34,6 +34,7 @@ describe('ClassroomSessionService', () => {
       autoOpenConsent,
     });
     expect(joined.autoOpenConsent).toBe(autoOpenConsent ?? true);
+    expect(service.lessonConsent()).toBe(autoOpenConsent ?? true);
   });
 
   it('preserves a student opt-out when refreshing or rejoining the same Attempt', async () => {
@@ -47,6 +48,7 @@ describe('ClassroomSessionService', () => {
     service.setAutoOpenConsent(false);
     expect((await service.restore())?.autoOpenConsent).toBe(false);
     expect((await service.join(request)).autoOpenConsent).toBe(false);
+    expect(service.lessonConsent()).toBe(false);
   });
 
   it('keeps trusted join context in main and only inherits an open active Attempt', async () => {
@@ -92,7 +94,8 @@ describe('ClassroomSessionService', () => {
     service.activate({ ...firstSession, run: { ...firstSession.run, state: 'open', status: 'live' } }, true);
     const restored = await service.restore();
     expect(restored?.attemptId).toBe(other.attemptId);
-    expect(restored?.autoOpenConsent).toBe(false);
+    expect(restored?.autoOpenConsent).toBe(true);
+    expect(service.lessonConsent()).toBe(true);
   });
 
   it('clears stale local context when the server has no current class', async () => {

@@ -10,8 +10,10 @@ import type {
 } from '../../shared/contracts';
 import { TaskRuntime } from '../agent/task-runtime';
 import { classroomFixture } from '../knowledge/classroom-broadcast.fixture';
+import { lessonStateFixture } from '../knowledge/classroom-lesson.fixture';
 
-import { TaskApplicationService } from './task-application-service';
+import { submitLessonChild } from './classroom-lesson-task';
+import { TaskApplicationService, type TaskApplicationServiceOptions } from './task-application-service';
 
 function localDependencies() {
   const localRuntime = {
@@ -97,6 +99,34 @@ function classroomDependencies() {
 }
 
 describe('TaskApplicationService', () => {
+  it('passes the actual help question, pinned material and bounded lesson history to the coach', async () => {
+    const deps = localDependencies();
+    const state = lessonStateFixture();
+    const executionId = randomUUID();
+    state.claim = {
+      executionId, lessonId: state.envelope.lessonId, planDigest: state.envelope.planDigest,
+      userId: 'student', anchorAttemptId: state.anchorAttemptId, targetAttemptId: state.anchorAttemptId,
+      clientStartId: state.clientStartId, clientInstanceId: state.clientInstanceId, ownedByThisRequest: true,
+    };
+    state.child = { executionId, stepId: state.envelope.plan.steps[0]!.id, taskId: randomUUID(),
+      workSessionId: randomUUID(), attemptNumber: 1, purpose: 'help', ownedByThisRequest: true };
+    state.history = Array.from({ length: 8 }, (_, i) => ({ stepId: state.child!.stepId,
+      resourceId: state.material!.resource.id, mode: 'explain' as const, question: null, text: `${i}: ${'x'.repeat(3000)}` }));
+    await submitLessonChild(new TaskRuntime(), {
+      ...deps, currentOwnerId: async () => 'student',
+    } as unknown as TaskApplicationServiceOptions, state, CLASSROOM_ACTIVITY,
+    'help', 'Why does input return a string?', vi.fn(), vi.fn());
+    expect(deps.localRuntime.start).not.toHaveBeenCalled();
+    const input = deps.coachRuntime.start.mock.calls[0]![0] as {
+      request: string; lesson: { resource: unknown; materialText: string; history: Array<{ text: string }> };
+    };
+    expect(JSON.parse(input.request)).toMatchObject({ question: 'Why does input return a string?', mode: 'help' });
+    expect(input.lesson.resource).toEqual(state.material!.resource);
+    expect(input.lesson.materialText).toContain('name = input');
+    expect(input.lesson.history).toHaveLength(4);
+    expect(input.lesson.history[0]!.text).toMatch(/^4: /);
+    expect(input.lesson.history.every((entry) => entry.text.length <= 1500)).toBe(true);
+  });
   it('routes a verified teacher voice request to the SDK without forced initial observation', async () => {
     const f = classroomFixture();
     const { coachRuntime, localRuntime, state } = localDependencies();

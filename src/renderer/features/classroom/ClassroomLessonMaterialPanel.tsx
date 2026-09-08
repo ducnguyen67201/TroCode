@@ -1,18 +1,29 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { LessonLocalState, LessonMaterial } from '../../../shared/classroom-lesson-contracts';
 
 export function ClassroomLessonMaterialPanel({ state, vi }: { state: LessonLocalState; vi: boolean }) {
-  const [page, setPage] = useState<LessonMaterial | null>(null);
+  const [page, setPage] = useState<{ material: LessonMaterial; revision: number } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const material = page?.resource.id === state.material?.resource.id ? page : state.material;
+  const panel = useRef<HTMLElement>(null);
+  const selectedPage = page?.revision === state.revision ? page.material : null;
+  const material = selectedPage?.resource.id === state.material?.resource.id ? selectedPage : state.material;
   useEffect(() => {
     if (!material || material.resource.kind === 'web' || state.phase !== 'Opening material' || !window.tro.lessons)
       return;
     let live = true;
     let timer: ReturnType<typeof setTimeout>;
+    panel.current?.scrollIntoView({ block: 'start' });
     const ack = () => {
+      if (!live) return;
+      const rect = panel.current?.getBoundingClientRect();
+      const hasText = [material.text, ...material.chunks.map((chunk) => chunk.body)].some((text) => text?.trim());
+      if (!hasText || document.visibilityState !== 'visible' || !rect || rect.width <= 0 || rect.height <= 0 ||
+        rect.bottom <= 0 || rect.top >= window.innerHeight || rect.right <= 0 || rect.left >= window.innerWidth) {
+        timer = setTimeout(ack, 400);
+        return;
+      }
       void window.tro
         .lessons!.materialAck({
           lessonId: state.envelope.lessonId,
@@ -23,7 +34,7 @@ export function ClassroomLessonMaterialPanel({ state, vi }: { state: LessonLocal
           if (live) timer = setTimeout(ack, 400);
         });
     };
-    ack();
+    timer = setTimeout(ack, 0);
     return () => {
       live = false;
       clearTimeout(timer);
@@ -31,7 +42,7 @@ export function ClassroomLessonMaterialPanel({ state, vi }: { state: LessonLocal
   }, [state.envelope.lessonId, state.revision, state.phase, material]);
   if (!material || material.resource.kind === 'web') return null;
   return (
-    <section className="lesson-material" aria-label={vi ? 'Tài liệu bài học' : 'Lesson material'}>
+    <section ref={panel} className="lesson-material" aria-label={vi ? 'Tài liệu bài học' : 'Lesson material'}>
       <h4>{material.resource.title}</h4>
       {material.resource.kind === 'source_text' && (
         <small>{vi ? 'Văn bản trích xuất từ tài liệu' : 'Extracted source text'}</small>
@@ -46,7 +57,7 @@ export function ClassroomLessonMaterialPanel({ state, vi }: { state: LessonLocal
         </div>
       ))}
       {error && <p role="alert">{error}</p>}
-      {(page || material.nextOrdinal !== null) && (
+      {(selectedPage || material.nextOrdinal !== null) && (
         <button
           type="button"
           disabled={loading}
@@ -58,7 +69,7 @@ export function ClassroomLessonMaterialPanel({ state, vi }: { state: LessonLocal
                 resourceId: material.resource.id,
                 ordinal: material.nextOrdinal ?? 0,
               })
-              .then(setPage)
+              .then((material) => setPage({ material, revision: state.revision }))
               .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Material unavailable.'))
               .finally(() => setLoading(false));
           }}

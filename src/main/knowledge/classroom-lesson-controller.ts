@@ -16,7 +16,7 @@ import {
 
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 import { LessonBlockedError } from './classroom-lesson-errors';
-import { assertLessonTransition, canAutoStartLesson, lessonDigest, lessonRunningPhase } from './classroom-lesson-policy';
+import { assertLessonTransition, canAutoStartLesson, finishMaterialStep, lessonDigest, lessonRunningPhase, rememberLessonResult } from './classroom-lesson-policy';
 import type { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 
 export interface LessonRunner {
@@ -89,6 +89,9 @@ export class ClassroomLessonController {
         this.emit();
       });
     this.emit();
+    return this.ownerId && this.anchor
+      ? this.options.store.saveConsent(this.ownerId, this.anchor, value)
+      : Promise.resolve();
   }
   async activate(anchor: string | null, consent: boolean): Promise<void> {
     if (this.anchor === anchor) return;
@@ -104,9 +107,12 @@ export class ClassroomLessonController {
     this.ownerId = null;
     if (anchor) {
       const ownerId = await this.options.owner();
+      const savedConsent = await this.options.store.readConsent(ownerId, anchor);
+      if (savedConsent === null) await this.options.store.saveConsent(ownerId, anchor, consent);
       const state = await this.options.store.latest(ownerId, anchor);
       if (generation !== this.generation) return;
       this.ownerId = ownerId;
+      this.consent = savedConsent ?? consent;
       if (state) {
         state.status =
           state.effect === 'dispatching' || state.effect === 'unknown' || state.child ? 'unknown' : 'paused';
@@ -332,13 +338,10 @@ export class ClassroomLessonController {
     await this.options.runner.prepare(state, state.material, signal);
     signal.throwIfAborted();
     state.effect = 'confirmed';
+    state.phase = 'Material ready';
     await this.persist();
     if (mode === 'practice' || mode === 'open') {
-      state.text = mode === 'open'
-        ? (envelope.plan.language === 'vi' ? 'Tài liệu đã mở.' : 'Material opened.')
-        : step.instruction;
-      state.phase = mode === 'open' ? 'Material opened' : 'Your turn';
-      state.child = null;
+      finishMaterialStep(state, mode);
       await this.transition('waiting_for_student');
       if (mode === 'open' && state.stepIndex + 1 === envelope.plan.steps.length) {
         await this.transition('finished');
@@ -384,6 +387,7 @@ export class ClassroomLessonController {
     state.effect = 'confirmed';
     state.child = null;
     state.text = result.text.slice(0, 16000);
+    rememberLessonResult(state, mode, question);
     state.feedback = result.feedback;
     state.phase = mode === 'check' ? 'Feedback ready' : 'Ready for the next step';
     await this.transition('waiting_for_student');

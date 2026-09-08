@@ -58,6 +58,8 @@ export class ClassroomLessonStepRunner implements LessonRunner {
     await this.options.authorize();
     signal.throwIfAborted();
     if (material.resource.kind !== 'web') {
+      if (![material.text, ...material.chunks.map((chunk) => chunk.body)].some((text) => text?.trim()))
+        throw new LessonBlockedError('resource_unavailable', 'This material has no readable content. Ask the teacher to select an available class material.');
       await new Promise<void>((resolve, reject) => {
         const onAbort = () => {
           cleanup();
@@ -70,7 +72,7 @@ export class ClassroomLessonStepRunner implements LessonRunner {
         };
         const timer = setTimeout(() => {
           cleanup();
-          reject(new Error('Open Tro to view the lesson material.'));
+          reject(new LessonBlockedError('resource_unavailable', 'The lesson material is not visible yet. Open Tro, then resume this lesson.'));
         }, 20_000);
         this.materialAck = {
           lessonId: state.envelope.lessonId,

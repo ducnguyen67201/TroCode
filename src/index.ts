@@ -136,6 +136,7 @@ import {
   startCompletionNarration,
   type CompanionResponsePresentationOptions,
 } from './main/presentation/electron-presentation-presenter';
+import { createCoachObserver } from './main/presentation/observe-coach-screen';
 import { PresentationCoordinator } from './main/presentation/presentation-coordinator';
 import { registerScreenRecordingHost } from './main/screen-recording-registration';
 import {
@@ -509,14 +510,11 @@ const executionCoordinator = new TaskExecutionCoordinator({
   openExternal: async (url) => shell.openExternal(url, { activate: true }),
   prepareDesktopObservation,
 });
-const observeForCoach = async (taskId: string, signal: AbortSignal) => {
-  const cleanup = await prepareDesktopObservation();
-  try {
-    return await cuaService.observe(taskId, signal);
-  } finally {
-    await cleanup();
-  }
-};
+const observeForCoach = createCoachObserver({
+  lesson: () => classroomLessons.controller.view().active,
+  prepare: (keepMaterial) => prepareDesktopObservation(keepMaterial ? mainWindow : null),
+  observe: (taskId, signal) => cuaService.observe(taskId, signal),
+});
 const coachDecisionClient = createAuthenticatedCoachDecisionClient({
   accessTokenProvider: async () => {
     const token = await authService.getAccessToken();
@@ -793,7 +791,7 @@ const knownPresentationTaskIds = new Set<string>();
 const backgroundPresentationTaskIds = new Set<string>();
 let backgroundCompletionNarration: AbortController | null = null;
 
-function prepareDesktopObservation(): Promise<() => Promise<void>> {
+function prepareDesktopObservation(keepVisible: BrowserWindow | null = null): Promise<() => Promise<void>> {
   desktopObservationGuard ??= new DesktopObservationGuard({
     settle: () => new Promise((resolve) => {
       setTimeout(resolve, DESKTOP_OBSERVATION_SETTLE_MS);
@@ -834,7 +832,7 @@ function prepareDesktopObservation(): Promise<() => Promise<void>> {
       },
     ],
   });
-  return desktopObservationGuard.prepare();
+  return desktopObservationGuard.prepare(keepVisible);
 }
 
 const companionCustomizationService = new CompanionCustomizationService({

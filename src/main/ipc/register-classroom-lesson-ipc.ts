@@ -50,8 +50,8 @@ export function registerClassroomLessonIpc(
   );
   handle(ch.view, () => features!.controller.view());
   handle(ch.continue, (raw) => features!.controller.continue(C.LessonContinueSchema.parse(raw)));
-  handle(ch.consent, (raw) => {
-    features!.controller.setConsent(z.object({ enabled: z.boolean() }).strict().parse(raw).enabled);
+  handle(ch.consent, async (raw) => {
+    await features!.controller.setConsent(z.object({ enabled: z.boolean() }).strict().parse(raw).enabled);
     return features!.controller.view();
   });
   handle(ch.materialPage, (raw) => {

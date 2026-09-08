@@ -44,6 +44,13 @@ export class ClassroomLessonStateStore {
   saveLesson(state: LessonLocalState) {
     return this.save(state.ownerId, 'lessons', state.envelope.lessonId, LessonLocalStateSchema.parse(state));
   }
+  async readConsent(owner: string, anchor: string): Promise<boolean | null> {
+    const saved = await this.read(owner, 'preferences', anchor, z.object({ enabled: z.boolean() }).strict());
+    return saved?.enabled ?? null;
+  }
+  saveConsent(owner: string, anchor: string, enabled: boolean): Promise<void> {
+    return this.save(owner, 'preferences', anchor, { enabled });
+  }
   readLesson(owner: string, id: string) {
     return this.read(owner, 'lessons', id, LessonLocalStateSchema);
   }

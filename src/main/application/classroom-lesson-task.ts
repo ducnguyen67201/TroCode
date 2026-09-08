@@ -32,6 +32,7 @@ async function admitLessonChild(
   const resource = state.envelope.plan.resources.find((r) => r.id === step.resourceId);
   const request = JSON.stringify({
     mode,
+    title: state.envelope.plan.title,
     objective: step.objective,
     instruction: step.instruction,
     language: state.envelope.plan.language,
@@ -39,7 +40,7 @@ async function admitLessonChild(
     question: question ?? null,
     material: state.material?.resource.title,
   });
-  const taskRequest = JSON.stringify({ mode, instruction: step.instruction, title: state.envelope.plan.title });
+  const taskRequest = request;
   const authority = AgentTaskContractV11Schema.parse({
     schemaVersion: 11,
     id: randomUUID(),
@@ -119,6 +120,8 @@ async function admitLessonChild(
               : [],
           ),
         step,
+        resource: state.material?.resource,
+        history: state.history.slice(-4).map((entry) => ({ ...entry, text: entry.text.slice(0, 1500) })),
         materialText: [state.material?.text, ...(state.material?.chunks.map((c) => c.body) ?? [])]
           .join('\n')
           .slice(0, 24000),

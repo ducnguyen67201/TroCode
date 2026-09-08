@@ -309,6 +309,13 @@ export const LessonProgressSchema = z
     nextCursor: z.string().nullable(),
   })
   .strict();
+export const LessonHistoryEntrySchema = z.object({
+  stepId: id,
+  resourceId: id,
+  mode: z.enum(['open', 'explain', 'demonstrate', 'practice', 'check', 'help']),
+  question: z.string().max(2000).nullable(),
+  text: z.string().max(4000),
+}).strict();
 export const LessonLocalStateSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -334,6 +341,7 @@ export const LessonLocalStateSchema = z
       .nullable(),
     phase: z.string().max(240),
     text: z.string().max(16000),
+    history: z.array(LessonHistoryEntrySchema).max(12).default([]),
     feedback: LessonCheckResultSchema,
     actionCount: revision,
     modelRequestCount: revision,

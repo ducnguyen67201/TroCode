@@ -8,7 +8,7 @@
   "services/api/src/http/knowledge.rs": 1632,
   "services/api/src/knowledge/service.rs": 753,
   "services/api/src/usage/budget.rs": 517,
-  "src/index.ts": 3261,
+  "src/index.ts": 3259,
   "src/main/agent-runtime/agent-runtime-adapter.ts": 946,
   "src/main/agent-runtime/encrypted-agent-state-store.ts": 552,
   "src/main/agent/runtime-tool-registry.ts": 1041,

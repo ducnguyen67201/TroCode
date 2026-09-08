@@ -74,6 +74,16 @@ function setup() {
   return { ...f, state, cua, openUrl, showMaterial, authorize, runner };
 }
 describe('lesson material execution boundary', () => {
+  it('blocks unreadable material before opening a window or starting computer use', async () => {
+    const f = setup();
+    await expect(f.runner.prepare(f.state, {
+      resource: { id: f.resource.id, kind: 'assignment', title: 'Missing content' },
+      text: '  ', chunks: [], nextOrdinal: null,
+    }, new AbortController().signal)).rejects.toMatchObject({ reason: 'resource_unavailable' });
+    expect(f.showMaterial).not.toHaveBeenCalled();
+    expect(f.openUrl).not.toHaveBeenCalled();
+    expect(f.cua.startTaskSession).not.toHaveBeenCalled();
+  });
   it('accepts an already verified Chrome exercise without navigating again', async () => {
     const f = setup();
     await f.runner.prepare(

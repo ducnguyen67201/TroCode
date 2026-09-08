@@ -15,6 +15,17 @@ vi.mock('electron', () => ({
 }));
 describe('lesson IPC authority', () => {
   beforeEach(() => handlers.clear());
+  it('surfaces a failed preference save instead of reporting it persisted', async () => {
+    const view = vi.fn();
+    const setConsent = vi.fn(async () => { throw new Error('Could not save preference'); });
+    const cleanup = registerClassroomLessonIpc({} as BrowserWindow, {
+      controller: { setConsent, view, onChange: () => vi.fn() },
+    } as unknown as ClassroomLessonFeatures, async () => undefined);
+    await expect(handlers.get(LESSON_CHANNELS.consent)!({}, { enabled: false })).rejects.toThrow('Could not save preference');
+    expect(setConsent).toHaveBeenCalledWith(false);
+    expect(view).not.toHaveBeenCalled();
+    cleanup();
+  });
   it('authorizes the sender before interpreting any lesson command and cleans up', async () => {
     const prepare = vi.fn();
     const stop = vi.fn();

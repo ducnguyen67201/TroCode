@@ -4,9 +4,28 @@ import {
   ClassroomLessonPlanSchema,
   type ClassroomLessonPlan,
   type LessonContext,
+  type LessonLocalState,
   type LessonMode,
   type LessonStatus,
 } from '../../shared/classroom-lesson-contracts';
+
+export function rememberLessonResult(state: LessonLocalState, mode: LessonMode | 'help', question?: string): void {
+  const step = state.envelope.plan.steps[state.stepIndex];
+  if (!step) return;
+  state.history = [...state.history, {
+    stepId: step.id, resourceId: step.resourceId, mode,
+    question: question?.slice(0, 2000) ?? null, text: state.text.slice(0, 4000),
+  }].slice(-12);
+}
+
+export function finishMaterialStep(state: LessonLocalState, mode: 'open' | 'practice'): void {
+  state.text = mode === 'open'
+    ? (state.envelope.plan.language === 'vi' ? 'Tài liệu đã mở.' : 'Material opened.')
+    : state.envelope.plan.steps[state.stepIndex]!.instruction;
+  state.phase = mode === 'open' ? 'Material opened' : 'Your turn';
+  state.child = null;
+  rememberLessonResult(state, mode);
+}
 
 export function lessonRunningPhase(mode: LessonMode | 'help'): string {
   return {
