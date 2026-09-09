@@ -142,7 +142,6 @@ export class ClassroomLessonClient {
       `${this.anchor(anchor, lesson)}/resources/${z.uuid().parse(resource)}?ordinal=${ordinal}`,
       {},
       LessonMaterialSchema,
-  LessonFileSchema,
     );
   }
 }
