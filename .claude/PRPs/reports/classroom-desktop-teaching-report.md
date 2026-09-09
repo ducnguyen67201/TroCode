@@ -155,3 +155,5 @@ Suggested PR description: Classroom lessons currently display source material in
 ## PR #79 CI correction pass
 
 The first CI run failed on seven TypeScript/React lint errors and three Rust Clippy errors. Replaced inline import types, moved ref synchronization out of render, derived preparation/window-list display from current state, guarded asynchronous context/preparation by scope, and applied the Rust style corrections. Both platform jobs stopped at their upstream gate. The corrected revision still requires CI; native acceptance remains pending.
+
+Follow-up CI results: Rust/backend validation passed on `8215f91`. On `0e4f365`, lint and typechecking passed; 1,082 TypeScript tests passed and one existing exact observation assertion needed the newly required fingerprint field. That assertion is updated without relaxing comparison. Final-revision CI and native acceptance are still required.
