@@ -9,9 +9,12 @@ import type {
   TaskSnapshot,
 } from '../../shared/contracts';
 import { TaskRuntime } from '../agent/task-runtime';
+import { CoachRuntimeStartSchema } from '../coach/coach-contracts';
 import { classroomFixture } from '../knowledge/classroom-broadcast.fixture';
+import { lessonStateFixture } from '../knowledge/classroom-lesson.fixture';
 
-import { TaskApplicationService } from './task-application-service';
+import { submitLessonChild } from './classroom-lesson-task';
+import { TaskApplicationService, type TaskApplicationServiceOptions } from './task-application-service';
 
 function localDependencies() {
   const localRuntime = {
@@ -97,6 +100,44 @@ function classroomDependencies() {
 }
 
 describe('TaskApplicationService', () => {
+  it.each([
+    { name: 'explanation', question: undefined },
+    { name: 'help', question: 'Why does input return a string?' },
+    { name: 'long help', question: 'Why? '.repeat(800) },
+    { name: 'escaped help', question: '"\n'.repeat(2000) },
+  ])('admits long lesson guidance and preserves context: $name', async ({ question }) => {
+    const deps = localDependencies();
+    const state = lessonStateFixture();
+    state.envelope.plan.steps[0]!.instruction = 'i'.repeat(4000);
+    state.envelope.plan.steps[0]!.objective = 'o'.repeat(4000);
+    deps.coachRuntime.start.mockImplementation(async (input) => { CoachRuntimeStartSchema.parse(input); });
+    const executionId = randomUUID();
+    state.claim = {
+      executionId, lessonId: state.envelope.lessonId, planDigest: state.envelope.planDigest,
+      userId: 'student', anchorAttemptId: state.anchorAttemptId, targetAttemptId: state.anchorAttemptId,
+      clientStartId: state.clientStartId, clientInstanceId: state.clientInstanceId, ownedByThisRequest: true,
+    };
+    state.child = { executionId, stepId: state.envelope.plan.steps[0]!.id, taskId: randomUUID(),
+      workSessionId: randomUUID(), attemptNumber: 1, purpose: 'help', ownedByThisRequest: true };
+    state.history = Array.from({ length: 8 }, (_, i) => ({ stepId: state.child!.stepId,
+      resourceId: state.material!.resource.id, mode: 'explain' as const, question: null, text: `${i}: ${'x'.repeat(3000)}` }));
+    await submitLessonChild(new TaskRuntime(), {
+      ...deps, currentOwnerId: async () => 'student',
+    } as unknown as TaskApplicationServiceOptions, state, CLASSROOM_ACTIVITY,
+    question ? 'help' : 'explain', question, vi.fn(), vi.fn());
+    expect(deps.localRuntime.start).not.toHaveBeenCalled();
+    const input = deps.coachRuntime.start.mock.calls[0]![0] as {
+      request: string; lesson: { resource: unknown; materialText: string; history: Array<{ text: string }> };
+    };
+    expect(input.request).toContain((question ?? state.envelope.plan.steps[0]!.instruction).trim());
+    expect(input.request.length).toBeLessThanOrEqual(8000);
+    expect(input.lesson).toMatchObject({ step: { instruction: 'i'.repeat(4000), objective: 'o'.repeat(4000) } });
+    expect(input.lesson.resource).toEqual(state.material!.resource);
+    expect(input.lesson.materialText).toContain('name = input');
+    expect(input.lesson.history).toHaveLength(4);
+    expect(input.lesson.history[0]!.text).toMatch(/^4: /);
+    expect(input.lesson.history.every((entry) => entry.text.length <= 1500)).toBe(true);
+  });
   it('routes a verified teacher voice request to the SDK without forced initial observation', async () => {
     const f = classroomFixture();
     const { coachRuntime, localRuntime, state } = localDependencies();

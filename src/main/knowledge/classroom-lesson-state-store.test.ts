@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { LessonDraft } from '../../shared/classroom-lesson-contracts';
 
 import { ClassroomLessonStateStore } from './classroom-lesson-state-store';
-import { lessonFixture } from './classroom-lesson.fixture';
+import { lessonFixture, lessonStateFixture } from './classroom-lesson.fixture';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/unused' }, safeStorage: {} }));
 describe('encrypted lesson journals', () => {
@@ -41,6 +41,19 @@ describe('encrypted lesson journals', () => {
       expect(await readFile(path.join(folder, `${draft.draftId}.enc`), 'utf8')).not.toContain(draft.plan.objective);
       const restarted = new ClassroomLessonStateStore(dir, cipher);
       expect((await restarted.readDraft('teacher', draft.draftId))?.state).toBe('unknown');
+      expect(await store.readConsent('student', draft.draftId)).toBeNull();
+      await store.saveConsent('student', draft.draftId, false);
+      expect(await restarted.readConsent('student', draft.draftId)).toBe(false);
+      expect(await restarted.readConsent('other-owner', draft.draftId)).toBeNull();
+      expect(await restarted.readConsent('student', f.context.sessionId)).toBeNull();
+      await store.saveConsent('student', draft.draftId, true);
+      expect(await restarted.readConsent('student', draft.draftId)).toBe(true);
+      const lesson = lessonStateFixture();
+      lesson.history = [{ stepId: lesson.envelope.plan.steps[0]!.id, resourceId: lesson.material!.resource.id,
+        mode: 'help', question: 'What does input return?', text: 'A string.' }];
+      await store.saveLesson(lesson);
+      expect((await restarted.readLesson('student', lesson.envelope.lessonId))?.history).toEqual(lesson.history);
+      expect(await restarted.readLesson('other-owner', lesson.envelope.lessonId)).toBeNull();
     } finally {
       await store.close();
       await rm(dir, { recursive: true, force: true });

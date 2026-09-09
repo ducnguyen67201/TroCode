@@ -30,16 +30,7 @@ async function admitLessonChild(
   if (!step) throw new Error('Lesson step is unavailable.');
   const route = mode === 'demonstrate' ? 'agent' : 'coach';
   const resource = state.envelope.plan.resources.find((r) => r.id === step.resourceId);
-  const request = JSON.stringify({
-    mode,
-    objective: step.objective,
-    instruction: step.instruction,
-    language: state.envelope.plan.language,
-    example: mode === 'demonstrate' ? step.demonstration : null,
-    question: question ?? null,
-    material: state.material?.resource.title,
-  });
-  const taskRequest = JSON.stringify({ mode, instruction: step.instruction, title: state.envelope.plan.title });
+  const taskRequest = `${mode}: ${question ?? step.instruction}`.trim();
   const authority = AgentTaskContractV11Schema.parse({
     schemaVersion: 11,
     id: randomUUID(),
@@ -84,6 +75,7 @@ async function admitLessonChild(
   const started = runtime.start({ taskId });
   if (route === 'agent') {
     if (!context.lesson || !options.localRuntime) throw new Error('Browser demonstrations are unavailable.');
+    const request = JSON.stringify({ step, language: state.envelope.plan.language, material: resource?.title });
     await options.localRuntime.start({
       threadId: taskId,
       executionContext: context,
@@ -119,6 +111,8 @@ async function admitLessonChild(
               : [],
           ),
         step,
+        resource: state.material?.resource,
+        history: state.history.slice(-4).map((entry) => ({ ...entry, text: entry.text.slice(0, 1500) })),
         materialText: [state.material?.text, ...(state.material?.chunks.map((c) => c.body) ?? [])]
           .join('\n')
           .slice(0, 24000),

@@ -13,8 +13,7 @@ import type { KnowledgeSpaceClient } from './knowledge-space-client';
 
 export class ClassroomSessionService {
   private readonly events = new EventEmitter();
-  private classroomLessonConsent = false;
-  lessonConsent(): boolean { return this.classroomLessonConsent; }
+  lessonConsent(): boolean { return this.current?.autoOpenConsent ?? false; }
   private current: ClassroomSessionProjection | null = null;
 
   constructor(private readonly client: Pick<KnowledgeSpaceClient, 'getCurrentClassroomSession' | 'joinRoom' | 'leaveClassroom'>) {}
@@ -46,7 +45,6 @@ export class ClassroomSessionService {
         ? this.current.autoOpenConsent
         : true
     );
-    this.classroomLessonConsent = consent;
     return this.activate(session, consent);
   }
 
@@ -58,11 +56,11 @@ export class ClassroomSessionService {
     }
     const consent = this.current?.attemptId === session.attemptId
       ? this.current.autoOpenConsent
-      : false;
+      : true;
     return this.activate(session, consent);
   }
 
-  activate(session: KnowledgeClassroomSession, autoOpenConsent = false): ClassroomSessionProjection {
+  activate(session: KnowledgeClassroomSession, autoOpenConsent = true): ClassroomSessionProjection {
     this.current = ClassroomSessionProjectionSchema.parse({ ...session, role: 'student', autoOpenConsent });
     this.emit();
     return this.get()!;
@@ -108,7 +106,6 @@ export class ClassroomSessionService {
 
   clear(): void {
     if (!this.current) return;
-    this.classroomLessonConsent = false;
     this.current = null;
     this.emit();
   }

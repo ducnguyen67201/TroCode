@@ -28,6 +28,28 @@ function windowStub() {
 }
 
 describe('DesktopObservationGuard', () => {
+  it('keeps the lesson window visible while hiding overlays and rejects conflicting captures', async () => {
+    const main = windowStub().window;
+    const overlay = windowStub().window;
+    const guard = new DesktopObservationGuard({
+      settle: async () => undefined,
+      surfaces: [
+        { getWindow: () => main, shouldRestore: () => false },
+        { getWindow: () => overlay, shouldRestore: () => true },
+      ],
+    });
+    const release = await guard.prepare(main);
+    expect(main.isVisible()).toBe(true);
+    expect(main.hide).not.toHaveBeenCalled();
+    expect(overlay.isVisible()).toBe(false);
+    await expect(guard.prepare()).rejects.toThrow('conflicting');
+    await release();
+    expect(overlay.isVisible()).toBe(true);
+    const releaseOrdinary = await guard.prepare();
+    expect(main.isVisible()).toBe(false);
+    await releaseOrdinary();
+    expect(main.isVisible()).toBe(false);
+  });
   it('hides once and restores only after the final overlapping lease', async () => {
     const { window } = windowStub();
     const settle = vi.fn(async () => undefined);

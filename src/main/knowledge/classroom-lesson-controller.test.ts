@@ -53,6 +53,8 @@ function fixture(mode: 'open' | 'explain' | 'practice' = 'explain') {
     lookupStep: vi.fn(async () => ({ claim: null })),
   };
   const store = {
+    readConsent: vi.fn<() => Promise<boolean | null>>(async () => null),
+    saveConsent: vi.fn(async (_owner: string, _anchor: string, _enabled: boolean) => { void _owner; void _anchor; void _enabled; }),
     latest: vi.fn(async () => null),
     readLesson: vi.fn(async (_owner: string, id: string) => states.get(id) ?? null),
     saveLesson: vi.fn(async (state: LessonLocalState) => {
@@ -77,6 +79,44 @@ function fixture(mode: 'open' | 'explain' | 'practice' = 'explain') {
   return { ...f, anchor, client, store, states, runner, controller };
 }
 describe('student lesson lifecycle', () => {
+  it('saves an initial join opt-out so restoration cannot replace it with the default', async () => {
+    const f = fixture();
+    await f.controller.activate(f.anchor, false);
+    expect(f.store.saveConsent).toHaveBeenCalledWith('student', f.anchor, false);
+    await f.controller.activate(null, false);
+    f.store.readConsent.mockResolvedValueOnce(false);
+    await f.controller.activate(f.anchor, true);
+    expect(f.controller.view().autoRunConsent).toBe(false);
+  });
+  it('restores an explicit opt-out and saves changes for this account and session', async () => {
+    const f = fixture();
+    f.store.readConsent.mockResolvedValueOnce(false);
+    await f.controller.activate(f.anchor, true);
+    expect(f.controller.view().autoRunConsent).toBe(false);
+    await f.controller.receive(f.envelope, true);
+    expect(f.runner.prepare).not.toHaveBeenCalled();
+    await f.controller.setConsent(true);
+    expect(f.store.saveConsent).toHaveBeenCalledWith('student', f.anchor, true);
+    expect(f.controller.view().autoRunConsent).toBe(true);
+  });
+
+  it('gives a help child the previous completed explanation and saves its question and answer', async () => {
+    const f = fixture();
+    await f.controller.activate(f.anchor, true);
+    await f.controller.receive(f.envelope, true);
+    await vi.waitFor(() => expect(f.controller.view().active?.status).toBe('waiting_for_student'));
+    expect(f.controller.view().active?.history).toMatchObject([{ mode: 'explain', text: 'Explanation ready' }]);
+    let priorHistory: unknown;
+    f.runner.run.mockImplementationOnce(async (state) => {
+      priorHistory = structuredClone(state.history);
+      return { text: 'Input returns the typed name.', feedback: [] };
+    });
+    await f.controller.continue({ lessonId: f.envelope.lessonId, expectedRevision: f.controller.view().active!.revision,
+      action: 'question', text: 'What does input return?' });
+    await vi.waitFor(() => expect(f.controller.view().active?.history).toHaveLength(2));
+    expect(priorHistory).toMatchObject([{ mode: 'explain', text: 'Explanation ready' }]);
+    expect(f.states.get(f.envelope.lessonId)?.history[1]).toMatchObject({ mode: 'help', question: 'What does input return?', text: 'Input returns the typed name.' });
+  });
   it('does not mark an open-only lesson finished when the surface could not be verified', async () => {
     const f = fixture('open');
     f.runner.prepare.mockRejectedValueOnce(new Error('lesson_surface_unverified'));
@@ -157,6 +197,7 @@ describe('student lesson lifecycle', () => {
     ).rejects.toThrow('cannot be resumed');
     expect(f.runner.run).toHaveBeenCalledOnce();
     expect(f.states.get(f.envelope.lessonId)?.status).toBe('unknown');
+    expect(f.states.get(f.envelope.lessonId)?.history).toEqual([]);
   });
   it('rejects stale next and revocation before any material effect', async () => {
     const f = fixture();

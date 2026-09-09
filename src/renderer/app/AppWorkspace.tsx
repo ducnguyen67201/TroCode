@@ -198,13 +198,13 @@ export function AppWorkspace({
         </p>
       )}
       <ClassroomLessonDraftPanel appLanguage={appLanguageDraft} />
+      {classroomAccessAvailable && <ClassroomLessonPanel appLanguage={appLanguageDraft} />}
 
       <ClassroomWorkspaceLayout
         enabled={activeView === 'spaces' || activeView === 'assigned'}
         appLanguage={appLanguageDraft}
         sidebar={
           <>
-            {classroomAccessAvailable && <ClassroomLessonPanel appLanguage={appLanguageDraft} />}
             {classroomAccessAvailable && (
               <ClassroomSessionBar
                 appLanguage={appLanguageDraft}

@@ -85,13 +85,20 @@ before accepting another lesson.
 
 ## Visible controls and troubleshooting
 
-New joins disclose automatic material opening and demonstrations. Explicit opt-out
-is respected; restored sessions do not silently regain automatic execution.
+New joins and restored sessions default to automatic material opening and
+demonstrations. A student's explicit lesson preference is stored in the encrypted
+account/session journal and restored, including opt-out.
 Initial feed snapshots and busy devices require **Start lesson**. Only a fresh
 live delivery on an idle, consenting device auto-starts.
 
-The Class updates sidebar shows material, current step, feedback, errors and
-Pause/Resume/Stop. The floating Tro card supplies controls while opening and
+The main workspace shows material, current step, feedback, errors and
+Pause/Resume/Stop outside the collapsed Class updates sidebar. Non-web material
+must contain readable text and be visible in the viewport, with its visible center
+uncovered by another DOM element, before its renderer acknowledges readiness.
+Coach keeps this material window visible for explanations and help while hiding
+floating overlays. Checks hide Tro so Coach can observe the student's work;
+ordinary and web observations also hide Tro.
+The floating Tro card supplies controls while opening and
 between steps; child tasks use existing task/Coach presentation. Teacher progress
 separates receipt from execution and displays step, reason, build and heartbeat.
 A missing receipt is not completion. A heartbeat older than 30 seconds is stale;
@@ -108,9 +115,32 @@ reports consent, not proof that Chrome and OS permissions are ready.
 - **Connection unavailable:** verify both client revisions, account roles, class
   membership and shared staging API. Check server capability after signing in.
 
+Completed explanations and help exchanges remain in the encrypted lesson journal
+(up to 12 entries). Each Coach child receives the current question, material
+identity/text and the last four exchanges, with answers capped at 1,500 characters
+each. This is lesson context, not evidence of student completion. Unknown or
+failed actions do not create completed history entries.
+The task request carries the mode and current question or instruction; the full
+reviewed step travels separately in typed lesson context so valid long lessons
+do not exceed the task request limit.
+
 Local structured logs use `[classroom:lesson]` with lesson, step and child task IDs,
-status, phase and reason. Feed failures log error classes. Avoid copying secret
+status, phase and reason, plus resource identity/kind, character counts and history
+length. `Material ready` follows successful visibility acknowledgement or web
+verification, before `Explaining`. Feed failures log error classes. Avoid copying secret
 values, screenshots or student work into operational logs or PR reports.
+
+For the source-material regression, use separate teacher/student accounts on the
+shared staging API and the same client revision. Restart the joined student,
+confirm automatic lessons are on, then send a fresh explanation of
+`01-python-bai-hoc.md`. With Class updates collapsed, the material should appear
+in the main workspace and remain visible as Tro observes and explains. Ask a
+follow-up about that explanation. Open the student's editor and use Check my work:
+Tro should hide during observation so feedback can refer to the visible work.
+Cover material with Settings before readiness: coaching must wait or show a
+resumable visibility error. Then opt out and restart: the opt-out should
+remain off. A blank or unreadable source must block with a visible error. This
+two-machine check remains necessary in addition to the simulated regressions.
 
 ## Rollout and rollback
 

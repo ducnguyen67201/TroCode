@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type { ClassroomLessonPlan, LessonContext, LessonEnvelope, LessonMode } from '../../shared/classroom-lesson-contracts';
+import { LessonLocalStateSchema, type ClassroomLessonPlan, type LessonContext, type LessonEnvelope, type LessonMode } from '../../shared/classroom-lesson-contracts';
 
 import { lessonDigest } from './classroom-lesson-policy';
 
@@ -59,4 +59,17 @@ export function lessonFixture(mode: LessonMode = 'explain') {
     expiresAt: new Date(Date.now() + 1800_000).toISOString(),
   };
   return { plan, context, envelope, resource };
+}
+
+export function lessonStateFixture(mode: LessonMode = 'explain') {
+  const f = lessonFixture(mode);
+  return LessonLocalStateSchema.parse({
+    schemaVersion: 1, ownerId: 'student', anchorAttemptId: randomUUID(), envelope: f.envelope,
+    revision: 3, status: 'preparing', reasonCode: null, claim: null,
+    clientStartId: randomUUID(), clientInstanceId: randomUUID(), stepIndex: 0, attempts: {},
+    child: null, pendingChild: null, phase: 'Opening material', text: '', feedback: [],
+    actionCount: 0, modelRequestCount: 0, observationCount: 0, effect: 'dispatching',
+    material: { resource: { id: f.resource.id, kind: 'assignment', title: 'Python lesson' },
+      text: 'name = input("Name: ")', chunks: [], nextOrdinal: null }, pendingReports: [],
+  });
 }

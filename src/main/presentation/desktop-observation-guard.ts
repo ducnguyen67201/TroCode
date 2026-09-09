@@ -29,6 +29,7 @@ interface HiddenSurface {
  */
 export class DesktopObservationGuard {
   private activeLeases = 0;
+  private retainedWindow: ObservationWindow | null = null;
 
   private hiddenSurfaces: HiddenSurface[] = [];
 
@@ -36,14 +37,17 @@ export class DesktopObservationGuard {
 
   constructor(private readonly options: DesktopObservationGuardOptions) {}
 
-  async prepare(): Promise<() => Promise<void>> {
+  async prepare(keepVisible: ObservationWindow | null = null): Promise<() => Promise<void>> {
     await this.serialize(async () => {
+      if (this.activeLeases > 0 && this.retainedWindow !== keepVisible)
+        throw new Error('A conflicting desktop observation is still active.');
+      this.retainedWindow = keepVisible;
       this.activeLeases += 1;
       if (this.activeLeases > 1) return;
 
       this.hiddenSurfaces = this.options.surfaces.flatMap((surface) => {
         const window = surface.getWindow();
-        if (!window || window.isDestroyed() || !window.isVisible()) return [];
+        if (!window || window === keepVisible || window.isDestroyed() || !window.isVisible()) return [];
         try {
           window.hide();
           return [{
