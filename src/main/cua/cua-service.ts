@@ -422,6 +422,15 @@ export class CuaService {
     );
   }
 
+  externalLessonWindows(signal?: AbortSignal) { return this.surfaceRouter?.externalWindows(signal) ?? Promise.resolve([]); }
+
+  async observeLessonWindow(taskId: string, identity: { processId: number; windowId: number } | undefined,
+    signal?: AbortSignal) {
+    this.assertActiveSession(taskId);
+    const result = await this.surfaceRouter?.observeExternalWindow(taskId, identity, signal);
+    return result ? { ...result, observation: this.imageEvidencePolicy?.prepare(taskId, result.observation) ?? result.observation } : undefined;
+  }
+
   async queryVisibleApplicationSurfaces(
     application: TrustedApplicationIdentity,
     signal?: AbortSignal,
@@ -752,23 +761,12 @@ export class CuaService {
     return this.imageEvidencePolicy?.prepare(taskId, observation) ?? observation;
   }
 
-  async observeCurrentSurface(
-    taskId: string,
-    options: ObserveSurfaceOptions = {},
-    signal?: AbortSignal,
-  ): Promise<DesktopObservation | undefined> {
+  async observeCurrentSurface(taskId: string, options: ObserveSurfaceOptions = {}, signal?: AbortSignal): Promise<DesktopObservation | undefined> {
     this.assertActiveSession(taskId);
-    if (this.supportsSemanticFastPath() && this.surfaceRouter) {
-      const observation = await this.surfaceRouter.observeCurrentSurface(
-        taskId,
-        options,
-        signal,
-      );
-      if (observation) {
-        return this.imageEvidencePolicy?.prepare(taskId, observation) ?? observation;
-      }
-    }
-    return undefined;
+    const observation = this.supportsSemanticFastPath()
+      ? await this.surfaceRouter?.observeCurrentSurface(taskId, options, signal)
+      : undefined;
+    return observation ? this.imageEvidencePolicy?.prepare(taskId, observation) ?? observation : undefined;
   }
 
   inspectSurfaceRegion(

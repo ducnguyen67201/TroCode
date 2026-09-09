@@ -18,6 +18,7 @@ pub use guidance::{GuidanceReport, GuidanceStartRequest};
 
 mod lesson_contracts;
 mod lesson_delivery;
+mod lesson_files;
 mod lesson_resources;
 mod lessons;
 pub use lesson_contracts::*;

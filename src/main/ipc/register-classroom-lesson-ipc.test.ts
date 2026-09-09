@@ -59,3 +59,18 @@ describe('lesson IPC authority', () => {
     cleanup();
   });
 });
+
+it('accepts opaque window choices and rejects injected native paths or window identities', async () => {
+  const selectWindow = vi.fn();
+  const chooseFile = vi.fn();
+  const cleanup = registerClassroomLessonIpc({} as BrowserWindow, { selectWindow, chooseFile, controller: { onChange: () => vi.fn() } } as unknown as ClassroomLessonFeatures, async () => undefined);
+  const lessonId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const token = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  try {
+    await expect(handlers.get(LESSON_CHANNELS.selectWindow)!({}, { lessonId, revision: 1, token, pid: 1 })).rejects.toThrow();
+    await expect(handlers.get(LESSON_CHANNELS.chooseFile)!({}, { lessonId, revision: 1, path: '/private/file' })).rejects.toThrow();
+    expect(selectWindow).not.toHaveBeenCalled(); expect(chooseFile).not.toHaveBeenCalled();
+    await handlers.get(LESSON_CHANNELS.selectWindow)!({}, { lessonId, revision: 1, token });
+    expect(selectWindow).toHaveBeenCalledWith(lessonId, 1, token);
+  } finally { cleanup(); }
+});

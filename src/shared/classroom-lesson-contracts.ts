@@ -52,7 +52,12 @@ export const LessonReasonSchema = z.enum([
   'restart',
   'opted_out',
 ]);
+export const LessonSurfaceSchema = z.object({
+  kind: z.enum(['current_window', 'resource_app']),
+  navigation: z.enum(['student', 'tro']),
+}).strict();
 export const LessonResourceSchema = z.discriminatedUnion('kind', [
+  z.object({ id, kind: z.literal('current_screen'), title: z.string().min(1).max(240).refine((value) => value.trim() === value) }).strict(),
   z
     .object({
       id,
@@ -97,6 +102,7 @@ export const LessonStepSchema = z
     objective: text,
     instruction: text,
     resourceId: id,
+    surface: LessonSurfaceSchema.optional(),
     criterionIds: z
       .array(
         z
@@ -111,7 +117,7 @@ export const LessonStepSchema = z
   .strict();
 export const ClassroomLessonPlanSchema = z
   .object({
-    schemaVersion: z.union([z.literal(1), z.literal(2)]),
+    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
     targetRunId: id,
     activityVersionId: id,
     title: z
@@ -134,6 +140,7 @@ export const ClassroomLessonPlanSchema = z
     )
       fail('Lesson IDs must be unique.');
     for (const resource of plan.resources) {
+      if (resource.kind === 'current_screen' && plan.schemaVersion < 3) fail('Current screen requires lesson plan version 3.');
       if (resource.kind === 'web' && !validateClassroomUrl(resource.url, resource.origin))
         fail('Enter a valid public HTTPS material URL.');
     }
@@ -142,9 +149,14 @@ export const ClassroomLessonPlanSchema = z
       if (step.mode === 'open' && step.criterionIds.length) fail('Opening material has no assessment criteria.');
       const resource = plan.resources.find((r) => r.id === step.resourceId);
       if (!resource) fail('Select a material for every step.');
+      if ((plan.schemaVersion === 3) !== Boolean(step.surface)) fail('Only version 3 steps require a desktop surface.');
+      if (step.surface?.kind === 'resource_app' && !['source_text', 'web'].includes(resource?.kind ?? ''))
+        fail('Select a class file or website to open externally.');
+      if (plan.schemaVersion === 3 && step.mode === 'open' && step.surface?.kind !== 'resource_app')
+        fail('An open step requires a class file or website.');
       if ((step.mode === 'demonstrate') !== Boolean(step.demonstration))
         fail('Only demonstration steps require an explicit example.');
-      if (step.mode === 'demonstrate' && resource?.kind !== 'web') fail('Demonstrations require a browser exercise.');
+      if (plan.schemaVersion < 3 && step.mode === 'demonstrate' && resource?.kind !== 'web') fail('Demonstrations require a browser exercise.');
       if (new Set(step.criterionIds).size !== step.criterionIds.length) fail('Criterion IDs must be unique.');
     }
   });
@@ -238,7 +250,7 @@ export const LessonContinueSchema = z
   .object({
     lessonId: id,
     expectedRevision: revision,
-    action: z.enum(['next', 'question', 'check', 'pause', 'resume', 'stop', 'start']),
+    action: z.enum(['next', 'continue_explanation', 'question', 'check', 'pause', 'resume', 'stop', 'start']),
     text: text.optional(),
   })
   .strict();
@@ -254,7 +266,7 @@ export const LessonMaterialSchema = z
   .strict();
 export const LessonContextSchema = z
   .object({
-    maxPlanVersion: z.number().int().min(1).max(2).optional(),
+    maxPlanVersion: z.number().int().min(1).max(3).optional(),
     sessionId: id,
     targetRunId: id,
     activityVersionId: id,
@@ -269,7 +281,7 @@ export const LessonContextSchema = z
   .strict();
 export const LessonFeedSchema = z
   .object({
-    maxPlanVersion: z.number().int().min(1).max(2).optional(),
+    maxPlanVersion: z.number().int().min(1).max(3).optional(),
     sessionId: id,
     sessionState: z.string(),
     serverTime: z.string(),
@@ -341,6 +353,8 @@ export const LessonLocalStateSchema = z
       .nullable(),
     phase: z.string().max(240),
     text: z.string().max(16000),
+    teachingProgress: z.object({ disposition: z.enum(['continue', 'step_finished']), round: revision }).strict().optional(),
+    desktopControlConsent: z.boolean().default(false),
     history: z.array(LessonHistoryEntrySchema).max(12).default([]),
     feedback: LessonCheckResultSchema,
     actionCount: revision,
@@ -375,3 +389,10 @@ export type LessonView = z.infer<typeof LessonViewSchema>;
 export type LessonMaterial = z.infer<typeof LessonMaterialSchema>;
 export type LessonContext = z.infer<typeof LessonContextSchema>;
 export type LessonProgress = z.infer<typeof LessonProgressSchema>;
+
+export const LessonFileSchema = z.object({
+  sourceVersionId: id, name: z.string().min(1).max(2000), mediaType: z.string().min(1).max(200),
+  byteSize: z.number().int().min(1).max(25 * 1024 * 1024), sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  download: z.object({ url: z.url(), expiresInSeconds: z.number().int().positive() }).strict(),
+}).strict();
+export type LessonFile = z.infer<typeof LessonFileSchema>;

@@ -7,7 +7,7 @@ export function createCoachObserver<T>(options: {
 }) {
   return async (taskId: string, signal: AbortSignal): Promise<T> => {
     const state = options.lesson();
-    const keepMaterial = state?.child?.taskId === taskId && state.child.purpose !== 'check' &&
+    const keepMaterial = state?.envelope.plan.schemaVersion !== 3 && state?.child?.taskId === taskId && state.child.purpose !== 'check' &&
       state.material != null && state.material.resource.kind !== 'web';
     const cleanup = await options.prepare(keepMaterial);
     try {

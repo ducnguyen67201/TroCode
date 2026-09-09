@@ -1915,7 +1915,7 @@ export const CompanionPetNudgeSchema = CompanionPetNudgeDraftSchema.extend({
 
 export const CompanionResponseCardSchema = z
   .object({
-    lesson: z.object({ revision: z.number().int().nonnegative(), status: z.string().max(40), language: z.enum(['en', 'vi']) }).strict().optional(),
+    lesson: z.object({ revision: z.number().int().nonnegative(), status: z.string().max(40), language: z.enum(['en', 'vi']), continueExplanation: z.boolean().optional() }).strict().optional(),
     cardId: z.string().uuid(),
     taskId: z.string().uuid(),
     phase: z.enum(['streaming', 'completed']),
@@ -1934,7 +1934,7 @@ export const CompanionResponseCardSchema = z
   });
 
 export const CompanionResponseActionSchema = z.enum([
-  'lesson_pause', 'lesson_stop', 'lesson_next',
+  'lesson_pause', 'lesson_stop', 'lesson_next', 'lesson_continue',
   'dismiss',
   'open_task',
   'ask_follow_up',

@@ -13,6 +13,8 @@ import {
 } from '../../shared/classroom-lesson-contracts';
 import { atomicWrite, operatingSystemCipher, type AgentStateCipher } from '../agent-runtime/agent-state-cipher';
 
+import { NativeMaterialRecordSchema, type NativeMaterialRecord } from './classroom-lesson-material-policy';
+
 export class ClassroomLessonStateStore {
   private queue: Promise<void> = Promise.resolve();
   constructor(
@@ -40,6 +42,14 @@ export class ClassroomLessonStateStore {
     });
     this.queue = work.catch(() => undefined);
     return work;
+  }
+  readNativeMaterial(owner: string, lesson: string, resource: string) {
+    z.uuid().parse(lesson);
+    return this.read(owner, `native-${lesson}`, resource, NativeMaterialRecordSchema);
+  }
+  saveNativeMaterial(owner: string, lesson: string, resource: string, record: NativeMaterialRecord) {
+    z.uuid().parse(lesson);
+    return this.save(owner, `native-${lesson}`, resource, NativeMaterialRecordSchema.parse(record));
   }
   saveLesson(state: LessonLocalState) {
     return this.save(state.ownerId, 'lessons', state.envelope.lessonId, LessonLocalStateSchema.parse(state));

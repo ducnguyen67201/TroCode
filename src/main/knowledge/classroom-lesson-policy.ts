@@ -104,3 +104,16 @@ export function canAutoStartLesson(input: {
     Date.parse(input.serverTime) < Date.parse(input.expiresAt)
   );
 }
+
+export function lessonReportSnapshot(state: LessonLocalState, reportId: string) {
+  return {
+    reportId,
+    criterionOutcomes: state.feedback.map(({ criterionId, outcome }) => ({ criterionId, outcome })),
+    revision: state.revision,
+    stepId: state.envelope.plan.steps[state.stepIndex]?.id ?? null,
+    status: state.status,
+    reasonCode: state.reasonCode,
+    actionCount: state.actionCount,
+    modelRequestCount: state.modelRequestCount,
+  };
+}

@@ -2,20 +2,24 @@ import type { LessonReason } from '../../shared/classroom-lesson-contracts';
 import { validateClassroomUrl } from '../../shared/classroom-url-policy';
 import type { ResolvedToolInvocation, ToolExecutionResult } from '../agent/agent-contracts';
 import type { DesktopObservation, SurfaceCommand } from '../agent/execution-contracts';
+import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
 
-export interface LessonExecutionScope {
+export interface BrowserLessonScope {
+  kind?: 'browser';
   lessonId: string;
   stepId: string;
   resourceUrl: string;
   origin: string;
 }
+export type LessonExecutionScope = BrowserLessonScope | { kind: 'desktop'; lessonId: string; stepId: string };
+const desktopAllowed = new Set(['classroom.teaching-observe', 'classroom.teaching-navigate', 'classroom.teaching-present', 'classroom.teaching-demonstrate', 'classroom.teaching-finish']);
 const allowed = new Set(['computer.observe', 'computer.control', 'browser.prepare', 'classroom.lesson-step']);
 export function lessonToolAllowed(id: string, scope?: LessonExecutionScope): boolean {
-  return !scope || allowed.has(id);
+  return !scope || (scope.kind === 'desktop' ? desktopAllowed : allowed).has(id);
 }
 export function verifyLessonSurface(
   observation: DesktopObservation,
-  scope: Pick<LessonExecutionScope, 'resourceUrl' | 'origin'>,
+  scope: Pick<BrowserLessonScope, 'resourceUrl' | 'origin'>,
 ): void {
   const surface = observation.surface;
   const url = surface?.url ? validateClassroomUrl(surface.url, scope.origin) : null;
@@ -34,7 +38,7 @@ export function verifyLessonSurface(
   }
 }
 interface ActivePolicy {
-  scope: LessonExecutionScope;
+  scope: BrowserLessonScope;
   before(): Promise<void>;
   consume(): Promise<void>;
   observe(): Promise<void>;
@@ -74,7 +78,7 @@ export class ClassroomLessonToolPolicy {
   private readonly tasks = new Map<string, ActivePolicy>();
   register(
     taskId: string,
-    scope: LessonExecutionScope,
+    scope: BrowserLessonScope,
     before: () => Promise<void>,
     consume: () => Promise<void>,
     observe: () => Promise<void> = async () => undefined,
@@ -206,4 +210,11 @@ export class ClassroomLessonToolPolicy {
   remove(taskId: string): void {
     if (this.tasks.delete(taskId)) this.revoked.add(taskId);
   }
+}
+
+export function lessonExecutionCoordinator(coordinator: Pick<TaskExecutionCoordinator, 'endTask' | 'dispatchTool'>, policy: ClassroomLessonToolPolicy) {
+  return {
+    endTask: (taskId: string) => coordinator.endTask(taskId),
+    dispatchTool: (invocation: Parameters<TaskExecutionCoordinator['dispatchTool']>[0], context: Parameters<TaskExecutionCoordinator['dispatchTool']>[1]) => policy.dispatch(context.taskId, invocation, async () => { context.signal.throwIfAborted(); return coordinator.dispatchTool(invocation, context); }),
+  };
 }

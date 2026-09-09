@@ -7,6 +7,7 @@ function modelObservationData(observation: DesktopObservation) {
     capturedAt: observation.capturedAt,
     degraded: observation.degraded,
     observationId: observation.observationId,
+    fingerprint: observation.fingerprint,
     route: observation.route,
     text: observation.text,
     ...(observation.structuredState ? { structuredState: observation.structuredState } : {}),

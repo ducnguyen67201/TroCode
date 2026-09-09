@@ -304,5 +304,395 @@
         }
       ]
     }
+  },
+  {
+    "name": "v3-current-screen",
+    "valid": true,
+    "plan": {
+      "schemaVersion": 3,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "current_screen",
+          "title": "Visible Python lesson"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null,
+          "surface": {
+            "kind": "current_window",
+            "navigation": "student"
+          }
+        }
+      ]
+    },
+    "digest": "8f9931119611edde67aa05c0ac88ac15b890fc4c85d2c3c307989bbb7dccc9cd"
+  },
+  {
+    "name": "v3-download-original",
+    "valid": true,
+    "plan": {
+      "schemaVersion": 3,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "source_text",
+          "title": "Visible Python lesson",
+          "sourceVersionId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null,
+          "surface": {
+            "kind": "resource_app",
+            "navigation": "student"
+          }
+        }
+      ]
+    },
+    "digest": "883c13167fb7cf049a01bb004446adffa449ae3b0e0dc6b743feeceb8f0fb1bc"
+  },
+  {
+    "name": "v3-missing-surface",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 3,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "current_screen",
+          "title": "Visible Python lesson"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "v3-legacy-surface",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 1,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "current_screen",
+          "title": "Visible Python lesson"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null,
+          "surface": {
+            "kind": "current_window",
+            "navigation": "student"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "v3-null-surface",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 3,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "current_screen",
+          "title": "Visible Python lesson"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null,
+          "surface": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "v3-current-screen-open",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 3,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "current_screen",
+          "title": "Visible Python lesson"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "open",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [],
+          "demonstration": null,
+          "surface": {
+            "kind": "current_window",
+            "navigation": "student"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "v3-current-screen-resource-app",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 3,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "current_screen",
+          "title": "Visible Python lesson"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null,
+          "surface": {
+            "kind": "resource_app",
+            "navigation": "student"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "v3-bad-navigation",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 3,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "current_screen",
+          "title": "Visible Python lesson"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null,
+          "surface": {
+            "kind": "current_window",
+            "navigation": "unrestricted"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "v3-native-path",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 3,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "current_screen",
+          "title": "Visible Python lesson"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null,
+          "surface": {
+            "kind": "current_window",
+            "navigation": "student",
+            "path": "/private/file"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "v3-whitespace-screen-title",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 3,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "current_screen",
+          "title": " title "
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null,
+          "surface": {
+            "kind": "current_window",
+            "navigation": "student"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "legacy-explicit-null-surface",
+    "valid": false,
+    "plan": {
+      "schemaVersion": 1,
+      "targetRunId": "11111111-1111-4111-8111-000000000001",
+      "activityVersionId": "11111111-1111-4111-8111-000000000002",
+      "title": "Lời chào 😀",
+      "objective": "Hiểu biến",
+      "language": "vi",
+      "resources": [
+        {
+          "id": "11111111-1111-4111-8111-000000000003",
+          "kind": "web",
+          "title": "Editor",
+          "url": "https://class.example/editor",
+          "origin": "https://class.example"
+        }
+      ],
+      "steps": [
+        {
+          "id": "11111111-1111-4111-8111-000000000004",
+          "mode": "explain",
+          "objective": "Hiểu biến",
+          "instruction": "Giải thích ví dụ.",
+          "resourceId": "11111111-1111-4111-8111-000000000003",
+          "criterionIds": [
+            "name"
+          ],
+          "demonstration": null,
+          "surface": null
+        }
+      ]
+    }
   }
 ]

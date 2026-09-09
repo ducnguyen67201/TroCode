@@ -104,6 +104,7 @@ import {
 } from './main/knowledge/classroom-agent-tools';
 import { ClassroomBroadcastDraftService } from './main/knowledge/classroom-broadcast-draft-service';
 import { ClassroomBroadcastService } from './main/knowledge/classroom-broadcast-service';
+import { desktopTeachingToolDefinitions, desktopTeachingToolAdapters } from './main/knowledge/classroom-desktop-teaching-tools';
 import { ClassroomDirectiveService } from './main/knowledge/classroom-directive-service';
 import { ClassroomGuidanceCoordinator } from './main/knowledge/classroom-guidance-coordinator';
 import { canObserveClassroomExplanation } from './main/knowledge/classroom-guidance-policy';
@@ -116,6 +117,7 @@ import {
   createClassroomLessonFeatures,
   createLessonServices,
 } from './main/knowledge/classroom-lesson-composition';
+import { lessonExecutionCoordinator } from './main/knowledge/classroom-lesson-tool-policy';
 import { ClassroomSessionService } from './main/knowledge/classroom-session-service';
 import { FileSelectionService } from './main/knowledge/file-selection-service';
 import { KnowledgeSpaceClient } from './main/knowledge/knowledge-space-client';
@@ -351,6 +353,7 @@ const dictationService = new DictationService({ cua: cuaService });
 const lessonServices = createLessonServices(trocodeApiBaseUrl, () => authService.getAccessToken(), async () => (await authService.assertSignedIn()).id);
 const runtimeToolRegistry = new RuntimeToolRegistry([
   ...lessonToolDefinitions(),
+  ...desktopTeachingToolDefinitions(),
   ...defaultRuntimeToolDefinitions(),
   ...classroomToolDefinitions(),
   ...createCuaSemanticToolDefinitions({
@@ -479,6 +482,7 @@ const cursorBuddyController = new CursorBuddyController({
 });
 const executionCoordinator = new TaskExecutionCoordinator({
   additionalToolAdapters: [
+    ...desktopTeachingToolAdapters(() => classroomLessons.teaching),
     ...lessonToolAdapters(lessonServices.policy, lessonServices.drafts, lessonServices.client, (id) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(LESSON_CHANNELS.prepared, id); }),
     ...createActivityToolAdapters(knowledgeSpaceClient),
     ...createClassroomToolAdapters(
@@ -585,13 +589,7 @@ const localAgentRuntime = new LocalAgentRuntime({
   },
   apiBaseUrl: trocodeApiBaseUrl,
   beforeTool: (taskId, invocation) => lessonServices.policy.before(taskId, invocation),
-  coordinator: {
-    endTask: (taskId) => executionCoordinator.endTask(taskId),
-    dispatchTool: (invocation, context) => lessonServices.policy.dispatch(context.taskId, invocation, async () => {
-      context.signal.throwIfAborted();
-      return executionCoordinator.dispatchTool(invocation, context);
-    }),
-  },
+  coordinator: lessonExecutionCoordinator(executionCoordinator, lessonServices.policy),
   isPackaged: app.isPackaged,
   repositoryRoot,
   resourcesPath: process.resourcesPath,
@@ -682,6 +680,8 @@ const classroomLessons = createClassroomLessonFeatures(lessonServices, {
   openUrl: (url) => desktopApplicationLauncher.openLessonUrl(url), showMaterial: () => { mainWindow?.show(); mainWindow?.focus(); },
   present: (view) => { const card = lessonCompanionCard(view); if (card || companionResponseController.current?.lesson) syncCompanionResponse(companionResponseController.showLesson(card)); },
   build: `${app.getVersion()}:${process.env.TROCODE_BUILD_COMMIT ?? 'repository'}`,
+  directory: path.join(app.getPath('userData'), 'lesson-materials'), openPath: (file) => shell.openPath(file), chooseFile: async () => { const result = await dialog.showOpenDialog({ properties: ['openFile'], title: 'Choose lesson material' }); return result.canceled ? null : result.filePaths[0] ?? null; },
+  prepareObservation: () => prepareDesktopObservation(), presenter: cursorBuddyController,
 });
 
 const computerPermissionCoordinator = new ComputerPermissionCoordinator({
@@ -2067,7 +2067,7 @@ function handleCompanionResponseAction(
 
   if (request.action.startsWith('lesson_')) {
     if (!response.lesson) throw new Error('That lesson control is no longer active.');
-    void classroomLessons.controller.continue({ lessonId: response.taskId, expectedRevision: response.lesson.revision, action: request.action === 'lesson_stop' ? 'stop' : request.action === 'lesson_pause' ? 'pause' : 'next' }).catch(() => { if (mainWindow) revealWindow(mainWindow); });
+    void classroomLessons.controller.continue({ lessonId: response.taskId, expectedRevision: response.lesson.revision, action: request.action === 'lesson_stop' ? 'stop' : request.action === 'lesson_pause' ? 'pause' : request.action === 'lesson_continue' ? 'continue_explanation' : 'next' }).catch(() => { if (mainWindow) revealWindow(mainWindow); });
     return;
   }
   switch (request.action) {

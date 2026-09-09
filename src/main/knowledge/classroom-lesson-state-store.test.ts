@@ -81,3 +81,17 @@ describe('encrypted lesson journals', () => {
     ).rejects.toThrow('encryption');
   });
 });
+
+it('keeps original paths in a separate encrypted owner-scoped record', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'tro-native-record-'));
+  const cipher = { isAvailable: async () => true, encrypt: async (s: string) => Buffer.from(s), decrypt: async (b: Buffer) => b.toString() };
+  const store = new ClassroomLessonStateStore(dir, cipher);
+  const f = lessonFixture();
+  try {
+    const record = { path: '/private/student/python.pdf', sha256: 'a'.repeat(64), status: 'dispatching' as const };
+    await store.saveNativeMaterial('student', f.envelope.lessonId, f.resource.id, record);
+    expect(await store.readNativeMaterial('student', f.envelope.lessonId, f.resource.id)).toEqual(record);
+    expect(await store.readNativeMaterial('other', f.envelope.lessonId, f.resource.id)).toBeNull();
+    expect(await store.readLesson('student', f.envelope.lessonId)).toBeNull();
+  } finally { await store.close(); await rm(dir, { recursive: true, force: true }); }
+});

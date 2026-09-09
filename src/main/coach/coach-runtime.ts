@@ -135,7 +135,7 @@ export class CoachRuntime {
         await this.dependencies.startObservationSession(input.taskId, controller.signal);
         observation = await this.dependencies.observe(input.taskId, controller.signal);
       } catch (error) {
-        if (!input.lesson || controller.signal.aborted) throw error;
+        if (!input.lesson || input.lesson.step.surface || controller.signal.aborted) throw error;
         // Read-only lesson coaching can explain the reviewed text without claiming screen evidence.
         observation = null;
       }

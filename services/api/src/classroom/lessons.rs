@@ -198,7 +198,7 @@ pub(super) fn validate_context(plan: &LessonPlan, context: &Value) -> Result<(),
                     return Err(unavailable());
                 }
             }
-            LessonResource::Assignment { .. } => {}
+            LessonResource::Assignment { .. } | LessonResource::CurrentScreen { .. } => {}
         }
     }
     for step in &plan.steps {

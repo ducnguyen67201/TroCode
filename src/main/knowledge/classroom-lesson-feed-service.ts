@@ -10,6 +10,7 @@ export class ClassroomLessonFeedService {
   private anchor: string | null = null;
   private cursor: number | undefined;
   private presenceAt = 0;
+  private presenceVersion = 0;
   constructor(
     private readonly session: ClassroomSessionService,
     private readonly client: ClassroomLessonClient,
@@ -42,14 +43,7 @@ export class ClassroomLessonFeedService {
       const feed = await this.client.feed(anchor, this.cursor, this.controller.signal);
       if (generation !== this.generation) return;
       this.lessons.feedStatus(null);
-      const live = this.cursor !== undefined;
-      await this.lessons.invalidate(feed.stoppedIds, feed.sessionState === 'open');
-      for (const lesson of [...feed.items].sort((a, b) => a.sequence - b.sequence)) {
-        if (generation !== this.generation) return;
-        await this.lessons.receive(lesson, live);
-      }
-      this.cursor = feed.maxSequence;
-      if (Date.now() - this.presenceAt >= 10_000) {
+      if (Date.now() - this.presenceAt >= 10_000 || this.presenceVersion !== (feed.maxPlanVersion ?? 1)) {
         await this.client.device(
           anchor,
           this.lessons.clientInstanceId,
@@ -57,7 +51,15 @@ export class ClassroomLessonFeedService {
           this.lessons.view().autoRunConsent,
         );
         this.presenceAt = Date.now();
+        this.presenceVersion = feed.maxPlanVersion ?? 1;
       }
+      const live = this.cursor !== undefined;
+      await this.lessons.invalidate(feed.stoppedIds, feed.sessionState === 'open');
+      for (const lesson of [...feed.items].sort((a, b) => a.sequence - b.sequence)) {
+        if (generation !== this.generation) return;
+        await this.lessons.receive(lesson, live);
+      }
+      this.cursor = feed.maxSequence;
       await this.lessons.flushReports();
     } catch (error) {
       if (generation === this.generation && !this.controller.signal.aborted) {

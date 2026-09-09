@@ -10,22 +10,26 @@ import { ActivityContextSchema } from '../../shared/contracts';
 import type { TaskApplicationService } from '../application/task-application-service';
 import type { CuaService } from '../cua/cua-service';
 
+import type { ClassroomDesktopTeachingTools } from './classroom-desktop-teaching-tools';
 import { canObserveClassroomExplanation } from './classroom-guidance-policy';
 import type { LessonRunner } from './classroom-lesson-controller';
 import { LessonBlockedError } from './classroom-lesson-errors';
+import type { ClassroomLessonMaterialService } from './classroom-lesson-material-service';
 import { verifyLessonSurface, type ClassroomLessonToolPolicy } from './classroom-lesson-tool-policy';
 import type { KnowledgeSpaceClient } from './knowledge-space-client';
 
 export class ClassroomLessonStepRunner implements LessonRunner {
   private readonly waiting = new Map<
     string,
-    { resolve(result: { text: string; feedback: LessonLocalState['feedback'] }): void; reject(error: Error): void }
+    { resolve(result: { text: string; feedback: LessonLocalState['feedback']; disposition?: 'continue' | 'step_finished' }): void; reject(error: Error): void }
   >();
+  private readonly desktopTasks = new Set<string>();
   private readonly cancellations = new Map<string, Promise<'confirmed' | 'unknown'>>();
   private materialAck: { lessonId: string; revision: number; resourceId: string; resolve(): void } | null = null;
   constructor(
     private readonly options: {
       tasks: TaskApplicationService;
+      desktop?: { materials: ClassroomLessonMaterialService; teaching: ClassroomDesktopTeachingTools };
       client: KnowledgeSpaceClient;
       cua: CuaService;
       policy: ClassroomLessonToolPolicy;
@@ -57,6 +61,15 @@ export class ClassroomLessonStepRunner implements LessonRunner {
   async prepare(state: LessonLocalState, material: LessonMaterial, signal: AbortSignal) {
     await this.options.authorize();
     signal.throwIfAborted();
+    if (state.envelope.plan.schemaVersion === 3) {
+      if (!this.options.desktop) throw new LessonBlockedError('unsupported', 'Update Tro to use desktop lessons.');
+      const readiness = await this.options.cua.getStatus();
+      if (!canObserveClassroomExplanation(readiness)) throw new LessonBlockedError('permission_required', 'Enable screen recording and accessibility in Tro Settings.');
+      await this.options.cua.startTaskSession(state.envelope.lessonId, signal);
+      try { await this.options.desktop.materials.prepare(state, signal); }
+      finally { await this.options.cua.endTaskSession(state.envelope.lessonId); }
+      return;
+    }
     if (material.resource.kind !== 'web') {
       if (![material.text, ...material.chunks.map((chunk) => chunk.body)].some((text) => text?.trim()))
         throw new LessonBlockedError('resource_unavailable', 'This material has no readable content. Ask the teacher to select an available class material.');
@@ -157,7 +170,16 @@ export class ClassroomLessonStepRunner implements LessonRunner {
       priorProgress: attempt.priorProgress,
     });
     const resource = state.material?.resource;
-    if (mode === 'demonstrate') {
+    const desktop = state.envelope.plan.schemaVersion === 3 && mode !== 'check';
+    if (desktop) {
+      if (!this.options.desktop) throw new Error('Desktop teaching unavailable.');
+      if (mode === 'demonstrate' && attempt.definition.guidancePolicy.answerReveal !== 'allowed')
+        throw new LessonBlockedError('unsupported', 'This activity does not allow demonstrated answers.');
+      await this.options.cua.startTaskSession(taskId, signal);
+      this.options.desktop.teaching.register(taskId, state, mode, activity.activity.guidancePolicy);
+      this.desktopTasks.add(taskId);
+    }
+    if (!desktop && mode === 'demonstrate') {
       if (resource?.kind !== 'web') throw new Error('Browser material is required.');
       let actions = 0;
       this.options.policy.register(
@@ -176,7 +198,7 @@ export class ClassroomLessonStepRunner implements LessonRunner {
         () => this.options.consume('observation'),
       );
     }
-    const completion = new Promise<{ text: string; feedback: LessonLocalState['feedback'] }>((resolve, reject) =>
+    const completion = new Promise<{ text: string; feedback: LessonLocalState['feedback']; disposition?: 'continue' | 'step_finished' }>((resolve, reject) =>
       this.waiting.set(taskId, { resolve, reject }),
     );
     void completion.catch(() => undefined);
@@ -192,7 +214,9 @@ export class ClassroomLessonStepRunner implements LessonRunner {
     } finally {
       signal.removeEventListener('abort', onAbort);
       this.waiting.delete(taskId);
+      this.desktopTasks.delete(taskId);
       this.options.policy.remove(taskId);
+      this.options.desktop?.teaching.remove(taskId);
       await this.options.cua.endTaskSession(taskId);
     }
   }
@@ -206,9 +230,10 @@ export class ClassroomLessonStepRunner implements LessonRunner {
     if (
       terminal.status !== 'completed' ||
       terminal.outcomeUnknown ||
+      (this.desktopTasks.has(taskId) && !this.options.desktop?.teaching.result(taskId)) ||
       (this.options.policy.has(taskId) && !this.options.policy.isComplete(taskId))
     ) {
-      const reason = this.options.policy.knownBlock(taskId);
+      const reason = this.options.policy.knownBlock(taskId) ?? (this.desktopTasks.has(taskId) ? this.options.desktop?.teaching.knownBlock(taskId) : null);
       waiter.reject(
         reason
           ? new LessonBlockedError(
@@ -219,6 +244,8 @@ export class ClassroomLessonStepRunner implements LessonRunner {
       );
       return;
     }
+    const taught = this.options.desktop?.teaching.result(taskId);
+    if (taught) { waiter.resolve({ text: taught.recap, feedback: [], disposition: taught.disposition }); return; }
     const output = terminal.finalOutput ?? terminal.message;
     let feedback: LessonLocalState['feedback'] = [];
     try {
@@ -230,8 +257,9 @@ export class ClassroomLessonStepRunner implements LessonRunner {
   }
   onTaskCancelled(taskId: string): void {
     if (!this.waiting.has(taskId) || this.cancellations.has(taskId)) return;
-    const unknown = this.options.policy.uncertain(taskId);
+    const unknown = this.options.policy.uncertain(taskId) || Boolean(this.options.desktop?.teaching.uncertain(taskId));
     this.options.policy.remove(taskId);
+    this.options.desktop?.teaching.remove(taskId);
     const work = this.options.cua
       .endTaskSession(taskId)
       .then(() => (unknown ? ('unknown' as const) : ('confirmed' as const)))
@@ -244,8 +272,9 @@ export class ClassroomLessonStepRunner implements LessonRunner {
     if (existing) return existing;
     const work = (async (): Promise<'confirmed' | 'unknown'> => {
       if (!this.waiting.has(taskId)) return 'confirmed';
-      const unknown = this.options.policy.uncertain(taskId);
+      const unknown = this.options.policy.uncertain(taskId) || Boolean(this.options.desktop?.teaching.uncertain(taskId));
       this.options.policy.remove(taskId);
+      this.options.desktop?.teaching.remove(taskId);
       try {
         await this.options.tasks.cancel({ taskId, source: 'stop_button' });
       } finally {
