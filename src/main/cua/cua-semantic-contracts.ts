@@ -625,12 +625,12 @@ export function deriveCuaSemanticCapabilities(
     windowState: hasAll(WINDOW_DISCOVERY_TOOLS),
   });
 }
-
+// Native discovery can include zero-size windows; selection excludes them before observation or input.
 export const CuaBoundsSchema = z.object({
   x: z.number().finite().min(-100_000).max(100_000),
   y: z.number().finite().min(-100_000).max(100_000),
-  width: z.number().finite().positive().max(100_000),
-  height: z.number().finite().positive().max(100_000),
+  width: z.number().finite().nonnegative().max(100_000),
+  height: z.number().finite().nonnegative().max(100_000),
 }).passthrough();
 
 export const CuaWindowSchema = z.object({
