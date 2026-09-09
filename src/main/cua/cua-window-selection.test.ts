@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CuaWindow } from './cua-semantic-contracts';
+import { CuaWindowListSchema, type CuaWindow } from './cua-semantic-contracts';
 import {
   sameWindowIdentity,
   selectExternalWindow,
@@ -127,5 +127,22 @@ describe('CUA external window selection', () => {
         { processId: 11, windowId: 1 },
       ),
     ).toBe(false);
+  });
+});
+
+describe('native window discovery before lesson selection', () => {
+  it('ignores zero-size windows without rejecting the visible material window', () => {
+    const material = windowFixture({ pid: 20, window_id: 3, title: 'lesson.md', z_index: 1 });
+    const hidden = [
+      windowFixture({ pid: 21, window_id: 4, bounds: { x: 0, y: 0, width: 0, height: 600 }, z_index: 9 }),
+      windowFixture({ pid: 22, window_id: 5, bounds: { x: 0, y: 0, width: 800, height: 0 }, z_index: 10 }),
+    ];
+    const discovery = CuaWindowListSchema.parse({ windows: [...hidden, material] });
+    expect(selectFrontmostExternalWindow(discovery.windows, 99)).toEqual(material);
+    expect(selectFrontmostExternalWindow(CuaWindowListSchema.parse({ windows: hidden }).windows, 99)).toBeUndefined();
+  });
+  it.each([-1, Number.POSITIVE_INFINITY, 100001])('still rejects invalid window dimensions (%s)', (width) => {
+    const window = windowFixture({ pid: 20, window_id: 3, bounds: { x: 0, y: 0, width, height: 600 } });
+    expect(CuaWindowListSchema.safeParse({ windows: [window] }).success).toBe(false);
   });
 });
