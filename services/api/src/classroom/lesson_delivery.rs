@@ -327,7 +327,7 @@ impl ClassroomService {
         anchor: Uuid,
         input: LessonDevice,
     ) -> Result<Value, ApiError> {
-        if input.build.len() > 100 || !matches!(input.lessons_version, 1 | 2 | 3) {
+        if input.build.len() > 100 || !matches!(input.lessons_version, 1..=3) {
             return Err(invalid_request());
         }
         let session = self.broadcast_student_session(user, anchor).await?;

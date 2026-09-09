@@ -8,36 +8,38 @@ import { ClassroomLessonPreview } from './ClassroomLessonPreview';
 
 export function ClassroomLessonComposer({ spaceId, runId, vi, enabled }: { spaceId: string; runId: string; vi: boolean; enabled: boolean }) {
   const [open, setOpen] = useState(false);
-  const [context, setContext] = useState<LessonContext | null>(null);
+  const scope = `${spaceId}:${runId}:${vi}:${open}`;
+  const [loaded, setLoaded] = useState<{ scope: string; context: LessonContext } | null>(null);
+  const context = loaded?.scope === scope ? loaded.context : null;
   const [request, setRequest] = useState('');
   const [options, setOptions] = useState<TeachingOptions>({ material: 'auto', surface: 'resource_app', navigation: 'student', language: vi ? 'vi' : 'en', section: '' });
   const [error, setError] = useState('');
-  const [preparing, setPreparing] = useState(false);
   const [sending, setSending] = useState(false);
   const [draft, setDraft] = useState<LessonDraft | null>(null);
   const generation = useRef(0);
   const draftRef = useRef(draft);
-  draftRef.current = draft;
+  useEffect(() => { draftRef.current = draft; }, [draft]);
   const locked = sending || Boolean(draft && ['sending', 'unknown', 'sent'].includes(draft.state));
 
   useEffect(() => {
     if (!open || !window.tro.lessons) return;
     let live = true;
-    const previousDraft = draftRef.current;
-    if (previousDraft && ['unknown', 'sending'].includes(previousDraft.state)) { setError(vi ? 'Kiểm tra biên nhận trước khi đổi bài học.' : 'Resolve the previous send receipt before changing lessons.'); return; }
-    if (previousDraft?.state === 'prepared') void window.tro.lessons.cancelDraft({ draftId: previousDraft.draftId }).catch(() => undefined);
-    setDraft(null);
-    setContext(null);
     void (async () => {
       const selected = await window.tro.getTeacherClassroom();
+      if (!live) return;
+      const previousDraft = draftRef.current;
+      if (previousDraft && ['unknown', 'sending'].includes(previousDraft.state)) { setError(vi ? 'Kiểm tra biên nhận trước khi đổi bài học.' : 'Resolve the previous send receipt before changing lessons.'); return; }
+      if (previousDraft?.state === 'prepared') void window.tro.lessons!.cancelDraft({ draftId: previousDraft.draftId }).catch(() => undefined);
+      setDraft(null);
+      setLoaded(null);
       if (!selected || selected.binding.spaceId !== spaceId) throw new Error(vi ? 'Chọn buổi học hiện tại trước.' : 'Select the current class session first.');
       const next = await window.tro.lessons!.context({ spaceId, sessionId: selected.binding.sessionId, runId });
       if (!live) return;
-      setContext(next);
+      setLoaded({ scope, context: next });
       setOptions((value) => ({ ...value, material: next.sources[0]?.sourceVersionId ?? 'current_screen', surface: next.sources.length ? 'resource_app' : 'current_window' }));
     })().catch((cause: unknown) => { if (live) setError(cause instanceof Error ? cause.message : 'Lesson context unavailable.'); });
-    return () => { live = false; generation.current++; };
-  }, [open, runId, spaceId, vi]);
+    return () => { live = false; };
+  }, [open, runId, spaceId, vi, scope]);
 
   const invalidate = () => {
     generation.current++;
@@ -46,19 +48,18 @@ export function ClassroomLessonComposer({ spaceId, runId, vi, enabled }: { space
     setError('');
   };
   useEffect(() => {
-    if (!open || !context || !request.trim() || locked) { setPreparing(false); return; }
+    if (!open || !context || !request.trim() || locked) return;
     const version = ++generation.current;
-    setPreparing(true);
+    let live = true;
     const timer = setTimeout(() => {
       void (async () => {
         const plan = planFromRequest(context, runId, request, vi, options);
         const prepared = await window.tro.lessons!.prepare({ binding: { spaceId, sessionId: context.sessionId }, plan });
-        if (generation.current !== version) { void window.tro.lessons!.cancelDraft({ draftId: prepared.draftId }).catch(() => undefined); return; }
+        if (!live || generation.current !== version) { void window.tro.lessons!.cancelDraft({ draftId: prepared.draftId }).catch(() => undefined); return; }
         setDraft(prepared);
-      })().catch((cause: unknown) => { if (generation.current === version) setError(cause instanceof Error ? cause.message : 'Could not prepare lesson.'); })
-        .finally(() => { if (generation.current === version) setPreparing(false); });
+      })().catch((cause: unknown) => { if (live && generation.current === version) setError(cause instanceof Error ? cause.message : 'Could not prepare lesson.'); });
     }, 500);
-    return () => { clearTimeout(timer); if (generation.current === version) generation.current++; };
+    return () => { live = false; clearTimeout(timer); };
   }, [open, context, runId, spaceId, request, options, vi, locked]);
   const edit = (value: Partial<TeachingOptions>) => { invalidate(); setOptions((current) => ({ ...current, ...value })); };
 
@@ -86,8 +87,8 @@ export function ClassroomLessonComposer({ spaceId, runId, vi, enabled }: { space
       </fieldset>
       {context && <small>{vi ? 'Buổi học' : 'Session'}: {context.title}</small>}
       {error && <p role="alert">{error}</p>}
-      {preparing && !draft && <p role="status">{vi ? 'Đang chuẩn bị bài học…' : 'Preparing lesson…'}</p>}
-      {draft && <ClassroomLessonPreview key={draft.draftId} draft={draft} onChange={setDraft} onBusy={setSending} compact vi={vi} />}
+      {context && request.trim() && !locked && !error && !draft && <p role="status">{vi ? 'Đang chuẩn bị bài học…' : 'Preparing lesson…'}</p>}
+      {draft && (context || draft.state !== 'prepared') && <ClassroomLessonPreview key={draft.draftId} draft={draft} onChange={setDraft} onBusy={setSending} compact vi={vi} />}
       {draft?.state === 'sent' && <button type="button" onClick={() => { invalidate(); setRequest(''); }}>{vi ? 'Dạy phần khác' : 'Teach another section'}</button>}
     </>}
   </section>;

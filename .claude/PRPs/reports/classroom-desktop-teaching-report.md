@@ -151,3 +151,7 @@ No test pass, packaging success, deployed capability, delivery fix or certified 
 Suggested PR title: **Teach classroom material in student desktop applications**
 
 Suggested PR description: Classroom lessons currently display source material in Tro and require a separate teacher preview action. This change adds a version-negotiated desktop teaching flow that downloads and opens pinned originals externally, verifies the student's material window, and uses a constrained agent for explanation and permitted navigation. Teachers edit an inline summary and send once; students retain local control, same-step follow-ups and recovery controls. Regression coverage is included; CI and macOS/Windows teacher/student acceptance are pending.
+
+## PR #79 CI correction pass
+
+The first CI run failed on seven TypeScript/React lint errors and three Rust Clippy errors. Replaced inline import types, moved ref synchronization out of render, derived preparation/window-list display from current state, guarded asynchronous context/preparation by scope, and applied the Rust style corrections. Both platform jobs stopped at their upstream gate. The corrected revision still requires CI; native acceptance remains pending.

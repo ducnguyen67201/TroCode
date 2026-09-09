@@ -98,7 +98,7 @@ fn bounded(s: &str, n: usize) -> bool {
 }
 impl LessonPlan {
     pub fn validate(&self) -> Result<(), ApiError> {
-        if !matches!(self.schema_version, 1 | 2 | 3)
+        if !matches!(self.schema_version, 1..=3)
             || !matches!(self.language.as_str(), "en" | "vi")
             || !bounded(&self.title, 240)
             || !bounded(&self.objective, 4000)
@@ -155,18 +155,17 @@ impl LessonPlan {
             if (self.schema_version == 3) != s.surface.is_some() {
                 return Err(invalid_request());
             }
-            if let Some(surface) = &s.surface {
-                if !matches!(surface.kind.as_str(), "current_window" | "resource_app")
+            if let Some(surface) = &s.surface
+                && (!matches!(surface.kind.as_str(), "current_window" | "resource_app")
                     || !matches!(surface.navigation.as_str(), "student" | "tro")
                     || (surface.kind == "resource_app"
                         && !matches!(
                             resource,
                             LessonResource::SourceText { .. } | LessonResource::Web { .. }
                         ))
-                    || (s.mode == "open" && surface.kind != "resource_app")
-                {
-                    return Err(invalid_request());
-                }
+                    || (s.mode == "open" && surface.kind != "resource_app"))
+            {
+                return Err(invalid_request());
             }
             if let Some(example) = &s.demonstration
                 && ((self.schema_version < 3 && !matches!(resource, LessonResource::Web { .. }))

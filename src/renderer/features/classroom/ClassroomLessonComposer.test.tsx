@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 
 import { lessonFixture } from '../../../main/knowledge/classroom-lesson.fixture';
+import type { LessonDraft } from '../../../shared/classroom-lesson-contracts';
 import type { DesktopApi } from '../../../shared/desktop-api';
 
 import { ClassroomLessonComposer } from './ClassroomLessonComposer';
@@ -87,15 +88,15 @@ it('discards a late preparation after edits and sends only the current reviewed 
   const f = lessonFixture();
   f.context.maxPlanVersion = 3;
   f.context.sources = [{ sourceVersionId: f.envelope.lessonId, title: 'python.pdf' }];
-  const pending: Array<{ input: { binding: { spaceId: string; sessionId: string }; plan: typeof f.plan }; resolve: (draft: import('../../../shared/classroom-lesson-contracts').LessonDraft) => void }> = [];
-  const prepare = vi.fn((input: { binding: { spaceId: string; sessionId: string }; plan: typeof f.plan }) => new Promise<import('../../../shared/classroom-lesson-contracts').LessonDraft>((resolve) => pending.push({ input, resolve })));
+  const pending: Array<{ input: { binding: { spaceId: string; sessionId: string }; plan: typeof f.plan }; resolve: (draft: LessonDraft) => void }> = [];
+  const prepare = vi.fn((input: { binding: { spaceId: string; sessionId: string }; plan: typeof f.plan }) => new Promise<LessonDraft>((resolve) => pending.push({ input, resolve })));
   const cancelDraft = vi.fn(async () => undefined);
   const confirm = vi.fn(async () => ({ ...currentDraft, state: 'unknown' as const }));
   const previous = window.tro;
   window.tro = { getTeacherClassroom: async () => ({ binding: { spaceId: f.plan.targetRunId, sessionId: f.context.sessionId } }), lessons: { context: async () => f.context, prepare, cancelDraft, confirm } } as unknown as DesktopApi;
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
-  let currentDraft: import('../../../shared/classroom-lesson-contracts').LessonDraft;
+  let currentDraft: LessonDraft;
   const change = async (text: string) => act(async () => {
     const textarea = host.querySelector('textarea')!;
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, text);

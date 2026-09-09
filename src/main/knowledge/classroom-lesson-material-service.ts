@@ -130,7 +130,7 @@ export class ClassroomLessonMaterialService {
       const hash = createHash('sha256');
       let size = 0;
       try {
-        while (true) {
+        for (;;) {
           signal.throwIfAborted();
           const chunk = await reader.read();
           if (chunk.done) break;
