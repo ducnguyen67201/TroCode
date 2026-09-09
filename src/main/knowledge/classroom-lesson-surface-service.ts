@@ -6,6 +6,7 @@ import type { CuaService } from '../cua/cua-service';
 import type { CuaWindowIdentity } from '../cua/cua-window-selection';
 
 import { LessonBlockedError } from './classroom-lesson-errors';
+import { isMaterialAppChooser } from './classroom-material-chooser-policy';
 
 interface Binding {
   owner: string;
@@ -20,6 +21,7 @@ interface Binding {
 export class ClassroomLessonSurfaceService {
   private readonly fileTitles = new Map<string, string>();
   selectFileTitle(state: LessonLocalState, title: string) { this.clear(state.envelope.lessonId); this.fileTitles.set(state.envelope.lessonId, title); }
+  restoreFileTitle(state: LessonLocalState, title: string) { this.fileTitles.set(state.envelope.lessonId, title); }
   private readonly bindings = new Map<string, Binding>();
   private readonly choices = new Map<string, { lesson: string; owner: string; revision: number; expires: number; identity: CuaWindowIdentity }>();
   constructor(private readonly options: {
@@ -57,6 +59,16 @@ export class ClassroomLessonSurfaceService {
   }
 
   async observe(state: LessonLocalState, taskId: string, signal: AbortSignal): Promise<DesktopObservation> {
+    const result = await this.inspectOpening(state, taskId, signal);
+    if (!result.ready) throw result.error;
+    return result.observation;
+  }
+
+  /** Opening can observe an OS chooser without granting it authority as lesson content. */
+  async inspectOpening(state: LessonLocalState, taskId: string, signal: AbortSignal): Promise<
+    { ready: true; observation: DesktopObservation } |
+    { ready: false; observation?: DesktopObservation; error: LessonBlockedError }
+  > {
     signal.throwIfAborted();
     const step = state.envelope.plan.steps[state.stepIndex];
     if (!step) throw new Error('Lesson step is unavailable.');
@@ -67,24 +79,31 @@ export class ClassroomLessonSurfaceService {
     const cleanup = await this.options.prepareObservation();
     try {
       const result = await this.options.cua.observeLessonWindow(taskId, bound?.identity, signal);
-      if (!result) throw new LessonBlockedError('surface_unverified', 'Open the lesson material in its app, then choose its window.');
+      if (!result) return { ready: false, error: new LessonBlockedError('surface_unverified', 'Open the lesson material in its app, then choose its window.') };
       const observation = result.observation.screenshot ? { ...result.observation, fingerprint: createHash('sha256').update(result.observation.fingerprint).update(result.observation.screenshot.dataBase64).digest('hex') } : result.observation;
-      const title = observation.surface?.title ?? '';
-      if (bound && ((bound.title && bound.title !== title) || bound.url !== undefined && bound.url !== observation.surface?.url))
-        throw new LessonBlockedError('surface_unverified', 'The document or tab changed. Choose the material window again.');
-      const resource = state.envelope.plan.resources.find((r) => r.id === step.resourceId);
-      if (!bound?.explicit && (resource?.kind === 'source_text' || this.fileTitles.has(state.envelope.lessonId))) {
-        const name = (this.fileTitles.get(state.envelope.lessonId) ?? resource!.title).split(/[\\/]/u).pop()!.toLocaleLowerCase();
-        if (!title.toLocaleLowerCase().includes(name))
-          throw new LessonBlockedError('surface_unverified', 'Show the requested file, or select its window to explain it.');
+      try {
+        if (isMaterialAppChooser(observation))
+          throw new LessonBlockedError('surface_unverified', 'Choosing an application for the lesson material.');
+        const title = observation.surface?.title ?? '';
+        if (bound && ((bound.title && bound.title !== title) || bound.url !== undefined && bound.url !== observation.surface?.url))
+          throw new LessonBlockedError('surface_unverified', 'The document or tab changed. Choose the material window again.');
+        const resource = state.envelope.plan.resources.find((r) => r.id === step.resourceId);
+        if (!bound?.explicit && (resource?.kind === 'source_text' || this.fileTitles.has(state.envelope.lessonId))) {
+          const name = (this.fileTitles.get(state.envelope.lessonId) ?? resource!.title).split(/[\\/]/u).pop()!.toLocaleLowerCase();
+          if (!title.toLocaleLowerCase().includes(name))
+            throw new LessonBlockedError('surface_unverified', 'Show the requested file, or select its window to explain it.');
+        }
+        if (resource?.kind === 'web' && observation.surface?.url !== resource.url)
+          throw new LessonBlockedError('surface_unverified', 'Show the requested webpage before starting this lesson.');
+        if (!observation.text.trim() && !observation.screenshot)
+          throw new LessonBlockedError('resource_unavailable', 'The material is not readable. Open it or zoom in, then continue.');
+        this.bindings.set(state.envelope.lessonId, { owner: state.ownerId, step: step.id, identity: result.identity,
+          title, url: observation.surface?.url, explicit: bound?.explicit ?? false });
+        return { ready: true, observation };
+      } catch (error) {
+        if (!(error instanceof LessonBlockedError)) throw error;
+        return { ready: false, observation, error };
       }
-      if (resource?.kind === 'web' && observation.surface?.url !== resource.url)
-        throw new LessonBlockedError('surface_unverified', 'Show the requested webpage before starting this lesson.');
-      if (!observation.text.trim() && !observation.screenshot)
-        throw new LessonBlockedError('resource_unavailable', 'The material is not readable. Open it or zoom in, then continue.');
-      this.bindings.set(state.envelope.lessonId, { owner: state.ownerId, step: step.id, identity: result.identity,
-        title, url: observation.surface?.url, explicit: bound?.explicit ?? false });
-      return observation;
     } finally { await cleanup(); }
   }
 

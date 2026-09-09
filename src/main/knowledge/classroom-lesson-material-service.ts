@@ -7,6 +7,7 @@ import type { LessonFile, LessonLocalState } from '../../shared/classroom-lesson
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 import { LessonBlockedError } from './classroom-lesson-errors';
 import { safeMaterialName } from './classroom-lesson-material-policy';
+import type { ClassroomLessonOpeningService } from './classroom-lesson-opening-service';
 import type { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 import type { ClassroomLessonSurfaceService } from './classroom-lesson-surface-service';
 
@@ -16,7 +17,8 @@ export class ClassroomLessonMaterialService {
     directory: string;
     client: Pick<ClassroomLessonClient, 'file'>;
     store: Pick<ClassroomLessonStateStore, 'readNativeMaterial' | 'saveNativeMaterial'>;
-    surfaces: Pick<ClassroomLessonSurfaceService, 'observe' | 'selectFileTitle'>;
+    surfaces: Pick<ClassroomLessonSurfaceService, 'observe' | 'selectFileTitle' | 'restoreFileTitle'>;
+    opening: Pick<ClassroomLessonOpeningService, 'complete'>;
     chooseFile?(): Promise<string | null>;
     validateSelection?(state: LessonLocalState, revision: number): Promise<void>;
     openPath(value: string): Promise<string>;
@@ -31,14 +33,17 @@ export class ClassroomLessonMaterialService {
     const step = state.envelope.plan.steps[state.stepIndex]!;
     const resource = state.material!.resource;
     const previous = await this.options.store.readNativeMaterial(state.ownerId, state.envelope.lessonId, resource.id);
+    if (previous && resource.kind !== 'web') this.options.surfaces.restoreFileTitle(state, path.basename(previous.path));
     if (previous?.status !== 'selected') {
       await this.options.consume('observation');
       try { await this.options.surfaces.observe(state, state.envelope.lessonId, signal); return; }
       catch (error) { if (!(error instanceof LessonBlockedError) || step.surface?.kind !== 'resource_app') throw error; }
     }
     if (previous?.status === 'dispatching') { await this.options.markEffect('unknown'); throw new Error('The earlier opening is uncertain. Inspect the material before accepting a new lesson.'); }
-    if (previous && !['failed', 'selected'].includes(previous.status))
-      throw new LessonBlockedError('surface_unverified', 'This material was already opened or its opening is uncertain. Show its window and select it; Tro will not open it again.');
+    if (previous?.status === 'opened') {
+      await this.finishOpening(state, previous.path, previous.sha256, resource.kind !== 'web', signal);
+      return;
+    }
     let target: string, sha256 = '';
     if (previous?.status === 'selected') { target = previous.path; this.options.surfaces.selectFileTitle(state, path.basename(target)); }
     else if (resource.kind === 'source_text') {
@@ -69,19 +74,17 @@ export class ClassroomLessonMaterialService {
     }
     await this.options.store.saveNativeMaterial(state.ownerId, state.envelope.lessonId, resource.id, { path: target, sha256, status: 'opened' });
     await this.options.markEffect('confirmed');
-    // The OS receipt is not readiness. Observation verifies actual visible material.
-    for (let attempt = 0; attempt < 4; attempt++) {
-      signal.throwIfAborted();
-      await this.options.authorize();
-      await this.options.consume('observation');
-      try {
-        await this.options.surfaces.observe(state, state.envelope.lessonId, signal);
-        return;
-      } catch (error) {
-        if (!(error instanceof LessonBlockedError) || attempt === 3) throw error;
-        await new Promise<void>((resolve) => setTimeout(resolve, 350));
-      }
-    }
+    await this.finishOpening(state, target, sha256, resource.kind !== 'web' || previous?.status === 'selected', signal);
+  }
+
+  private finishOpening(state: LessonLocalState, target: string, sha256: string, file: boolean, signal: AbortSignal) {
+    return this.options.opening.complete(state, file ? path.basename(target) : undefined, signal, async (effect) => {
+      const resource = state.envelope.plan.steps[state.stepIndex]!.resourceId;
+      // Journal chooser clicks too, so a crash cannot turn an unknown click into a retry.
+      await this.options.store.saveNativeMaterial(state.ownerId, state.envelope.lessonId, resource,
+        { path: target, sha256, status: effect === 'dispatching' || effect === 'unknown' ? 'dispatching' : 'opened' });
+      await this.options.markEffect(effect);
+    });
   }
 
   async chooseLocal(state: LessonLocalState) {

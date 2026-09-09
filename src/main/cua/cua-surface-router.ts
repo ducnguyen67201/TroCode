@@ -303,6 +303,7 @@ export class CuaSurfaceRouter {
     observationId: string,
     command: SurfaceCommand,
     signal?: AbortSignal,
+    transition?: 'opening',
   ): Promise<SurfaceActionOutcome> {
     const binding = this.referenceStore.require(taskId, observationId);
     const ref = 'ref' in command && command.ref
@@ -331,9 +332,8 @@ export class CuaSurfaceRouter {
     }
     if (!fresh) {
       return SurfaceActionOutcomeSchema.parse({
-        status: effect === 'confirmed' ? 'unknown' : 'unknown',
-        summary:
-          'CUA may have delivered the action, but Tro could not refresh the exact surface.',
+        status: effect === 'confirmed' && transition === 'opening' ? 'confirmed' : 'unknown',
+        summary: effect === 'confirmed' && transition === 'opening' ? 'CUA confirmed the opening action; observe the destination window before continuing.' : 'CUA may have delivered the action, but Tro could not refresh the exact surface.',
       });
     }
     this.referenceStore.replace(fresh.binding);
