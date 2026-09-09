@@ -7,6 +7,10 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum LessonResource {
+    CurrentScreen {
+        id: Uuid,
+        title: String,
+    },
     Assignment {
         id: Uuid,
         title: String,
@@ -27,12 +31,16 @@ pub enum LessonResource {
 impl LessonResource {
     pub fn id(&self) -> Uuid {
         match self {
-            Self::Assignment { id, .. } | Self::SourceText { id, .. } | Self::Web { id, .. } => *id,
+            Self::CurrentScreen { id, .. }
+            | Self::Assignment { id, .. }
+            | Self::SourceText { id, .. }
+            | Self::Web { id, .. } => *id,
         }
     }
     pub fn title(&self) -> &str {
         match self {
-            Self::Assignment { title, .. }
+            Self::CurrentScreen { title, .. }
+            | Self::Assignment { title, .. }
             | Self::SourceText { title, .. }
             | Self::Web { title, .. } => title,
         }
@@ -46,12 +54,24 @@ pub struct LessonExample {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LessonSurface {
+    pub kind: String,
+    pub navigation: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LessonStep {
     pub id: Uuid,
     pub mode: String,
     pub objective: String,
     pub instruction: String,
     pub resource_id: Uuid,
+    #[serde(
+        default,
+        deserialize_with = "present_surface",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub surface: Option<LessonSurface>,
     pub criterion_ids: Vec<String>,
     #[serde(deserialize_with = "required_option")]
     pub demonstration: Option<LessonExample>,
@@ -68,12 +88,17 @@ pub struct LessonPlan {
     pub resources: Vec<LessonResource>,
     pub steps: Vec<LessonStep>,
 }
+fn present_surface<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<LessonSurface>, D::Error> {
+    LessonSurface::deserialize(deserializer).map(Some)
+}
 fn bounded(s: &str, n: usize) -> bool {
     !s.trim().is_empty() && s.trim() == s && s.encode_utf16().count() <= n
 }
 impl LessonPlan {
     pub fn validate(&self) -> Result<(), ApiError> {
-        if !matches!(self.schema_version, 1 | 2)
+        if !matches!(self.schema_version, 1..=3)
             || !matches!(self.language.as_str(), "en" | "vi")
             || !bounded(&self.title, 240)
             || !bounded(&self.objective, 4000)
@@ -86,6 +111,9 @@ impl LessonPlan {
         let mut ids = std::collections::HashSet::new();
         for r in &self.resources {
             if !ids.insert(r.id()) || !bounded(r.title(), 240) {
+                return Err(invalid_request());
+            }
+            if self.schema_version < 3 && matches!(r, LessonResource::CurrentScreen { .. }) {
                 return Err(invalid_request());
             }
             if let LessonResource::Web { url, origin, .. } = r {
@@ -124,8 +152,23 @@ impl LessonPlan {
             {
                 return Err(invalid_request());
             }
+            if (self.schema_version == 3) != s.surface.is_some() {
+                return Err(invalid_request());
+            }
+            if let Some(surface) = &s.surface
+                && (!matches!(surface.kind.as_str(), "current_window" | "resource_app")
+                    || !matches!(surface.navigation.as_str(), "student" | "tro")
+                    || (surface.kind == "resource_app"
+                        && !matches!(
+                            resource,
+                            LessonResource::SourceText { .. } | LessonResource::Web { .. }
+                        ))
+                    || (s.mode == "open" && surface.kind != "resource_app"))
+            {
+                return Err(invalid_request());
+            }
             if let Some(example) = &s.demonstration
-                && (!matches!(resource, LessonResource::Web { .. })
+                && ((self.schema_version < 3 && !matches!(resource, LessonResource::Web { .. }))
                     || !bounded(&example.example_description, 4000)
                     || !bounded(&example.expected_result, 4000))
             {

@@ -114,6 +114,24 @@ impl ClassroomService {
         let row = self
             .lesson_authority(&mut tx, user, anchor, lesson, true)
             .await?;
+        let plan: LessonPlan =
+            serde_json::from_value(row.get("plan")).map_err(ApiError::internal)?;
+        if plan.schema_version >= 3 {
+            let supported = query("SELECT capabilities FROM knowledge_classroom_lesson_devices WHERE session_id=$1 AND user_id=$2 AND client_instance_id=$3")
+                .bind(row.get::<Uuid, _>("session_id")).bind(user).bind(input.client_instance_id)
+                .fetch_optional(&mut *tx).await?;
+            if !supported.is_some_and(|device| {
+                device.get::<Value, _>("capabilities")["lessonsVersion"]
+                    .as_u64()
+                    .unwrap_or(1)
+                    >= u64::from(plan.schema_version)
+            }) {
+                return Err(ApiError::conflict(
+                    "lesson_update_required",
+                    "Update this student computer before starting the desktop lesson.",
+                ));
+            }
+        }
         let delivery=query("SELECT * FROM knowledge_classroom_lesson_deliveries WHERE lesson_id=$1 AND user_id=$2 FOR UPDATE").bind(lesson).bind(user).fetch_optional(&mut *tx).await?.ok_or_else(unavailable)?;
         let digest = row.get::<String, _>("plan_digest");
         if delivery.get::<Option<Uuid>, _>("execution_id").is_some() {
@@ -309,7 +327,7 @@ impl ClassroomService {
         anchor: Uuid,
         input: LessonDevice,
     ) -> Result<Value, ApiError> {
-        if input.build.len() > 100 || !matches!(input.lessons_version, 1 | 2) {
+        if input.build.len() > 100 || !matches!(input.lessons_version, 1..=3) {
             return Err(invalid_request());
         }
         let session = self.broadcast_student_session(user, anchor).await?;

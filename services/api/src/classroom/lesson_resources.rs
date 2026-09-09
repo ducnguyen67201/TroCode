@@ -32,6 +32,7 @@ impl ClassroomService {
         let mut next = None;
         let mut text = String::new();
         match selected {
+            LessonResource::CurrentScreen { .. } => {}
             LessonResource::Assignment { .. } => {
                 text = row.get::<Value, _>("definition")["instructions"]
                     .as_str()

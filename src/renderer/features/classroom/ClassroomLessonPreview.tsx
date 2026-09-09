@@ -8,10 +8,14 @@ export function ClassroomLessonPreview({
   draft,
   onChange,
   vi,
+  compact = false,
+  onBusy,
 }: {
   draft: LessonDraft;
   onChange(draft: LessonDraft): void;
   vi: boolean;
+  compact?: boolean;
+  onBusy?(busy: boolean): void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -42,6 +46,7 @@ export function ClassroomLessonPreview({
   const act = async (reconcile = false) => {
     if (!window.tro.lessons) return;
     setBusy(true);
+    onBusy?.(true);
     setError('');
     try {
       onChange(
@@ -58,10 +63,12 @@ export function ClassroomLessonPreview({
       }
     } finally {
       setBusy(false);
+      onBusy?.(false);
     }
   };
   return (
     <section className="lesson-preview" aria-label={vi ? 'Xem trước bài học' : 'Exact lesson preview'}>
+      {(!compact || draft.state === 'prepared') && <>
       <h3>{draft.plan.title}</h3>
       <p>{draft.plan.objective}</p>
       <p>
@@ -81,7 +88,7 @@ export function ClassroomLessonPreview({
           </li>
         ))}
       </ul>
-      <ol>
+      {!compact && <ol>
         {draft.plan.steps.map((step) => (
           <li key={step.id}>
             <strong>{step.mode}</strong>: {step.instruction}
@@ -112,7 +119,8 @@ export function ClassroomLessonPreview({
             )}
           </li>
         ))}
-      </ol>
+      </ol>}
+      </>}
       {error && <p role="alert">{error}</p>}
       {draft.state === 'prepared' && (
         <button
@@ -128,7 +136,7 @@ export function ClassroomLessonPreview({
             void act();
           }}
         >
-          {vi ? 'Phát bài học cho lớp' : 'Broadcast lesson'}
+          {vi ? 'Gửi cho lớp' : 'Send to class'}
         </button>
       )}
       {['sending', 'unknown'].includes(draft.state) && (

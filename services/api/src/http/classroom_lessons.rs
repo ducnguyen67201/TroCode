@@ -49,8 +49,8 @@ pub async fn route(
                     id(&query(uri, "runId").ok_or_else(crate::classroom::invalid_request)?)?,
                 )
                 .await?;
-            if number(uri, "maxPlanVersion")?.is_some() {
-                context["maxPlanVersion"] = serde_json::json!(2);
+            if let Some(requested) = number(uri, "maxPlanVersion")? {
+                context["maxPlanVersion"] = serde_json::json!(requested.clamp(1, 3));
             }
             context
         }
@@ -118,16 +118,44 @@ pub async fn route(
                 .await?;
             // Keep the original cursor so an older client advances past unsupported plans.
             let requested = number(uri, "maxPlanVersion")?;
-            let supported = requested.unwrap_or(1).clamp(1, 2);
+            let supported = requested.unwrap_or(1).clamp(1, 3);
             if let Some(items) = feed["items"].as_array_mut() {
                 items.retain(|item| {
                     item["plan"]["schemaVersion"].as_i64().unwrap_or(1) <= supported
                 });
             }
             if requested.is_some() {
-                feed["maxPlanVersion"] = serde_json::json!(2);
+                feed["maxPlanVersion"] = serde_json::json!(supported);
             }
             feed
+        }
+        (
+            &Method::GET,
+            [
+                "v1",
+                "attempts",
+                anchor,
+                "session-lessons",
+                lesson,
+                "resources",
+                resource,
+                "file",
+            ],
+        ) => {
+            let original = c
+                .lesson_original(user, id(anchor)?, id(lesson)?, id(resource)?)
+                .await?;
+            let store = state.knowledge.object_store.as_ref().ok_or_else(|| {
+                crate::error::ApiError::coded(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "knowledge_storage_unavailable",
+                    "Class material storage is unavailable.",
+                )
+            })?;
+            let ticket = store.get_ticket(&original.object_key).await?;
+            serde_json::json!({"sourceVersionId": original.source_version_id, "name": original.name,
+                "mediaType": original.media_type, "byteSize": original.byte_size, "sha256": original.sha256,
+                "download": ticket})
         }
         (&Method::POST, ["v1", "attempts", anchor, "lesson-device"]) => {
             c.lesson_device(user, id(anchor)?, body(headers, bytes)?)

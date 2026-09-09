@@ -30,7 +30,8 @@ import {
   type CuaBoundReference,
   type CuaSurfaceBinding,
 } from './cua-surface-reference-store';
-import { selectExternalWindow } from './cua-window-selection';
+import { visibleApplicationSurfaces } from './cua-visible-application-surfaces';
+import { externalWindowCandidates, sameWindowIdentity, selectExternalWindow, type CuaWindowIdentity } from './cua-window-selection';
 
 const MAX_PUBLIC_ELEMENTS = 400;
 const MAX_TEXT_LENGTH = 100_000;
@@ -41,13 +42,7 @@ const BROWSER_PATTERN =
 const SECRET_ROLE_PATTERN = /(?:password|secure)/iu;
 const STALE_OR_REFUSED_PATTERN =
   /(?:stale|not[_ -]?found|invalid[_ -]?(?:ref|token)|owner_pid_mismatch|permission_required|refus)/iu;
-const CHROME_DRIVER_IDENTITIES = new Set([
-  'google chrome',
-  'google-chrome',
-  'google-chrome-stable',
-  'chromium',
-  'chromium-browser',
-]);
+
 
 export type CuaToolCaller = (
   name: string,
@@ -57,6 +52,7 @@ export type CuaToolCaller = (
 
 export interface ObserveSurfaceOptions {
   allowScreenshot?: boolean;
+  allowVisionOnly?: boolean;
   query?: string;
 }
 
@@ -274,44 +270,32 @@ export class CuaSurfaceRouter {
     return snapshot.observation;
   }
 
-  async queryVisibleApplicationSurfaces(
-    application: TrustedApplicationIdentity,
-    signal?: AbortSignal,
-  ): Promise<VisibleApplicationSurface[]> {
+  async externalWindows(signal?: AbortSignal): Promise<CuaWindow[]> {
     if (!this.available()) return [];
-    const listed = await this.options.callTool(
-      'list_windows',
-      { on_screen_only: true },
-      signal,
-    );
+    const listed = await this.options.callTool('list_windows', { on_screen_only: true }, signal);
     if (listed.isError) return [];
-    const windows = parseCuaStructuredResult(listed, CuaWindowListSchema).windows;
-    return windows
-      .filter((window) => {
-        if (
-          !window.is_on_screen ||
-          !window.on_current_space ||
-          window.bounds.width <= 0 ||
-          window.bounds.height <= 0
-        ) {
-          return false;
-        }
-        return (
-          application === 'chrome' &&
-          CHROME_DRIVER_IDENTITIES.has(window.app_name.trim().toLocaleLowerCase('en-US'))
-        );
-      })
-      .map((window) => ({
-        application,
-        observationId: randomUUID(),
-        observedAt: new Date(this.now()).toISOString(),
-        observationFingerprint: hash({
-          application,
-          bounds: window.bounds,
-          pid: window.pid,
-          windowId: window.window_id,
-        }),
-      }));
+    return externalWindowCandidates(parseCuaStructuredResult(listed, CuaWindowListSchema).windows, this.ownProcessId);
+  }
+
+  async observeExternalWindow(taskId: string, identity: CuaWindowIdentity | undefined,
+    signal?: AbortSignal): Promise<{ observation: DesktopObservation; identity: CuaWindowIdentity } | undefined> {
+    const windows = await this.externalWindows(signal);
+    const window = identity
+      ? windows.find((item) => sameWindowIdentity(identity, { processId: item.pid, windowId: item.window_id }))
+      : selectExternalWindow(windows, this.ownProcessId);
+    if (!window) return undefined;
+    const frontmost = selectExternalWindow(windows, this.ownProcessId);
+    if (!frontmost || !sameWindowIdentity({ processId: window.pid, windowId: window.window_id }, { processId: frontmost.pid, windowId: frontmost.window_id })) return undefined;
+    const snapshot = await this.observeWindow(taskId, window, { allowScreenshot: true, allowVisionOnly: true }, signal);
+    if (!snapshot) return undefined;
+    this.referenceStore.replace(snapshot.binding);
+    return { observation: snapshot.observation, identity: { processId: window.pid, windowId: window.window_id } };
+  }
+
+  async queryVisibleApplicationSurfaces(application: TrustedApplicationIdentity, signal?: AbortSignal): Promise<VisibleApplicationSurface[]> {
+    if (!this.available()) return [];
+    const listed = await this.options.callTool('list_windows', { on_screen_only: true }, signal);
+    return listed.isError ? [] : visibleApplicationSurfaces(application, parseCuaStructuredResult(listed, CuaWindowListSchema).windows, this.now());
   }
 
   async execute(
@@ -522,7 +506,7 @@ export class CuaSurfaceRouter {
       );
       if (browser) return browser;
     }
-    return this.observeAccessibility(taskId, window, observeOptions, signal);
+    return this.observeAccessibility(taskId, window, { ...observeOptions, allowVisionOnly: binding.route === 'window_vision' }, signal);
   }
 
   private async observeAccessibility(
@@ -569,7 +553,7 @@ export class CuaSurfaceRouter {
         }
       }
     }
-    if (state.elements.length === 0) return undefined;
+    if (state.elements.length === 0 && !(observeOptions.allowVisionOnly && result.images[0])) return undefined;
 
     const surface: SurfaceDescriptor = {
       kind: surfaceKind(window.app_name),
@@ -605,13 +589,13 @@ export class CuaSurfaceRouter {
         semanticFingerprint: fingerprint,
       });
     }
-    if (publicElements.length === 0) return undefined;
+    if (publicElements.length === 0 && !(observeOptions.allowVisionOnly && result.images[0])) return undefined;
     const text = (state.tree_markdown || summarizedElements(publicElements)).slice(
       0,
       MAX_TEXT_LENGTH,
     );
     const image = result.images[0];
-    const fingerprint = hash({ surface, publicElements, text });
+    const fingerprint = hash({ surface, publicElements, text, ...(publicElements.length === 0 && image ? { imageHash: hash(image.dataBase64) } : {}) });
     const route = includeScreenshot && image
       ? ('window_vision' as const)
       : ('window_accessibility' as const);
@@ -715,7 +699,7 @@ export class CuaSurfaceRouter {
         semanticFingerprint: semanticFingerprint(publicElement),
       });
     }
-    if (publicElements.length === 0) return undefined;
+    if (publicElements.length === 0 && !(observeOptions.allowVisionOnly && result.images[0])) return undefined;
     const text = (
       state.text ??
       state.tree_markdown ??

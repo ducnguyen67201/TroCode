@@ -311,6 +311,7 @@ describe('LocalAgentRuntime observation delivery', () => {
       data: {
         observation: {
           capturedAt: observation.capturedAt,
+          fingerprint: observation.fingerprint,
           degraded: false,
           observationId: observation.observationId,
           route: 'window_vision',

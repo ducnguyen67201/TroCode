@@ -197,3 +197,16 @@ describe('CuaSurfaceRouter', () => {
     expect(callTool.mock.calls.filter(([name]) => name === 'click')).toHaveLength(1);
   });
 });
+
+it('supports screenshot-only lesson windows without widening the general semantic fallback', async () => {
+  const callTool = vi.fn(async (name: string, args: Record<string, unknown>) => {
+    if (name === 'list_windows') return result({ windows: [{ ...windowRecord, app_name: 'Preview', title: 'lesson.pdf' }] });
+    if (name === 'get_window_state') return result({ snapshot_id: 's12345678', elements: [], tree_markdown: '' }, args.include_screenshot ? { images: [{ mimeType: 'image/png', dataBase64: 'c2NyZWVuc2hvdA==' }] } : {});
+    throw new Error(`Unexpected ${name}`);
+  });
+  const service = router(callTool);
+  expect(await service.observeCurrentSurface(randomUUID())).toBeUndefined();
+  const lesson = await service.observeExternalWindow(randomUUID(), undefined);
+  expect(lesson?.observation).toMatchObject({ route: 'window_vision', elements: [], screenshot: { mimeType: 'image/png' } });
+  expect(lesson?.identity).toEqual({ processId: windowRecord.pid, windowId: windowRecord.window_id });
+});

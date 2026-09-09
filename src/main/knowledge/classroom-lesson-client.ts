@@ -8,6 +8,7 @@ import {
   LessonEnvelopeSchema,
   LessonFeedSchema,
   LessonMaterialSchema,
+  LessonFileSchema,
   LessonProgressSchema,
   LessonReceiptSchema,
   LessonReportSchema,
@@ -39,7 +40,7 @@ export class ClassroomLessonClient {
   }
   context(space: string, session: string, runId: string) {
     return this.http.request(
-      `${this.base(space, session)}/lesson-context?runId=${z.uuid().parse(runId)}&maxPlanVersion=2`,
+      `${this.base(space, session)}/lesson-context?runId=${z.uuid().parse(runId)}&maxPlanVersion=3`,
       {},
       LessonContextSchema,
     );
@@ -74,12 +75,15 @@ export class ClassroomLessonClient {
   }
   async feed(anchor: string, after?: number, signal?: AbortSignal) {
     const feed = await this.http.request(
-      `${this.anchor(anchor)}?maxPlanVersion=2${after === undefined ? '' : `&afterSequence=${after}`}`,
+      `${this.anchor(anchor)}?maxPlanVersion=3${after === undefined ? '' : `&afterSequence=${after}`}`,
       { signal },
       LessonFeedSchema,
     );
-    this.maxPlanVersion = feed.maxPlanVersion ?? 1;
+    this.maxPlanVersion = Math.min(3, feed.maxPlanVersion ?? 1);
     return feed;
+  }
+  file(anchor: string, lesson: string, resource: string, signal?: AbortSignal) {
+    return this.http.request(`${this.anchor(anchor, lesson)}/resources/${z.uuid().parse(resource)}/file`, { signal }, LessonFileSchema);
   }
   device(anchor: string, clientInstanceId: string, build: string, ready: boolean) {
     return this.http.request(

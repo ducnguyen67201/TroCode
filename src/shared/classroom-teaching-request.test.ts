@@ -45,3 +45,17 @@ describe('teaching request routing', () => {
     expect(ClassroomLessonPlanSchema.safeParse({ ...plan('Open google.com'), schemaVersion: 1 }).success).toBe(false);
   });
 });
+
+it('defaults a selected v3 class file to an external app and keeps visible-screen teaching explicit', () => {
+  const source = { title: 'python.pdf', sourceVersionId: randomUUID() };
+  const context = lessonFixture().context;
+  const current = { ...context, maxPlanVersion: 3, sources: [source] };
+  const options = { material: source.sourceVersionId, surface: 'resource_app' as const, navigation: 'student' as const, language: 'vi' as const, section: 'Page 2' };
+  const plan = planFromRequest(current, current.targetRunId, 'Explain one example', false, options);
+  expect(plan.schemaVersion).toBe(3);
+  expect(plan.resources[0]).toMatchObject({ kind: 'source_text', sourceVersionId: source.sourceVersionId });
+  expect(plan.steps[0]).toMatchObject({ surface: { kind: 'resource_app', navigation: 'student' }, instruction: 'Explain one example\nSection: Page 2' });
+  const visible = planFromRequest(current, current.targetRunId, 'Explain this', false, { ...options, material: 'current_screen', surface: 'current_window' });
+  expect(visible.resources[0]?.kind).toBe('current_screen');
+  expect(() => planFromRequest({ ...current, maxPlanVersion: 2 }, current.targetRunId, 'Explain this', false, options)).toThrow('server');
+});

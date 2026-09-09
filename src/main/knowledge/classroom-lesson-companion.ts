@@ -11,7 +11,7 @@ export function lessonCompanionCard(view: LessonView): CompanionResponseCard | n
     taskId: state.envelope.lessonId,
     phase: ['received', 'preparing', 'running'].includes(state.status) ? 'streaming' : 'completed',
     side: 'right',
-    lesson: { revision: state.revision, status: state.status, language: state.envelope.plan.language },
+    lesson: { revision: state.revision, status: state.status, language: state.envelope.plan.language, continueExplanation: state.teachingProgress?.disposition === 'continue' },
     message: `${state.envelope.plan.title}\n${state.phase}\n${view.error || (['preparing', 'running'].includes(state.status) ? '' : state.text)}`.slice(0, 8000),
   };
 }

@@ -5,6 +5,7 @@ import type { LessonContinueSchema } from '../../../shared/classroom-lesson-cont
 import type { AppLanguage } from '../../../shared/contracts';
 import '../../classroom-lesson.css';
 
+import { ClassroomLessonDesktopControls } from './ClassroomLessonDesktopControls';
 import { ClassroomLessonMaterialPanel } from './ClassroomLessonMaterialPanel';
 import { useClassroomLesson } from './use-classroom-lesson';
 
@@ -75,7 +76,7 @@ export function ClassroomLessonPanel({ appLanguage }: { appLanguage: AppLanguage
                   : 'Check permissions and material, then choose Resume.'}
             </p>
           )}
-          <ClassroomLessonMaterialPanel key={`${state.envelope.lessonId}:${state.material?.resource.id}`} state={state} vi={vi} />
+          {state.envelope.plan.schemaVersion === 3 ? <ClassroomLessonDesktopControls state={state} vi={vi} /> : <ClassroomLessonMaterialPanel key={`${state.envelope.lessonId}:${state.material?.resource.id}`} state={state} vi={vi} />}
           {state.text && <p className="lesson-explanation">{state.text}</p>}
           {state.feedback.length > 0 && (
             <ul>
@@ -105,8 +106,8 @@ export function ClassroomLessonPanel({ appLanguage }: { appLanguage: AppLanguage
             )}
             {state.status === 'waiting_for_student' && (
               <>
-                <button type="button" onClick={() => act('next')}>
-                  {state.stepIndex + 1 === state.envelope.plan.steps.length
+                <button type="button" onClick={() => act(state.teachingProgress?.disposition === 'continue' ? 'continue_explanation' : 'next')}>
+                  {state.teachingProgress?.disposition === 'continue' ? (vi ? 'Giải thích tiếp' : 'Continue explaining') : state.stepIndex + 1 === state.envelope.plan.steps.length
                     ? vi
                       ? 'Kết thúc bài học'
                       : 'Finish lesson'

@@ -478,3 +478,26 @@ describe('TaskApplicationService', () => {
     );
   });
 });
+
+it('keeps long desktop lesson requests inside the SDK limit and uses only the lesson observation entry point', async () => {
+  const deps = localDependencies();
+  const state = lessonStateFixture();
+  state.envelope.plan.schemaVersion = 3;
+  state.envelope.plan.steps[0]!.surface = { kind: 'current_window', navigation: 'student' };
+  state.envelope.plan.steps[0]!.instruction = 'i'.repeat(4000);
+  state.envelope.plan.steps[0]!.objective = 'o'.repeat(4000);
+  state.material!.text = 'source '.repeat(3000);
+  const executionId = randomUUID();
+  state.claim = { executionId, lessonId: state.envelope.lessonId, planDigest: state.envelope.planDigest, userId: 'student', anchorAttemptId: state.anchorAttemptId, targetAttemptId: state.anchorAttemptId, clientStartId: state.clientStartId, clientInstanceId: state.clientInstanceId, ownedByThisRequest: true };
+  state.child = { executionId, stepId: state.envelope.plan.steps[0]!.id, taskId: randomUUID(), workSessionId: randomUUID(), attemptNumber: 1, purpose: 'help', ownedByThisRequest: true };
+  const question = '"\n'.repeat(2000).trim();
+  const register = vi.fn();
+  await submitLessonChild(new TaskRuntime(), { ...deps, currentOwnerId: async () => 'student' } as unknown as TaskApplicationServiceOptions, state, CLASSROOM_ACTIVITY, 'help', question, register, vi.fn());
+  expect(deps.coachRuntime.start).not.toHaveBeenCalled();
+  const input = deps.localRuntime.start.mock.calls[0]![0] as { request: string; requiredInitialTool: { modelName: string; arguments: unknown }; executionContext: { lesson: { kind: string } } };
+  expect(input.request.length).toBeLessThanOrEqual(8000);
+  expect(input.request).toContain(question);
+  expect(input.request).not.toContain(state.material!.text);
+  expect(input.requiredInitialTool).toEqual({ modelName: 'lesson_observe', arguments: {} });
+  expect(input.executionContext.lesson.kind).toBe('desktop');
+});

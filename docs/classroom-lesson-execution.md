@@ -1,5 +1,7 @@
 # Classroom lesson execution
 
+The v3 desktop flow is documented in [Teaching in student applications](classroom-desktop-teaching.md). It downloads and opens class originals externally, uses a scoped teaching agent, and offers one teacher Send action. The v1/v2 behavior below remains for legacy plans. V3 verification and native acceptance are pending; see the linked support notes.
+
 Classroom teaching uses one **Teach the class** flow. The teacher describes what
 students should see or do, reviews the resolved material and steps, and confirms
 the lesson. Source text is shown in Tro; approved web material is opened and

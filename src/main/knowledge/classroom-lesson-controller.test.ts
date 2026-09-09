@@ -211,3 +211,33 @@ describe('student lesson lifecycle', () => {
     ).rejects.toThrow('changed');
   });
 });
+
+it('continues a v3 explanation on the same step with cumulative model reservations', async () => {
+  const { lessonDigest } = await import('./classroom-lesson-policy');
+  const f = fixture();
+  f.plan.schemaVersion = 3;
+  f.plan.steps[0]!.surface = { kind: 'current_window', navigation: 'student' };
+  f.envelope.planDigest = lessonDigest(f.plan);
+  f.runner.run.mockResolvedValueOnce({ text: 'First point', feedback: [], disposition: 'continue' });
+  await f.controller.activate(f.anchor, true);
+  await f.controller.receive(f.envelope, true);
+  await vi.waitFor(() => expect(f.controller.view().active?.status).toBe('waiting_for_student'));
+  expect(f.controller.view().active?.modelRequestCount).toBe(4);
+  await expect(f.controller.continue({ lessonId: f.envelope.lessonId, expectedRevision: f.controller.view().active!.revision, action: 'next' })).rejects.toThrow('Continue the explanation');
+  f.runner.run.mockResolvedValueOnce({ text: 'Second point', feedback: [], disposition: 'step_finished' });
+  await f.controller.continue({ lessonId: f.envelope.lessonId, expectedRevision: f.controller.view().active!.revision, action: 'continue_explanation' });
+  await vi.waitFor(() => expect(f.controller.view().active?.teachingProgress?.disposition).toBe('step_finished'));
+  expect(f.controller.view().active?.stepIndex).toBe(0);
+  expect(f.controller.view().active?.modelRequestCount).toBe(8);
+  expect(f.client.startStep.mock.calls.map((call) => call[2].attemptNumber)).toEqual([1, 2]);
+});
+
+it('honors Pause from an older revision of the same active lesson', async () => {
+  const f = fixture();
+  await f.controller.activate(f.anchor, true);
+  await f.controller.receive(f.envelope, true);
+  await vi.waitFor(() => expect(f.controller.view().active?.status).toBe('waiting_for_student'));
+  await f.controller.continue({ lessonId: f.envelope.lessonId, expectedRevision: 0, action: 'pause' });
+  expect(f.controller.view().active?.status).toBe('paused');
+  expect(f.controller.view().active?.desktopControlConsent).toBe(false);
+});

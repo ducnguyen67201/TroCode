@@ -591,6 +591,140 @@ async fn lesson_delivery_claims_and_stop_are_authorized_and_idempotent() {
     .await;
     assert_eq!(modern_context.body["maxPlanVersion"], 2);
     assert!(context.body.get("maxPlanVersion").is_none());
+    // V3 remains invisible to strict v2 readers, but never loses the feed cursor.
+    let mut desktop_input = input.clone();
+    desktop_input["clientId"] = json!(Uuid::new_v4());
+    desktop_input["plan"]["schemaVersion"] = json!(3);
+    desktop_input["plan"]["steps"][0]["surface"] =
+        json!({"kind":"current_window","navigation":"student"});
+    let desktop = call(
+        &router,
+        Method::POST,
+        &commit,
+        Some(&f.teacher_token),
+        Some(desktop_input.clone()),
+    )
+    .await;
+    assert_eq!(desktop.status, StatusCode::OK, "{}", desktop.body);
+    let desktop_id = desktop.body["lesson"]["lessonId"].as_str().unwrap();
+    for version in [2, 3] {
+        let feed = call(
+            &router,
+            Method::GET,
+            &format!(
+                "/v1/attempts/{anchor}/session-lessons?afterSequence=2&maxPlanVersion={version}"
+            ),
+            Some(&f.student_token),
+            None,
+        )
+        .await;
+        assert_eq!(feed.body["maxPlanVersion"], version);
+        assert_eq!(feed.body["maxSequence"], 3);
+        assert_eq!(
+            feed.body["items"].as_array().unwrap().len(),
+            usize::from(version == 3)
+        );
+    }
+    let instance = Uuid::new_v4();
+    let start_input = json!({"clientStartId":Uuid::new_v4(),"clientInstanceId":instance});
+    let start_path = format!("/v1/attempts/{anchor}/session-lessons/{desktop_id}/starts");
+    let denied = call(
+        &router,
+        Method::POST,
+        &start_path,
+        Some(&f.student_token),
+        Some(start_input.clone()),
+    )
+    .await;
+    assert_eq!(denied.body["code"], "lesson_update_required");
+    let device = call(&router, Method::POST, &format!("/v1/attempts/{anchor}/lesson-device"), Some(&f.student_token), Some(json!({"clientInstanceId":instance,"build":"desktop-v3-test","ready":true,"lessonsVersion":3}))).await;
+    assert_eq!(device.status, StatusCode::OK, "{}", device.body);
+    let receipt = call(&router, Method::POST, &format!("/v1/attempts/{anchor}/session-lessons/{desktop_id}/receipt"), Some(&f.student_token), Some(json!({"reportId":Uuid::new_v4(),"revision":0,"stepId":null,"status":"received","reasonCode":null,"actionCount":0,"modelRequestCount":0}))).await;
+    assert_eq!(receipt.status, StatusCode::OK, "{}", receipt.body);
+    let started = call(
+        &router,
+        Method::POST,
+        &start_path,
+        Some(&f.student_token),
+        Some(start_input),
+    )
+    .await;
+    assert_eq!(started.status, StatusCode::OK, "{}", started.body);
+
+    // Original downloads are restricted to the student's active lesson and a ready pinned reference.
+    let source = Uuid::new_v4();
+    let source_version = Uuid::new_v4();
+    query("INSERT INTO knowledge_sources(id,client_id,space_id,display_name,virtual_path,role,created_by) VALUES($1,$1,$2,'Python','python.md','reference',$3)").bind(source).bind(f.space_id).bind(&f.teacher_id).execute(&pool).await.unwrap();
+    query("INSERT INTO knowledge_source_versions(id,source_id,version_number,state,media_type,byte_size,sha256,object_key,created_by) VALUES($1,$2,1,'ready','text/markdown',12,$3,$4,$5)").bind(source_version).bind(source).bind("a".repeat(64)).bind(format!("lesson-test/{source_version}")).bind(&f.teacher_id).execute(&pool).await.unwrap();
+    desktop_input["clientId"] = json!(Uuid::new_v4());
+    desktop_input["plan"]["resources"] = json!([{"id":resource,"kind":"source_text","title":"python.md","sourceVersionId":source_version}]);
+    desktop_input["plan"]["steps"][0]["surface"]["kind"] = json!("resource_app");
+    let unpinned = call(
+        &router,
+        Method::POST,
+        &commit,
+        Some(&f.teacher_token),
+        Some(desktop_input.clone()),
+    )
+    .await;
+    assert_ne!(unpinned.status, StatusCode::OK);
+    query("INSERT INTO knowledge_activity_version_sources(activity_version_id,source_version_id) VALUES($1,$2)").bind(f.activity_version_id).bind(source_version).execute(&pool).await.unwrap();
+    let material_lesson = call(
+        &router,
+        Method::POST,
+        &commit,
+        Some(&f.teacher_token),
+        Some(desktop_input),
+    )
+    .await;
+    assert_eq!(
+        material_lesson.status,
+        StatusCode::OK,
+        "{}",
+        material_lesson.body
+    );
+    let material_id = material_lesson.body["lesson"]["lessonId"].as_str().unwrap();
+    let download_path =
+        format!("/v1/attempts/{anchor}/session-lessons/{material_id}/resources/{resource}/file");
+    let allowed = call(
+        &router,
+        Method::GET,
+        &download_path,
+        Some(&f.student_token),
+        None,
+    )
+    .await;
+    // Fixture deliberately has no object store: authorization succeeds before ticket issuance.
+    assert_eq!(
+        allowed.body["code"], "knowledge_storage_unavailable",
+        "{}",
+        allowed.body
+    );
+    let other_account = call(
+        &router,
+        Method::GET,
+        &download_path,
+        Some(&f.teacher_token),
+        None,
+    )
+    .await;
+    assert_ne!(other_account.body["code"], "knowledge_storage_unavailable");
+    assert!(!other_account.status.is_success());
+    query("UPDATE knowledge_sources SET archived_at=NOW() WHERE id=$1")
+        .bind(source)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let archived = call(
+        &router,
+        Method::GET,
+        &download_path,
+        Some(&f.student_token),
+        None,
+    )
+    .await;
+    assert!(!archived.status.is_success());
+    assert_ne!(archived.body["code"], "knowledge_storage_unavailable");
     state.shutdown.cancel();
     pool.close().await;
 }

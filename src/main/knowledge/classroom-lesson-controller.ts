@@ -14,9 +14,10 @@ import {
   type LessonView,
 } from '../../shared/classroom-lesson-contracts';
 
+import { claimLessonChild } from './classroom-lesson-child';
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 import { LessonBlockedError } from './classroom-lesson-errors';
-import { assertLessonTransition, canAutoStartLesson, finishMaterialStep, lessonDigest, lessonRunningPhase, rememberLessonResult } from './classroom-lesson-policy';
+import { assertLessonTransition, canAutoStartLesson, finishMaterialStep, lessonDigest, lessonRunningPhase, lessonReportSnapshot, rememberLessonResult } from './classroom-lesson-policy';
 import type { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 
 export interface LessonRunner {
@@ -29,7 +30,7 @@ export interface LessonRunner {
     mode: LessonMode | 'help',
     question: string | undefined,
     signal: AbortSignal,
-  ): Promise<{ text: string; feedback: LessonLocalState['feedback'] }>;
+  ): Promise<{ text: string; feedback: LessonLocalState['feedback']; disposition?: 'continue' | 'step_finished' }>;
   cancel(taskId: string): Promise<'confirmed' | 'unknown'>;
 }
 export class ClassroomLessonController {
@@ -114,6 +115,7 @@ export class ClassroomLessonController {
       this.ownerId = ownerId;
       this.consent = savedConsent ?? consent;
       if (state) {
+        state.desktopControlConsent = false;
         state.status =
           state.effect === 'dispatching' || state.effect === 'unknown' || state.child ? 'unknown' : 'paused';
         state.reasonCode = state.status === 'unknown' ? 'outcome_unknown' : 'restart';
@@ -178,7 +180,7 @@ export class ClassroomLessonController {
       return this.view();
     }
     const state = this.active;
-    if (!state || state.envelope.lessonId !== request.lessonId || state.revision !== request.expectedRevision)
+    if (!state || state.envelope.lessonId !== request.lessonId || (state.revision !== request.expectedRevision && !['pause', 'stop'].includes(request.action)))
       throw new Error('Lesson changed. Use the current controls.');
     if (request.action === 'stop' || request.action === 'pause') {
       await this.halt(request.action === 'stop' ? 'stopped' : 'paused', 'student_stop');
@@ -193,7 +195,11 @@ export class ClassroomLessonController {
     if (this.work) throw new Error('Wait for the current step or press Pause.');
     if (request.action === 'check' && !['practice', 'check'].includes(state.envelope.plan.steps[state.stepIndex]?.mode ?? ''))
       throw new Error('Check your work during practice or the check step.');
+    if (request.action === 'continue_explanation' && (state.envelope.plan.schemaVersion !== 3 || state.status !== 'waiting_for_student' || state.teachingProgress?.disposition !== 'continue'))
+      throw new Error('There is no explanation waiting to continue.');
     if (request.action === 'next') {
+      if (state.teachingProgress?.disposition === 'continue') throw new Error('Continue the explanation before advancing the step.');
+      state.teachingProgress = undefined;
       if (state.status !== 'waiting_for_student') throw new Error('Finish the current step first.');
       state.feedback = [];
       state.stepIndex++;
@@ -333,9 +339,9 @@ export class ClassroomLessonController {
     state.material = await this.options.client.material(this.anchor, envelope.lessonId, step.resourceId);
     await this.persist();
     signal.throwIfAborted();
-    state.effect = 'dispatching';
+    state.effect = envelope.plan.schemaVersion === 3 ? 'none' : 'dispatching';
     await this.persist();
-    await this.options.runner.prepare(state, state.material, signal);
+    if (!(envelope.plan.schemaVersion === 3 && mode === 'check')) await this.options.runner.prepare(state, state.material, signal);
     signal.throwIfAborted();
     state.effect = 'confirmed';
     state.phase = 'Material ready';
@@ -350,28 +356,11 @@ export class ClassroomLessonController {
       return;
     }
     const purpose = mode === 'help' ? 'help' : mode === 'check' ? 'check' : 'work';
-    const attemptNumber = (state.attempts[step.id] ?? 0) + 1;
-    if (attemptNumber > 20) throw new Error('lesson_budget_exhausted');
-    state.attempts[step.id] = attemptNumber;
-    state.pendingChild = { taskId: randomUUID(), stepId: step.id, attemptNumber, purpose };
-    await this.persist();
-    try {
-      state.child = await this.options.client.startStep(state.claim.executionId, step.id, {
-        taskId: state.pendingChild.taskId,
-        attemptNumber,
-        purpose,
-        clientInstanceId: state.clientInstanceId,
-      });
-    } catch (error) {
-      const found = await this.options.client.lookupStep(state.claim.executionId, step.id, attemptNumber);
-      if (!found.claim || found.claim.taskId !== state.pendingChild.taskId) throw error;
-      state.child = { ...found.claim, ownedByThisRequest: true };
-    }
-    if (!state.child.ownedByThisRequest) throw new Error('Step is owned by another request.');
-    state.pendingChild = null;
+    await claimLessonChild(state, step, purpose, this.options.client, () => this.persist());
     state.observationCount = 0;
     state.phase = lessonRunningPhase(mode);
-    const childModelLimit = mode === 'demonstrate' ? Math.min(6, 8 - (state.stepBudgets[step.id]?.models ?? 0)) : 1;
+    const remainingModels = 8 - (state.stepBudgets[step.id]?.models ?? 0);
+    const childModelLimit = envelope.plan.schemaVersion === 3 && mode !== 'check' ? Math.min(mode === 'demonstrate' ? 8 : 4, remainingModels) : mode === 'demonstrate' ? Math.min(6, remainingModels) : 1;
     if (childModelLimit < 1)
       throw new LessonBlockedError(
         'budget_exhausted',
@@ -379,7 +368,7 @@ export class ClassroomLessonController {
       );
     state.childModelLimit = childModelLimit;
     await this.consume('model', state.childModelLimit);
-    state.effect = 'dispatching';
+    state.effect = envelope.plan.schemaVersion === 3 && mode !== 'check' ? 'none' : 'dispatching';
     await this.transition('running');
     signal.throwIfAborted();
     const result = await this.options.runner.run(state, mode, question, signal);
@@ -389,7 +378,8 @@ export class ClassroomLessonController {
     state.text = result.text.slice(0, 16000);
     rememberLessonResult(state, mode, question);
     state.feedback = result.feedback;
-    state.phase = mode === 'check' ? 'Feedback ready' : 'Ready for the next step';
+    if (result.disposition) state.teachingProgress = { disposition: result.disposition, round: (state.teachingProgress?.round ?? 0) + 1 };
+    state.phase = mode === 'check' ? 'Feedback ready' : result.disposition === 'continue' ? 'Ready to continue explaining' : 'Ready for the next step';
     await this.transition('waiting_for_student');
   }
   async authorize(): Promise<void> {
@@ -423,6 +413,7 @@ export class ClassroomLessonController {
   }
   private async halt(status: 'paused' | 'stopped', reason: LessonReason) {
     this.abort?.abort();
+    if (this.active) this.active.desktopControlConsent = false;
     const state = this.active;
     if (state && !['finished', 'stopped', 'expired'].includes(state.status)) {
       state.phase = status === 'stopped' ? 'Stopping lesson' : 'Pausing lesson';
@@ -454,16 +445,7 @@ export class ClassroomLessonController {
     await this.options.store.saveLesson(state);
     this.emit();
     if (state.claim) {
-      const report = {
-        reportId: randomUUID(),
-        criterionOutcomes: state.feedback.map(({ criterionId, outcome }) => ({ criterionId, outcome })),
-        revision: state.revision,
-        stepId: state.envelope.plan.steps[state.stepIndex]?.id ?? null,
-        status: state.status,
-        reasonCode: state.reasonCode,
-        actionCount: state.actionCount,
-        modelRequestCount: state.modelRequestCount,
-      };
+      const report = lessonReportSnapshot(state, randomUUID());
       state.pendingReports = [...state.pendingReports, report].slice(-100);
       await this.options.store.saveLesson(state);
       try {
@@ -474,6 +456,26 @@ export class ClassroomLessonController {
         /* Retain report; feed tick retries without replaying effects. */
       }
     }
+  }
+  async markEffect(effect: LessonLocalState['effect']) {
+    if (!this.active) throw new Error('Lesson unavailable.');
+    this.active.effect = effect;
+    await this.persist();
+  }
+  async desktopState(lessonId: string, revision: number): Promise<LessonLocalState> {
+    const state = this.active;
+    if (!state || state.envelope.lessonId !== lessonId || state.revision !== revision || state.envelope.plan.schemaVersion !== 3 || this.work || ['unknown', 'failed', 'finished', 'stopped', 'expired'].includes(state.status))
+      throw new Error('Pause the lesson and use its current controls.');
+    await this.authorize();
+    if (this.active !== state || state.revision !== revision || this.work) throw new Error('Lesson changed.');
+    return state;
+  }
+  async setDesktopConsent(lessonId: string, revision: number, enabled: boolean) {
+    if (!enabled && this.active?.envelope.lessonId === lessonId && this.work) await this.halt('paused', 'opted_out');
+    const state = await this.desktopState(lessonId, !enabled ? this.active?.revision ?? revision : revision);
+    state.desktopControlConsent = enabled;
+    await this.persist();
+    return this.view();
   }
   async materialPage(lessonId: string, resourceId: string, ordinal: number) {
     const state = this.active;

@@ -5,8 +5,8 @@ import type {
   CompanionResponseAction,
 } from '../shared/contracts';
 
-import type { GuidanceAudioStatus } from './guidance-audio-playback';
 import './classroom-lesson.css';
+import type { GuidanceAudioStatus } from './guidance-audio-playback';
 
 interface CompanionResponseCardProps {
   audioStatus: GuidanceAudioStatus | null;
@@ -178,7 +178,7 @@ export function CompanionResponseCard({
         {!['unknown', 'failed', 'finished', 'paused', 'blocked'].includes(response.lesson.status) && <button type="button" disabled={isBusy} onClick={() => onAction('lesson_pause')}>{response.lesson.language === 'vi' ? 'Tạm dừng' : 'Pause'}</button>}
         {response.lesson.status !== 'finished' && <button type="button" disabled={isBusy} onClick={() => onAction('lesson_stop')}>{response.lesson.language === 'vi' ? 'Dừng' : 'Stop'}</button>}
         {response.lesson.status === 'finished' && <button type="button" disabled={isBusy} onClick={() => onAction('dismiss')}>{response.lesson.language === 'vi' ? 'Xong' : 'Done'}</button>}
-        {response.lesson.status === 'waiting_for_student' && <button type="button" disabled={isBusy} onClick={() => onAction('lesson_next')}>{response.lesson.language === 'vi' ? 'Tiếp theo' : 'Next'}</button>}
+        {response.lesson.status === 'waiting_for_student' && <button type="button" disabled={isBusy} onClick={() => onAction(response.lesson?.continueExplanation ? 'lesson_continue' : 'lesson_next')}>{response.lesson.continueExplanation ? (response.lesson.language === 'vi' ? 'Giải thích tiếp' : 'Continue explaining') : (response.lesson.language === 'vi' ? 'Tiếp theo' : 'Next')}</button>}
       </footer> : isCompleted ? (
         <footer className="companion-response-card__actions">
           <button
