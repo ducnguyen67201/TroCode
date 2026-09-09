@@ -5,7 +5,6 @@ import { randomUUID } from './renderer-uuid';
 export interface TeachingOptions {
   material: 'auto' | 'current_screen' | string;
   surface: 'current_window' | 'resource_app';
-  navigation: 'student' | 'tro';
   language: 'en' | 'vi';
   section: string;
 }
@@ -61,7 +60,7 @@ export function planFromRequest(context: LessonContext, runId: string, request: 
   const criteria = context.criteria.map((criterion) => criterion.id);
   const makeStep = (mode: LessonStep['mode'], instruction = text): LessonStep => ({
     id: randomUUID(), mode, resourceId, objective: instruction, instruction,
-    ...(options ? { surface: { kind: options.surface, navigation: options.navigation } } : {}),
+    ...(options ? { surface: { kind: options.surface, navigation: 'tro' as const } } : {}),
     criterionIds: mode === 'check' ? criteria : [],
     demonstration: mode === 'demonstrate'
       ? { exampleDescription: instruction, expectedResult: 'The reviewed example is visible and verified.' } : null,

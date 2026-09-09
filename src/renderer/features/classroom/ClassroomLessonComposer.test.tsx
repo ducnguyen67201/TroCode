@@ -73,6 +73,8 @@ describe('teacher lesson entry point', () => {
       await act(async () => host.querySelector('button')!.click());
       expect(host.textContent).toContain('Explain material on students’ computers');
       expect(host.textContent).toContain('Teaching request');
+      expect(host.textContent).not.toContain('Document navigation');
+      expect(host.textContent).not.toContain('Tro navigates with student permission');
       expect(host.querySelectorAll('textarea').length).toBe(1);
       expect(prepare).not.toHaveBeenCalled();
       expect(host.textContent).toContain('Tro downloads the class material');
@@ -111,6 +113,7 @@ it('discards a late preparation after edits and sends only the current reviewed 
     await change('Explain the second page');
     await act(async () => vi.advanceTimersByTimeAsync(501));
     expect(pending).toHaveLength(2);
+    expect(pending[1]!.input.plan.steps[0]!.surface?.navigation).toBe('tro');
     const makeDraft = (index: number) => ({ draftId: index === 1 ? f.envelope.lessonId : f.plan.targetRunId, ownerId: 'teacher', binding: pending[index]!.input.binding, plan: pending[index]!.input.plan, revision: 1, digest: String(index).repeat(64), state: 'prepared' as const, receipt: null, expiresAt: f.envelope.expiresAt });
     currentDraft = makeDraft(1);
     await act(async () => pending[1]!.resolve(currentDraft));
