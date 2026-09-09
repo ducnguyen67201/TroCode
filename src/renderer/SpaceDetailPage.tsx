@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import type {
   AddKnowledgeSpaceMembersResult,
@@ -24,6 +24,7 @@ import { SpaceLibrary } from './SpaceLibrary';
 export type SpaceDetailTab = 'library' | 'activities' | 'sessions' | 'people';
 
 export function SpaceDetailPage({
+  lessonPanels,
   onTeacherSessionSelect,
   teacherSessionId,
   appLanguage,
@@ -32,6 +33,7 @@ export function SpaceDetailPage({
   onBack,
   space,
 }: {
+  lessonPanels?: ReactNode;
   onTeacherSessionSelect?: (
     spaceId: string,
     sessionId: string | null,
@@ -257,6 +259,7 @@ export function SpaceDetailPage({
           </button>
         ))}
       </div>
+      {lessonPanels}
       {error && (
         <p className="form-error" role="alert">
           {error}

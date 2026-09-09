@@ -107,3 +107,10 @@ describe('SpaceDetailPage role presentation', () => {
     expect(markup).not.toContain('Direct assignment');
   });
 });
+
+it('places lesson controls after class identity and navigation, before materials', () => {
+  const markup = renderToStaticMarkup(<SpaceDetailPage appLanguage="en" onBack={vi.fn()} space={space} lessonPanels={<section>Current lesson controls</section>} />);
+  expect(markup.indexOf('class-workspace-identity')).toBeLessThan(markup.indexOf('Current lesson controls'));
+  expect(markup.indexOf('role="tablist"')).toBeLessThan(markup.indexOf('Current lesson controls'));
+  expect(markup.indexOf('Current lesson controls')).toBeLessThan(markup.indexOf('class="space-panel'));
+});

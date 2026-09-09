@@ -88,7 +88,7 @@ export function ClassroomLessonComposer({ spaceId, runId, vi, enabled }: { space
       {context && <small>{vi ? 'Buổi học' : 'Session'}: {context.title}</small>}
       {error && <p role="alert">{error}</p>}
       {context && request.trim() && !locked && !error && !draft && <p role="status">{vi ? 'Đang chuẩn bị bài học…' : 'Preparing lesson…'}</p>}
-      {draft && (context || draft.state !== 'prepared') && <ClassroomLessonPreview key={draft.draftId} draft={draft} onChange={setDraft} onBusy={setSending} compact vi={vi} />}
+      {draft && (context || draft.state !== 'prepared') && <ClassroomLessonPreview key={draft.draftId} draft={draft} onChange={setDraft} onBusy={setSending} vi={vi} />}
       {draft?.state === 'sent' && <button type="button" onClick={() => { invalidate(); setRequest(''); }}>{vi ? 'Dạy phần khác' : 'Teach another section'}</button>}
     </>}
   </section>;

@@ -143,6 +143,28 @@ export function AppWorkspace({
   contextProps,
   settingsProps,
 }: AppWorkspaceProps) {
+  const lessonsWithinClass =
+    classroomAccessAvailable && activeView === 'spaces' && Boolean(selectedClassSpace);
+  const lessonPanels = (
+    <div className="workspace-lessons">
+      {teacherSelectionPending && (
+        <p className="lesson-context" role="status">
+          {appLanguageDraft === 'vi'
+            ? 'Đang xác minh phiên học…'
+            : 'Verifying classroom session…'}
+        </p>
+      )}
+      {teacherSelection && (
+        <p className="lesson-context">
+          {(!lessonsWithinClass || teacherSelection.binding.spaceId !== selectedClassSpace?.id) && (
+            <span>{teacherSelection.binding.spaceName}</span>
+          )}
+          <span>{teacherSelection.binding.sessionTitle}</span>
+        </p>
+      )}
+      <ClassroomLessonDraftPanel appLanguage={appLanguageDraft} />
+    </div>
+  );
   return (
     <main className="workspace">
       <header className="topbar">
@@ -184,20 +206,7 @@ export function AppWorkspace({
         </div>
       </header>
 
-      {teacherSelectionPending && (
-        <p role="status">
-          {appLanguageDraft === 'vi'
-            ? 'Đang xác minh phiên học…'
-            : 'Verifying classroom session…'}
-        </p>
-      )}
-      {teacherSelection && (
-        <p className="eyebrow">
-          {teacherSelection.binding.spaceName} ·{' '}
-          {teacherSelection.binding.sessionTitle}
-        </p>
-      )}
-      <ClassroomLessonDraftPanel appLanguage={appLanguageDraft} />
+      {!lessonsWithinClass && lessonPanels}
       {classroomAccessAvailable && <ClassroomLessonPanel appLanguage={appLanguageDraft} />}
 
       <ClassroomWorkspaceLayout
@@ -222,6 +231,7 @@ export function AppWorkspace({
         {classroomAccessAvailable &&
         (activeView === 'spaces' || activeView === 'assigned') ? (
           <KnowledgeHubPage
+            lessonPanels={lessonsWithinClass ? lessonPanels : undefined}
             onTeacherSessionSelect={selectTeacherSession}
             teacherSessionId={teacherSelection?.binding.sessionId ?? null}
             appLanguage={appLanguageDraft}

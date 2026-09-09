@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import type { LessonContext, LessonDraft } from '../../../shared/classroom-lesson-contracts';
+import '../../classroom-lesson.css';
 
 import { ClassroomLessonProgress } from './ClassroomLessonProgress';
 
@@ -8,13 +9,11 @@ export function ClassroomLessonPreview({
   draft,
   onChange,
   vi,
-  compact = false,
   onBusy,
 }: {
   draft: LessonDraft;
   onChange(draft: LessonDraft): void;
   vi: boolean;
-  compact?: boolean;
   onBusy?(busy: boolean): void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -68,62 +67,63 @@ export function ClassroomLessonPreview({
   };
   return (
     <section className="lesson-preview" aria-label={vi ? 'Xem trước bài học' : 'Exact lesson preview'}>
-      {(!compact || draft.state === 'prepared') && <>
-      <h3>{draft.plan.title}</h3>
-      <p>{draft.plan.objective}</p>
-      <p>
-        {vi ? 'Bài tập' : 'Assignment'}: {context?.title ?? '…'} ·{' '}
-        {draft.plan.language === 'vi' ? 'Tiếng Việt' : 'English'}
-      </p>
-      <p>
-        {vi
-          ? 'Gửi tới học sinh trong buổi học này. Bài học hết hạn sau 30 phút.'
-          : 'For students in this session. The lesson expires 30 minutes after sending.'}
-      </p>
-      <ul>
-        {draft.plan.resources.map((r) => (
-          <li key={r.id}>
-            {r.title}
-            {r.kind === 'web' ? ` — ${r.url}` : ''}
-          </li>
-        ))}
-      </ul>
-      {!compact && <ol>
-        {draft.plan.steps.map((step) => (
-          <li key={step.id}>
-            <strong>{step.mode}</strong>: {step.instruction}
-            {step.mode === 'explain' && draft.plan.resources.some((resource) => resource.id === step.resourceId && resource.kind === 'web') && (
-              <p>{vi ? 'Mở trang trên máy học sinh, sau đó giải thích nội dung.' : 'Open the page on the student computer, then explain its content.'}</p>
-            )}
-            <p>
-              {vi ? 'Mục tiêu' : 'Objective'}: {step.objective}
-            </p>
-            <p>
-              {vi ? 'Tài liệu' : 'Material'}:{' '}
-              {draft.plan.resources.find((resource) => resource.id === step.resourceId)?.title}
-            </p>
-            {step.criterionIds.length > 0 && (
-              <ul>
-                {step.criterionIds.map((id) => {
-                  const criterion = context?.criteria.find((item) => item.id === id);
-                  return <li key={id}>{criterion ? `${criterion.title}: ${criterion.description}` : '…'}</li>;
-                })}
-              </ul>
-            )}
-            {step.demonstration && (
-              <p>
-                {step.demonstration.exampleDescription}
-                <br />
-                {step.demonstration.expectedResult}
-              </p>
-            )}
-          </li>
-        ))}
-      </ol>}
-      </>}
+      <header className="lesson-preview__header">
+        <div>
+          <h3>{draft.plan.title}</h3>
+        </div>
+        <span className="lesson-status" data-status={draft.state}>{({
+          prepared: vi ? 'Sẵn sàng gửi' : 'Ready to send',
+          sending: vi ? 'Đang gửi' : 'Sending',
+          sent: vi ? 'Đã gửi' : 'Sent',
+          unknown: vi ? 'Cần kiểm tra biên nhận' : 'Receipt needed',
+          stale: vi ? 'Cần chuẩn bị lại' : 'Needs refresh',
+          expired: vi ? 'Đã hết hạn' : 'Expired',
+          cancelled: vi ? 'Đã hủy' : 'Cancelled',
+          failed: vi ? 'Gửi thất bại' : 'Send failed',
+        })[draft.state]}</span>
+      </header>
+      <details className="lesson-plan" open={draft.state === 'prepared'}>
+        <summary>{vi ? 'Nội dung bài học' : 'Lesson plan'} <span>{draft.plan.steps.length} {vi ? 'bước' : draft.plan.steps.length === 1 ? 'step' : 'steps'} · {draft.plan.resources.length} {vi ? 'tài liệu' : draft.plan.resources.length === 1 ? 'material' : 'materials'}</span></summary>
+        <div className="lesson-plan__overview">
+          <p className="lesson-preview__objective">{draft.plan.objective}</p>
+          <div className="lesson-preview__meta">
+            <span>{vi ? 'Bài tập' : 'Assignment'}: {context?.title ?? '…'}</span>
+            <span>{draft.plan.language === 'vi' ? 'Tiếng Việt' : 'English'}</span>
+            <span>{vi ? 'Hết hạn 30 phút sau khi gửi' : 'Expires 30 min after sending'}</span>
+          </div>
+        </div>
+        <div className="lesson-plan__body">
+          <ul className="lesson-resources" aria-label={vi ? 'Tài liệu' : 'Materials'}>
+            {draft.plan.resources.map((resource) => <li key={resource.id}>
+              <svg className="lesson-resource-icon" aria-hidden="true" width="16" height="18" viewBox="0 0 16 18" fill="none" stroke="currentColor"><rect x="2" y="1" width="12" height="16" rx="2" /><path d="M5 6h6M5 9h6M5 12h4" /></svg>
+              <span>{resource.title}{resource.kind === 'web' && <small>{resource.url}</small>}</span>
+            </li>)}
+          </ul>
+          <ol className="lesson-steps">
+            {draft.plan.steps.map((step) => <li key={step.id}>
+              <div>
+                <strong className="lesson-step-mode">{({ open: vi ? 'Mở tài liệu' : 'Open material', explain: vi ? 'Giải thích' : 'Explain', demonstrate: vi ? 'Làm mẫu' : 'Demonstrate', practice: vi ? 'Thực hành' : 'Practice', check: vi ? 'Kiểm tra' : 'Check' })[step.mode]}</strong>
+                <p>{step.instruction}</p>
+                {step.mode === 'explain' && draft.plan.resources.some((resource) => resource.id === step.resourceId && resource.kind === 'web') && (
+                  <p className="lesson-note">{vi ? 'Mở trang trên máy học sinh, sau đó giải thích nội dung.' : 'Open the page on the student computer, then explain its content.'}</p>
+                )}
+                {step.objective !== step.instruction && <p className="lesson-note">{vi ? 'Mục tiêu' : 'Objective'}: {step.objective}</p>}
+                <p className="lesson-note">{vi ? 'Tài liệu' : 'Material'}: {draft.plan.resources.find((resource) => resource.id === step.resourceId)?.title}</p>
+                {step.criterionIds.length > 0 && <ul className="lesson-criteria">
+                  {step.criterionIds.map((id) => {
+                    const criterion = context?.criteria.find((item) => item.id === id);
+                    return <li key={id}>{criterion ? `${criterion.title}: ${criterion.description}` : '…'}</li>;
+                  })}
+                </ul>}
+                {step.demonstration && <p>{step.demonstration.exampleDescription}<br />{step.demonstration.expectedResult}</p>}
+              </div>
+            </li>)}
+          </ol>
+        </div>
+      </details>
       {error && <p role="alert">{error}</p>}
       {draft.state === 'prepared' && (
-        <button
+        <button className="lesson-button--primary"
           type="button"
           disabled={
             busy ||

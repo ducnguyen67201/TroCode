@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import type {
   AppLanguage,
@@ -13,6 +13,7 @@ import { SpaceDetailPage, type SpaceDetailTab } from './SpaceDetailPage';
 import { SpacesPage } from './SpacesPage';
 
 export function KnowledgeHubPage({
+  lessonPanels,
   onTeacherSessionSelect,
   teacherSessionId,
   appLanguage,
@@ -29,6 +30,7 @@ export function KnowledgeHubPage({
   space,
   spaceInitialTab = 'library',
 }: {
+  lessonPanels?: ReactNode;
   onTeacherSessionSelect?: (
     spaceId: string,
     sessionId: string | null,
@@ -55,15 +57,18 @@ export function KnowledgeHubPage({
 
   if (attemptId) {
     return (
-      <AttemptLaunchPage
-        appLanguage={appLanguage}
-        attemptId={attemptId}
-        onBack={() => {
-          setSelectedAttemptId(null);
-          onAttemptFocusCleared?.();
-        }}
-        onLaunch={onLaunch}
-      />
+      <>
+        {lessonPanels}
+        <AttemptLaunchPage
+          appLanguage={appLanguage}
+          attemptId={attemptId}
+          onBack={() => {
+            setSelectedAttemptId(null);
+            onAttemptFocusCleared?.();
+          }}
+          onLaunch={onLaunch}
+        />
+      </>
     );
   }
   if (mode === 'assigned') {
@@ -77,6 +82,7 @@ export function KnowledgeHubPage({
   if (space) {
     return (
       <SpaceDetailPage
+        lessonPanels={lessonPanels}
         onTeacherSessionSelect={onTeacherSessionSelect}
         teacherSessionId={teacherSessionId}
         appLanguage={appLanguage}

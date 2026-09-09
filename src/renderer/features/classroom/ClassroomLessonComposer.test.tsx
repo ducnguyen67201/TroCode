@@ -40,6 +40,7 @@ describe('teacher lesson entry point', () => {
           />,
         ),
       );
+      expect(host.querySelector<HTMLDetailsElement>('.lesson-plan')!.open).toBe(true);
       expect(host.textContent).toContain('Objective: Read a name');
       expect(host.textContent).toContain('Material: Greeting editor');
       expect(host.textContent).toContain('Name: Read input');
