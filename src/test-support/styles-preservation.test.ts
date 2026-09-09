@@ -11,8 +11,9 @@ describe('ordered stylesheet migration', () => {
       /^\/\* Keep this order:[^\n]*\n/,
       '',
     );
+    // Reviewed class identity spacing, title size, and wrapping update.
     expect(createHash('sha256').update(css).digest('hex')).toBe(
-      '463b139df822cab16e9d8c486a0a4b3d91db2438356ca482b1ae8b4634102a93',
+      '376dcb1a31c77727735b06e6b71a9f687107cba189086d83a0be515ccbdaef07',
     );
   });
   it('preserves every admin rule, declaration and override in source order', () => {

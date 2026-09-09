@@ -356,7 +356,7 @@
   display: grid;
   align-items: center;
   gap: 17px;
-  padding: 4px 0 23px;
+  padding: 0 0 16px;
   border-bottom: 1px solid var(--border);
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
@@ -381,14 +381,12 @@
 
 .class-workspace-identity__copy h1 {
   margin: 2px 0 3px;
-  overflow: hidden;
   font-family: 'Iowan Old Style', Georgia, serif;
-  font-size: clamp(29px, 3vw, 38px);
+  font-size: clamp(24px, 2.4vw, 32px);
   font-weight: 600;
   letter-spacing: -0.035em;
-  line-height: 1.05;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .class-workspace-identity__copy > p:last-child {

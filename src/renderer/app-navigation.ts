@@ -18,7 +18,7 @@ export function organizationSettingsAvailable(
 
 export function navigationTitle(view: ActiveView, language: AppLanguage): { kicker: string; title: string } {
   switch (view) {
-    case 'spaces': return { kicker: translate(language, 'Reusable context'), title: translate(language, 'Knowledge Spaces') };
+    case 'spaces': return { kicker: language === 'vi' ? 'Lớp học' : 'Classroom', title: translate(language, 'Classes') };
     case 'assigned': return { kicker: translate(language, 'Your work'), title: translate(language, 'Assigned Activities') };
     case 'history': return { kicker: translate(language, 'Session task record'), title: translate(language, 'History') };
     case 'insights': return { kicker: translate(language, 'Private on-device summary'), title: translate(language, 'Insights overview') };
