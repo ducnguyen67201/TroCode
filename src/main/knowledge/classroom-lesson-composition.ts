@@ -9,6 +9,7 @@ import { ClassroomLessonController } from './classroom-lesson-controller';
 import { ClassroomLessonDraftService } from './classroom-lesson-draft-service';
 import { ClassroomLessonFeedService } from './classroom-lesson-feed-service';
 import { ClassroomLessonMaterialService } from './classroom-lesson-material-service';
+import { ClassroomLessonOpeningService } from './classroom-lesson-opening-service';
 import { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 import { ClassroomLessonStepRunner } from './classroom-lesson-step-runner';
 import { ClassroomLessonSurfaceService } from './classroom-lesson-surface-service';
@@ -51,7 +52,8 @@ export function createClassroomLessonFeatures(
   },
 ) {
   const surfaces = new ClassroomLessonSurfaceService({ cua: options.cua, prepareObservation: options.prepareObservation });
-  const materials = new ClassroomLessonMaterialService({ directory: options.directory, client: base.client, store: base.store, surfaces, chooseFile: options.chooseFile, validateSelection: async (state, revision) => { await controller.desktopState(state.envelope.lessonId, revision); }, openPath: options.openPath, openUrl: options.openUrl, authorize: () => controller.authorize(), consume: (kind) => controller.consume(kind), markEffect: (effect) => controller.markEffect(effect) });
+  const opening = new ClassroomLessonOpeningService({ surfaces, cua: options.cua, authorize: () => controller.authorize(), consume: (kind) => controller.consume(kind) });
+  const materials = new ClassroomLessonMaterialService({ directory: options.directory, client: base.client, store: base.store, surfaces, opening, chooseFile: options.chooseFile, validateSelection: async (state, revision) => { await controller.desktopState(state.envelope.lessonId, revision); }, openPath: options.openPath, openUrl: options.openUrl, authorize: () => controller.authorize(), consume: (kind) => controller.consume(kind), markEffect: (effect) => controller.markEffect(effect) });
   const teaching = new ClassroomDesktopTeachingTools({ surfaces, cua: options.cua, presenter: options.presenter, authorize: () => controller.authorize(), consume: (kind) => controller.consume(kind), markEffect: (effect) => controller.markEffect(effect) });
   const runner: ClassroomLessonStepRunner = new ClassroomLessonStepRunner({
     tasks: options.tasks,

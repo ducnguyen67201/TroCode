@@ -29,6 +29,24 @@ describe('lesson material window binding', () => {
     f.observation.surface!.title = 'python.md'; f.observation.text = '';
     await expect(f.service.observe(f.state, f.state.clientStartId, new AbortController().signal)).rejects.toMatchObject({ reason: 'resource_unavailable' });
   });
+  it('exposes a chooser to opening while refusing to bind it as material even when its title names the file', async () => {
+    const f = fixture();
+    f.observation.surface = { kind: 'native_app', application: 'OpenWith.exe', title: 'Open with — python.md' };
+    const signal = new AbortController().signal;
+    expect(await f.service.inspectOpening(f.state, f.state.envelope.lessonId, signal)).toMatchObject({ ready: false, observation: f.observation });
+    await expect(f.service.observe(f.state, f.state.envelope.lessonId, signal)).rejects.toMatchObject({ reason: 'surface_unverified' });
+    f.observation.surface = { kind: 'native_app', application: 'Notepad', title: 'python.md' };
+    await f.service.observe(f.state, f.state.envelope.lessonId, signal);
+    expect(f.observeLessonWindow).toHaveBeenLastCalledWith(f.state.envelope.lessonId, undefined, signal);
+  });
+  it('restores the cached filename without clearing a student-selected window binding', async () => {
+    const f = fixture();
+    const signal = new AbortController().signal;
+    await f.service.observe(f.state, f.state.envelope.lessonId, signal);
+    f.service.restoreFileTitle(f.state, 'python.md');
+    await f.service.observe(f.state, f.state.envelope.lessonId, signal);
+    expect(f.observeLessonWindow).toHaveBeenLastCalledWith(f.state.envelope.lessonId, f.identity, signal);
+  });
 });
 
 it('changes visual evidence when screenshot-only content changes under the same title', async () => {

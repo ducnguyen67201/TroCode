@@ -4,6 +4,12 @@ The v3 teacher flow is **select class material → edit section, language and in
 
 The alternative **What students already have open** uses the current external window. A named class source can also be paired with **Use an already-open window**. A readable PDF, image, document or editor may be explained without a source attachment in this mode. Availability depends on the installed viewer and capture permissions; universal format or application support is not claimed.
 
+Opening now has a computer-use continuation before the teaching agent starts. After downloading and requesting the original file's OS launch, Tro observes the external window. For recognized Windows or macOS app choosers, it uses CUA element references to reveal installed apps, select a suitable document viewer, clear an observed “Always use” checkbox if necessary, and choose a one-time Open control. Every action uses fresh observed controls; a successful click is followed by another observation until the actual document is verified. The chooser itself cannot be treated as the material, even if its title contains the filename.
+
+This opening loop uses bounded host rules and semantic CUA controls; it does not make an LLM call or use guessed screenshot coordinates. Supported chooser labels include English and Vietnamese, with known viewers for the supported file types. A chooser without usable accessibility controls or a recognized viewer still needs student selection. The model-driven explanation starts only after verification. Accepted automatic lessons authorize this limited opening flow; later document navigation continues to require separate student consent.
+
+Opening uses at most eight observations per attempt, with cancellable waits for app startup. Resume continues an already-launched file's visible chooser without downloading or launching it again. Chooser actions are journaled before dispatch: an uncertain result or a crash during a click cannot become an automatic retry. An explicit native acknowledgement can confirm a click that closes its dialog; the destination document still needs independent verification. No default file association, app installation, save, or submission is performed. Local diagnostic events record lesson ID, opening action kind and outcome, without file paths or document content.
+
 Students navigate by default. If the teacher enables Tro navigation, the student must separately allow it in the lesson controls. Tro can scroll, page, zoom, focus observed document content, or open Find and fill its empty verified field. It cannot click arbitrary links, submit work, or use generic terminal/computer tools. Unsupported controls stop with a recovery message. Pause, Stop, opt-out and restart revoke control permission.
 
 A demonstration can create an Untitled scratch tab in an already verified VS Code window and type the reviewed example into its empty editor. It requires an allowed demonstration step, the Activity's answer-reveal permission, and local student control consent. Tro does not overwrite existing work, run the example, save it, or submit it. If the file opened in another app, the student can open it in VS Code and choose that window. Workspace Activities retain their existing trusted-workspace requirement; this lesson flow uses current-surface or no-launch Activities.
@@ -14,7 +20,8 @@ A demonstration can create an Untitled scratch tab in an already verified VS Cod
 
 | State | Student action |
 |---|---|
-| File unavailable or association missing | Open the file in a suitable app, choose its window, then Resume; alternatively choose a local document and Resume. |
+| App chooser visible | Tro follows supported one-time opening controls. If no supported viewer/control is available, select the app manually and Resume. |
+| File unavailable or association missing | If Tro cannot finish opening, open the file in a suitable app, choose its window, then Resume; alternatively choose a local document and Resume. |
 | Window hidden, changed or ambiguous | Bring the intended document forward and use Choose material window. |
 | Capture unavailable | Enable screen recording and accessibility, then Resume. |
 | Navigation permission absent | Navigate manually or allow Tro navigation while the lesson is idle. |

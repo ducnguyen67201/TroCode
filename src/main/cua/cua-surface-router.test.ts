@@ -196,6 +196,30 @@ describe('CuaSurfaceRouter', () => {
     expect(outcome.status).toBe('not_executed');
     expect(callTool.mock.calls.filter(([name]) => name === 'click')).toHaveLength(1);
   });
+  it.each([
+    ['opening', 'confirmed', 'confirmed'],
+    ['opening', 'unknown', 'unknown'],
+    [undefined, 'confirmed', 'unknown'],
+  ] as const)('handles a closing dialog with transition %s and native effect %s as %s', async (transition, effect, expected) => {
+    let closed = false;
+    const callTool = vi.fn(async (name: string) => {
+      if (name === 'list_windows') return result({ windows: closed ? [] : [windowRecord] });
+      if (name === 'get_window_state') {
+        if (closed) throw new Error('Window closed.');
+        return result({ snapshot_id: 's12345678', elements: [{ element_index: 1, element_token: 'token', role: 'button', label: 'Just once' }] });
+      }
+      if (name === 'click') { closed = true; return result({ effect, route: 'trusted_input' }); }
+      throw new Error(`Unexpected ${name}`);
+    });
+    const service = router(callTool);
+    const taskId = randomUUID();
+    const observation = (await service.observeCurrentSurface(taskId))!;
+    const outcome = await service.execute(taskId, observation.observationId,
+      { kind: 'click_element', ref: 'e1', button: 'left', count: 1 }, undefined, transition);
+    expect(outcome.status).toBe(expected);
+    expect(outcome.observation).toBeUndefined();
+    expect(callTool.mock.calls.filter(([name]) => name === 'click')).toHaveLength(1);
+  });
 });
 
 it('supports screenshot-only lesson windows without widening the general semantic fallback', async () => {

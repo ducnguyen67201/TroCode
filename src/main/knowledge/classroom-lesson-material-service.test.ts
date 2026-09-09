@@ -32,8 +32,10 @@ describe('authorized original material opening', () => {
     const fetcher = vi.fn<typeof fetch>(async () => new Response(bytes.toString()));
     const store = { readNativeMaterial: vi.fn(async () => saved), saveNativeMaterial: vi.fn(async (_owner: string, _lesson: string, _resource: string, value: NativeMaterialRecord) => { saved = value; }) };
     const markEffect = vi.fn(async (effect: typeof f.state.effect) => { f.state.effect = effect; });
-    const service = new ClassroomLessonMaterialService({ directory, client: { file }, store, surfaces: { observe, selectFileTitle: vi.fn() }, openPath, openUrl: vi.fn(), markEffect, authorize: vi.fn(), consume: vi.fn(), fetchImpl: fetcher });
-    return { ...f, descriptor, directory, bytes, observe, openPath, file, fetcher, store, service, markEffect };
+    const opening = { complete: vi.fn(async (_state: typeof f.state, _name: string | undefined, _signal: AbortSignal, _recordEffect: (effect: typeof f.state.effect) => Promise<void>) => { void [_state, _name, _signal, _recordEffect]; await observe(); }) };
+    const restoreFileTitle = vi.fn();
+    const service = new ClassroomLessonMaterialService({ directory, client: { file }, store, surfaces: { observe, selectFileTitle: vi.fn(), restoreFileTitle }, opening, openPath, openUrl: vi.fn(), markEffect, authorize: vi.fn(), consume: vi.fn(), fetchImpl: fetcher });
+    return { ...f, descriptor, directory, bytes, observe, openPath, file, fetcher, store, service, markEffect, opening, restoreFileTitle };
   }
   it('downloads verified bytes, persists before opening, and reuses a visible material without reopening', async () => {
     const f = await fixture();
@@ -78,6 +80,34 @@ describe('authorized original material opening', () => {
       expect(f.state.effect).toBe('unknown');
       expect(f.openPath).not.toHaveBeenCalled();
       expect(f.file).not.toHaveBeenCalled();
+    } finally { await rm(f.directory, { recursive: true, force: true }); }
+  });
+  it('resumes the chooser for an opened file without downloading or launching again', async () => {
+    const f = await fixture();
+    try {
+      await f.service.prepare(f.state, new AbortController().signal);
+      f.observe.mockRejectedValueOnce(absent());
+      await f.service.prepare(f.state, new AbortController().signal);
+      expect(f.opening.complete).toHaveBeenCalledTimes(2);
+      expect(f.restoreFileTitle).toHaveBeenCalledWith(f.state, 'python.md');
+      expect(f.openPath).toHaveBeenCalledOnce();
+      expect(f.fetcher).toHaveBeenCalledOnce();
+    } finally { await rm(f.directory, { recursive: true, force: true }); }
+  });
+  it('persists an uncertain chooser action so resuming cannot replay it after restart', async () => {
+    const f = await fixture();
+    try {
+      f.opening.complete.mockImplementationOnce(async (_state, _name, _signal, recordEffect) => {
+        void [_state, _name, _signal];
+        await recordEffect('dispatching');
+        await recordEffect('unknown');
+        throw new Error('Chooser outcome uncertain.');
+      });
+      await expect(f.service.prepare(f.state, new AbortController().signal)).rejects.toThrow('uncertain');
+      await expect(f.service.prepare(f.state, new AbortController().signal)).rejects.toThrow('uncertain');
+      expect(f.openPath).toHaveBeenCalledOnce();
+      expect(f.opening.complete).toHaveBeenCalledOnce();
+      expect(f.store.saveNativeMaterial.mock.calls.at(-1)?.[3].status).toBe('dispatching');
     } finally { await rm(f.directory, { recursive: true, force: true }); }
   });
 });
