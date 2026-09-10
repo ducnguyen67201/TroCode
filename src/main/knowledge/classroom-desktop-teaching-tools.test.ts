@@ -144,21 +144,22 @@ describe('scoped desktop teaching tools', () => {
     });
     expect((await f.call('read', { handle: f.resource.id, ordinal: 0, offset: 0 })).status).toBe('denied');
   });
-  it('allows observed selection clicks after opening without recognizing an application name', async () => {
+  it('uses the same navigation authority before and after opening, until revoked', async () => {
     const f = fixture();
     const guard = f.tools.guard(f.taskId);
     f.observation.surface = { kind: 'native_app', application: 'Unknown viewer picker', title: 'Choose a viewer' };
     f.observation.elements = [{ ref: 'e1', role: 'button', name: 'An installed viewer' }];
     await guard.observeResult({ status: 'confirmed', summary: 'Observed', observation: f.observation });
     const click = f.control({ kind: 'click_element', ref: 'e1', button: 'left', count: 1 });
-    await expect(guard.before(click, false)).rejects.toMatchObject({ reason: 'permission_required' });
+    await expect(guard.before(click, false)).resolves.toBeUndefined();
     await f.call('open', { handle: f.resource.id });
+    await expect(guard.before(click, false)).rejects.toMatchObject({ reason: 'surface_unverified' });
     await guard.observeResult({ status: 'confirmed', summary: 'Observed', observation: f.observation });
     await expect(guard.before(click, false)).resolves.toBeUndefined();
-    await expect(guard.before(f.control({ kind: 'scroll', ref: null, direction: 'down', amount: 1 }), false)).rejects.toMatchObject({ reason: 'permission_required' });
+    await expect(guard.before(f.control({ kind: 'scroll', ref: null, direction: 'down', amount: 1 }), false)).resolves.toBeUndefined();
     expect(f.state.desktopControlConsent).toBe(false);
-    await f.call('observe', {});
-    await expect(guard.before(click, false)).rejects.toMatchObject({ reason: 'permission_required' });
+    f.tools.remove(f.taskId);
+    await expect(guard.before(click, false)).rejects.toThrow('authority');
   });
   it('returns context before observation even when the document is unavailable', async () => {
     const f = fixture();

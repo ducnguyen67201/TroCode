@@ -108,6 +108,7 @@ export class ClassroomLessonController {
       if (state) {
         state.status =
           state.status === 'unknown' || state.effect === 'dispatching' || state.effect === 'unknown' || state.child ? 'unknown' : 'paused';
+        state.desktopControlConsent = false;
         state.reasonCode = state.status === 'unknown' ? 'outcome_unknown' : 'restart';
         state.revision++;
         this.active = state;
