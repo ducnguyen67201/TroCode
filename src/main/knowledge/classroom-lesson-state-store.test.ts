@@ -7,11 +7,18 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { LessonDraft } from '../../shared/classroom-lesson-contracts';
 
+import { NativeMaterialRecordSchema, PreparedMaterialRecordSchema } from './classroom-lesson-material-policy';
 import { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 import { lessonFixture, lessonStateFixture } from './classroom-lesson.fixture';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/unused' }, safeStorage: {} }));
 describe('encrypted lesson journals', () => {
+  it('decodes legacy uncertainty but refuses legacy action-state writes', () => {
+    const legacy = { path: '/private/lesson.md', sha256: 'a'.repeat(64), status: 'dispatching' };
+    expect(NativeMaterialRecordSchema.parse(legacy)).toEqual({ version: 2, path: legacy.path, sha256: legacy.sha256, legacyOutcomeUnknown: true });
+    expect(PreparedMaterialRecordSchema.safeParse(legacy).success).toBe(false);
+    expect(NativeMaterialRecordSchema.parse({ ...legacy, status: 'opened' }).legacyOutcomeUnknown).toBe(false);
+  });
   it('round trips validated owner-scoped drafts with atomic encrypted writes', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'tro-lesson-'));
     const cipher = {
@@ -88,7 +95,7 @@ it('keeps original paths in a separate encrypted owner-scoped record', async () 
   const store = new ClassroomLessonStateStore(dir, cipher);
   const f = lessonFixture();
   try {
-    const record = { path: '/private/student/python.pdf', sha256: 'a'.repeat(64), status: 'dispatching' as const };
+    const record = { version: 2 as const, path: '/private/student/python.pdf', sha256: 'a'.repeat(64), legacyOutcomeUnknown: false };
     await store.saveNativeMaterial('student', f.envelope.lessonId, f.resource.id, record);
     expect(await store.readNativeMaterial('student', f.envelope.lessonId, f.resource.id)).toEqual(record);
     expect(await store.readNativeMaterial('other', f.envelope.lessonId, f.resource.id)).toBeNull();

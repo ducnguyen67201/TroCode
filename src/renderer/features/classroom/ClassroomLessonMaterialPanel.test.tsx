@@ -9,6 +9,31 @@ import type { DesktopApi } from '../../../shared/desktop-api';
 import { ClassroomLessonMaterialPanel } from './ClassroomLessonMaterialPanel';
 
 describe('material visibility acknowledgement', () => {
+  it('never acknowledges external desktop opening from the embedded preview', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const state = lessonStateFixture();
+    state.envelope.plan.schemaVersion = 3;
+    const ack = vi.fn(async () => undefined);
+    const previous = window.tro;
+    window.tro = { lessons: { materialAck: ack } } as unknown as DesktopApi;
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<ClassroomLessonMaterialPanel state={state} vi={false} />));
+      await act(async () => vi.advanceTimersByTimeAsync(25000));
+      expect(host.querySelector('pre')).not.toBeNull();
+      expect(ack).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      window.tro = previous;
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
   it.each(['collapsed', 'background', 'empty', 'offscreen', 'covered'] as const)(
     'waits when material is %s and acknowledges after it becomes readable and visible', async (reason) => {
       vi.useFakeTimers();

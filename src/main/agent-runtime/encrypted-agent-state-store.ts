@@ -1,14 +1,7 @@
 import { app } from 'electron';
 import { createHash } from 'node:crypto';
 import {
-  chmod,
-  mkdir,
-  open,
-  readdir,
-  readFile,
-  stat,
-  truncate,
-  writeFile,
+  chmod, mkdir, open, readdir, readFile, stat, truncate, writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -43,6 +36,7 @@ import {
   type LocalThreadIndex,
   type LocalThreadState,
 } from './local-agent-state';
+import { exists, stableJson } from './state-store-values';
 
 export type { AgentStateCipher } from './agent-state-cipher';
 
@@ -99,6 +93,25 @@ export class EncryptedAgentStateStore implements TaskHistoryStore {
   }
 
   async close(): Promise<void> { await this.queue; }
+
+  async assertSettledInvocations(ownerId: string, threadId: string): Promise<void> {
+    await this.queue;
+    await this.readOwnedThread(ownerId, threadId);
+    if (!(await exists(this.invocationsPath(threadId))))
+      throw new Error('The task invocation journal is missing; its action outcomes cannot be verified.');
+    const journal = await this.readJournal(threadId);
+    if (journal.records.some((record) => record.status === 'executing' || record.status === 'unknown'))
+      throw new Error('The task has an unresolved tool outcome and cannot start another turn.');
+  }
+
+  async findOwnedThread(ownerId: string, threadId: string): Promise<LocalThreadState | null> {
+    await this.queue;
+    const index = await this.readIndex();
+    const entry = index.threads.find((item) => item.threadId === threadId);
+    if (!entry) return null;
+    if (entry.ownerId !== ownerId) throw new Error('Local thread owner mismatch.');
+    return this.readOwnedThread(ownerId, threadId);
+  }
 
   async create(ownerId: string, snapshot: TaskSnapshot, classroomLessonId: string | null = null): Promise<void> {
     await this.serial(async () => {
@@ -533,20 +546,4 @@ export class EncryptedAgentStateStore implements TaskHistoryStore {
   private snapshotPath(threadId: string): string { return path.join(this.threadDirectory(threadId), 'snapshot.enc'); }
   private eventsPath(threadId: string): string { return path.join(this.threadDirectory(threadId), 'events.enc'); }
   private invocationsPath(threadId: string): string { return path.join(this.threadDirectory(threadId), 'invocations.enc'); }
-}
-
-async function exists(target: string): Promise<boolean> {
-  try { await stat(target); return true; } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
-    throw error;
-  }
-}
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    const object = value as Record<string, unknown>;
-    return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
 }

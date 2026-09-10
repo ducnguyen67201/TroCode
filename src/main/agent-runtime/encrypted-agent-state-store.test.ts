@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { appendFile, mkdtemp, readFile, stat } from 'node:fs/promises';
+import { appendFile, mkdtemp, readFile, stat, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -63,6 +63,24 @@ async function fixture(options: Pick<
 }
 
 describe('EncryptedAgentStateStore', () => {
+  it('does not treat a missing invocation journal as proof that a task is settled', async () => {
+    const { store, snapshot, baseDirectory } = await fixture();
+    await unlink(path.join(baseDirectory, 'threads', snapshot.taskId, 'invocations.enc'));
+    await expect(store.assertSettledInvocations('owner-1', snapshot.taskId)).rejects.toThrow('journal is missing');
+    expect((await store.readOwnedThread('owner-1', snapshot.taskId)).snapshot.taskId).toBe(snapshot.taskId);
+  });
+  it('checks ownership and unresolved invocations before another turn', async () => {
+    const { store, snapshot } = await fixture();
+    expect(await store.findOwnedThread('owner-1', randomUUID())).toBeNull();
+    await expect(store.findOwnedThread('someone-else', snapshot.taskId)).rejects.toThrow('owner');
+    await store.assertSettledInvocations('owner-1', snapshot.taskId);
+    const invocation = { callId: 'opening', idempotencyDigest: 'a'.repeat(64), operation: 'open', toolId: 'classroom.teaching-open' };
+    await store.addInvocation(snapshot.taskId, invocation);
+    await store.transitionInvocation(snapshot.taskId, invocation.callId, 'checkpointed', 'executing');
+    await expect(store.assertSettledInvocations('owner-1', snapshot.taskId)).rejects.toThrow('unresolved');
+    await store.transitionInvocation(snapshot.taskId, invocation.callId, 'executing', 'unknown', { status: 'unknown', summary: 'No receipt', data: null, imageDataUrl: null });
+    await expect(store.assertSettledInvocations('owner-1', snapshot.taskId)).rejects.toThrow('unresolved');
+  });
   it('reuses Coach progress only for the exact owner, Attempt, and Activity version', async () => {
     const { store } = await fixture();
     const attemptId = randomUUID();

@@ -13,7 +13,7 @@ describe('Coach lesson observation', () => {
       const taskId = randomUUID();
       state.child = { taskId, stepId: state.envelope.plan.steps[0]!.id, executionId: randomUUID(),
         attemptNumber: 1, workSessionId: randomUUID(), purpose: 'work', ownedByThisRequest: true };
-      if (kind === 'web') state.material!.resource = state.envelope.plan.resources[0]!;
+      if (kind === 'web') state.material!.resource = { id: state.material!.resource.id, kind: 'web', title: 'Web lesson', url: 'https://example.com/lesson', origin: 'https://example.com' };
       if (kind === 'no-material') state.material = null;
       if (kind === 'check') state.child.purpose = 'check';
       const cleanup = vi.fn(async () => undefined);

@@ -792,7 +792,6 @@ export class CuaService {
     observationId: string,
     command: SurfaceCommand,
     signal?: AbortSignal,
-    transition?: 'opening',
   ): Promise<SurfaceActionOutcome> {
     this.assertActiveSession(taskId);
     if (!this.supportsSemanticFastPath() || !this.surfaceRouter) {
@@ -801,7 +800,7 @@ export class CuaService {
         summary: 'The semantic computer-use path is unavailable. Observe the desktop.',
       };
     }
-    return this.surfaceRouter.execute(taskId, observationId, command, signal, transition);
+    return this.surfaceRouter.execute(taskId, observationId, command, signal);
   }
   async revalidateSurfaceAction(
     taskId: string,

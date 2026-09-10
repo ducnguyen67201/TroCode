@@ -1,6 +1,5 @@
 import {
-  app,
-  autoUpdater,
+  app, autoUpdater,
   BrowserWindow,
   dialog,
   globalShortcut,
@@ -483,7 +482,7 @@ const cursorBuddyController = new CursorBuddyController({
 const executionCoordinator = new TaskExecutionCoordinator({
   additionalToolAdapters: [
     ...desktopTeachingToolAdapters(() => classroomLessons.teaching),
-    ...lessonToolAdapters(lessonServices.policy, lessonServices.drafts, lessonServices.client, (id) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(LESSON_CHANNELS.prepared, id); }),
+    ...lessonToolAdapters(lessonServices.drafts, lessonServices.client, (id) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(LESSON_CHANNELS.prepared, id); }),
     ...createActivityToolAdapters(knowledgeSpaceClient),
     ...createClassroomToolAdapters(
       teacherClassroomContextService,
@@ -656,6 +655,7 @@ const taskApplicationService: TaskApplicationService = new TaskApplicationServic
     localRuntime: localAgentRuntime,
     state: localAgentStateStore,
     workspaceSelectionService,
+    flushHistory: () => taskHistoryService.flush(),
   });
 const classroomGuidanceCoordinator: ClassroomGuidanceCoordinator = new ClassroomGuidanceCoordinator({
   broadcasts: classroomBroadcastService,

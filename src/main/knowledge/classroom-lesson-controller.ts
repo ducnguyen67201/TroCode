@@ -2,37 +2,28 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 
 import {
+  LESSON_LIMITS,
   LessonContinueSchema,
   LessonLocalStateSchema,
   LessonViewSchema,
   type LessonEnvelope,
   type LessonLocalState,
-  type LessonMaterial,
-  type LessonMode,
   type LessonReason,
   type LessonStatus,
   type LessonView,
 } from '../../shared/classroom-lesson-contracts';
+import { lessonExecutionRoute, lessonUsesExternalMaterial } from '../../shared/lesson-execution-policy';
 
 import { claimLessonChild } from './classroom-lesson-child';
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 import { LessonBlockedError } from './classroom-lesson-errors';
-import { assertLessonTransition, canAutoStartLesson, finishMaterialStep, lessonDigest, lessonRunningPhase, lessonReportSnapshot, rememberLessonResult } from './classroom-lesson-policy';
+import { settleLessonModelReservation, assertLessonTransition, canAutoStartLesson, finishMaterialStep, lessonDigest, lessonRunningPhase, lessonReportSnapshot, rememberLessonResult } from './classroom-lesson-policy';
+import { readLessonResourcePage } from './classroom-lesson-resource-reader';
+import type { LessonRunner } from './classroom-lesson-runner';
 import type { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 
-export interface LessonRunner {
-  busy(): boolean;
-  reserve(parentId: string): void;
-  release(parentId: string): void;
-  prepare(state: LessonLocalState, material: LessonMaterial, signal: AbortSignal): Promise<void>;
-  run(
-    state: LessonLocalState,
-    mode: LessonMode | 'help',
-    question: string | undefined,
-    signal: AbortSignal,
-  ): Promise<{ text: string; feedback: LessonLocalState['feedback']; disposition?: 'continue' | 'step_finished' }>;
-  cancel(taskId: string): Promise<'confirmed' | 'unknown'>;
-}
+export type { LessonRunner } from './classroom-lesson-runner';
+
 export class ClassroomLessonController {
   private readonly events = new EventEmitter();
   private active: LessonLocalState | null = null;
@@ -116,7 +107,8 @@ export class ClassroomLessonController {
       this.consent = savedConsent ?? consent;
       if (state) {
         state.status =
-          state.effect === 'dispatching' || state.effect === 'unknown' || state.child ? 'unknown' : 'paused';
+          state.status === 'unknown' || state.effect === 'dispatching' || state.effect === 'unknown' || state.child ? 'unknown' : 'paused';
+        state.desktopControlConsent = false;
         state.reasonCode = state.status === 'unknown' ? 'outcome_unknown' : 'restart';
         state.revision++;
         this.active = state;
@@ -194,7 +186,7 @@ export class ClassroomLessonController {
     if (this.work) throw new Error('Wait for the current step or press Pause.');
     if (request.action === 'check' && !['practice', 'check'].includes(state.envelope.plan.steps[state.stepIndex]?.mode ?? ''))
       throw new Error('Check your work during practice or the check step.');
-    if (request.action === 'continue_explanation' && (state.envelope.plan.schemaVersion !== 3 || state.status !== 'waiting_for_student' || state.teachingProgress?.disposition !== 'continue'))
+    if (request.action === 'continue_explanation' && (lessonExecutionRoute(state.envelope.plan, 'explain', state.stepIndex) !== 'shared_agent' || state.status !== 'waiting_for_student' || state.teachingProgress?.disposition !== 'continue'))
       throw new Error('There is no explanation waiting to continue.');
     if (request.action === 'next') {
       if (state.teachingProgress?.disposition === 'continue') throw new Error('Continue the explanation before advancing the step.');
@@ -226,12 +218,14 @@ export class ClassroomLessonController {
       .catch(async (error: unknown) => {
         if (generation !== this.generation || controller.signal.aborted) return;
         this.error = error instanceof Error ? error.message.slice(0, 500) : 'Lesson could not continue.';
-        const noEffect = error instanceof LessonBlockedError;
+        // A typed refusal describes this failure, not the outcome of an earlier
+        // dispatched action. Durable uncertainty always takes precedence.
+        const unknown = this.active?.effect === 'dispatching' || this.active?.effect === 'unknown';
+        const noEffect = error instanceof LessonBlockedError && !unknown;
         if (noEffect && this.active) {
           this.active.effect = 'none';
           this.active.child = null;
         }
-        const unknown = !noEffect && (this.active?.effect === 'dispatching' || this.active?.effect === 'unknown');
         if (
           this.active?.envelope.lessonId === envelope.lessonId &&
           !['finished', 'stopped', 'expired'].includes(this.active.status)
@@ -333,19 +327,21 @@ export class ClassroomLessonController {
     const step = envelope.plan.steps[state.stepIndex];
     if (!step) throw new Error('Lesson step is unavailable.');
     const mode = override ?? step.mode;
+    const execution = lessonExecutionRoute(envelope.plan, mode, state.stepIndex);
     if (mode !== 'check') state.feedback = [];
-    state.phase = 'Opening material';
+    state.phase = 'Preparing material';
     state.material = await this.options.client.material(this.anchor, envelope.lessonId, step.resourceId);
     await this.persist();
     signal.throwIfAborted();
-    state.effect = envelope.plan.schemaVersion === 3 ? 'none' : 'dispatching';
+    const externalMaterial = lessonUsesExternalMaterial(envelope.plan, state.stepIndex);
+    state.effect = 'none';
     await this.persist();
-    if (!(envelope.plan.schemaVersion === 3 && mode === 'check')) await this.options.runner.prepare(state, state.material, signal);
+    if (!(externalMaterial && mode === 'check')) await this.options.runner.prepare(state, state.material, signal);
     signal.throwIfAborted();
     state.effect = 'confirmed';
-    state.phase = 'Material ready';
+    state.phase = externalMaterial ? 'Resource prepared' : 'Material ready';
     await this.persist();
-    if (mode === 'practice' || mode === 'open') {
+    if (execution === 'material_viewer' && (mode === 'practice' || mode === 'open')) {
       finishMaterialStep(state, mode);
       await this.transition('waiting_for_student');
       if (mode === 'open' && state.stepIndex + 1 === envelope.plan.steps.length) {
@@ -358,8 +354,8 @@ export class ClassroomLessonController {
     await claimLessonChild(state, step, purpose, this.options.client, () => this.persist());
     state.observationCount = 0;
     state.phase = lessonRunningPhase(mode);
-    const remainingModels = 8 - (state.stepBudgets[step.id]?.models ?? 0);
-    const childModelLimit = envelope.plan.schemaVersion === 3 && mode !== 'check' ? Math.min(mode === 'demonstrate' ? 8 : 4, remainingModels) : mode === 'demonstrate' ? Math.min(6, remainingModels) : 1;
+    const remainingModels = Math.min(LESSON_LIMITS.modelsPerStep - (state.stepBudgets[step.id]?.models ?? 0), LESSON_LIMITS.totalModels - state.modelRequestCount);
+    const childModelLimit = execution === 'shared_agent' ? remainingModels : Math.min(1, remainingModels);
     if (childModelLimit < 1)
       throw new LessonBlockedError(
         'budget_exhausted',
@@ -367,14 +363,24 @@ export class ClassroomLessonController {
       );
     state.childModelLimit = childModelLimit;
     await this.consume('model', state.childModelLimit);
-    state.effect = envelope.plan.schemaVersion === 3 && mode !== 'check' ? 'none' : 'dispatching';
+    state.effect = execution === 'shared_agent' ? 'none' : 'dispatching';
     await this.transition('running');
     signal.throwIfAborted();
     const result = await this.options.runner.run(state, mode, question, signal);
     signal.throwIfAborted();
+    settleLessonModelReservation(state, step.id, result.modelRequestCount);
     state.effect = 'confirmed';
     state.child = null;
     state.text = result.text.slice(0, 16000);
+    if (mode === 'open' || mode === 'practice') {
+      finishMaterialStep(state, mode);
+      await this.transition('waiting_for_student');
+      if (mode === 'open' && state.stepIndex + 1 === envelope.plan.steps.length) {
+        await this.transition('finished');
+        this.options.runner.release(envelope.lessonId);
+      }
+      return;
+    }
     rememberLessonResult(state, mode, question);
     state.feedback = result.feedback;
     if (result.disposition) state.teachingProgress = { disposition: result.disposition, round: (state.teachingProgress?.round ?? 0) + 1 };
@@ -403,7 +409,7 @@ export class ClassroomLessonController {
     if (!step) throw new Error('Lesson step is unavailable.');
     const budget = state.stepBudgets[step.id] ?? { models: 0, actions: 0, observations: 0 };
     const key = kind === 'model' ? 'models' : kind === 'action' ? 'actions' : 'observations';
-    const stepMax = kind === 'model' ? 8 : kind === 'action' ? 20 : 16;
+    const stepMax = kind === 'model' ? LESSON_LIMITS.modelsPerStep : kind === 'action' ? LESSON_LIMITS.actionsPerStep : LESSON_LIMITS.observationsPerStep;
     if (budget[key] + count > stepMax) throw new Error('lesson_budget_exhausted');
     budget[key] += count;
     state.stepBudgets[step.id] = budget;
@@ -462,18 +468,14 @@ export class ClassroomLessonController {
   }
   async desktopState(lessonId: string, revision: number): Promise<LessonLocalState> {
     const state = this.active;
-    if (!state || state.envelope.lessonId !== lessonId || state.revision !== revision || state.envelope.plan.schemaVersion !== 3 || this.work || ['unknown', 'failed', 'finished', 'stopped', 'expired'].includes(state.status))
+    if (!state || state.envelope.lessonId !== lessonId || state.revision !== revision || !lessonUsesExternalMaterial(state.envelope.plan, state.stepIndex) || this.work || ['unknown', 'failed', 'finished', 'stopped', 'expired'].includes(state.status))
       throw new Error('Pause the lesson and use its current controls.');
     await this.authorize();
     if (this.active !== state || state.revision !== revision || this.work) throw new Error('Lesson changed.');
     return state;
   }
   async materialPage(lessonId: string, resourceId: string, ordinal: number) {
-    const state = this.active;
-    if (!state || state.envelope.lessonId !== lessonId || state.material?.resource.id !== resourceId)
-      throw new Error('Material changed.');
-    await this.authorize();
-    return this.options.client.material(state.anchorAttemptId, lessonId, resourceId, ordinal);
+    return readLessonResourcePage(() => this.active, () => this.authorize(), this.options.client, lessonId, resourceId, ordinal);
   }
   async flushReports() {
     const state = this.active;

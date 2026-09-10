@@ -41,6 +41,7 @@ import type {
 import type { EncryptedAgentStateStore } from './encrypted-agent-state-store';
 import type { LocalInvocation } from './local-agent-state';
 import { normalizeLocalToolResult } from './local-tool-result';
+import { withTimeout } from './runtime-timeout';
 
 export { normalizeLocalToolResult } from './local-tool-result';
 
@@ -74,6 +75,7 @@ export interface LocalTurnStart {
 }
 
 export interface LocalRuntimeTerminal {
+  modelRequestCount?: number;
   errorCode: string | null;
   finalOutput: string | null;
   message: string;
@@ -93,6 +95,7 @@ export interface AgentRuntimeAdapter {
 }
 
 interface ActiveTurn {
+  readonly modelRequests: Set<string> | null;
   readonly agentTurnId: string;
   readonly catalog: { digest: string; tools: LocalRuntimeToolSpec[] };
   readonly controller: AbortController;
@@ -194,6 +197,7 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
     const turnId = randomUUID();
     const agentTurnId = await this.reserveAgentTurn(input.threadId, turnId, token);
     const active: ActiveTurn = {
+      modelRequests: new Set(),
       agentTurnId,
       catalog,
       controller: new AbortController(),
@@ -339,6 +343,7 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
       throw new Error('The installed local agent graph changed; this checkpoint cannot be resumed safely.');
     }
     const active: ActiveTurn = {
+      modelRequests: null,
       agentTurnId: checkpoint.agentTurnId,
       catalog,
       controller: new AbortController(),
@@ -531,6 +536,11 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
         this.failClosed(new Error(message.message));
         return;
       case 'turn.event':
+        if (message.event === 'model_request_started') {
+          this.requireActive(message.threadId).modelRequests?.add(
+            typeof message.data?.clientRequestId === 'string' ? message.data.clientRequestId : `sequence:${message.sequence}`,
+          );
+        }
         if (message.event === 'assistant_delta') {
           this.queueAssistantDelta(message);
         } else {
@@ -553,15 +563,17 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
       case 'tool.execute':
         await this.toolExecute(message);
         return;
-      case 'turn.terminal':
+      case 'turn.terminal': {
         this.flushAssistantDelta(message.threadId);
-        this.requireActive(message.threadId).controller.abort(new Error('turn_terminal'));
+        const active = this.requireActive(message.threadId);
+        active.controller.abort(new Error('turn_terminal'));
         this.active.delete(message.threadId);
         this.childSequences.delete(message.turnId);
         this.hostSequences.delete(message.turnId);
         this.options.tools.endTask(message.threadId);
         await this.options.coordinator.endTask(message.threadId);
         await this.options.onTerminal?.({
+          ...(active.modelRequests ? { modelRequestCount: active.modelRequests.size } : {}),
           errorCode: message.errorCode,
           finalOutput: message.finalOutput,
           message: message.message,
@@ -570,6 +582,7 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
           turnId: message.turnId,
         });
         return;
+      }
     }
   }
 
@@ -925,22 +938,4 @@ function redact(value: string): string { return value.replace(/Bearer\s+\S+/giu,
 
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error('The local agent runtime failed.');
-}
-
-async function withTimeout<T>(
-  value: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      value,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }

@@ -14,6 +14,7 @@ import type { DesktopObservation } from '../agent/execution-contracts';
 import {
   executionContextAfterToolResult,
   LocalAgentRuntime,
+  type LocalAgentRuntimeOptions,
   normalizeLocalToolResult,
   pendingToolResumeDisposition,
 } from './agent-runtime-adapter';
@@ -66,7 +67,7 @@ class FakeUtilityProcess extends EventEmitter {
   }
 }
 
-function runtimeWith(process: FakeUtilityProcess): LocalAgentRuntime {
+function runtimeWith(process: FakeUtilityProcess, overrides: Partial<LocalAgentRuntimeOptions> = {}): LocalAgentRuntime {
   return new LocalAgentRuntime({
     accessTokenProvider: async () => 'user-session-credential',
     apiBaseUrl: 'https://api.example.test',
@@ -88,10 +89,30 @@ function runtimeWith(process: FakeUtilityProcess): LocalAgentRuntime {
       freeze: vi.fn(),
       resolve: vi.fn(),
     } as never,
+    ...overrides,
   });
 }
 
 describe('LocalAgentRuntime process supervision', () => {
+  it('reports actual unique model requests on a completed fresh turn', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: randomUUID() }), { status: 200 })));
+    const process = new FakeUtilityProcess('ready');
+    const onTerminal = vi.fn();
+    const runtime = runtimeWith(process, { onTerminal, tools: {
+      endTask: vi.fn(), freeze: () => ({ digest: 'a'.repeat(64), tools: [] }),
+    } as never });
+    const taskId = randomUUID();
+    await runtime.start({ threadId: taskId, executionContext: { taskId, activity: null, workspace: null, executionProfile: 'everyday' }, maxTurns: 32, request: 'Explain the material.' });
+    const start = process.messages.find((message) => message.kind === 'turn.start')!;
+    if (start.kind !== 'turn.start') throw new Error('Missing turn start');
+    const identity = { threadId: start.threadId, turnId: start.turnId, agentId: start.agentId, parentAgentId: start.parentAgentId, delegationId: start.delegationId, graphVersion: start.graphVersion };
+    for (const [index, request] of ['one', 'one', 'two'].entries()) {
+      process.emit('message', { ...identity, requestId: randomUUID(), sequence: index + 1, kind: 'turn.event', event: 'model_request_started', summary: 'Model request', data: { clientRequestId: request } });
+    }
+    process.emit('message', { ...identity, requestId: randomUUID(), sequence: 4, kind: 'turn.terminal', status: 'completed', finalOutput: 'Explained', message: 'Finished', errorCode: null });
+    await vi.waitFor(() => expect(onTerminal).toHaveBeenCalledWith(expect.objectContaining({ status: 'completed', modelRequestCount: 2 })));
+    await runtime.shutdown();
+  });
   it('rechecks undispatched pending tools but replays journaled effects', () => {
     const invocation = {
       callId: 'call-1',

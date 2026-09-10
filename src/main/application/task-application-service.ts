@@ -1,9 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type {
-  LessonLocalState,
-  LessonMode,
-} from '../../shared/classroom-lesson-contracts';
+import type { LessonLocalState, LessonMode } from '../../shared/classroom-lesson-contracts';
 import {
   AgentTaskContractV11Schema,
   CancelTaskRequestSchema,
@@ -52,6 +49,7 @@ export interface TaskApplicationServiceOptions {
   classroomSessionService?: Pick<ClassroomSessionService, 'activeStudentAttemptId' | 'latestDirective' | 'onChange'>;
   coachRuntime?: Pick<CoachRuntime, 'cancel' | 'shutdown' | 'start'>;
   currentOwnerId?(): Promise<string>;
+  flushHistory?(): Promise<void>;
   fastCoachEnabled?: boolean;
   localRuntime?: AgentRuntimeAdapter;
   state?: EncryptedAgentStateStore;

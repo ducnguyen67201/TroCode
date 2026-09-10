@@ -76,6 +76,20 @@ export class TaskRuntime extends EventEmitter {
     );
   }
 
+  /** A new turn in the same task preserves transcript and creation identity. */
+  continueTask(input: unknown, options: LocalTaskSubmissionOptions): TaskSnapshot {
+    const request = SubmitTaskRequestSchema.parse(input);
+    const goal = TaskContractSchema.parse(options.authority);
+    const snapshot = this.getTask(options.taskId);
+    if (!['completed', 'cancelled', 'failed'].includes(snapshot.phase))
+      throw new Error('Only a settled task can begin another turn.');
+    if (request.text !== goal.originalRequest) throw new Error('The continuation authority does not match its request.');
+    const next = this.appendMessage({ ...snapshot, request: request.text, goal, phase: 'ready', pendingInteraction: null, queuedSteering: [],
+      progress: { kind: 'tool_calls', completed: 0, limit: goal.limits.maxToolCalls } },
+    { role: 'user', kind: 'request', text: request.text }, this.timestamp());
+    return this.commit(next, { summary: 'Continuing the existing task with fresh authority.' });
+  }
+
   applyCoachStatus(
     taskId: string,
     coachPhase: 'observing' | 'planning' | 'presenting' | 'waiting',

@@ -6,6 +6,8 @@ import { LessonLocalStateSchema } from '../../shared/classroom-lesson-contracts'
 import type { TaskApplicationService } from '../application/task-application-service';
 import type { CuaService } from '../cua/cua-service';
 
+import type { ClassroomDesktopTeachingTools } from './classroom-desktop-teaching-tools';
+import type { ClassroomLessonMaterialService } from './classroom-lesson-material-service';
 import { ClassroomLessonStepRunner } from './classroom-lesson-step-runner';
 import { ClassroomLessonToolPolicy } from './classroom-lesson-tool-policy';
 import { lessonFixture } from './classroom-lesson.fixture';
@@ -58,7 +60,7 @@ function setup() {
     endTaskSession: vi.fn(),
     observeCurrentSurface: vi.fn(async () => observation),
   };
-  const openUrl = vi.fn(async () => undefined),
+  const prepare = vi.fn(async () => undefined),
     showMaterial = vi.fn(),
     authorize = vi.fn(async () => undefined);
   const runner = new ClassroomLessonStepRunner({
@@ -66,33 +68,35 @@ function setup() {
     client: {} as KnowledgeSpaceClient,
     cua: cua as unknown as CuaService,
     policy: new ClassroomLessonToolPolicy(),
-    openUrl,
+    desktop: { materials: { prepare } as unknown as ClassroomLessonMaterialService, teaching: {} as ClassroomDesktopTeachingTools },
     showMaterial,
     authorize,
     consume: vi.fn(),
   });
-  return { ...f, state, cua, openUrl, showMaterial, authorize, runner };
+  return { ...f, state, cua, prepare, showMaterial, authorize, runner };
 }
 describe('lesson material execution boundary', () => {
   it('blocks unreadable material before opening a window or starting computer use', async () => {
     const f = setup();
+    f.state.envelope.plan.resources = [{ id: f.resource.id, kind: 'assignment', title: 'Missing content' }];
     await expect(f.runner.prepare(f.state, {
       resource: { id: f.resource.id, kind: 'assignment', title: 'Missing content' },
       text: '  ', chunks: [], nextOrdinal: null,
     }, new AbortController().signal)).rejects.toMatchObject({ reason: 'resource_unavailable' });
     expect(f.showMaterial).not.toHaveBeenCalled();
-    expect(f.openUrl).not.toHaveBeenCalled();
+    expect(f.cua.observeCurrentSurface).not.toHaveBeenCalled();
     expect(f.cua.startTaskSession).not.toHaveBeenCalled();
   });
-  it('accepts an already verified Chrome exercise without navigating again', async () => {
+  it('prepares legacy web resources without observing or starting a separate CUA session', async () => {
     const f = setup();
     await f.runner.prepare(
       f.state,
       { resource: f.resource, text: '', chunks: [], nextOrdinal: null },
       new AbortController().signal,
     );
-    expect(f.openUrl).not.toHaveBeenCalled();
-    expect(f.cua.endTaskSession).toHaveBeenCalledOnce();
+    expect(f.cua.observeCurrentSurface).not.toHaveBeenCalled();
+    expect(f.prepare).toHaveBeenCalledOnce();
+    expect(f.cua.startTaskSession).not.toHaveBeenCalled();
   });
   it('blocks missing OS permissions before navigation', async () => {
     const f = setup();
@@ -108,12 +112,13 @@ describe('lesson material execution boundary', () => {
         new AbortController().signal,
       ),
     ).rejects.toMatchObject({ reason: 'permission_required' });
-    expect(f.openUrl).not.toHaveBeenCalled();
+    expect(f.cua.observeCurrentSurface).not.toHaveBeenCalled();
     expect(f.cua.startTaskSession).not.toHaveBeenCalled();
   });
   it('requires a matching material acknowledgement from the student renderer', async () => {
     const f = setup();
     const resource = { id: f.resource.id, kind: 'assignment' as const, title: 'Instructions' };
+    f.state.envelope.plan.resources = [resource];
     const opening = f.runner.prepare(
       f.state,
       { resource, text: 'Read the example', chunks: [], nextOrdinal: null },

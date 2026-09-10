@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import type { LessonLocalState } from '../../shared/classroom-lesson-contracts';
 import type { DesktopObservation } from '../agent/execution-contracts';
@@ -6,7 +6,6 @@ import type { CuaService } from '../cua/cua-service';
 import type { CuaWindowIdentity } from '../cua/cua-window-selection';
 
 import { LessonBlockedError } from './classroom-lesson-errors';
-import { isMaterialAppChooser } from './classroom-material-chooser-policy';
 
 interface Binding {
   owner: string;
@@ -59,13 +58,13 @@ export class ClassroomLessonSurfaceService {
   }
 
   async observe(state: LessonLocalState, taskId: string, signal: AbortSignal): Promise<DesktopObservation> {
-    const result = await this.inspectOpening(state, taskId, signal);
+    const result = await this.inspectMaterial(state, taskId, signal);
     if (!result.ready) throw result.error;
     return result.observation;
   }
 
-  /** Opening can observe an OS chooser without granting it authority as lesson content. */
-  async inspectOpening(state: LessonLocalState, taskId: string, signal: AbortSignal): Promise<
+  /** Observation and resource verification are separate; unfamiliar UI is not lesson content. */
+  async inspectMaterial(state: LessonLocalState, taskId: string, signal: AbortSignal): Promise<
     { ready: true; observation: DesktopObservation } |
     { ready: false; observation?: DesktopObservation; error: LessonBlockedError }
   > {
@@ -79,19 +78,39 @@ export class ClassroomLessonSurfaceService {
     const cleanup = await this.options.prepareObservation();
     try {
       const result = await this.options.cua.observeLessonWindow(taskId, bound?.identity, signal);
-      if (!result) return { ready: false, error: new LessonBlockedError('surface_unverified', 'Open the lesson material in its app, then choose its window.') };
-      const observation = result.observation.screenshot ? { ...result.observation, fingerprint: createHash('sha256').update(result.observation.fingerprint).update(result.observation.screenshot.dataBase64).digest('hex') } : result.observation;
+      if (!result) {
+        // A dead identity is not a permanent target. The next observation may
+        // discover the resource in a new window, but must verify it afresh.
+        this.bindings.delete(state.envelope.lessonId);
+        return { ready: false, error: new LessonBlockedError('surface_unverified', 'The previous window is unavailable. Observe the current screen and show the requested material.') };
+      }
+      // Preserve the shared router's identity: its dispatch binding owns this
+      // fingerprint. Presentation compares additional visual evidence separately.
+      const observation = result.observation;
       try {
-        if (isMaterialAppChooser(observation))
-          throw new LessonBlockedError('surface_unverified', 'Choosing an application for the lesson material.');
         const title = observation.surface?.title ?? '';
-        if (bound && ((bound.title && bound.title !== title) || bound.url !== undefined && bound.url !== observation.surface?.url))
-          throw new LessonBlockedError('surface_unverified', 'The document or tab changed. Choose the material window again.');
+        if (bound && ((bound.title && bound.title !== title) || bound.url !== undefined && bound.url !== observation.surface?.url)) {
+          this.bindings.delete(state.envelope.lessonId);
+          throw new LessonBlockedError('surface_unverified', 'The document or tab changed. Observe again to verify the requested material.');
+        }
         const resource = state.envelope.plan.resources.find((r) => r.id === step.resourceId);
+        const material = state.material;
+        if (!resource || (material && (material.resource.id !== resource.id || material.resource.kind !== resource.kind ||
+            (resource.kind === 'source_text' && material.resource.kind === 'source_text' && material.resource.sourceVersionId !== resource.sourceVersionId))))
+          throw new LessonBlockedError('resource_unavailable', 'Material no longer matches the reviewed resource.');
         if (!bound?.explicit && (resource?.kind === 'source_text' || this.fileTitles.has(state.envelope.lessonId))) {
           const name = (this.fileTitles.get(state.envelope.lessonId) ?? resource!.title).split(/[\\/]/u).pop()!.toLocaleLowerCase();
           if (!title.toLocaleLowerCase().includes(name))
             throw new LessonBlockedError('surface_unverified', 'Show the requested file, or select its window to explain it.');
+          const source = [material?.text, ...(material?.chunks.map((chunk) => chunk.body) ?? [])].filter(Boolean).join('\n').trim();
+          // A title may name a file while an OS dialog is still opening it.
+          // Match content evidence, not application names or localized controls.
+          if (source && observation.text.trim()) {
+            const visible = [observation.text, ...(observation.elements ?? []).map((element) => element.value ?? '')].join('\n').replace(/\s+/gu, ' ');
+            const excerpts = source.split(/\r?\n/u).map((line) => line.trim()).filter((line) => line.length >= Math.min(8, source.length));
+            if (!excerpts.some((line) => visible.includes(line.slice(0, 120).replace(/\s+/gu, ' '))))
+              throw new LessonBlockedError('surface_unverified', 'The requested document content is not visible yet. Observe the screen and finish opening it.');
+          }
         }
         if (resource?.kind === 'web' && observation.surface?.url !== resource.url)
           throw new LessonBlockedError('surface_unverified', 'Show the requested webpage before starting this lesson.');
@@ -105,12 +124,6 @@ export class ClassroomLessonSurfaceService {
         return { ready: false, observation, error };
       }
     } finally { await cleanup(); }
-  }
-
-  acceptScratch(state: LessonLocalState, observation: DesktopObservation) {
-    const bound = this.bindings.get(state.envelope.lessonId);
-    if (!bound || !/^(?:[●•*]\s*)?Untitled/iu.test(observation.surface?.title ?? '')) throw new Error('The new scratch editor was not verified.');
-    bound.title = observation.surface!.title!; bound.url = observation.surface?.url; bound.explicit = true;
   }
 
   private now() { return this.options.now?.() ?? Date.now(); }

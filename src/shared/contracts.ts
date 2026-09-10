@@ -2,8 +2,7 @@ import { z } from 'zod';
 
 import { validateClassroomUrl } from './classroom-url-policy';
 import {
-  ActivityCriterionSchema,
-  ActivityGuidancePolicySchema,
+  ActivityCriterionSchema, ActivityGuidancePolicySchema,
   AppLanguageSchema,
   ClassroomOriginSchema,
   SaveKnowledgeActivityRequestSchema,
@@ -15,6 +14,7 @@ import { VOICE_MODES } from './voice-mode';
 
 export * from './classroom-broadcast-contracts';
 export * from './classroom-lesson-contracts';
+export * from './lesson-execution-context';
 export { ClassroomAccountRoleSchema,KnowledgeCapabilitiesSchema } from './knowledge-capabilities';
 
 

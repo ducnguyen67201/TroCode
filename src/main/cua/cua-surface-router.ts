@@ -26,9 +26,7 @@ import {
   type VisibleApplicationSurface,
 } from './cua-semantic-contracts';
 import {
-  CuaSurfaceReferenceStore,
-  type CuaBoundReference,
-  type CuaSurfaceBinding,
+  CuaSurfaceReferenceStore, type CuaBoundReference, type CuaSurfaceBinding,
 } from './cua-surface-reference-store';
 import { visibleApplicationSurfaces } from './cua-visible-application-surfaces';
 import { externalWindowCandidates, sameWindowIdentity, selectExternalWindow, type CuaWindowIdentity } from './cua-window-selection';
@@ -137,7 +135,7 @@ function windowElementToPublic(
     ref: publicRef,
     role: element.role.slice(0, 120),
     name,
-    ...(value ? { value } : {}),
+    ...(value !== undefined ? { value } : {}),
     ...(bounds ? { bounds } : {}),
     ...(element.disabled !== undefined
       ? { disabled: element.disabled }
@@ -172,7 +170,7 @@ function browserElementToPublic(
     ref: publicRef,
     role: element.role.slice(0, 120),
     name,
-    ...(value ? { value } : {}),
+    ...(value !== undefined ? { value } : {}),
     ...(element.href ? { href: element.href.slice(0, 8_000) } : {}),
     ...(bounds ? { bounds } : {}),
     ...(element.disabled !== undefined ? { disabled: element.disabled } : {}),
@@ -303,7 +301,6 @@ export class CuaSurfaceRouter {
     observationId: string,
     command: SurfaceCommand,
     signal?: AbortSignal,
-    transition?: 'opening',
   ): Promise<SurfaceActionOutcome> {
     const binding = this.referenceStore.require(taskId, observationId);
     const ref = 'ref' in command && command.ref
@@ -331,9 +328,12 @@ export class CuaSurfaceRouter {
       fresh = undefined;
     }
     if (!fresh) {
+      // A confirmed input and a missing destination observation are different
+      // facts. Closing dialogs occur in any workflow, not only lesson opening.
+      this.referenceStore.clearTask(taskId);
       return SurfaceActionOutcomeSchema.parse({
-        status: effect === 'confirmed' && transition === 'opening' ? 'confirmed' : 'unknown',
-        summary: effect === 'confirmed' && transition === 'opening' ? 'CUA confirmed the opening action; observe the destination window before continuing.' : 'CUA may have delivered the action, but Tro could not refresh the exact surface.',
+        status: effect === 'confirmed' ? 'confirmed' : 'unknown',
+        summary: effect === 'confirmed' ? 'CUA confirmed the action. The previous surface is unavailable; observe the destination before continuing. This does not verify task completion.' : 'CUA may have delivered the action, but Tro could not refresh the exact surface.',
       });
     }
     this.referenceStore.replace(fresh.binding);

@@ -10,7 +10,7 @@ export function ClassroomLessonMaterialPanel({ state, vi }: { state: LessonLocal
   const selectedPage = page?.revision === state.revision ? page.material : null;
   const material = selectedPage?.resource.id === state.material?.resource.id ? selectedPage : state.material;
   useEffect(() => {
-    if (!material || material.resource.kind === 'web' || state.phase !== 'Opening material' || !window.tro.lessons)
+    if (state.envelope.plan.schemaVersion === 3 || !material || material.resource.kind === 'web' || state.phase !== 'Opening material' || !window.tro.lessons)
       return;
     let live = true;
     let timer: ReturnType<typeof setTimeout>;
@@ -45,7 +45,7 @@ export function ClassroomLessonMaterialPanel({ state, vi }: { state: LessonLocal
       live = false;
       clearTimeout(timer);
     };
-  }, [state.envelope.lessonId, state.revision, state.phase, material]);
+  }, [state.envelope.lessonId, state.envelope.plan.schemaVersion, state.revision, state.phase, material]);
   if (!material || material.resource.kind === 'web') return null;
   return (
     <section ref={panel} className="lesson-material" aria-label={vi ? 'Tài liệu bài học' : 'Lesson material'}>

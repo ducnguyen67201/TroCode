@@ -117,3 +117,10 @@ export function lessonReportSnapshot(state: LessonLocalState, reportId: string) 
     modelRequestCount: state.modelRequestCount,
   };
 }
+
+export function settleLessonModelReservation(state: LessonLocalState, stepId: string, measured: number | undefined) {
+  if (measured === undefined || !Number.isInteger(measured) || measured < 0 || measured > state.childModelLimit) return;
+  const unused = state.childModelLimit - measured;
+  state.stepBudgets[stepId]!.models -= unused;
+  state.modelRequestCount -= unused;
+}
