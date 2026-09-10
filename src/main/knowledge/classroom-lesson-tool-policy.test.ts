@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ResolvedToolInvocation } from '../agent/agent-contracts';
 
 import { lessonToolDefinitions } from './classroom-lesson-agent-tools';
-import { ClassroomLessonToolPolicy, lessonToolAllowed } from './classroom-lesson-tool-policy';
+import { ClassroomLessonToolPolicy } from './classroom-lesson-tool-policy';
 
 function fixture() {
   const policy = new ClassroomLessonToolPolicy();
@@ -19,11 +19,6 @@ function fixture() {
 
 describe('shared lesson dispatch policy', () => {
   it('advertises one student tool path and removes the old browser completion tool', () => {
-    const scope = { kind: 'desktop' as const, lessonId: randomUUID(), stepId: randomUUID() };
-    for (const id of ['computer.observe', 'computer.control', 'desktop.control', 'classroom.teaching-finish'])
-      expect(lessonToolAllowed(id, scope)).toBe(true);
-    for (const id of ['terminal.exec', 'browser.prepare', 'classroom.lesson-step', 'classroom.broadcast'])
-      expect(lessonToolAllowed(id, scope)).toBe(false);
     expect(lessonToolDefinitions().some((tool) => tool.modelName === 'complete_lesson_step')).toBe(false);
   });
   it('dispatches through the guard, awaits its receipt and rejects late calls after revocation', async () => {

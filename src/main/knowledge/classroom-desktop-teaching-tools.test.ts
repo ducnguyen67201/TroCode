@@ -11,7 +11,7 @@ import { ClassroomDesktopTeachingTools, desktopTeachingToolDefinitions } from '.
 import { desktopLessonFixture } from './classroom-desktop-teaching.fixture';
 import { LessonBlockedError } from './classroom-lesson-errors';
 import type { ClassroomLessonSurfaceService } from './classroom-lesson-surface-service';
-import { lessonToolAllowed } from './classroom-lesson-tool-policy';
+
 
 function fixture() {
   const f = desktopLessonFixture();
@@ -57,16 +57,45 @@ describe('scoped desktop teaching tools', () => {
     expect(f.tools.uncertain(f.taskId)).toBe(true);
   });
   it.each([
+    { kind: 'press_key', ref: null, key: 'Tab', modifiers: ['Alt'] },
     { kind: 'press_key', ref: null, key: 'v', modifiers: ['Control'] },
     { kind: 'press_key', ref: null, key: 'Delete', modifiers: [] },
     { kind: 'press_key', ref: null, key: 'Enter', modifiers: [] },
-  ])('does not let keyboard input bypass navigation-only consent: $key', async (command) => {
+  ])('uses shared keyboard capabilities without a lesson key allowlist: $key', async (command) => {
     const f = fixture();
     f.state.desktopControlConsent = true;
     f.state.envelope.plan.steps[0]!.surface!.navigation = 'tro';
     await f.call('observe', {});
-    await expect(f.tools.guard(f.taskId).before(f.control(command), false)).rejects.toMatchObject({ reason: 'permission_required' });
+    await expect(f.tools.guard(f.taskId).before(f.control(command), false)).resolves.toBeUndefined();
     await expect(f.tools.guard(f.taskId).before(f.control({ kind: 'press_key', ref: null, key: 'PageDown', modifiers: [] }), false)).resolves.toBeUndefined();
+  });
+  it.each([
+    { kind: 'keypress', keys: ['Alt', 'Tab'] },
+    { kind: 'type_text', text: 'lesson.md' },
+    { kind: 'drag', fromX: 1, fromY: 2, toX: 3, toY: 4, durationMs: 200, button: 'left' },
+  ])('does not filter shared desktop commands: $kind', async (command) => {
+    const f = fixture();
+    await f.call('observe', {});
+    f.observation.screenshot = { dataBase64: 'AA==', mimeType: 'image/png' };
+    await expect(f.tools.guard(f.taskId).before({ ...f.control(command), toolId: 'desktop.control' }, false)).resolves.toBeUndefined();
+  });
+  it('allows shared text entry outside demonstration mode', async () => {
+    const f = fixture();
+    await f.call('observe', {});
+    await expect(f.tools.guard(f.taskId).before(f.control({ kind: 'type_text', ref: 'e1', text: 'lesson.md', replace: false }), false)).resolves.toBeUndefined();
+  });
+  it('tracks newly available shared tools and preserves Stop and unknown outcomes', async () => {
+    const f = fixture();
+    const call = { toolId: 'application.launch', operation: 'launch', input: { application: 'chrome' } } as ResolvedToolInvocation;
+    const guard = f.tools.guard(f.taskId);
+    await guard.before(call, true);
+    expect(f.consume).toHaveBeenCalledWith('action');
+    await guard.observeResult({ status: 'unknown', summary: 'Launch receipt unavailable.' });
+    expect(guard.uncertain()).toBe(true);
+    await expect(guard.before(call, true)).rejects.toThrow('revoked');
+    const stopped = fixture();
+    stopped.tools.remove(stopped.taskId);
+    await expect(stopped.tools.guard(stopped.taskId).before(call, true)).rejects.toThrow('unavailable');
   });
   it('finishes opening only after verification and without requiring a presentation', async () => {
     const f = fixture();
@@ -107,7 +136,7 @@ describe('scoped desktop teaching tools', () => {
     f.state.desktopControlConsent = false;
     await expect(f.tools.guard(f.taskId).before(command, false)).resolves.toBeUndefined();
   });
-  it('allows a consented example in a proven-empty editor but rejects unavailable field contents', async () => {
+  it('does not impose a classroom field-content requirement', async () => {
     const f = fixture();
     f.state.desktopControlConsent = true;
     const step = f.state.envelope.plan.steps[0]!;
@@ -121,7 +150,7 @@ describe('scoped desktop teaching tools', () => {
     await expect(f.tools.guard(f.taskId).before(input, false)).resolves.toBeUndefined();
     delete f.observation.elements![0]!.value;
     await f.call('observe', {});
-    await expect(f.tools.guard(f.taskId).before(input, false)).rejects.toMatchObject({ reason: 'existing_work' });
+    await expect(f.tools.guard(f.taskId).before(input, false)).resolves.toBeUndefined();
   });
   it('returns unverified UI evidence to the loop without allowing it to complete the lesson', async () => {
     const f = fixture();
@@ -198,10 +227,8 @@ describe('scoped desktop teaching tools', () => {
     expect(f.observe).not.toHaveBeenCalled();
   });
   it('exposes shared computer tools and product tools without navigation recipes', () => {
-    const scope = { kind: 'desktop' as const, lessonId: randomUUID(), stepId: randomUUID() };
-    for (const definition of desktopTeachingToolDefinitions()) { assertStrictFunctionSchema(definition.parameters); expect(lessonToolAllowed(definition.id, scope)).toBe(true); }
-    for (const id of ['computer.control', 'computer.observe']) expect(lessonToolAllowed(id, scope)).toBe(true);
-    for (const id of ['classroom.teaching-navigate', 'classroom.teaching-demonstrate', 'terminal.run', 'browser.prepare', 'classroom.lesson-step']) expect(lessonToolAllowed(id, scope)).toBe(false);
+    for (const definition of desktopTeachingToolDefinitions()) assertStrictFunctionSchema(definition.parameters);
+    expect(desktopTeachingToolDefinitions().some((tool) => tool.id === 'classroom.teaching-navigate')).toBe(false);
   });
   it('requires observed presentation and an explicit disposition before returning success', async () => {
     const f = fixture();
@@ -258,14 +285,14 @@ describe('scoped desktop teaching tools', () => {
     await f.call('observe', {});
     await expect(f.tools.guard(f.taskId).before(f.control({ kind: 'type_text', ref: 'e1', text: 'print("Hello")', replace: false }), false)).resolves.toBeUndefined();
   });
-  it('refuses to overwrite existing student work', async () => {
+  it('leaves text replacement to shared control policy and agent context', async () => {
     const f = fixture();
     f.state.envelope.plan.steps[0]!.mode = 'demonstrate';
     f.state.envelope.plan.steps[0]!.demonstration = { exampleDescription: 'Print a greeting', expectedResult: 'Hello' };
     f.tools.register(f.taskId, f.state, 'demonstrate', { answerReveal: 'allowed', hintMode: 'socratic', maxHintLevel: 2 });
     f.observation.surface = { kind: 'code_editor', application: 'Visual Studio Code', title: 'Untitled-1' };
     await f.call('observe', {});
-    await expect(f.tools.guard(f.taskId).before(f.control({ kind: 'type_text', ref: 'e1', text: 'print("Hello")', replace: true }), false)).rejects.toMatchObject({ reason: 'existing_work' });
+    await expect(f.tools.guard(f.taskId).before(f.control({ kind: 'type_text', ref: 'e1', text: 'print("Hello")', replace: true }), false)).resolves.toBeUndefined();
   });
 });
 

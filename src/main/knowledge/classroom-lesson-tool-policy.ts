@@ -3,10 +3,6 @@ import type { ResolvedToolInvocation, ToolExecutionResult } from '../agent/agent
 import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
 
 export type LessonExecutionScope = { kind: 'desktop'; lessonId: string; stepId: string };
-const allowed = new Set(['computer.observe', 'computer.control', 'desktop.control', 'classroom.teaching-context', 'classroom.teaching-read', 'classroom.teaching-open', 'classroom.teaching-observe', 'classroom.teaching-present', 'classroom.teaching-finish']);
-export function lessonToolAllowed(id: string, scope?: LessonExecutionScope): boolean {
-  return !scope || (scope.kind === 'desktop' && allowed.has(id));
-}
 export interface DesktopLessonExecutionGuard {
   before(invocation: ResolvedToolInvocation, dispatch: boolean): Promise<void>;
   observeResult(result: ToolExecutionResult): void | Promise<void>;
@@ -14,7 +10,7 @@ export interface DesktopLessonExecutionGuard {
   complete(): boolean;
   failure(): LessonReason | null;
 }
-/** Main-only guard. Page/model text cannot grant a tool or change a lesson's mode. */
+/** Main-only lifecycle guard; shared tool registration owns capability availability. */
 export class ClassroomLessonToolPolicy {
   private readonly desktop = new Map<string, DesktopLessonExecutionGuard>();
   registerDesktop(taskId: string, guard: DesktopLessonExecutionGuard): void {

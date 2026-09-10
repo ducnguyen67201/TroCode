@@ -13,7 +13,7 @@ import type { CursorBuddyController } from '../companion/cursor-buddy-controller
 
 import { LessonBlockedError } from './classroom-lesson-errors';
 import type { ClassroomLessonSurfaceService } from './classroom-lesson-surface-service';
-import { lessonToolAllowed, type DesktopLessonExecutionGuard } from './classroom-lesson-tool-policy';
+import type { DesktopLessonExecutionGuard } from './classroom-lesson-tool-policy';
 import { lessonExecutionContext, lessonResourceExcerpt } from './lesson-execution-context';
 
 export const TeachingFinishSchema = z.object({ disposition: z.enum(['continue', 'step_finished']), recap: z.string().trim().min(1).max(2000) }).strict();
@@ -108,39 +108,21 @@ export class ClassroomDesktopTeachingTools {
     const readOnly = ['computer.observe', 'classroom.teaching-context', 'classroom.teaching-read', 'classroom.teaching-observe'].includes(invocation.toolId);
     if (this.rounds.get(taskId) !== round || (round.uncertain && !readOnly) || round.result)
       throw new Error('Lesson execution authority was revoked.');
-    if (!lessonToolAllowed(invocation.toolId, { kind: 'desktop', lessonId: round.state.envelope.lessonId, stepId: round.state.envelope.plan.steps[round.state.stepIndex]!.id }))
-      throw new Error('lesson_tool_denied');
     if (invocation.toolId === 'computer.observe') {
       if (dispatch) await this.options.consume('observation');
       return;
     }
-    if (invocation.toolId !== 'computer.control' && invocation.toolId !== 'desktop.control') return;
-    const input = invocation.input as SurfaceControlToolInput | DesktopControlToolInput;
-    const observation = round.observation;
-    if (!observation || observation.observationId !== input.observationId ||
-        observation.fingerprint !== input.observationFingerprint ||
-        Date.now() - Date.parse(observation.capturedAt) > 10_000)
-      throw new LessonBlockedError('surface_unverified', 'Observe the current screen before acting.');
-    const step = round.state.envelope.plan.steps[round.state.stepIndex]!;
-    if (invocation.toolId === 'desktop.control' && (!observation.screenshot || !['click', 'scroll', 'keypress', 'point'].includes(input.command.kind)))
-      throw new LessonBlockedError('surface_unverified', 'Use observed element controls for text entry; coordinate actions require a fresh screenshot.');
-    if (input.command.kind === 'press_key' || input.command.kind === 'keypress') {
-      const keys = input.command.kind === 'press_key'
-        ? [...input.command.modifiers, input.command.key] : input.command.keys;
-      // Navigation consent does not authorize clipboard insertion, deletion,
-      // submission or arbitrary shortcuts that bypass observed text-entry checks.
-      if (keys.length !== 1 || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', 'Tab', 'Escape'].includes(keys[0]!))
-        throw new LessonBlockedError('permission_required', 'This keyboard action requires authority beyond navigation. Use an observed control within the lesson scope.');
-    }
-    if (input.command.kind === 'type_text') {
-      const command = input.command;
-      const ref = 'ref' in command ? command.ref : undefined;
-      const element = observation.elements?.find((item) => item.ref === ref);
-      if (!element || element.disabled || !['editor', 'text area', 'textbox', 'textarea', 'input', 'searchbox'].includes(element.role.toLowerCase()) || element.value === undefined || element.value.trim())
-        throw new LessonBlockedError('existing_work', 'Text entry requires an observed empty field. Existing work will not be overwritten.');
-      if (command.text.length > 8000) throw new Error('lesson_tool_denied');
-      if (element.role.toLowerCase() !== 'searchbox' && (round.mode !== 'demonstrate' || step.mode !== 'demonstrate' || !step.demonstration || round.guidancePolicy?.answerReveal !== 'allowed'))
-        throw new LessonBlockedError('permission_required', 'This step does not authorize typing a demonstrated answer.');
+    if (invocation.toolId.startsWith('classroom.teaching-')) return;
+    if (invocation.toolId === 'computer.control' || invocation.toolId === 'desktop.control') {
+      const input = invocation.input as SurfaceControlToolInput | DesktopControlToolInput;
+      const observation = round.observation;
+      if (!observation || observation.observationId !== input.observationId ||
+          observation.fingerprint !== input.observationFingerprint ||
+          Date.now() - Date.parse(observation.capturedAt) > 10_000)
+        throw new LessonBlockedError('surface_unverified', 'Observe the current screen before acting.');
+      // Shared controls own input validation, without classroom input allowlists.
+      if (invocation.toolId === 'desktop.control' && !observation.screenshot)
+        throw new LessonBlockedError('surface_unverified', 'Coordinate actions require a fresh screenshot.');
     }
     if (dispatch) {
       await this.options.consume('action');
