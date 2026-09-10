@@ -165,7 +165,8 @@ function modelToolResult(result: LocalToolExecutionResult, callId: string): unkn
 
 function resolveOperation(spec: LocalRuntimeToolSpec, input: Record<string, unknown>): string {
   if (spec.operations.length === 1) return spec.operations[0] as string;
-  const candidate = input.kind ?? input.operation ?? input.action;
+  const commandKind = isRecord(input.command) ? input.command.kind : undefined;
+  const candidate = input.kind ?? input.operation ?? input.action ?? commandKind;
   if (typeof candidate === 'string' && spec.operations.includes(candidate)) return candidate;
   throw new Error('unresolved_tool_operation');
 }
