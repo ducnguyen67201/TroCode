@@ -20,6 +20,23 @@ function toolSpec(
 }
 
 describe('SDK tool adapter', () => {
+  it.each(['kind', 'operation', 'action'])('preserves the top-level %s discriminator', (field) => {
+    const spec = toolSpec('filesystem', {
+      type: 'object', additionalProperties: false,
+      properties: { [field]: { type: 'string', enum: ['read', 'write'] } },
+      required: [field],
+    });
+    const surface = new ToolSurfaceFactory().create([{ ...spec, operations: ['read', 'write'] }], digest);
+    const resolve = (input: Record<string, unknown>) => surface.resolve({ rawItem: {
+      type: 'function_call', callId: 'operation-call', name: spec.modelName,
+      arguments: JSON.stringify(input),
+    } } as never);
+    expect(resolve({ [field]: 'read' }).operation).toBe('read');
+    // A nested value must not override an invalid explicit top-level operation.
+    expect(() => resolve({ [field]: 'unknown', command: { kind: 'read' } }))
+      .toThrow('unresolved_tool_operation');
+  });
+
   it('normalizes only the first interruption to the required exact call', () => {
     const observeContext: LocalRuntimeToolSpec = {
       toolId: 'computer.observe',
