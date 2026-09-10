@@ -6,8 +6,9 @@ Date: 2026-09-10. Source baseline: `4c37567`.
 ## Implementation status
 
 Working branch: `codex/shared-lesson-agent`. Source changes and regression tests
-are ready for the first CI cycle. No hosted checks or live cross-device acceptance
-have run for this revision. The user has authorized the PR and merge after completion and passing checks.
+are in PR #84. The first CI cycle stopped at source-size limits; helpers have
+been extracted and the baseline reduced. Final CI and live cross-device acceptance
+remain pending. The user has authorized the PR and merge after completion and passing checks.
 
 Implemented in the working tree:
 
@@ -18,13 +19,16 @@ Implemented in the working tree:
   claiming document verification.
 - Deleted chooser recipes, opening/polling loops, browser-only completion tools,
   navigation/demonstration recipes and their obsolete wiring and policy state.
-- Shared observation/control with current authority, consent and evidence checks.
+- Shared observation/control with current authority and evidence checks.
+  Following main PR #83, an accepted active lesson authorizes navigation; the
+  obsolete desktopControlConsent field and surface.navigation are not gates.
+  Auto-start consent, Pause, Stop and OS permissions remain enforced.
   Verification failures return observations; stale window bindings can recover.
   Presentation checks visual changes separately from shared CUA fingerprints.
 - Durable same-step task reuse, fresh authority, retained SDK history, explicit
   history flushing, measured model accounting and conservative unknown handling.
 - Version-2 resource records with read-only legacy decoding. Missing journals and
-  unresolved actions block continuation; restoration revokes control consent.
+  unresolved actions block continuation; restoration clears obsolete control-consent state.
 - Mode-specific completion and presentation-receipt revocation checks. Embedded
   reading and assessment remain explicit product paths, not external UI fallbacks.
 

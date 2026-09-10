@@ -1,3 +1,4 @@
+import { withTimeout } from './runtime-timeout';
 import {
   utilityProcess,
   type ForkOptions,
@@ -937,22 +938,4 @@ function redact(value: string): string { return value.replace(/Bearer\s+\S+/giu,
 
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error('The local agent runtime failed.');
-}
-
-async function withTimeout<T>(
-  value: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      value,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }

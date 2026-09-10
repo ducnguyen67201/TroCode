@@ -1,9 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type {
-  LessonLocalState,
-  LessonMode,
-} from '../../shared/classroom-lesson-contracts';
+import type { LessonLocalState, LessonMode } from '../../shared/classroom-lesson-contracts';
 import {
   AgentTaskContractV11Schema,
   CancelTaskRequestSchema,

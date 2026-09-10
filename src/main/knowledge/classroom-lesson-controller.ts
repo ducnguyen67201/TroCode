@@ -1,3 +1,6 @@
+import type { LessonRunner } from './classroom-lesson-runner';
+export type { LessonRunner } from './classroom-lesson-runner';
+import { readLessonResourcePage } from './classroom-lesson-resource-reader';
 import { randomUUID } from 'node:crypto';
 
 import { lessonExecutionRoute, lessonUsesExternalMaterial } from '../../shared/lesson-execution-policy';
@@ -10,8 +13,6 @@ import {
   LessonViewSchema,
   type LessonEnvelope,
   type LessonLocalState,
-  type LessonMaterial,
-  type LessonMode,
   type LessonReason,
   type LessonStatus,
   type LessonView,
@@ -20,22 +21,9 @@ import {
 import { claimLessonChild } from './classroom-lesson-child';
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 import { LessonBlockedError } from './classroom-lesson-errors';
-import { assertLessonTransition, canAutoStartLesson, finishMaterialStep, lessonDigest, lessonRunningPhase, lessonReportSnapshot, rememberLessonResult } from './classroom-lesson-policy';
+import { settleLessonModelReservation, assertLessonTransition, canAutoStartLesson, finishMaterialStep, lessonDigest, lessonRunningPhase, lessonReportSnapshot, rememberLessonResult } from './classroom-lesson-policy';
 import type { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 
-export interface LessonRunner {
-  busy(): boolean;
-  reserve(parentId: string): void;
-  release(parentId: string): void;
-  prepare(state: LessonLocalState, material: LessonMaterial, signal: AbortSignal): Promise<void>;
-  run(
-    state: LessonLocalState,
-    mode: LessonMode | 'help',
-    question: string | undefined,
-    signal: AbortSignal,
-  ): Promise<{ text: string; feedback: LessonLocalState['feedback']; disposition?: 'continue' | 'step_finished'; modelRequestCount?: number }>;
-  cancel(taskId: string): Promise<'confirmed' | 'unknown'>;
-}
 export class ClassroomLessonController {
   private readonly events = new EventEmitter();
   private active: LessonLocalState | null = null;
@@ -379,11 +367,7 @@ export class ClassroomLessonController {
     signal.throwIfAborted();
     const result = await this.options.runner.run(state, mode, question, signal);
     signal.throwIfAborted();
-    if (result.modelRequestCount !== undefined && Number.isInteger(result.modelRequestCount) && result.modelRequestCount >= 0 && result.modelRequestCount <= state.childModelLimit) {
-      const unused = state.childModelLimit - result.modelRequestCount;
-      state.stepBudgets[step.id]!.models -= unused;
-      state.modelRequestCount -= unused;
-    }
+    settleLessonModelReservation(state, step.id, result.modelRequestCount);
     state.effect = 'confirmed';
     state.child = null;
     state.text = result.text.slice(0, 16000);
@@ -490,18 +474,7 @@ export class ClassroomLessonController {
     return state;
   }
   async materialPage(lessonId: string, resourceId: string, ordinal: number) {
-    const state = this.active;
-    if (!state || state.envelope.lessonId !== lessonId || state.material?.resource.id !== resourceId)
-      throw new Error('Material changed.');
-    const revision = state.revision;
-    await this.authorize();
-    if (this.active !== state || state.revision !== revision || state.material?.resource.id !== resourceId)
-      throw new Error('Material changed.');
-    const material = await this.options.client.material(state.anchorAttemptId, lessonId, resourceId, ordinal);
-    await this.authorize();
-    if (this.active !== state || state.revision !== revision || state.material?.resource.id !== resourceId)
-      throw new Error('Material changed.');
-    return material;
+    return readLessonResourcePage(() => this.active, () => this.authorize(), this.options.client, lessonId, resourceId, ordinal);
   }
   async flushReports() {
     const state = this.active;

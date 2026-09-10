@@ -1,6 +1,5 @@
 import {
-  app,
-  autoUpdater,
+  app, autoUpdater,
   BrowserWindow,
   dialog,
   globalShortcut,

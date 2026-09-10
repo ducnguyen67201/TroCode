@@ -1,14 +1,8 @@
+import { exists, stableJson } from './state-store-values';
 import { app } from 'electron';
 import { createHash } from 'node:crypto';
 import {
-  chmod,
-  mkdir,
-  open,
-  readdir,
-  readFile,
-  stat,
-  truncate,
-  writeFile,
+  chmod, mkdir, open, readdir, readFile, stat, truncate, writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -552,20 +546,4 @@ export class EncryptedAgentStateStore implements TaskHistoryStore {
   private snapshotPath(threadId: string): string { return path.join(this.threadDirectory(threadId), 'snapshot.enc'); }
   private eventsPath(threadId: string): string { return path.join(this.threadDirectory(threadId), 'events.enc'); }
   private invocationsPath(threadId: string): string { return path.join(this.threadDirectory(threadId), 'invocations.enc'); }
-}
-
-async function exists(target: string): Promise<boolean> {
-  try { await stat(target); return true; } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
-    throw error;
-  }
-}
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    const object = value as Record<string, unknown>;
-    return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
 }

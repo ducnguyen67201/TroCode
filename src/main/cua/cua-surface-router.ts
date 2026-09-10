@@ -26,9 +26,7 @@ import {
   type VisibleApplicationSurface,
 } from './cua-semantic-contracts';
 import {
-  CuaSurfaceReferenceStore,
-  type CuaBoundReference,
-  type CuaSurfaceBinding,
+  CuaSurfaceReferenceStore, type CuaBoundReference, type CuaSurfaceBinding,
 } from './cua-surface-reference-store';
 import { visibleApplicationSurfaces } from './cua-visible-application-surfaces';
 import { externalWindowCandidates, sameWindowIdentity, selectExternalWindow, type CuaWindowIdentity } from './cua-window-selection';

@@ -2,8 +2,7 @@ import { z } from 'zod';
 
 import { validateClassroomUrl } from './classroom-url-policy';
 import {
-  ActivityCriterionSchema,
-  ActivityGuidancePolicySchema,
+  ActivityCriterionSchema, ActivityGuidancePolicySchema,
   AppLanguageSchema,
   ClassroomOriginSchema,
   SaveKnowledgeActivityRequestSchema,
