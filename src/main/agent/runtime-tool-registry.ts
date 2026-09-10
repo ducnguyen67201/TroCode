@@ -21,10 +21,7 @@ import {
 } from '../../shared/contracts';
 import { stableJson } from '../../shared/stable-json';
 import type { LaunchableApplication } from '../application/desktop-application-launcher';
-import {
-  lessonToolAllowed,
-  type LessonExecutionScope,
-} from '../knowledge/classroom-lesson-tool-policy';
+import type { LessonExecutionScope } from '../knowledge/classroom-lesson-tool-policy';
 
 import {
   type AgentToolCall,
@@ -962,7 +959,7 @@ export class RuntimeToolRegistry {
 
   list(context?: ToolResolutionContext): RuntimeToolDefinition[] {
     return this.listRegistered().filter(
-      (definition) => lessonToolAllowed(definition.id, context?.lesson) && definition.available?.(context) !== false,
+      (definition) => definition.available?.(context) !== false,
     );
   }
 
@@ -1012,7 +1009,7 @@ export class RuntimeToolRegistry {
       throw new Error('Model function call ' + call.callId + ' was already resolved.');
     }
     const definition = this.toolsByModelName.get(call.name);
-    if (!definition || !lessonToolAllowed(definition.id, context.lesson) || definition.available?.(context) === false) {
+    if (!definition || definition.available?.(context) === false) {
       throw new Error('Runtime model tool ' + call.name + ' is unavailable.');
     }
     const input = definition.parse(call.arguments);
@@ -1026,7 +1023,7 @@ export class RuntimeToolRegistry {
     context: ToolResolutionContext,
   ): ResolvedToolInvocation {
     const definition = this.toolsByModelName.get(call.name);
-    if (!definition || !lessonToolAllowed(definition.id, context.lesson) || definition.available?.(context) === false) {
+    if (!definition || definition.available?.(context) === false) {
       throw new Error('Runtime model tool ' + call.name + ' is unavailable.');
     }
     const input = definition.parse(call.arguments);

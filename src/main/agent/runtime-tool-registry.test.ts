@@ -32,6 +32,15 @@ function activityContext(insightPolicy: 'explicit_and_operational' | 'evidence_c
 }
 
 describe('RuntimeToolRegistry', () => {
+  it('uses the shared capability catalog for lesson tasks, including app opening and user input', () => {
+    const registry = new RuntimeToolRegistry();
+    const context = { taskId: randomUUID() };
+    const lessonContext = { ...context, lesson: { kind: 'desktop' as const, lessonId: randomUUID(), stepId: randomUUID() } };
+    expect(registry.modelVisibleSpecs(lessonContext)).toEqual(registry.modelVisibleSpecs(context));
+    const call = { callId: randomUUID(), name: 'open_url', arguments: JSON.stringify({ url: 'https://example.com', reason: 'Open the lesson.' }) };
+    expect(registry.preview(call, lessonContext).toolId).toBe('browser.navigate');
+    expect(registry.resolve(call, lessonContext).toolId).toBe('browser.navigate');
+  });
   it('advertises only Heavy Agent execution tools and excludes Coach presentation', () => {
     const tools = new RuntimeToolRegistry().modelVisibleSpecs();
     expect(tools.map((tool) => tool.name)).toEqual([

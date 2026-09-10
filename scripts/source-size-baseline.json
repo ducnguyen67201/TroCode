@@ -11,7 +11,7 @@
   "src/index.ts": 3259,
   "src/main/agent-runtime/agent-runtime-adapter.ts": 941,
   "src/main/agent-runtime/encrypted-agent-state-store.ts": 549,
-  "src/main/agent/runtime-tool-registry.ts": 1041,
+  "src/main/agent/runtime-tool-registry.ts": 1038,
   "src/main/application/task-application-service.ts": 518,
   "src/main/coach/coach-runtime.ts": 836,
   "src/main/companion/companion-customization-service.ts": 787,
