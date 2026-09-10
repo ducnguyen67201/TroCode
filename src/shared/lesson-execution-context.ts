@@ -20,7 +20,6 @@ export const LessonExecutionContextSchema = z.object({
     nextOffset: z.number().int().nonnegative().nullable(),
   }).strict(),
   history: z.array(LessonHistoryEntrySchema).max(4),
-  controlConsent: z.boolean(),
   maxModelTurns: z.number().int().positive(),
 }).strict();
 

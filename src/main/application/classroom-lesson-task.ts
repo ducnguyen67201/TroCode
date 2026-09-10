@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import type { LessonLocalState, LessonMode } from '../../shared/classroom-lesson-contracts';
-import { lessonExecutionRoute } from '../../shared/lesson-execution-policy';
 import { AgentTaskContractV11Schema, type ActivityContext, type TaskSnapshot } from '../../shared/contracts';
+import { lessonExecutionRoute } from '../../shared/lesson-execution-policy';
 import type { TrustedToolExecutionContext } from '../agent/runtime-tool-registry';
 import type { TaskRuntime } from '../agent/task-runtime';
 

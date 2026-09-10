@@ -1,9 +1,4 @@
-import type { LessonRunner } from './classroom-lesson-runner';
-export type { LessonRunner } from './classroom-lesson-runner';
-import { readLessonResourcePage } from './classroom-lesson-resource-reader';
 import { randomUUID } from 'node:crypto';
-
-import { lessonExecutionRoute, lessonUsesExternalMaterial } from '../../shared/lesson-execution-policy';
 import { EventEmitter } from 'node:events';
 
 import {
@@ -17,12 +12,17 @@ import {
   type LessonStatus,
   type LessonView,
 } from '../../shared/classroom-lesson-contracts';
+import { lessonExecutionRoute, lessonUsesExternalMaterial } from '../../shared/lesson-execution-policy';
 
 import { claimLessonChild } from './classroom-lesson-child';
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 import { LessonBlockedError } from './classroom-lesson-errors';
 import { settleLessonModelReservation, assertLessonTransition, canAutoStartLesson, finishMaterialStep, lessonDigest, lessonRunningPhase, lessonReportSnapshot, rememberLessonResult } from './classroom-lesson-policy';
+import { readLessonResourcePage } from './classroom-lesson-resource-reader';
+import type { LessonRunner } from './classroom-lesson-runner';
 import type { ClassroomLessonStateStore } from './classroom-lesson-state-store';
+
+export type { LessonRunner } from './classroom-lesson-runner';
 
 export class ClassroomLessonController {
   private readonly events = new EventEmitter();

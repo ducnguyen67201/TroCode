@@ -1,4 +1,5 @@
 import type { LessonLocalState } from '../../shared/classroom-lesson-contracts';
+
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 
 /** Retrieval must not return material after the active lesson changes. */

@@ -1,4 +1,3 @@
-import { exists, stableJson } from './state-store-values';
 import { app } from 'electron';
 import { createHash } from 'node:crypto';
 import {
@@ -37,6 +36,7 @@ import {
   type LocalThreadIndex,
   type LocalThreadState,
 } from './local-agent-state';
+import { exists, stableJson } from './state-store-values';
 
 export type { AgentStateCipher } from './agent-state-cipher';
 

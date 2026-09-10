@@ -1,4 +1,3 @@
-import { withTimeout } from './runtime-timeout';
 import {
   utilityProcess,
   type ForkOptions,
@@ -42,6 +41,7 @@ import type {
 import type { EncryptedAgentStateStore } from './encrypted-agent-state-store';
 import type { LocalInvocation } from './local-agent-state';
 import { normalizeLocalToolResult } from './local-tool-result';
+import { withTimeout } from './runtime-timeout';
 
 export { normalizeLocalToolResult } from './local-tool-result';
 

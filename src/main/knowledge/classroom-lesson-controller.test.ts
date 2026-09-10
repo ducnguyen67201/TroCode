@@ -6,9 +6,9 @@ import type { LessonLocalState, LessonReport } from '../../shared/classroom-less
 
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 import { ClassroomLessonController, type LessonRunner } from './classroom-lesson-controller';
+import { LessonBlockedError } from './classroom-lesson-errors';
 import type { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 import { lessonFixture, lessonStateFixture } from './classroom-lesson.fixture';
-import { LessonBlockedError } from './classroom-lesson-errors';
 
 function fixture(mode: 'open' | 'explain' | 'practice' = 'explain') {
   const f = lessonFixture(mode);

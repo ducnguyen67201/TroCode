@@ -3,10 +3,10 @@ import type { z } from 'zod';
 
 import type { LessonContinueSchema } from '../../../shared/classroom-lesson-contracts';
 import type { AppLanguage } from '../../../shared/contracts';
+import { lessonUsesExternalMaterial } from '../../../shared/lesson-execution-policy';
 import '../../classroom-lesson.css';
 
 import { ClassroomLessonDesktopControls } from './ClassroomLessonDesktopControls';
-import { lessonUsesExternalMaterial } from '../../../shared/lesson-execution-policy';
 import { ClassroomLessonMaterialPanel } from './ClassroomLessonMaterialPanel';
 import { useClassroomLesson } from './use-classroom-lesson';
 

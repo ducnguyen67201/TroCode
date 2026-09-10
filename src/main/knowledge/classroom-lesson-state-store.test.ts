@@ -7,8 +7,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { LessonDraft } from '../../shared/classroom-lesson-contracts';
 
-import { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 import { NativeMaterialRecordSchema, PreparedMaterialRecordSchema } from './classroom-lesson-material-policy';
+import { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 import { lessonFixture, lessonStateFixture } from './classroom-lesson.fixture';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/unused' }, safeStorage: {} }));

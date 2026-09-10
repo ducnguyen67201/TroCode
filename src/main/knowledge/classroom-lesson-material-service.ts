@@ -3,11 +3,11 @@ import { lstat, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { LessonFile, LessonLocalState } from '../../shared/classroom-lesson-contracts';
+import type { ToolExecutionResult } from '../agent/agent-contracts';
 
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 import { LessonBlockedError } from './classroom-lesson-errors';
 import { safeMaterialName } from './classroom-lesson-material-policy';
-import type { ToolExecutionResult } from '../agent/agent-contracts';
 import type { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 import type { ClassroomLessonSurfaceService } from './classroom-lesson-surface-service';
 

@@ -12,8 +12,8 @@ import type { CursorBuddyController } from '../companion/cursor-buddy-controller
 
 import { LessonBlockedError } from './classroom-lesson-errors';
 import type { ClassroomLessonSurfaceService } from './classroom-lesson-surface-service';
-import { lessonExecutionContext, lessonResourceExcerpt } from './lesson-execution-context';
 import { lessonToolAllowed, type DesktopLessonExecutionGuard } from './classroom-lesson-tool-policy';
+import { lessonExecutionContext, lessonResourceExcerpt } from './lesson-execution-context';
 
 export const TeachingFinishSchema = z.object({ disposition: z.enum(['continue', 'step_finished']), recap: z.string().trim().min(1).max(2000) }).strict();
 const evidence = { observationId: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/u) };

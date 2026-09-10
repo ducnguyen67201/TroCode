@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { lessonExecutionRoute } from './lesson-execution-policy';
 import { lessonFixture } from '../main/knowledge/classroom-lesson.fixture';
+
+import { lessonExecutionRoute } from './lesson-execution-policy';
 
 describe('lesson execution ownership', () => {
   it.each([1, 2] as const)('normalizes version %s web work into the shared executor without rewriting the plan', (schemaVersion) => {

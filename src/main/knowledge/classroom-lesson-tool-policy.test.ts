@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
+
 import { describe, expect, it, vi } from 'vitest';
+
 import type { ResolvedToolInvocation } from '../agent/agent-contracts';
-import { ClassroomLessonToolPolicy, lessonToolAllowed } from './classroom-lesson-tool-policy';
+
 import { lessonToolDefinitions } from './classroom-lesson-agent-tools';
+import { ClassroomLessonToolPolicy, lessonToolAllowed } from './classroom-lesson-tool-policy';
 
 function fixture() {
   const policy = new ClassroomLessonToolPolicy();

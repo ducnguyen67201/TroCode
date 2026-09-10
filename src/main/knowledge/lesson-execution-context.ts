@@ -38,7 +38,6 @@ export function lessonExecutionContext(
       nextOffset: content.length > 16000 ? 16000 : null,
     },
     history: state.history.slice(-4).map((entry) => ({ ...entry, text: entry.text.slice(0, 1500) })),
-    controlConsent: state.desktopControlConsent,
     maxModelTurns: state.childModelLimit,
   });
 }

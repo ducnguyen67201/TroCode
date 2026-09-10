@@ -8,8 +8,8 @@ import { normalizeLocalToolResult } from '../agent-runtime/local-tool-result';
 
 import { ClassroomDesktopTeachingTools, desktopTeachingToolDefinitions } from './classroom-desktop-teaching-tools';
 import { desktopLessonFixture } from './classroom-desktop-teaching.fixture';
-import type { ClassroomLessonSurfaceService } from './classroom-lesson-surface-service';
 import { LessonBlockedError } from './classroom-lesson-errors';
+import type { ClassroomLessonSurfaceService } from './classroom-lesson-surface-service';
 import { lessonToolAllowed } from './classroom-lesson-tool-policy';
 
 function fixture() {

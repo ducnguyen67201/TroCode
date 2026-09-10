@@ -13,7 +13,7 @@ describe('lesson execution context', () => {
     expect(context.step).toEqual(state.envelope.plan.steps[0]);
     expect(context.resource.handle).toBe(resource.id);
     expect(context.resource.content).toBe('');
-    expect(context.controlConsent).toBe(false);
+    expect(context).not.toHaveProperty('controlConsent');
   });
 
   it('marks incomplete source context explicitly without treating it as instructions', () => {
