@@ -145,6 +145,10 @@ export class ClassroomDesktopTeachingTools {
     if (dispatch) {
       await this.options.consume('action');
       await this.options.markEffect('dispatching');
+      if ((await this.options.resourceOperation?.(round.state))?.status === 'unknown') {
+        round.uncertain = true;
+        throw new Error('The opening outcome became unknown before dispatch.');
+      }
       round.observation = undefined;
       round.uncertain = true;
       round.dispatching = true;

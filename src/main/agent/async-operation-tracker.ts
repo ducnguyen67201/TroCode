@@ -67,6 +67,7 @@ export class AsyncOperationTracker {
     const settle = async (status: AsyncOperation['status'], error?: unknown) => {
       clearTimeout(timer);
       const result = { ...record, status, updatedAt: new Date().toISOString() };
+      if (status === 'unknown') this.live.set(key, result);
       this.log(status, result, error);
       try {
         await storage.save(result);

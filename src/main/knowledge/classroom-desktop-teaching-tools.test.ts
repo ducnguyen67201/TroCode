@@ -23,11 +23,12 @@ function fixture() {
   const openResource = vi.fn(async () => ({ status: 'confirmed' as const, summary: 'OS accepted the file.' }));
   const readResource = vi.fn(async () => f.state.material!);
   const resourceOperation = vi.fn<() => Promise<AsyncOperation | null>>(async () => null);
-  const tools = new ClassroomDesktopTeachingTools({ resourceOperation, surfaces: { observe, inspectMaterial } as unknown as ClassroomLessonSurfaceService, presenter: { presentSequence, cancelGuidance: vi.fn() }, authorize, consume: vi.fn(), markEffect: vi.fn(), openResource, readResource });
+  const consume = vi.fn(async () => undefined);
+  const tools = new ClassroomDesktopTeachingTools({ resourceOperation, surfaces: { observe, inspectMaterial } as unknown as ClassroomLessonSurfaceService, presenter: { presentSequence, cancelGuidance: vi.fn() }, authorize, consume, markEffect: vi.fn(), openResource, readResource });
   tools.register(taskId, f.state);
   const call = (name: string, input: unknown) => tools.adapters().find((adapter) => adapter.id === `classroom.teaching-${name}`)!.execute({ toolId: `classroom.teaching-${name}`, operation: name, callId: randomUUID(), kind: 'direct', modelName: `lesson_${name}`, input }, { taskId, signal: new AbortController().signal });
   const control = (command: unknown): ResolvedToolInvocation => ({ toolId: 'computer.control', modelName: 'control_surface', operation: 'control', kind: 'surface', callId: randomUUID(), input: { observationId: f.observation.observationId, observationFingerprint: f.observation.fingerprint, command } });
-  return { ...f, tools, call, control, taskId, observe, inspectMaterial, openResource, readResource, resourceOperation, presentSequence, authorize, evidence: { observationId: f.observation.observationId, fingerprint: f.observation.fingerprint } };
+  return { ...f, tools, call, control, taskId, observe, inspectMaterial, openResource, readResource, resourceOperation, consume, presentSequence, authorize, evidence: { observationId: f.observation.observationId, fingerprint: f.observation.fingerprint } };
 }
 describe('scoped desktop teaching tools', () => {
   it('allows observation of an unknown opening but blocks mutation and explanation', async () => {
@@ -41,10 +42,19 @@ describe('scoped desktop teaching tools', () => {
     await expect(guard.before({ toolId: 'computer.observe', operation: 'observe' } as ResolvedToolInvocation, false)).resolves.toBeUndefined();
     await expect(guard.before(f.control({ kind: 'click_element', ref: 'e1', button: 'left', count: 1 }), false)).rejects.toThrow('revoked');
     expect((await f.call('present', { ...f.evidence, ref: 'e1', x: null, y: null,
-      copy: { hook: 'Look.', instruction: 'Read this.', reason: 'It shows output.', expectedOutcome: 'Understand output.' } })).status).toBe('denied');
+      copy: { hook: 'Look.', instruction: 'Read this.', reason: 'It shows output.', expectedOutcome: 'Understand output.' } })).status).toBe('unknown');
     expect(f.presentSequence).not.toHaveBeenCalled();
     f.tools.remove(f.taskId);
     expect((await f.call('observe', {})).status).toBe('denied');
+  });
+  it('rechecks a late opening error after dispatch bookkeeping', async () => {
+    const f = fixture();
+    await f.call('observe', {});
+    f.consume.mockImplementationOnce(async () => {
+      f.resourceOperation.mockResolvedValue({ version: 1, id: randomUUID(), status: 'unknown', startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    });
+    await expect(f.tools.guard(f.taskId).before(f.control({ kind: 'click_element', ref: 'e1', button: 'left', count: 1 }), true)).rejects.toThrow('unknown before dispatch');
+    expect(f.tools.uncertain(f.taskId)).toBe(true);
   });
   it.each([
     { kind: 'press_key', ref: null, key: 'v', modifiers: ['Control'] },
