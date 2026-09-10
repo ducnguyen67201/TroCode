@@ -18,7 +18,7 @@ function fixture() {
   const presentSequence = vi.fn(async () => ({ outcome: 'presented' as const }));
   const executeSurfaceCommand = vi.fn(async (): Promise<SurfaceActionOutcome> => ({ status: 'confirmed', summary: 'scrolled', observation: f.observation }));
   const authorize = vi.fn(async () => undefined);
-  const tools = new ClassroomDesktopTeachingTools({ surfaces: { observe } as unknown as ClassroomLessonSurfaceService, cua: { executeSurfaceCommand }, presenter: { presentSequence, cancelGuidance: vi.fn() }, authorize, consume: vi.fn(), markEffect: vi.fn() });
+  const tools = new ClassroomDesktopTeachingTools({ surfaces: { observe, acceptScratch: vi.fn() } as unknown as ClassroomLessonSurfaceService, cua: { executeSurfaceCommand }, presenter: { presentSequence, cancelGuidance: vi.fn() }, authorize, consume: vi.fn(), markEffect: vi.fn() });
   tools.register(taskId, f.state);
   const call = (name: string, input: unknown) => tools.adapters().find((adapter) => adapter.id === `classroom.teaching-${name}`)!.execute({ toolId: `classroom.teaching-${name}`, operation: name, callId: randomUUID(), kind: 'direct', modelName: `lesson_${name}`, input }, { taskId, signal: new AbortController().signal });
   return { ...f, tools, call, taskId, observe, executeSurfaceCommand, presentSequence, authorize, evidence: { observationId: f.observation.observationId, fingerprint: f.observation.fingerprint } };
@@ -38,14 +38,12 @@ describe('scoped desktop teaching tools', () => {
     await f.call('finish', { ...f.evidence, disposition: 'continue', recap: 'Next we explain print.' });
     expect(f.tools.result(f.taskId)).toEqual({ disposition: 'continue', recap: 'Next we explain print.' });
   });
-  it('requires local consent, re-observes mutations and revokes tools on pause', async () => {
+  it.each(['student', 'tro'] as const)('navigates an accepted lesson with legacy navigation %s, without extra consent, and revokes tools on pause', async (navigationMode) => {
     const f = fixture();
-    f.state.envelope.plan.steps[0]!.surface!.navigation = 'tro';
+    f.state.envelope.plan.steps[0]!.surface!.navigation = navigationMode;
+    f.state.desktopControlConsent = false;
     await f.call('observe', {});
     const navigation = { ...f.evidence, action: 'scroll_down', ref: null, text: null };
-    expect((await f.call('navigate', navigation)).status).toBe('denied');
-    expect(f.executeSurfaceCommand).not.toHaveBeenCalled();
-    f.state.desktopControlConsent = true;
     expect((await f.call('navigate', navigation)).status).toBe('confirmed');
     expect((await f.call('navigate', navigation)).status).toBe('denied');
     expect(f.executeSurfaceCommand).toHaveBeenCalledOnce();
@@ -54,7 +52,6 @@ describe('scoped desktop teaching tools', () => {
   });
   it('does not replay unknown effects or point at a changed screen', async () => {
     const f = fixture();
-    f.state.desktopControlConsent = true; f.state.envelope.plan.steps[0]!.surface!.navigation = 'tro';
     await f.call('observe', {});
     f.executeSurfaceCommand.mockResolvedValueOnce({ status: 'unknown', summary: 'No receipt' });
     const navigation = { ...f.evidence, action: 'scroll_down', ref: null, text: null };
@@ -66,10 +63,27 @@ describe('scoped desktop teaching tools', () => {
     expect((await changed.call('present', { ...changed.evidence, ref: 'e1', x: null, y: null, copy: { hook: 'Look.', instruction: 'Read this.', reason: 'It is useful.', expectedOutcome: 'Read.' } })).status).toBe('not_executed');
     expect(changed.presentSequence).not.toHaveBeenCalled();
   });
+  it('still checks active lesson authority immediately before a navigation action', async () => {
+    const f = fixture();
+    await f.call('observe', {});
+    f.authorize.mockRejectedValueOnce(new Error('Lesson stopped.'));
+    expect((await f.call('navigate', { ...f.evidence, action: 'scroll_down', ref: null, text: null })).status).toBe('denied');
+    expect(f.executeSurfaceCommand).not.toHaveBeenCalled();
+  });
+  it('demonstrates in a verified empty scratch editor without a second permission checkbox', async () => {
+    const f = fixture();
+    f.state.desktopControlConsent = false;
+    f.state.envelope.plan.steps[0]!.mode = 'demonstrate';
+    f.state.envelope.plan.steps[0]!.demonstration = { exampleDescription: 'Print a greeting', expectedResult: 'Hello' };
+    f.tools.register(f.taskId, f.state, 'demonstrate');
+    f.observation.surface = { kind: 'code_editor', application: 'Visual Studio Code', title: 'Untitled-1' };
+    f.observation.elements![0]!.value = '';
+    await f.call('observe', {});
+    expect((await f.call('demonstrate', { ...f.evidence, ref: 'e1', example: 'print("Hello")' })).status).toBe('confirmed');
+    expect(f.executeSurfaceCommand).toHaveBeenCalledOnce();
+  });
   it('refuses to overwrite existing student work', async () => {
     const f = fixture();
-    f.state.desktopControlConsent = true;
-    f.state.envelope.plan.steps[0]!.surface!.navigation = 'tro';
     f.state.envelope.plan.steps[0]!.mode = 'demonstrate';
     f.state.envelope.plan.steps[0]!.demonstration = { exampleDescription: 'Print a greeting', expectedResult: 'Hello' };
     f.tools.register(f.taskId, f.state, 'demonstrate');

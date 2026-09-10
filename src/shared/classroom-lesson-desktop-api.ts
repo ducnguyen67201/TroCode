@@ -32,12 +32,10 @@ export const LessonDesktopInputSchema = z.object({ lessonId: z.uuid(), revision:
 export const LessonWindowChoiceSchema = z.object({ token: z.uuid(), label: z.string().max(500) }).strict();
 export const LessonWindowChoicesSchema = z.array(LessonWindowChoiceSchema).max(50);
 export const LessonWindowSelectSchema = LessonDesktopInputSchema.extend({ token: z.uuid() }).strict();
-export const LessonDesktopConsentSchema = LessonDesktopInputSchema.extend({ enabled: z.boolean() }).strict();
 export const LESSON_CHANNELS = {
   windows: 'classroom-lesson:windows',
   chooseFile: 'classroom-lesson:choose-file',
   selectWindow: 'classroom-lesson:select-window',
-  desktopConsent: 'classroom-lesson:desktop-consent',
   cancelDraft: 'classroom-lesson:cancel-draft',
   recoverDraft: 'classroom-lesson:recover-draft',
   context: 'classroom-lesson:context',
@@ -59,7 +57,6 @@ export interface ClassroomLessonDesktopApi {
   chooseFile(input: z.infer<typeof LessonDesktopInputSchema>): Promise<LessonView>;
   windows(input: z.infer<typeof LessonDesktopInputSchema>): Promise<z.infer<typeof LessonWindowChoicesSchema>>;
   selectWindow(input: z.infer<typeof LessonWindowSelectSchema>): Promise<LessonView>;
-  desktopConsent(input: z.infer<typeof LessonDesktopConsentSchema>): Promise<LessonView>;
   cancelDraft(input: { draftId: string }): Promise<LessonDraft>;
   recoverDraft(): Promise<LessonDraft | null>;
   context(input: z.infer<typeof LessonContextInputSchema>): Promise<LessonContext>;

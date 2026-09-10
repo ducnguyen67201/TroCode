@@ -239,5 +239,4 @@ it('honors Pause from an older revision of the same active lesson', async () => 
   await vi.waitFor(() => expect(f.controller.view().active?.status).toBe('waiting_for_student'));
   await f.controller.continue({ lessonId: f.envelope.lessonId, expectedRevision: 0, action: 'pause' });
   expect(f.controller.view().active?.status).toBe('paused');
-  expect(f.controller.view().active?.desktopControlConsent).toBe(false);
 });

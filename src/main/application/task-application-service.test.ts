@@ -496,6 +496,8 @@ it('keeps long desktop lesson requests inside the SDK limit and uses only the le
   expect(deps.coachRuntime.start).not.toHaveBeenCalled();
   const input = deps.localRuntime.start.mock.calls[0]![0] as { request: string; requiredInitialTool: { modelName: string; arguments: unknown }; executionContext: { lesson: { kind: string } } };
   expect(input.request.length).toBeLessThanOrEqual(8000);
+  expect(input.request).toContain('without a separate navigation approval');
+  expect(input.request).toContain('point out what the student should do');
   expect(input.request).toContain(question);
   expect(input.request).not.toContain(state.material!.text);
   expect(input.requiredInitialTool).toEqual({ modelName: 'lesson_observe', arguments: {} });

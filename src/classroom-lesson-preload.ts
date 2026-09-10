@@ -18,7 +18,6 @@ export const lessonDesktopApi: I.ClassroomLessonDesktopApi = {
   chooseFile: async (input) => C.LessonViewSchema.parse(await ipcRenderer.invoke(ch.chooseFile, I.LessonDesktopInputSchema.parse(input))),
   windows: async (input) => I.LessonWindowChoicesSchema.parse(await ipcRenderer.invoke(ch.windows, I.LessonDesktopInputSchema.parse(input))),
   selectWindow: async (input) => C.LessonViewSchema.parse(await ipcRenderer.invoke(ch.selectWindow, I.LessonWindowSelectSchema.parse(input))),
-  desktopConsent: async (input) => C.LessonViewSchema.parse(await ipcRenderer.invoke(ch.desktopConsent, I.LessonDesktopConsentSchema.parse(input))),
   cancelDraft: async (input) => C.LessonDraftSchema.parse(await ipcRenderer.invoke(ch.cancelDraft, id.parse(input))),
   recoverDraft: async () => C.LessonDraftSchema.nullable().parse(await ipcRenderer.invoke(ch.recoverDraft)),
   context: async (input) =>

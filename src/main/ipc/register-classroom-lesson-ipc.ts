@@ -36,7 +36,6 @@ export function registerClassroomLessonIpc(
   handle(ch.chooseFile, (raw) => { const i = I.LessonDesktopInputSchema.parse(raw); return features!.chooseFile(i.lessonId, i.revision); });
   handle(ch.windows, async (raw) => { const i = I.LessonDesktopInputSchema.parse(raw); return I.LessonWindowChoicesSchema.parse(await features!.windows(i.lessonId, i.revision)); });
   handle(ch.selectWindow, (raw) => { const i = I.LessonWindowSelectSchema.parse(raw); return features!.selectWindow(i.lessonId, i.revision, i.token); });
-  handle(ch.desktopConsent, (raw) => { const i = I.LessonDesktopConsentSchema.parse(raw); return features!.controller.setDesktopConsent(i.lessonId, i.revision, i.enabled); });
   handle(ch.recoverDraft, () => features!.drafts.recover());
   handle(ch.cancelDraft, (raw) => features!.drafts.cancel(z.object({ draftId: z.uuid() }).strict().parse(raw).draftId));
   handle(ch.context, (raw) => {
