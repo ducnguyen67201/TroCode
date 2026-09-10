@@ -12,10 +12,7 @@ interface OrganizationMembersProps {
   membersHeadingRef: React.RefObject<HTMLHeadingElement | null>;
   memberCount: number;
   isLoadingMembers: boolean;
-  loadMembers: ({
-    append,
-    offset,
-  }?: {
+  loadMembers: (options?: {
     append?: boolean;
     offset?: number;
   }) => Promise<void>;

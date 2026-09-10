@@ -61,6 +61,19 @@ function createStore(history: TaskHistory = EMPTY_POSTGRES_HISTORY) {
 }
 
 describe('TaskHistoryService', () => {
+  it('flushes queued history and rejects durable continuation after a failed write', async () => {
+    const store = createStore();
+    const service = new TaskHistoryService({ store, onError: vi.fn() });
+    await service.start();
+    service.setCurrentOwner('owner');
+    const update = createUpdate();
+    service.recordTaskUpdate(update);
+    await service.flush();
+    expect(store.save).toHaveBeenCalledWith('owner', update);
+    store.save.mockRejectedValueOnce(new Error('Disk write failed'));
+    service.recordTaskUpdate(createUpdate());
+    await expect(service.flush()).rejects.toThrow('Durable task history');
+  });
   it('serializes validated updates for the current signed-in owner', async () => {
     const store = createStore();
     const service = new TaskHistoryService({ store });

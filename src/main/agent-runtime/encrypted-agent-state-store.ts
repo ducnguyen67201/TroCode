@@ -100,6 +100,25 @@ export class EncryptedAgentStateStore implements TaskHistoryStore {
 
   async close(): Promise<void> { await this.queue; }
 
+  async assertSettledInvocations(ownerId: string, threadId: string): Promise<void> {
+    await this.queue;
+    await this.readOwnedThread(ownerId, threadId);
+    if (!(await exists(this.invocationsPath(threadId))))
+      throw new Error('The task invocation journal is missing; its action outcomes cannot be verified.');
+    const journal = await this.readJournal(threadId);
+    if (journal.records.some((record) => record.status === 'executing' || record.status === 'unknown'))
+      throw new Error('The task has an unresolved tool outcome and cannot start another turn.');
+  }
+
+  async findOwnedThread(ownerId: string, threadId: string): Promise<LocalThreadState | null> {
+    await this.queue;
+    const index = await this.readIndex();
+    const entry = index.threads.find((item) => item.threadId === threadId);
+    if (!entry) return null;
+    if (entry.ownerId !== ownerId) throw new Error('Local thread owner mismatch.');
+    return this.readOwnedThread(ownerId, threadId);
+  }
+
   async create(ownerId: string, snapshot: TaskSnapshot, classroomLessonId: string | null = null): Promise<void> {
     await this.serial(async () => {
       const index = await this.readIndex();

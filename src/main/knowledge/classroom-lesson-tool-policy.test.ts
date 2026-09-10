@@ -1,129 +1,63 @@
 import { randomUUID } from 'node:crypto';
-
 import { describe, expect, it, vi } from 'vitest';
-
 import type { ResolvedToolInvocation } from '../agent/agent-contracts';
-import type { DesktopObservation } from '../agent/execution-contracts';
+import { ClassroomLessonToolPolicy, lessonToolAllowed } from './classroom-lesson-tool-policy';
+import { lessonToolDefinitions } from './classroom-lesson-agent-tools';
 
-import { ClassroomLessonToolPolicy, lessonToolAllowed, verifyLessonSurface } from './classroom-lesson-tool-policy';
-
-function fixture(value = '') {
-  const task = randomUUID();
+function fixture() {
   const policy = new ClassroomLessonToolPolicy();
-  const consume = vi.fn();
-  const scope = {
-    lessonId: randomUUID(),
-    stepId: randomUUID(),
-    resourceUrl: 'https://example.com/editor',
-    origin: 'https://example.com',
-  };
-  const observation: DesktopObservation = {
-    observationId: randomUUID(),
-    taskId: task,
-    capturedAt: new Date().toISOString(),
-    text: '',
-    route: 'browser_semantic',
-    degraded: false,
-    fingerprint: 'a'.repeat(64),
-    surface: { kind: 'browser', application: 'Google Chrome', url: scope.resourceUrl },
-    elements: [
-      { ref: 'e1', role: 'textbox', name: 'Code', value },
-      { ref: 'e2', role: 'button', name: 'Submit assignment' },
-    ],
-  };
-  policy.register(task, scope, vi.fn(), consume);
-  policy.observeResult(task, { status: 'confirmed', summary: 'Observed', observation });
-  const call: ResolvedToolInvocation = {
-    callId: randomUUID(),
-    modelName: 'control_surface',
-    toolId: 'computer.control',
-    operation: 'type_text',
-    kind: 'surface',
-    input: {
-      observationId: observation.observationId,
-      command: { kind: 'type_text', ref: 'e1', text: 'print("hello")', replace: true },
-    },
-  };
-  return { task, scope, policy, observation, call, consume };
+  const taskId = randomUUID();
+  const call: ResolvedToolInvocation = { callId: randomUUID(), modelName: 'observe_context', toolId: 'computer.observe', operation: 'observe', kind: 'surface', input: {} };
+  const guard = { before: vi.fn<() => Promise<void>>(async () => undefined), observeResult: vi.fn(async () => undefined), uncertain: vi.fn(() => false), complete: vi.fn(() => false), failure: vi.fn(() => null) };
+  policy.registerDesktop(taskId, guard);
+  const execute = vi.fn(async () => ({ status: 'confirmed' as const, summary: 'Observed' }));
+  return { policy, taskId, call, guard, execute };
 }
-describe('trusted lesson effect boundary', () => {
-  it('filters general capabilities out of the demo catalog', () => {
-    const f = fixture();
-    for (const tool of ['terminal.exec', 'cua.click', 'desktop.control', 'classroom.broadcast', 'browser.navigate'])
-      expect(lessonToolAllowed(tool, f.scope)).toBe(false);
-    expect(lessonToolAllowed('computer.control', f.scope)).toBe(true);
-    expect(lessonToolAllowed('terminal.exec')).toBe(true);
-  });
-  it('blocks unrelated app, path and existing work before effects', async () => {
-    const f = fixture('student_work = 42');
-    await expect(f.policy.before(f.task, f.call, true)).rejects.toThrow('existing_work');
-    expect(f.consume).not.toHaveBeenCalled();
-    expect(() =>
-      verifyLessonSurface(
-        { ...f.observation, surface: { ...f.observation.surface!, url: 'https://example.com/account' } },
-        f.scope,
-      ),
-    ).toThrow();
-    expect(() =>
-      verifyLessonSurface(
-        { ...f.observation, surface: { ...f.observation.surface!, application: 'Another app' } },
-        f.scope,
-      ),
-    ).toThrow();
-  });
-  it('requires fresh result observation and never retries an unknown effect', async () => {
-    const f = fixture();
-    await f.policy.before(f.task, f.call, true);
-    expect(f.consume).toHaveBeenCalledOnce();
-    await expect(f.policy.before(f.task, f.call, true)).rejects.toThrow('Observe');
-    f.policy.observeResult(f.task, { status: 'unknown', summary: 'Lost receipt', observation: f.observation });
-    await expect(f.policy.before(f.task, f.call, true)).rejects.toThrow('outcome_unknown');
-  });
-  it('rejects submission controls and ungrounded completion', async () => {
-    const f = fixture();
-    f.call.input = {
-      observationId: f.observation.observationId,
-      command: { kind: 'click_element', ref: 'e2', count: 1, button: 'left' },
-    };
-    await expect(f.policy.before(f.task, f.call, true)).rejects.toThrow('denied');
-    expect(() => f.policy.complete(f.task, randomUUID(), f.observation.fingerprint)).toThrow();
-  });
-});
 
-describe('lesson cancellation races', () => {
-  it('rejects late tools after removing a child policy', async () => {
-    const f = fixture();
-    f.policy.remove(f.task);
-    await expect(f.policy.before(f.task, f.call, true)).rejects.toThrow('access_changed');
-    expect(f.consume).not.toHaveBeenCalled();
+describe('shared lesson dispatch policy', () => {
+  it('advertises one student tool path and removes the old browser completion tool', () => {
+    const scope = { kind: 'desktop' as const, lessonId: randomUUID(), stepId: randomUUID() };
+    for (const id of ['computer.observe', 'computer.control', 'desktop.control', 'classroom.teaching-finish'])
+      expect(lessonToolAllowed(id, scope)).toBe(true);
+    for (const id of ['terminal.exec', 'browser.prepare', 'classroom.lesson-step', 'classroom.broadcast'])
+      expect(lessonToolAllowed(id, scope)).toBe(false);
+    expect(lessonToolDefinitions().some((tool) => tool.modelName === 'complete_lesson_step')).toBe(false);
   });
-  it('rechecks revocation after an asynchronous authority lookup', async () => {
+  it('dispatches through the guard, awaits its receipt and rejects late calls after revocation', async () => {
     const f = fixture();
-    const policy = new ClassroomLessonToolPolicy();
+    await f.policy.dispatch(f.taskId, f.call, f.execute);
+    expect(f.guard.before).toHaveBeenCalledWith(f.call, true);
+    expect(f.guard.observeResult).toHaveBeenCalledWith({ status: 'confirmed', summary: 'Observed' });
+    f.policy.remove(f.taskId);
+    await expect(f.policy.dispatch(f.taskId, f.call, f.execute)).rejects.toThrow('access_changed');
+    expect(f.execute).toHaveBeenCalledOnce();
+  });
+  it('rechecks revocation after asynchronous authorization before dispatching', async () => {
+    const f = fixture();
     let release!: () => void;
-    policy.register(
-      f.task,
-      f.scope,
-      () =>
-        new Promise<void>((resolve) => {
-          release = resolve;
-        }),
-      f.consume,
-    );
-    policy.observeResult(f.task, { status: 'confirmed', summary: 'Observed', observation: f.observation });
-    const pending = policy.before(f.task, f.call, true);
-    policy.remove(f.task);
+    f.guard.before.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
+    const pending = f.policy.before(f.taskId, f.call, true);
+    f.policy.remove(f.taskId);
     release();
     await expect(pending).rejects.toThrow('access_changed');
-    expect(f.consume).not.toHaveBeenCalled();
+    expect(f.execute).not.toHaveBeenCalled();
   });
-});
-
-it('distinguishes a known refusal from an input with an uncertain result', async () => {
-  const blocked = fixture('existing student code');
-  await expect(blocked.policy.before(blocked.task, blocked.call, true)).rejects.toThrow('existing_work');
-  expect(blocked.policy.knownBlock(blocked.task)).toBe('existing_work');
-  const dispatched = fixture();
-  await dispatched.policy.before(dispatched.task, dispatched.call, true);
-  expect(dispatched.policy.knownBlock(dispatched.task)).toBeNull();
+  it('serializes actions and denies a queued action when the task is removed', async () => {
+    const f = fixture();
+    let release!: () => void;
+    f.execute.mockImplementationOnce(() => new Promise((resolve) => { release = () => resolve({ status: 'confirmed', summary: 'Observed' }); }));
+    const first = f.policy.dispatch(f.taskId, f.call, f.execute);
+    await vi.waitFor(() => expect(f.execute).toHaveBeenCalledOnce());
+    const second = f.policy.dispatch(f.taskId, f.call, f.execute);
+    const rejected = expect(second).rejects.toThrow('access_changed');
+    f.policy.remove(f.taskId);
+    expect(() => f.policy.registerDesktop(f.taskId, f.guard)).toThrow('already registered');
+    release();
+    await first;
+    await rejected;
+    expect(f.execute).toHaveBeenCalledOnce();
+    f.policy.registerDesktop(f.taskId, f.guard);
+    await f.policy.dispatch(f.taskId, f.call, f.execute);
+    expect(f.execute).toHaveBeenCalledTimes(2);
+  });
 });

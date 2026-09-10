@@ -52,6 +52,7 @@ export interface TaskApplicationServiceOptions {
   classroomSessionService?: Pick<ClassroomSessionService, 'activeStudentAttemptId' | 'latestDirective' | 'onChange'>;
   coachRuntime?: Pick<CoachRuntime, 'cancel' | 'shutdown' | 'start'>;
   currentOwnerId?(): Promise<string>;
+  flushHistory?(): Promise<void>;
   fastCoachEnabled?: boolean;
   localRuntime?: AgentRuntimeAdapter;
   state?: EncryptedAgentStateStore;

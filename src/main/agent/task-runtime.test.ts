@@ -33,6 +33,24 @@ function submit(runtime: TaskRuntime, request = 'Send the message.') {
 }
 
 describe('TaskRuntime local projection', () => {
+  it('continues a settled task without replacing its identity or transcript', () => {
+    const runtime = new TaskRuntime();
+    const first = submit(runtime, 'Explain the material.');
+    runtime.start({ taskId: first.taskId });
+    runtime.complete(first.taskId, { status: 'completed', finalOutput: 'A variable stores a value.', message: 'Finished' });
+    const request = 'Explain that with an example.';
+    const next = runtime.continueTask({ text: request }, { taskId: first.taskId, authority: authority(request) });
+    expect(next.taskId).toBe(first.taskId);
+    expect(next.createdAt).toBe(first.createdAt);
+    expect(next.messages.map((message) => message.text)).toEqual(['Explain the material.', 'A variable stores a value.', request]);
+    expect(runtime.start({ taskId: first.taskId }).phase).toBe('planning');
+  });
+  it('does not continue a task whose effect outcome is unknown', () => {
+    const runtime = new TaskRuntime();
+    const task = submit(runtime);
+    runtime.complete(task.taskId, { status: 'unknown', finalOutput: null, message: 'No action receipt' });
+    expect(() => runtime.continueTask({ text: 'Continue' }, { taskId: task.taskId, authority: authority('Continue') })).toThrow('settled');
+  });
   it('keeps Coach in the same lifecycle without an Agents SDK resume token', () => {
     const runtime = new TaskRuntime();
     const request = 'Show me how to use Variables.';

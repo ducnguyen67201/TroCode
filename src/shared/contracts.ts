@@ -15,6 +15,7 @@ import { VOICE_MODES } from './voice-mode';
 
 export * from './classroom-broadcast-contracts';
 export * from './classroom-lesson-contracts';
+export * from './lesson-execution-context';
 export { ClassroomAccountRoleSchema,KnowledgeCapabilitiesSchema } from './knowledge-capabilities';
 
 

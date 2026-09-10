@@ -58,6 +58,25 @@ function router(callTool: CuaToolCaller) {
 }
 
 describe('CuaSurfaceRouter', () => {
+  it.each(['native', 'browser'] as const)('distinguishes empty and unavailable field values on %s surfaces', async (route) => {
+    const callTool = vi.fn(async (name: string) => {
+      if (name === 'list_windows') return result({ windows: [{ ...windowRecord,
+        app_name: route === 'browser' ? 'Google Chrome' : windowRecord.app_name }] });
+      if (name === 'get_window_state') return result({ snapshot_id: 's12345678', tree_markdown: 'Fields', elements: [
+        { element_index: 1, element_token: 'empty', role: 'textbox', label: 'Empty field', value: '' },
+        { element_index: 2, element_token: 'unknown', role: 'textbox', label: 'Unreadable field' },
+      ] });
+      if (name === 'get_browser_state') return result({ target_id: 'target', tab_id: 'tab', snapshot_id: 'p1',
+        title: 'Fields', url: 'https://example.com/editor', text: 'Fields', elements: [
+          { ref: 'p1:1', role: 'textbox', name: 'Empty field', value: '' },
+          { ref: 'p1:2', role: 'textbox', name: 'Unreadable field' },
+        ] });
+      throw new Error(`Unexpected ${name}`);
+    });
+    const observation = await router(callTool).observeCurrentSurface(randomUUID());
+    expect(observation?.elements?.[0]).toMatchObject({ name: 'Empty field', value: '' });
+    expect(observation?.elements?.[1]).not.toHaveProperty('value');
+  });
   it('selects the top non-Tro window and refuses ambiguous null stacking', () => {
     expect(
       selectWindow(
@@ -197,10 +216,9 @@ describe('CuaSurfaceRouter', () => {
     expect(callTool.mock.calls.filter(([name]) => name === 'click')).toHaveLength(1);
   });
   it.each([
-    ['opening', 'confirmed', 'confirmed'],
-    ['opening', 'unknown', 'unknown'],
-    [undefined, 'confirmed', 'unknown'],
-  ] as const)('handles a closing dialog with transition %s and native effect %s as %s', async (transition, effect, expected) => {
+    ['confirmed', 'confirmed'],
+    ['unknown', 'unknown'],
+  ] as const)('handles a closing surface with native effect %s as %s', async (effect, expected) => {
     let closed = false;
     const callTool = vi.fn(async (name: string) => {
       if (name === 'list_windows') return result({ windows: closed ? [] : [windowRecord] });
@@ -215,9 +233,10 @@ describe('CuaSurfaceRouter', () => {
     const taskId = randomUUID();
     const observation = (await service.observeCurrentSurface(taskId))!;
     const outcome = await service.execute(taskId, observation.observationId,
-      { kind: 'click_element', ref: 'e1', button: 'left', count: 1 }, undefined, transition);
+      { kind: 'click_element', ref: 'e1', button: 'left', count: 1 });
     expect(outcome.status).toBe(expected);
     expect(outcome.observation).toBeUndefined();
+    expect(service.referenceStore.current(taskId)).toBeUndefined();
     expect(callTool.mock.calls.filter(([name]) => name === 'click')).toHaveLength(1);
   });
 });

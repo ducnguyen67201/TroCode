@@ -7,15 +7,7 @@ import type { RuntimeToolDefinition } from '../agent/runtime-tool-registry';
 
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 import type { ClassroomLessonDraftService } from './classroom-lesson-draft-service';
-import type { ClassroomLessonToolPolicy } from './classroom-lesson-tool-policy';
 
-const completed = z
-  .object({
-    observationId: z.uuid(),
-    observationFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
-    summary: z.string().min(1).max(500),
-  })
-  .strict();
 export function lessonToolDefinitions(): RuntimeToolDefinition[] {
   return [
     {
@@ -34,31 +26,6 @@ export function lessonToolDefinitions(): RuntimeToolDefinition[] {
         modelName: call.name,
         operation: 'read',
         toolId: 'classroom.lesson-context',
-      }),
-    },
-    {
-      id: 'classroom.lesson-step',
-      modelName: 'complete_lesson_step',
-      operations: ['complete'],
-      description:
-        'Report the demonstrated example complete only after observing its expected result. This never submits student work or assigns a grade.',
-      available: (context) => Boolean(context?.lesson),
-      parameters: objectSchema(
-        {
-          observationId: { type: 'string' },
-          observationFingerprint: { type: 'string' },
-          summary: { type: 'string', maxLength: 500 },
-        },
-        ['observationId', 'observationFingerprint', 'summary'],
-      ),
-      parse: (json) => completed.parse(JSON.parse(json)),
-      normalize: (input, call) => ({
-        callId: call.callId,
-        input,
-        kind: 'direct',
-        modelName: call.name,
-        operation: 'complete',
-        toolId: 'classroom.lesson-step',
       }),
     },
     {
@@ -90,7 +57,6 @@ export function lessonToolDefinitions(): RuntimeToolDefinition[] {
   ];
 }
 export function lessonToolAdapters(
-  policy: ClassroomLessonToolPolicy,
   drafts: ClassroomLessonDraftService,
   client: ClassroomLessonClient,
   prepared: (draftId: string) => void,
@@ -110,15 +76,6 @@ export function lessonToolAdapters(
           summary: 'Loaded lesson materials and modes.',
           data: { catalogue, planSchema: z.toJSONSchema(ClassroomLessonPlanSchema, { unrepresentable: 'any' }) },
         };
-      },
-    },
-    {
-      id: 'classroom.lesson-step',
-      async execute(invocation, context) {
-        const input = completed.parse(invocation.input);
-        context.signal.throwIfAborted();
-        policy.complete(context.taskId, input.observationId, input.observationFingerprint);
-        return { status: 'confirmed', summary: input.summary };
       },
     },
     {

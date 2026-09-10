@@ -24,6 +24,7 @@ export class TaskHistoryService {
   private available = false;
   private currentOwnerId: string | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
+  private writeFailed = false;
 
   constructor(private readonly options: TaskHistoryServiceOptions) {}
 
@@ -56,9 +57,16 @@ export class TaskHistoryService {
 
     const write = this.writeQueue.then(() => store.save(ownerId, update.data));
     this.writeQueue = write.catch((error: unknown) => {
+      this.writeFailed = true;
       this.options.onError?.(error);
     });
   };
+
+  async flush(): Promise<void> {
+    await this.writeQueue;
+    if (!this.available || !this.currentOwnerId || this.writeFailed)
+      throw new Error('Durable task history is unavailable. Restart Tro before continuing this task.');
+  }
 
   async load(ownerId: string): Promise<TaskHistory> {
     const store = this.options.store;

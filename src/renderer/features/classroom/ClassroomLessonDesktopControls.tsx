@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import type { LessonLocalState } from '../../../shared/classroom-lesson-contracts';
+import { lessonRequestsNavigation } from '../../../shared/lesson-execution-policy';
 
 export function ClassroomLessonDesktopControls({ state, vi }: { state: LessonLocalState; vi: boolean }) {
   const [selection, setSelection] = useState<{ lessonId: string; revision: number; windows: { token: string; label: string }[] } | null>(null);
@@ -15,7 +16,7 @@ export function ClassroomLessonDesktopControls({ state, vi }: { state: LessonLoc
   };
   return <div className="lesson-desktop-controls">
     <p>{vi ? 'Tài liệu được mở trong ứng dụng trên máy của em. Em có thể tự cuộn hoặc đổi trang.' : 'Your material opens in an application on your computer. You can scroll or turn pages yourself.'}</p>
-    {state.envelope.plan.steps[state.stepIndex]?.surface?.navigation === 'tro' && <label>
+    {lessonRequestsNavigation(state.envelope.plan, state.stepIndex) && <label>
       <input type="checkbox" checked={state.desktopControlConsent} disabled={busy || (!idle && !state.desktopControlConsent)} onChange={(e) => void work(() => window.tro.lessons!.desktopConsent({ lessonId: state.envelope.lessonId, revision: state.revision, enabled: e.target.checked }))} />
       {vi ? 'Cho phép Tro điều hướng và nhập ví dụ đã duyệt trong bước làm mẫu' : 'Allow Tro to navigate and type the reviewed example during a demonstration'}
     </label>}

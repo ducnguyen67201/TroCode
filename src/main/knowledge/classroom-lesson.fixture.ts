@@ -63,13 +63,16 @@ export function lessonFixture(mode: LessonMode = 'explain') {
 
 export function lessonStateFixture(mode: LessonMode = 'explain') {
   const f = lessonFixture(mode);
+  const resource = mode === 'demonstrate' ? f.resource : { id: f.resource.id, kind: 'assignment' as const, title: 'Python lesson' };
+  f.plan.resources = [resource];
+  f.envelope.planDigest = lessonDigest(f.plan);
   return LessonLocalStateSchema.parse({
     schemaVersion: 1, ownerId: 'student', anchorAttemptId: randomUUID(), envelope: f.envelope,
     revision: 3, status: 'preparing', reasonCode: null, claim: null,
     clientStartId: randomUUID(), clientInstanceId: randomUUID(), stepIndex: 0, attempts: {},
     child: null, pendingChild: null, phase: 'Opening material', text: '', feedback: [],
     actionCount: 0, modelRequestCount: 0, observationCount: 0, effect: 'dispatching',
-    material: { resource: { id: f.resource.id, kind: 'assignment', title: 'Python lesson' },
+    material: { resource,
       text: 'name = input("Name: ")', chunks: [], nextOrdinal: null }, pendingReports: [],
   });
 }

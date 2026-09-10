@@ -4,6 +4,22 @@ import { desktopLessonFixture } from './classroom-desktop-teaching.fixture';
 import { ClassroomLessonSurfaceService } from './classroom-lesson-surface-service';
 
 describe('lesson material window binding', () => {
+  it('uses chunk content as resource evidence and rejects a filename-only picker', async () => {
+    const f = fixture();
+    f.state.material!.text = '';
+    f.state.material!.chunks = [{ ordinal: 0, body: 'print("Hello")', locator: null }];
+    f.observation.text = 'Choose a viewer for python.md';
+    f.observation.elements = [];
+    const signal = new AbortController().signal;
+    await expect(f.service.observe(f.state, f.state.clientStartId, signal)).rejects.toMatchObject({ reason: 'surface_unverified' });
+    f.observation.text = 'print("Hello")';
+    await expect(f.service.observe(f.state, f.state.clientStartId, signal)).resolves.toBe(f.observation);
+  });
+  it('does not verify a different source revision with the same resource id and filename', async () => {
+    const f = fixture();
+    f.state.material!.resource = { ...f.resource, sourceVersionId: f.state.clientStartId };
+    await expect(f.service.observe(f.state, f.state.clientStartId, new AbortController().signal)).rejects.toMatchObject({ reason: 'resource_unavailable' });
+  });
   function fixture() {
     const f = desktopLessonFixture();
     const identity = { processId: 123, windowId: 45 };
@@ -21,6 +37,28 @@ describe('lesson material window binding', () => {
     f.observation.surface!.title = 'another.md';
     await expect(f.service.observe(f.state, f.state.clientStartId, signal)).rejects.toMatchObject({ reason: 'surface_unverified' });
     expect(f.cleanup).toHaveBeenCalledTimes(3);
+    f.observation.surface!.title = 'python.md';
+    await f.service.observe(f.state, f.state.clientStartId, signal);
+    expect(f.observeLessonWindow).toHaveBeenLastCalledWith(f.state.clientStartId, undefined, signal);
+  });
+  it('discards a closed binding and verifies the resource in a new window', async () => {
+    const f = desktopLessonFixture();
+    const first = { processId: 123, windowId: 45 };
+    const next = { processId: 123, windowId: 46 };
+    const observeLessonWindow = vi.fn<() => Promise<{ observation: typeof f.observation; identity: typeof first } | undefined>>()
+      .mockResolvedValueOnce({ observation: f.observation, identity: first })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ observation: f.observation, identity: next })
+      .mockResolvedValueOnce({ observation: f.observation, identity: next });
+    const service = new ClassroomLessonSurfaceService({ cua: { observeLessonWindow, externalLessonWindows: vi.fn(async () => []) }, prepareObservation: async () => async () => undefined });
+    const signal = new AbortController().signal;
+    await service.observe(f.state, f.state.clientStartId, signal);
+    await expect(service.observe(f.state, f.state.clientStartId, signal)).rejects.toMatchObject({ reason: 'surface_unverified' });
+    expect(observeLessonWindow).toHaveBeenLastCalledWith(f.state.clientStartId, first, signal);
+    await service.observe(f.state, f.state.clientStartId, signal);
+    expect(observeLessonWindow).toHaveBeenLastCalledWith(f.state.clientStartId, undefined, signal);
+    await service.observe(f.state, f.state.clientStartId, signal);
+    expect(observeLessonWindow).toHaveBeenLastCalledWith(f.state.clientStartId, next, signal);
   });
   it('does not explain unrelated or unreadable windows', async () => {
     const f = fixture();
@@ -31,11 +69,14 @@ describe('lesson material window binding', () => {
   });
   it('exposes a chooser to opening while refusing to bind it as material even when its title names the file', async () => {
     const f = fixture();
-    f.observation.surface = { kind: 'native_app', application: 'OpenWith.exe', title: 'Open with — python.md' };
+    f.observation.surface = { kind: 'native_app', application: 'An unfamiliar OS picker', title: 'Open with — python.md' };
+    f.observation.text = 'Choose an application';
+    f.observation.elements = [{ ref: 'e1', role: 'button', name: 'Notepad' }];
     const signal = new AbortController().signal;
-    expect(await f.service.inspectOpening(f.state, f.state.envelope.lessonId, signal)).toMatchObject({ ready: false, observation: f.observation });
+    expect(await f.service.inspectMaterial(f.state, f.state.envelope.lessonId, signal)).toMatchObject({ ready: false, observation: f.observation });
     await expect(f.service.observe(f.state, f.state.envelope.lessonId, signal)).rejects.toMatchObject({ reason: 'surface_unverified' });
     f.observation.surface = { kind: 'native_app', application: 'Notepad', title: 'python.md' };
+    f.observation.text = 'print("Hello")';
     await f.service.observe(f.state, f.state.envelope.lessonId, signal);
     expect(f.observeLessonWindow).toHaveBeenLastCalledWith(f.state.envelope.lessonId, undefined, signal);
   });
@@ -49,7 +90,7 @@ describe('lesson material window binding', () => {
   });
 });
 
-it('changes visual evidence when screenshot-only content changes under the same title', async () => {
+it('preserves shared observation identity and screenshot evidence without rewriting fingerprints', async () => {
   const f = desktopLessonFixture();
   f.observation.route = 'window_vision';
   f.observation.text = '';
@@ -60,7 +101,9 @@ it('changes visual evidence when screenshot-only content changes under the same 
   const first = await service.observe(f.state, f.state.envelope.lessonId, new AbortController().signal);
   f.observation.screenshot = { mimeType: 'image/png', dataBase64: 'page-two' };
   const second = await service.observe(f.state, f.state.envelope.lessonId, new AbortController().signal);
-  expect(first.fingerprint).not.toBe(second.fingerprint);
+  expect(first.fingerprint).toBe(f.observation.fingerprint);
+  expect(second.fingerprint).toBe(f.observation.fingerprint);
+  expect(first.screenshot?.dataBase64).not.toBe(second.screenshot?.dataBase64);
 });
 
 it('exposes one-use opaque choices tied to owner, revision and expiry', async () => {

@@ -7,7 +7,7 @@ export const LESSON_LIMITS = {
   steps: 8,
   resources: 8,
   minutes: 30,
-  modelsPerStep: 8,
+  modelsPerStep: 32,
   observationsPerStep: 16,
   actionsPerStep: 20,
   totalModels: 64,
@@ -331,6 +331,8 @@ export const LessonHistoryEntrySchema = z.object({
 export const LessonLocalStateSchema = z
   .object({
     schemaVersion: z.literal(1),
+    executionVersion: z.union([z.literal(1), z.literal(2)]).default(1),
+    stepTasks: z.record(z.string().uuid(), LessonStepClaimSchema).default({}),
     ownerId: z.string(),
     anchorAttemptId: id,
     envelope: LessonEnvelopeSchema,
@@ -340,7 +342,7 @@ export const LessonLocalStateSchema = z
     claim: LessonClaimSchema.nullable(),
     clientStartId: id,
     clientInstanceId: id,
-    childModelLimit: z.number().int().min(1).max(8).default(6),
+    childModelLimit: z.number().int().min(1).max(LESSON_LIMITS.modelsPerStep).default(6),
     stepIndex: revision,
     stepBudgets: z
       .record(z.string(), z.object({ models: revision, actions: revision, observations: revision }).strict())

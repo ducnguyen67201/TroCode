@@ -36,6 +36,8 @@ function localDependencies() {
       void snapshot;
     }),
     findLatestCoachProgress: vi.fn(async () => null),
+    findOwnedThread: vi.fn(async () => null),
+    assertSettledInvocations: vi.fn(async () => undefined),
     listActive: vi.fn(async (): Promise<Array<{ snapshot: TaskSnapshot }>> => []),
   };
   const coachRuntime = {
@@ -43,7 +45,7 @@ function localDependencies() {
     shutdown: vi.fn(async () => undefined),
     start: vi.fn(async (_input: unknown) => { void _input; }),
   };
-  return { coachRuntime, localRuntime, state };
+  return { coachRuntime, localRuntime, state, flushHistory: vi.fn(async () => undefined) };
 }
 
 const CLASSROOM_ATTEMPT_ID = '00000000-0000-4000-8000-000000000001';
@@ -479,11 +481,16 @@ describe('TaskApplicationService', () => {
   });
 });
 
-it('keeps long desktop lesson requests inside the SDK limit and uses only the lesson observation entry point', async () => {
+it.each([1, 2, 3] as const)('keeps version %s external lessons in the shared SDK session with context before observation', async (schemaVersion) => {
   const deps = localDependencies();
   const state = lessonStateFixture();
-  state.envelope.plan.schemaVersion = 3;
-  state.envelope.plan.steps[0]!.surface = { kind: 'current_window', navigation: 'student' };
+  state.envelope.plan.schemaVersion = schemaVersion;
+  if (schemaVersion === 3) state.envelope.plan.steps[0]!.surface = { kind: 'current_window', navigation: 'student' };
+  else {
+    const resource = { id: state.material!.resource.id, kind: 'web' as const, title: 'Lesson exercise', url: 'https://example.com/editor', origin: 'https://example.com' };
+    state.envelope.plan.resources = [resource];
+    state.material!.resource = resource;
+  }
   state.envelope.plan.steps[0]!.instruction = 'i'.repeat(4000);
   state.envelope.plan.steps[0]!.objective = 'o'.repeat(4000);
   state.material!.text = 'source '.repeat(3000);
@@ -492,12 +499,23 @@ it('keeps long desktop lesson requests inside the SDK limit and uses only the le
   state.child = { executionId, stepId: state.envelope.plan.steps[0]!.id, taskId: randomUUID(), workSessionId: randomUUID(), attemptNumber: 1, purpose: 'help', ownedByThisRequest: true };
   const question = '"\n'.repeat(2000).trim();
   const register = vi.fn();
-  await submitLessonChild(new TaskRuntime(), { ...deps, currentOwnerId: async () => 'student' } as unknown as TaskApplicationServiceOptions, state, CLASSROOM_ACTIVITY, 'help', question, register, vi.fn());
+  const runtime = new TaskRuntime();
+  await submitLessonChild(runtime, { ...deps, currentOwnerId: async () => 'student' } as unknown as TaskApplicationServiceOptions, state, CLASSROOM_ACTIVITY, 'help', question, register, vi.fn());
   expect(deps.coachRuntime.start).not.toHaveBeenCalled();
   const input = deps.localRuntime.start.mock.calls[0]![0] as { request: string; requiredInitialTool: { modelName: string; arguments: unknown }; executionContext: { lesson: { kind: string } } };
   expect(input.request.length).toBeLessThanOrEqual(8000);
   expect(input.request).toContain(question);
   expect(input.request).not.toContain(state.material!.text);
-  expect(input.requiredInitialTool).toEqual({ modelName: 'lesson_observe', arguments: {} });
+  expect(input.requiredInitialTool).toEqual({ modelName: 'lesson_context', arguments: {} });
+  expect(deps.flushHistory).toHaveBeenCalledTimes(2);
+  expect(deps.flushHistory.mock.invocationCallOrder[1]).toBeLessThan(deps.localRuntime.start.mock.invocationCallOrder[0]!);
   expect(input.executionContext.lesson.kind).toBe('desktop');
+  runtime.complete(state.child.taskId, { status: 'completed', finalOutput: 'First explanation', message: 'Finished' });
+  const previous = runtime.getSnapshot(state.child.taskId);
+  await submitLessonChild(runtime, { ...deps, state: { ...deps.state,
+    findOwnedThread: async () => ({ snapshot: previous, classroomLessonId: state.envelope.lessonId }),
+  }, currentOwnerId: async () => 'student' } as unknown as TaskApplicationServiceOptions, state, CLASSROOM_ACTIVITY, 'help', 'Explain more.', register, vi.fn());
+  expect(deps.state.assertSettledInvocations).toHaveBeenCalledWith('student', state.child.taskId);
+  expect(runtime.getSnapshot(state.child.taskId).messages.some((message) => message.text === 'First explanation')).toBe(true);
+  expect(deps.localRuntime.start.mock.calls).toHaveLength(2);
 });

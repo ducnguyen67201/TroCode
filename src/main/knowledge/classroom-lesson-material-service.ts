@@ -7,7 +7,7 @@ import type { LessonFile, LessonLocalState } from '../../shared/classroom-lesson
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 import { LessonBlockedError } from './classroom-lesson-errors';
 import { safeMaterialName } from './classroom-lesson-material-policy';
-import type { ClassroomLessonOpeningService } from './classroom-lesson-opening-service';
+import type { ToolExecutionResult } from '../agent/agent-contracts';
 import type { ClassroomLessonStateStore } from './classroom-lesson-state-store';
 import type { ClassroomLessonSurfaceService } from './classroom-lesson-surface-service';
 
@@ -17,8 +17,7 @@ export class ClassroomLessonMaterialService {
     directory: string;
     client: Pick<ClassroomLessonClient, 'file'>;
     store: Pick<ClassroomLessonStateStore, 'readNativeMaterial' | 'saveNativeMaterial'>;
-    surfaces: Pick<ClassroomLessonSurfaceService, 'observe' | 'selectFileTitle' | 'restoreFileTitle'>;
-    opening: Pick<ClassroomLessonOpeningService, 'complete'>;
+    surfaces: Pick<ClassroomLessonSurfaceService, 'selectFileTitle' | 'restoreFileTitle'>;
     chooseFile?(): Promise<string | null>;
     validateSelection?(state: LessonLocalState, revision: number): Promise<void>;
     openPath(value: string): Promise<string>;
@@ -30,24 +29,20 @@ export class ClassroomLessonMaterialService {
   }) {}
 
   async prepare(state: LessonLocalState, signal: AbortSignal) {
-    const step = state.envelope.plan.steps[state.stepIndex]!;
-    const resource = state.material!.resource;
+    await this.options.authorize();
+    signal.throwIfAborted();
+    const resource = state.envelope.plan.resources.find((item) => item.id === state.envelope.plan.steps[state.stepIndex]?.resourceId);
+    if (!resource) throw new LessonBlockedError('resource_unavailable', 'Lesson resource is unavailable.');
     const previous = await this.options.store.readNativeMaterial(state.ownerId, state.envelope.lessonId, resource.id);
     if (previous && resource.kind !== 'web') this.options.surfaces.restoreFileTitle(state, path.basename(previous.path));
-    if (previous?.status !== 'selected') {
-      await this.options.consume('observation');
-      try { await this.options.surfaces.observe(state, state.envelope.lessonId, signal); return; }
-      catch (error) { if (!(error instanceof LessonBlockedError) || step.surface?.kind !== 'resource_app') throw error; }
-    }
-    if (previous?.status === 'dispatching') { await this.options.markEffect('unknown'); throw new Error('The earlier opening is uncertain. Inspect the material before accepting a new lesson.'); }
-    if (previous?.status === 'opened') {
-      await this.finishOpening(state, previous.path, previous.sha256, resource.kind !== 'web', signal);
-      return;
-    }
+    if (previous?.legacyOutcomeUnknown) { await this.options.markEffect('unknown'); throw new Error('The earlier opening is uncertain. Inspect the material before accepting a new lesson.'); }
+    if (previous) return;
+    if (resource.kind === 'current_screen' || resource.kind === 'assignment') return;
     let target: string, sha256 = '';
-    if (previous?.status === 'selected') { target = previous.path; this.options.surfaces.selectFileTitle(state, path.basename(target)); }
-    else if (resource.kind === 'source_text') {
+    if (resource.kind === 'source_text') {
       const file = await this.options.client.file(state.anchorAttemptId, state.envelope.lessonId, resource.id, signal);
+      if (file.sourceVersionId !== resource.sourceVersionId)
+        throw new LessonBlockedError('resource_unavailable', 'The file does not match the reviewed source version.');
       try { target = await this.download(state.ownerId, file, signal); }
       catch (error) {
         signal.throwIfAborted();
@@ -57,34 +52,53 @@ export class ClassroomLessonMaterialService {
       this.options.surfaces.selectFileTitle(state, path.basename(target));
     } else if (resource.kind === 'web') target = resource.url;
     else throw new LessonBlockedError('resource_unavailable', 'Select a class file or website to open.');
+    signal.throwIfAborted();
+    await this.options.store.saveNativeMaterial(state.ownerId, state.envelope.lessonId, resource.id, { version: 2, path: target, sha256, legacyOutcomeUnknown: false });
+  }
+
+  /** Called only through the journaled tool dispatcher. OS acceptance is not document verification. */
+  async openResource(state: LessonLocalState, handle: string, signal: AbortSignal): Promise<ToolExecutionResult> {
+    if (state.effect === 'unknown' || state.effect === 'dispatching')
+      return { status: 'unknown', summary: 'A prior action has an unresolved outcome. Opening will not be dispatched.' };
+    const resource = state.envelope.plan.resources.find((item) => item.id === state.envelope.plan.steps[state.stepIndex]?.resourceId);
+    if (!resource || handle !== resource.id) return { status: 'denied', summary: 'The resource is outside the current lesson step.' };
+    await this.options.authorize();
+    signal.throwIfAborted();
+    const previous = await this.options.store.readNativeMaterial(state.ownerId, state.envelope.lessonId, resource.id);
+    if (!previous) return { status: 'not_executed', summary: 'This resource has no prepared file. Observe its current window or ask the student to select the material.' };
+    if (previous.legacyOutcomeUnknown) return { status: 'unknown', summary: 'The earlier opening has an unknown outcome and will not be repeated.' };
+    const { path: target, sha256 } = previous;
+    if (resource.kind !== 'web' || target !== resource.url) {
+      try {
+        const info = await lstat(target);
+        if (!info.isFile() || info.isSymbolicLink())
+          return { status: 'not_executed', summary: 'The prepared resource is no longer a regular file. Select the material again.' };
+        if (sha256 && createHash('sha256').update(await readFile(target)).digest('hex') !== sha256)
+          return { status: 'not_executed', summary: 'The prepared file has changed. It was preserved; select its window to continue.' };
+      } catch {
+        return { status: 'not_executed', summary: 'The prepared file is unavailable. Select the material again.' };
+      }
+    }
     await this.options.authorize();
     signal.throwIfAborted();
     await this.options.consume('action');
-    await this.options.store.saveNativeMaterial(state.ownerId, state.envelope.lessonId, resource.id, { path: target, sha256, status: 'dispatching' });
     await this.options.markEffect('dispatching');
+    try {
     signal.throwIfAborted();
-    if (resource.kind === 'web' && previous?.status !== 'selected') await this.openWithDeadline(() => this.options.openUrl(target));
+    if (resource.kind === 'web' && target === resource.url) await this.openWithDeadline(() => this.options.openUrl(target));
     else {
       const error = await this.openWithDeadline(() => this.options.openPath(target));
       if (error) {
-        await this.options.store.saveNativeMaterial(state.ownerId, state.envelope.lessonId, resource.id, { path: target, sha256, status: 'failed' });
         await this.options.markEffect('none');
-        throw new LessonBlockedError('resource_unavailable', 'The file could not be opened. Open it in a suitable app, then choose its window.');
+        return { status: 'failed', summary: 'The OS rejected opening this material. Observe the screen or ask the student to select its window.' };
       }
     }
-    await this.options.store.saveNativeMaterial(state.ownerId, state.envelope.lessonId, resource.id, { path: target, sha256, status: 'opened' });
     await this.options.markEffect('confirmed');
-    await this.finishOpening(state, target, sha256, resource.kind !== 'web' || previous?.status === 'selected', signal);
-  }
-
-  private finishOpening(state: LessonLocalState, target: string, sha256: string, file: boolean, signal: AbortSignal) {
-    return this.options.opening.complete(state, file ? path.basename(target) : undefined, signal, async (effect) => {
-      const resource = state.envelope.plan.steps[state.stepIndex]!.resourceId;
-      // Journal chooser clicks too, so a crash cannot turn an unknown click into a retry.
-      await this.options.store.saveNativeMaterial(state.ownerId, state.envelope.lessonId, resource,
-        { path: target, sha256, status: effect === 'dispatching' || effect === 'unknown' ? 'dispatching' : 'opened' });
-      await this.options.markEffect(effect);
-    });
+    return { status: 'confirmed', summary: 'The OS accepted the resource. Observe and handle any application UI, then verify the requested document before teaching.' };
+    } catch {
+      await this.options.markEffect('unknown');
+      return { status: 'unknown', summary: 'The opening outcome is unknown. Do not repeat it.' };
+    }
   }
 
   async chooseLocal(state: LessonLocalState) {
@@ -96,7 +110,7 @@ export class ClassroomLessonMaterialService {
       throw new Error('Choose a document file, or open this format yourself and select its window.');
     if (!this.options.validateSelection) throw new Error('File selection is unavailable.');
     await this.options.validateSelection(state, revision);
-    await this.options.store.saveNativeMaterial(state.ownerId, state.envelope.lessonId, state.envelope.plan.steps[state.stepIndex]!.resourceId, { path: selected, sha256: '', status: 'selected' });
+    await this.options.store.saveNativeMaterial(state.ownerId, state.envelope.lessonId, state.envelope.plan.steps[state.stepIndex]!.resourceId, { version: 2, path: selected, sha256: '', legacyOutcomeUnknown: false });
   }
 
   private async openWithDeadline<T>(open: () => Promise<T>): Promise<T> {
