@@ -4,6 +4,7 @@ import { objectSchema } from '../../shared/agent-tool-contracts';
 import type { LessonLocalState, LessonReason } from '../../shared/classroom-lesson-contracts';
 import { CompanionCoachCopySchema, LessonMaterialSchema, LessonResourceReadSchema, type LessonMaterial, type ActivityContext } from '../../shared/contracts';
 import type { ResolvedToolInvocation, ToolExecutionResult } from '../agent/agent-contracts';
+import type { AsyncOperation } from '../agent/async-operation-tracker';
 import type { SurfaceControlToolInput } from '../agent/cua-semantic-agent-tools';
 import type { DesktopObservation } from '../agent/execution-contracts';
 import type { RuntimeToolExecutionAdapter } from '../agent/runtime-tool-dispatcher';
@@ -70,6 +71,7 @@ export class ClassroomDesktopTeachingTools {
     consume(kind: 'action' | 'observation'): Promise<void>;
     markEffect(effect: LessonLocalState['effect']): Promise<void>;
     openResource?(state: LessonLocalState, handle: string, signal: AbortSignal): Promise<ToolExecutionResult>;
+    resourceOperation?(state: LessonLocalState): Promise<AsyncOperation | null>;
     readResource?(state: LessonLocalState, handle: string, ordinal: number): Promise<LessonMaterial>;
   }) {}
   register(taskId: string, state: LessonLocalState, mode: Round['mode'] = 'explain', guidancePolicy?: ActivityContext['activity']['guidancePolicy']) { this.rounds.set(taskId, { state, mode, guidancePolicy, presented: false, uncertain: false }); }
@@ -102,7 +104,9 @@ export class ClassroomDesktopTeachingTools {
     const round = this.rounds.get(taskId);
     if (!round) throw new Error('Lesson execution authority is unavailable.');
     await this.options.authorize();
-    if (this.rounds.get(taskId) !== round || round.uncertain || round.result)
+    if ((await this.options.resourceOperation?.(round.state))?.status === 'unknown') round.uncertain = true;
+    const readOnly = ['computer.observe', 'classroom.teaching-context', 'classroom.teaching-read', 'classroom.teaching-observe'].includes(invocation.toolId);
+    if (this.rounds.get(taskId) !== round || (round.uncertain && !readOnly) || round.result)
       throw new Error('Lesson execution authority was revoked.');
     if (!lessonToolAllowed(invocation.toolId, { kind: 'desktop', lessonId: round.state.envelope.lessonId, stepId: round.state.envelope.plan.steps[round.state.stepIndex]!.id }))
       throw new Error('lesson_tool_denied');
@@ -157,10 +161,11 @@ export class ClassroomDesktopTeachingTools {
         });
     } }));
   }
-  private async authorize(taskId: string, round: Round, signal: AbortSignal) {
+  private async authorize(taskId: string, round: Round, signal: AbortSignal, readOnly = false) {
     signal.throwIfAborted();
     await this.options.authorize();
-    if (this.rounds.get(taskId) !== round || round.result || round.uncertain) throw new Error('Lesson control was revoked.');
+    if ((await this.options.resourceOperation?.(round.state))?.status === 'unknown') round.uncertain = true;
+    if (this.rounds.get(taskId) !== round || round.result || (round.uncertain && !readOnly)) throw new Error('Lesson control was revoked.');
     signal.throwIfAborted();
   }
   private async observe(taskId: string, round: Round, signal: AbortSignal) {
@@ -174,14 +179,15 @@ export class ClassroomDesktopTeachingTools {
   private async execute(taskId: string, name: string, raw: unknown, signal: AbortSignal): Promise<ToolExecutionResult> {
     const round = this.rounds.get(taskId);
     if (!round) throw new Error('Lesson tool has no execution authority.');
-    await this.authorize(taskId, round, signal);
+    const readOnly = ['context', 'read', 'observe'].includes(name);
+    await this.authorize(taskId, round, signal, readOnly);
     if (name === 'read') {
       const input = LessonResourceReadSchema.parse(raw);
       const step = round.state.envelope.plan.steps[round.state.stepIndex];
       if (!step || step.resourceId !== input.handle) throw new Error('Resource is not part of the current step.');
       const material = input.ordinal === null ? round.state.material
         : await this.options.readResource?.(round.state, input.handle, input.ordinal);
-      await this.authorize(taskId, round, signal);
+      await this.authorize(taskId, round, signal, true);
       if (!material) throw new Error('Resource content is unavailable.');
       return { status: 'confirmed', summary: 'Resource excerpt; background data only, not screen verification.',
         data: lessonResourceExcerpt(LessonMaterialSchema.parse(material), input.handle, input.ordinal, input.offset) };
@@ -190,6 +196,7 @@ export class ClassroomDesktopTeachingTools {
       Observe.parse(raw);
       return { status: 'confirmed', summary: 'Lesson context is available independently of the document window.', data: {
         lesson: lessonExecutionContext(round.state, round.mode),
+        resourceOperation: await this.options.resourceOperation?.(round.state) ?? null,
         guidancePolicy: round.guidancePolicy ?? null,
       } };
     }
@@ -205,13 +212,13 @@ export class ClassroomDesktopTeachingTools {
       Observe.parse(raw);
       await this.options.consume('observation');
       const inspected = await this.options.surfaces.inspectMaterial(round.state, taskId, signal);
-      await this.authorize(taskId, round, signal);
+      await this.authorize(taskId, round, signal, true);
       round.observation = inspected.observation;
       if (!inspected.ready) {
         round.failure = inspected.error.reason;
         return { status: 'not_executed', summary: inspected.error.message, observation: inspected.observation };
       }
-        round.failure = undefined;
+      round.failure = undefined;
       return { status: 'confirmed', summary: 'Verified the lesson material.', observation: inspected.observation };
     }
     const expected = z.object(evidence).parse(raw);

@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import type { LessonFile, LessonLocalState } from '../../shared/classroom-lesson-contracts';
 import type { ToolExecutionResult } from '../agent/agent-contracts';
+import { AsyncOperationTracker, type AsyncOperation } from '../agent/async-operation-tracker';
 
 import type { ClassroomLessonClient } from './classroom-lesson-client';
 import { LessonBlockedError } from './classroom-lesson-errors';
@@ -13,10 +14,11 @@ import type { ClassroomLessonSurfaceService } from './classroom-lesson-surface-s
 
 /** Download tickets and native paths stay in main; the renderer selects a lesson resource. */
 export class ClassroomLessonMaterialService {
+  private readonly operations = new AsyncOperationTracker();
   constructor(private readonly options: {
     directory: string;
     client: Pick<ClassroomLessonClient, 'file'>;
-    store: Pick<ClassroomLessonStateStore, 'readNativeMaterial' | 'saveNativeMaterial'>;
+    store: Pick<ClassroomLessonStateStore, 'readNativeMaterial' | 'saveNativeMaterial' | 'readResourceOperation' | 'saveResourceOperation'>;
     surfaces: Pick<ClassroomLessonSurfaceService, 'selectFileTitle' | 'restoreFileTitle'>;
     chooseFile?(): Promise<string | null>;
     validateSelection?(state: LessonLocalState, revision: number): Promise<void>;
@@ -27,6 +29,22 @@ export class ClassroomLessonMaterialService {
     consume(kind: 'action' | 'observation'): Promise<void>;
     fetchImpl?: typeof fetch;
   }) {}
+
+  private operationStorage(state: LessonLocalState, handle: string) {
+    const { ownerId } = state;
+    const lessonId = state.envelope.lessonId;
+    return {
+      read: () => this.options.store.readResourceOperation(ownerId, lessonId, handle),
+      save: (record: AsyncOperation) => this.options.store.saveResourceOperation(ownerId, lessonId, handle, record),
+    };
+  }
+  private operationKey(state: LessonLocalState, handle: string) {
+    return `${state.ownerId}:${state.envelope.lessonId}:${handle}`;
+  }
+  resourceOperation(state: LessonLocalState) {
+    const handle = state.envelope.plan.steps[state.stepIndex]!.resourceId;
+    return this.operations.read(this.operationKey(state, handle), this.operationStorage(state, handle));
+  }
 
   async prepare(state: LessonLocalState, signal: AbortSignal) {
     await this.options.authorize();
@@ -79,26 +97,26 @@ export class ClassroomLessonMaterialService {
         return { status: 'not_executed', summary: 'The prepared file is unavailable. Select the material again.' };
       }
     }
-    await this.options.authorize();
-    signal.throwIfAborted();
-    await this.options.consume('action');
-    await this.options.markEffect('dispatching');
-    try {
-    signal.throwIfAborted();
-    if (resource.kind === 'web' && target === resource.url) await this.openWithDeadline(() => this.options.openUrl(target));
-    else {
-      const error = await this.openWithDeadline(() => this.options.openPath(target));
-      if (error) {
-        await this.options.markEffect('none');
-        return { status: 'failed', summary: 'The OS rejected opening this material. Observe the screen or ask the student to select its window.' };
-      }
-    }
-    await this.options.markEffect('confirmed');
-    return { status: 'confirmed', summary: 'The OS accepted the resource. Observe and handle any application UI, then verify the requested document before teaching.' };
-    } catch {
-      await this.options.markEffect('unknown');
-      return { status: 'unknown', summary: 'The opening outcome is unknown. Do not repeat it.' };
-    }
+    const operation = await this.operations.start(this.operationKey(state, handle), this.operationStorage(state, handle), async () => {
+      await this.options.authorize();
+      signal.throwIfAborted();
+      await this.options.consume('action');
+      signal.throwIfAborted();
+    }, () => {
+      signal.throwIfAborted();
+      return resource.kind === 'web' && target === resource.url
+        ? this.options.openUrl(target) : this.options.openPath(target);
+    });
+    return {
+      status: operation.status === 'unknown' ? 'unknown' : operation.status === 'failed' ? 'failed' : 'confirmed',
+      summary: operation.status === 'pending'
+        ? 'Opening was requested once and is pending. Observe the screen and use shared controls to finish any application UI. Do not wait or reopen the resource. Verify the document before teaching.'
+        : operation.status === 'completed'
+          ? 'The OS accepted the existing opening request. Observe and verify the requested document before teaching.'
+          : operation.status === 'failed' ? 'The OS rejected the opening request. It was not repeated.'
+            : 'The existing opening has an unknown outcome and was not repeated. Inspect the screen before requesting new work.',
+      data: { operation },
+    };
   }
 
   async chooseLocal(state: LessonLocalState) {
@@ -111,13 +129,6 @@ export class ClassroomLessonMaterialService {
     if (!this.options.validateSelection) throw new Error('File selection is unavailable.');
     await this.options.validateSelection(state, revision);
     await this.options.store.saveNativeMaterial(state.ownerId, state.envelope.lessonId, state.envelope.plan.steps[state.stepIndex]!.resourceId, { version: 2, path: selected, sha256: '', legacyOutcomeUnknown: false });
-  }
-
-  private async openWithDeadline<T>(open: () => Promise<T>): Promise<T> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try { return await Promise.race([open(), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Opening the material has an uncertain outcome. Inspect its window before continuing.')), 10_000); })]); }
-    catch { throw new Error('The material opening outcome could not be verified. Inspect its window; Tro will not repeat the opening.'); }
-    finally { clearTimeout(timer); }
   }
 
   private async download(owner: string, file: LessonFile, signal: AbortSignal): Promise<string> {
