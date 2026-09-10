@@ -63,7 +63,7 @@ describe('scoped desktop teaching tools', () => {
     expect(result.status).toBe('denied');
     expect(f.tools.result(f.taskId)).toBeUndefined();
   });
-  it('requires fresh local control consent for a migrated legacy browser demonstration', async () => {
+  it('uses accepted lesson authority for a migrated legacy browser demonstration', async () => {
     const f = fixture();
     const resource = { id: f.resource.id, kind: 'web' as const, title: 'Exercise', url: 'https://example.com/editor', origin: 'https://example.com' };
     f.state.envelope.plan.schemaVersion = 2;
@@ -76,8 +76,7 @@ describe('scoped desktop teaching tools', () => {
     f.tools.register(f.taskId, f.state, 'demonstrate', { answerReveal: 'allowed', hintMode: 'socratic', maxHintLevel: 2 });
     await f.call('observe', {});
     const command = f.control({ kind: 'scroll', ref: null, direction: 'down', amount: 1 });
-    await expect(f.tools.guard(f.taskId).before(command, false)).rejects.toMatchObject({ reason: 'permission_required' });
-    f.state.desktopControlConsent = true;
+    f.state.desktopControlConsent = false;
     await expect(f.tools.guard(f.taskId).before(command, false)).resolves.toBeUndefined();
   });
   it('allows a consented example in a proven-empty editor but rejects unavailable field contents', async () => {
@@ -184,13 +183,14 @@ describe('scoped desktop teaching tools', () => {
     await f.call('finish', { ...f.evidence, disposition: 'continue', recap: 'Next we explain print.' });
     expect(f.tools.result(f.taskId)).toEqual({ disposition: 'continue', recap: 'Next we explain print.' });
   });
-  it('requires local consent, re-observes mutations and revokes tools on pause', async () => {
+  it.each(['student', 'tro'] as const)('navigates an accepted lesson with legacy navigation %s, without extra consent, and revokes tools on pause', async (navigationMode) => {
     const f = fixture();
-    f.state.envelope.plan.steps[0]!.surface!.navigation = 'tro';
+    f.state.envelope.plan.steps[0]!.surface!.navigation = navigationMode;
+    f.state.desktopControlConsent = false;
     await f.call('observe', {});
     const navigation = f.control({ kind: 'scroll', ref: null, direction: 'down', amount: 3 });
     const guard = f.tools.guard(f.taskId);
-    await expect(guard.before(navigation, false)).rejects.toMatchObject({ reason: 'permission_required' });
+    await expect(guard.before(navigation, false)).resolves.toBeUndefined();
     f.state.desktopControlConsent = true;
     await guard.before(navigation, true);
     await guard.observeResult({ status: 'confirmed', summary: 'Scrolled' });
@@ -200,7 +200,6 @@ describe('scoped desktop teaching tools', () => {
   });
   it('does not replay unknown effects or point at a changed screen', async () => {
     const f = fixture();
-    f.state.desktopControlConsent = true; f.state.envelope.plan.steps[0]!.surface!.navigation = 'tro';
     await f.call('observe', {});
     const guard = f.tools.guard(f.taskId);
     const navigation = f.control({ kind: 'scroll', ref: null, direction: 'down', amount: 3 });
@@ -213,13 +212,28 @@ describe('scoped desktop teaching tools', () => {
     expect((await changed.call('present', { ...changed.evidence, ref: 'e1', x: null, y: null, copy: { hook: 'Look.', instruction: 'Read this.', reason: 'It is useful.', expectedOutcome: 'Read.' } })).status).toBe('not_executed');
     expect(changed.presentSequence).not.toHaveBeenCalled();
   });
-  it('refuses to overwrite existing student work', async () => {
+  it('still checks active lesson authority immediately before a navigation action', async () => {
     const f = fixture();
-    f.state.desktopControlConsent = true;
-    f.state.envelope.plan.steps[0]!.surface!.navigation = 'tro';
+    await f.call('observe', {});
+    f.authorize.mockRejectedValueOnce(new Error('Lesson stopped.'));
+    await expect(f.tools.guard(f.taskId).before(f.control({ kind: 'scroll', ref: null, direction: 'down', amount: 1 }), true)).rejects.toThrow('Lesson stopped.');
+  });
+  it('demonstrates in a verified empty scratch editor without a second permission checkbox', async () => {
+    const f = fixture();
+    f.state.desktopControlConsent = false;
     f.state.envelope.plan.steps[0]!.mode = 'demonstrate';
     f.state.envelope.plan.steps[0]!.demonstration = { exampleDescription: 'Print a greeting', expectedResult: 'Hello' };
-    f.tools.register(f.taskId, f.state, 'demonstrate');
+    f.tools.register(f.taskId, f.state, 'demonstrate', { answerReveal: 'allowed', hintMode: 'socratic', maxHintLevel: 2 });
+    f.observation.surface = { kind: 'code_editor', application: 'Visual Studio Code', title: 'Untitled-1' };
+    f.observation.elements![0]!.value = '';
+    await f.call('observe', {});
+    await expect(f.tools.guard(f.taskId).before(f.control({ kind: 'type_text', ref: 'e1', text: 'print("Hello")', replace: false }), false)).resolves.toBeUndefined();
+  });
+  it('refuses to overwrite existing student work', async () => {
+    const f = fixture();
+    f.state.envelope.plan.steps[0]!.mode = 'demonstrate';
+    f.state.envelope.plan.steps[0]!.demonstration = { exampleDescription: 'Print a greeting', expectedResult: 'Hello' };
+    f.tools.register(f.taskId, f.state, 'demonstrate', { answerReveal: 'allowed', hintMode: 'socratic', maxHintLevel: 2 });
     f.observation.surface = { kind: 'code_editor', application: 'Visual Studio Code', title: 'Untitled-1' };
     await f.call('observe', {});
     await expect(f.tools.guard(f.taskId).before(f.control({ kind: 'type_text', ref: 'e1', text: 'print("Hello")', replace: true }), false)).rejects.toMatchObject({ reason: 'existing_work' });

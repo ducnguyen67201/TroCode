@@ -23,6 +23,7 @@ describe('lesson IPC authority', () => {
     } as unknown as ClassroomLessonFeatures, async () => undefined);
     await expect(handlers.get(LESSON_CHANNELS.consent)!({}, { enabled: false })).rejects.toThrow('Could not save preference');
     expect(setConsent).toHaveBeenCalledWith(false);
+    expect(handlers.has('classroom-lesson:desktop-consent')).toBe(false);
     expect(view).not.toHaveBeenCalled();
     cleanup();
   });

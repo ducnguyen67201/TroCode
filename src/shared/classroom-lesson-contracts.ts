@@ -356,7 +356,7 @@ export const LessonLocalStateSchema = z
     phase: z.string().max(240),
     text: z.string().max(16000),
     teachingProgress: z.object({ disposition: z.enum(['continue', 'step_finished']), round: revision }).strict().optional(),
-    desktopControlConsent: z.boolean().default(false),
+    desktopControlConsent: z.boolean().default(false), // Legacy journal field; never used as execution authority.
     history: z.array(LessonHistoryEntrySchema).max(12).default([]),
     feedback: LessonCheckResultSchema,
     actionCount: revision,

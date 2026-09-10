@@ -8,12 +8,6 @@ export function lessonUsesExternalMaterial(plan: ExecutionPlan, stepIndex = 0) {
   return plan.schemaVersion === 3 || plan.resources?.some((resource) => resource.id === step?.resourceId && resource.kind === 'web') === true;
 }
 
-/** A requested capability still requires fresh local desktopControlConsent. */
-export function lessonRequestsNavigation(plan: ExecutionPlan, stepIndex = 0) {
-  const step = plan.steps?.[stepIndex];
-  return step?.surface?.navigation === 'tro' ||
-    (plan.schemaVersion < 3 && step?.mode === 'demonstrate' && lessonUsesExternalMaterial(plan, stepIndex));
-}
 
 export function lessonExecutionRoute(plan: ExecutionPlan, mode: LessonMode | 'help', stepIndex = 0) {
   if (mode === 'check') return 'coach' as const;

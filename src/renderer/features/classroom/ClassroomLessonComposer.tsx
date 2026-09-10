@@ -12,7 +12,7 @@ export function ClassroomLessonComposer({ spaceId, runId, vi, enabled }: { space
   const [loaded, setLoaded] = useState<{ scope: string; context: LessonContext } | null>(null);
   const context = loaded?.scope === scope ? loaded.context : null;
   const [request, setRequest] = useState('');
-  const [options, setOptions] = useState<TeachingOptions>({ material: 'auto', surface: 'resource_app', navigation: 'student', language: vi ? 'vi' : 'en', section: '' });
+  const [options, setOptions] = useState<TeachingOptions>({ material: 'auto', surface: 'resource_app', language: vi ? 'vi' : 'en', section: '' });
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const [draft, setDraft] = useState<LessonDraft | null>(null);
@@ -80,9 +80,6 @@ export function ClassroomLessonComposer({ spaceId, runId, vi, enabled }: { space
         </select></label>}
         <label>{vi ? 'Phần / trang' : 'Section / page'}<input value={options.section} maxLength={500} onChange={(e) => edit({ section: e.target.value })} /></label>
         <label>{vi ? 'Ngôn ngữ' : 'Language'}<select value={options.language} onChange={(e) => edit({ language: e.target.value as 'en' | 'vi' })}><option value="vi">Tiếng Việt</option><option value="en">English</option></select></label>
-        <label>{vi ? 'Điều hướng tài liệu' : 'Document navigation'}<select value={options.navigation} onChange={(e) => edit({ navigation: e.target.value as 'student' | 'tro' })}>
-          <option value="student">{vi ? 'Học sinh điều hướng' : 'Students navigate'}</option><option value="tro">{vi ? 'Tro điều hướng khi học sinh cho phép' : 'Tro navigates with student permission'}</option>
-        </select></label>
         <label>{vi ? 'Yêu cầu dạy học' : 'Teaching request'}<textarea value={request} maxLength={3400} rows={3} placeholder={vi ? 'Giải thích một ví dụ, rồi dừng để học sinh hỏi.' : 'Explain one example, then pause for questions.'} onChange={(e) => { invalidate(); setRequest(e.target.value); }} /></label>
       </fieldset>
       {context && <small>{vi ? 'Buổi học' : 'Session'}: {context.title}</small>}

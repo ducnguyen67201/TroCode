@@ -118,7 +118,6 @@ export class ClassroomLessonController {
       this.ownerId = ownerId;
       this.consent = savedConsent ?? consent;
       if (state) {
-        state.desktopControlConsent = false;
         state.status =
           state.status === 'unknown' || state.effect === 'dispatching' || state.effect === 'unknown' || state.child ? 'unknown' : 'paused';
         state.reasonCode = state.status === 'unknown' ? 'outcome_unknown' : 'restart';
@@ -434,7 +433,6 @@ export class ClassroomLessonController {
   }
   private async halt(status: 'paused' | 'stopped', reason: LessonReason) {
     this.abort?.abort();
-    if (this.active) this.active.desktopControlConsent = false;
     const state = this.active;
     if (state && !['finished', 'stopped', 'expired'].includes(state.status)) {
       state.phase = status === 'stopped' ? 'Stopping lesson' : 'Pausing lesson';
@@ -490,13 +488,6 @@ export class ClassroomLessonController {
     await this.authorize();
     if (this.active !== state || state.revision !== revision || this.work) throw new Error('Lesson changed.');
     return state;
-  }
-  async setDesktopConsent(lessonId: string, revision: number, enabled: boolean) {
-    if (!enabled && this.active?.envelope.lessonId === lessonId && this.work) await this.halt('paused', 'opted_out');
-    const state = await this.desktopState(lessonId, !enabled ? this.active?.revision ?? revision : revision);
-    state.desktopControlConsent = enabled;
-    await this.persist();
-    return this.view();
   }
   async materialPage(lessonId: string, resourceId: string, ordinal: number) {
     const state = this.active;

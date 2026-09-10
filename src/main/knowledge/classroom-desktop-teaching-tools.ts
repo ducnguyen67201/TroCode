@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 import { objectSchema } from '../../shared/agent-tool-contracts';
-import { lessonRequestsNavigation } from '../../shared/lesson-execution-policy';
 import type { LessonLocalState, LessonReason } from '../../shared/classroom-lesson-contracts';
 import { CompanionCoachCopySchema, LessonMaterialSchema, LessonResourceReadSchema, type LessonMaterial, type ActivityContext } from '../../shared/contracts';
 import type { ResolvedToolInvocation, ToolExecutionResult } from '../agent/agent-contracts';
@@ -122,9 +121,6 @@ export class ClassroomDesktopTeachingTools {
     const step = round.state.envelope.plan.steps[round.state.stepIndex]!;
     if (invocation.toolId === 'desktop.control' && (!observation.screenshot || !['click', 'scroll', 'keypress', 'point'].includes(input.command.kind)))
       throw new LessonBlockedError('surface_unverified', 'Use observed element controls for text entry; coordinate actions require a fresh screenshot.');
-    const navigation = round.state.desktopControlConsent && lessonRequestsNavigation(round.state.envelope.plan, round.state.stepIndex);
-    if (!navigation && !(round.opening && ['click_element', 'click'].includes(input.command.kind)))
-      throw new LessonBlockedError('permission_required', 'Allow Tro to navigate this step, or navigate the material yourself.');
     if (input.command.kind === 'press_key' || input.command.kind === 'keypress') {
       const keys = input.command.kind === 'press_key'
         ? [...input.command.modifiers, input.command.key] : input.command.keys;
