@@ -52,7 +52,7 @@ export function createClassroomLessonFeatures(
 ) {
   const surfaces = new ClassroomLessonSurfaceService({ cua: options.cua, prepareObservation: options.prepareObservation });
   const materials = new ClassroomLessonMaterialService({ directory: options.directory, client: base.client, store: base.store, surfaces, chooseFile: options.chooseFile, validateSelection: async (state, revision) => { await controller.desktopState(state.envelope.lessonId, revision); }, openPath: options.openPath, openUrl: options.openUrl, authorize: () => controller.authorize(), consume: (kind) => controller.consume(kind), markEffect: (effect) => controller.markEffect(effect) });
-  const teaching = new ClassroomDesktopTeachingTools({ readResource: (state, handle, ordinal) => controller.materialPage(state.envelope.lessonId, handle, ordinal), openResource: (state, handle, signal) => materials.openResource(state, handle, signal), surfaces, presenter: options.presenter, authorize: () => controller.authorize(), consume: (kind) => controller.consume(kind), markEffect: (effect) => controller.markEffect(effect) });
+  const teaching = new ClassroomDesktopTeachingTools({ resourceOperation: (state) => materials.resourceOperation(state), readResource: (state, handle, ordinal) => controller.materialPage(state.envelope.lessonId, handle, ordinal), openResource: (state, handle, signal) => materials.openResource(state, handle, signal), surfaces, presenter: options.presenter, authorize: () => controller.authorize(), consume: (kind) => controller.consume(kind), markEffect: (effect) => controller.markEffect(effect) });
   const runner: ClassroomLessonStepRunner = new ClassroomLessonStepRunner({
     tasks: options.tasks,
     client: options.knowledge,

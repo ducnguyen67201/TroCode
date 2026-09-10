@@ -48,6 +48,12 @@ describe('encrypted lesson journals', () => {
       expect(await readFile(path.join(folder, `${draft.draftId}.enc`), 'utf8')).not.toContain(draft.plan.objective);
       const restarted = new ClassroomLessonStateStore(dir, cipher);
       expect((await restarted.readDraft('teacher', draft.draftId))?.state).toBe('unknown');
+      const operation = { version: 1 as const, id: draft.draftId, status: 'pending' as const,
+        startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await store.saveResourceOperation('student', draft.draftId, f.context.sessionId, operation);
+      expect(await restarted.readResourceOperation('student', draft.draftId, f.context.sessionId)).toEqual(operation);
+      expect(await restarted.readResourceOperation('other-owner', draft.draftId, f.context.sessionId)).toBeNull();
+      expect(await restarted.readResourceOperation('student', f.context.sessionId, f.context.sessionId)).toBeNull();
       expect(await store.readConsent('student', draft.draftId)).toBeNull();
       await store.saveConsent('student', draft.draftId, false);
       expect(await restarted.readConsent('student', draft.draftId)).toBe(false);

@@ -11,6 +11,7 @@ import {
   type LessonDraft,
   type LessonLocalState,
 } from '../../shared/classroom-lesson-contracts';
+import { AsyncOperationSchema, type AsyncOperation } from '../agent/async-operation-tracker';
 import { atomicWrite, operatingSystemCipher, type AgentStateCipher } from '../agent-runtime/agent-state-cipher';
 
 import { NativeMaterialRecordSchema, PreparedMaterialRecordSchema, type NativeMaterialRecord } from './classroom-lesson-material-policy';
@@ -50,6 +51,14 @@ export class ClassroomLessonStateStore {
   saveNativeMaterial(owner: string, lesson: string, resource: string, record: NativeMaterialRecord) {
     z.uuid().parse(lesson);
     return this.save(owner, `native-${lesson}`, resource, PreparedMaterialRecordSchema.parse(record));
+  }
+  readResourceOperation(owner: string, lesson: string, resource: string) {
+    z.uuid().parse(lesson);
+    return this.read(owner, `operation-${lesson}`, resource, AsyncOperationSchema);
+  }
+  saveResourceOperation(owner: string, lesson: string, resource: string, record: AsyncOperation) {
+    z.uuid().parse(lesson);
+    return this.save(owner, `operation-${lesson}`, resource, AsyncOperationSchema.parse(record));
   }
   saveLesson(state: LessonLocalState) {
     return this.save(state.ownerId, 'lessons', state.envelope.lessonId, LessonLocalStateSchema.parse(state));

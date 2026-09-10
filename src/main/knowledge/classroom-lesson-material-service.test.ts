@@ -5,6 +5,8 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import type { AsyncOperation } from '../agent/async-operation-tracker';
+
 import { desktopLessonFixture } from './classroom-desktop-teaching.fixture';
 import { safeMaterialName, type NativeMaterialRecord } from './classroom-lesson-material-policy';
 import { ClassroomLessonMaterialService } from './classroom-lesson-material-service';
@@ -24,10 +26,12 @@ describe('authorized original material opening', () => {
     const bytes = Buffer.from('print("Hello")');
     const descriptor = { sourceVersionId: f.resource.sourceVersionId, name: 'python.md', mediaType: 'text/markdown', byteSize: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), download: { url: 'https://storage.example/material', expiresInSeconds: 120 } };
     let saved: NativeMaterialRecord | null = null;
+    let operation: AsyncOperation | null = null;
     const openPath = vi.fn(async (_path: string) => { void _path; return ''; });
     const file = vi.fn(async () => descriptor);
     const fetcher = vi.fn<typeof fetch>(async () => new Response(bytes.toString()));
-    const store = { readNativeMaterial: vi.fn(async () => saved), saveNativeMaterial: vi.fn(async (_owner: string, _lesson: string, _resource: string, value: NativeMaterialRecord) => { saved = value; }) };
+    const store = { readNativeMaterial: vi.fn(async () => saved), saveNativeMaterial: vi.fn(async (_owner: string, _lesson: string, _resource: string, value: NativeMaterialRecord) => { saved = value; }),
+      readResourceOperation: vi.fn(async () => operation), saveResourceOperation: vi.fn(async (_owner: string, _lesson: string, _resource: string, value: AsyncOperation) => { operation = { ...value }; }) };
     const markEffect = vi.fn(async (effect: typeof f.state.effect) => { f.state.effect = effect; });
     const restoreFileTitle = vi.fn();
     const service = new ClassroomLessonMaterialService({ directory, client: { file }, store, surfaces: { selectFileTitle: vi.fn(), restoreFileTitle }, openPath, openUrl: vi.fn(), markEffect, authorize: vi.fn(), consume: vi.fn(), fetchImpl: fetcher });
@@ -48,7 +52,7 @@ describe('authorized original material opening', () => {
       expect(f.store.saveNativeMaterial.mock.invocationCallOrder[0]).toBeLessThan(f.openPath.mock.invocationCallOrder[0]!);
       await f.service.prepare(f.state, new AbortController().signal);
       await f.service.openResource(f.state, f.resource.id, new AbortController().signal);
-      expect(f.openPath).toHaveBeenCalledTimes(2);
+      expect(f.openPath).toHaveBeenCalledOnce();
       expect(f.fetcher).toHaveBeenCalledOnce();
     } finally { await rm(f.directory, { recursive: true, force: true }); }
   });
@@ -59,6 +63,38 @@ describe('authorized original material opening', () => {
       await expect(f.service.prepare(f.state, new AbortController().signal)).rejects.toMatchObject({ reason: 'resource_unavailable' });
       expect(f.openPath).not.toHaveBeenCalled();
       expect(f.store.saveNativeMaterial).not.toHaveBeenCalled();
+    } finally { await rm(f.directory, { recursive: true, force: true }); }
+  });
+  it('returns while the OS awaits input and never updates a stopped lesson on late completion', async () => {
+    const f = await fixture();
+    let finish!: (value: string) => void;
+    f.openPath.mockImplementationOnce(() => new Promise<string>((resolve) => { finish = resolve; }));
+    try {
+      await f.service.prepare(f.state, new AbortController().signal);
+      const receipt = await f.service.openResource(f.state, f.resource.id, new AbortController().signal);
+      expect(receipt).toMatchObject({ status: 'confirmed', data: { operation: { status: 'pending' } } });
+      expect(await f.service.openResource(f.state, f.resource.id, new AbortController().signal)).toEqual(receipt);
+      expect(f.openPath).toHaveBeenCalledOnce();
+      f.state.status = 'stopped';
+      finish('');
+      await vi.waitFor(async () => expect((await f.service.resourceOperation(f.state))?.status).toBe('completed'));
+      expect(f.state.status).toBe('stopped');
+      expect(f.markEffect).not.toHaveBeenCalled();
+    } finally { await rm(f.directory, { recursive: true, force: true }); }
+  });
+  it('does not open if cancellation arrives during the durable receipt write', async () => {
+    const f = await fixture();
+    const abort = new AbortController();
+    const save = f.store.saveResourceOperation.getMockImplementation()!;
+    f.store.saveResourceOperation.mockImplementationOnce(async (...args) => {
+      await save(...args);
+      abort.abort();
+    });
+    try {
+      await f.service.prepare(f.state, abort.signal);
+      await f.service.openResource(f.state, f.resource.id, abort.signal);
+      await vi.waitFor(async () => expect((await f.service.resourceOperation(f.state))?.status).toBe('unknown'));
+      expect(f.openPath).not.toHaveBeenCalled();
     } finally { await rm(f.directory, { recursive: true, force: true }); }
   });
   it('preserves a modified cached document rather than overwriting it', async () => {
@@ -98,10 +134,11 @@ describe('authorized original material opening', () => {
       await f.service.prepare(f.state, new AbortController().signal);
       f.openPath.mockRejectedValueOnce(new Error('Connection lost'));
       const result = await f.service.openResource(f.state, f.resource.id, new AbortController().signal);
-      expect(result.status).toBe('unknown');
+      expect(result).toMatchObject({ status: 'confirmed', data: { operation: { status: 'pending' } } });
+      await vi.waitFor(async () => expect((await f.service.resourceOperation(f.state))?.status).toBe('unknown'));
       expect((await f.service.openResource(f.state, f.resource.id, new AbortController().signal)).status).toBe('unknown');
       await f.service.prepare(f.state, new AbortController().signal);
-      expect(f.state.effect).toBe('unknown');
+      expect(f.state.effect).toBe('none');
       expect(f.openPath).toHaveBeenCalledOnce();
       expect(f.store.saveNativeMaterial).toHaveBeenCalledOnce();
     } finally { await rm(f.directory, { recursive: true, force: true }); }
