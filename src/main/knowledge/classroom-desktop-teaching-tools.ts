@@ -173,6 +173,7 @@ export class ClassroomDesktopTeachingTools {
     const observation = await this.options.surfaces.observe(round.state, taskId, signal);
     await this.authorize(taskId, round, signal);
     round.observation = observation;
+    round.materialVerified = true;
     return observation;
   }
   private async execute(taskId: string, name: string, raw: unknown, signal: AbortSignal): Promise<ToolExecutionResult> {
