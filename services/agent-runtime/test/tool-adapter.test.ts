@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { RunContext, type FunctionTool } from '@openai/agents';
+import { describe, expect, it, vi } from 'vitest';
+
+import type { LocalAgentRunContext } from '../src/host-backed-session.js';
 
 import type { LocalRuntimeToolSpec } from '../src/protocol.js';
 import { ToolSurfaceFactory } from '../src/tool-adapter.js';
@@ -253,4 +256,22 @@ it('accepts the two strict classroom schemas without adding a send tool', () => 
     'list_session_assignments',
     'prepare_classroom_broadcast',
   ]);
+});
+
+
+it('returns a host-authorized observation recovery instruction without executing the native action again', async () => {
+  const spec = toolSpec('press_key', { type: 'object', properties: {}, required: [], additionalProperties: false });
+  const surface = new ToolSurfaceFactory().create([spec], digest);
+  const call = surface.resolve({ rawItem: { type: 'function_call', callId: 'input-1', name: spec.modelName, arguments: '{}' } } as never);
+  surface.markCheckpointed(call);
+  const request = vi.fn(async () => ({ kind: 'tool.execute.result', result: { status: 'unknown', recovery: 'observe', summary: 'Enter was not verified.', data: null, imageDataUrl: null } }));
+  const context = new RunContext<LocalAgentRunContext>({
+    bridge: { request, nextSequence: () => 1 } as never,
+    identity: { threadId: 'thread', turnId: 'turn', agentId: 'agent', graphVersion: digest, parentAgentId: null, delegationId: null },
+    signal: new AbortController().signal,
+  });
+  const sdkTool = surface.tools[0] as FunctionTool<LocalAgentRunContext, never, unknown>;
+  const output = await sdkTool.invoke(context, '{}', { toolCall: { callId: call.callId } } as never);
+  expect(JSON.parse(String(output))).toMatchObject({ status: 'unknown', recovery: expect.stringContaining('Do not replay') });
+  expect(request).toHaveBeenCalledOnce();
 });

@@ -17,7 +17,7 @@ function modelObservationData(observation: DesktopObservation) {
   };
 }
 
-export function normalizeLocalToolResult(result: ToolExecutionResult): LocalToolExecutionResult {
+export function normalizeLocalToolResult(result: ToolExecutionResult, guardedObservationRecovery = false): LocalToolExecutionResult {
   const status = result.status === 'confirmed' ? 'completed' : result.status === 'unknown' ? 'unknown' : 'failed';
   const data = result.observation
     ? {
@@ -30,6 +30,7 @@ export function normalizeLocalToolResult(result: ToolExecutionResult): LocalTool
     : null;
   return {
     status,
+    ...(guardedObservationRecovery && status === 'unknown' && result.recovery === 'observe' ? { recovery: 'observe' as const } : {}),
     summary: result.summary.slice(0, 1_000),
     data,
     imageDataUrl: result.imageDataUrl ?? observationImageDataUrl,

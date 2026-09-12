@@ -243,3 +243,12 @@ describe('dynamic CUA agent tools', () => {
     });
   });
 });
+
+
+it('normalizes a native accessibility read as observation and never trusts a model-supplied kind', () => {
+  const base = catalog.tools[0]!;
+  const definitions = createCuaDriverToolDefinitions({ ...catalog, tools: [{ ...base, name: 'get_accessibility_tree', modelName: 'get_accessibility_tree' }, { ...base, name: 'press_key', modelName: 'press_key' }] });
+  const call = { callId: 'call', name: 'get_accessibility_tree', arguments: '{}' };
+  expect(definitions[0]!.normalize({ pid: 9992 }, call, {} as never).kind).toBe('observe');
+  expect(definitions[1]!.normalize({ kind: 'observe' }, call, {} as never).kind).toBe('direct');
+});

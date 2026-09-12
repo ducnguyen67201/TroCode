@@ -317,3 +317,39 @@ it('returns refreshed evidence after presentation so the SDK can finish without 
   expect(normalized.data).toMatchObject({ observation: { observationId: fresh.observationId, fingerprint: fresh.fingerprint } });
   expect((await f.call('finish', { observationId: fresh.observationId, fingerprint: fresh.fingerprint, disposition: 'step_finished', recap: 'Covered print.' })).status).toBe('confirmed');
 });
+
+
+describe('verification after unverified native input', () => {
+  it('permits native observation but resumes only after verifying the requested material', async () => {
+    const f = fixture();
+    await f.call('observe', {});
+    const guard = f.tools.guard(f.taskId);
+    const enter = f.control({ kind: 'press_key', ref: null, key: 'Enter', modifiers: [] });
+    await guard.before(enter, true);
+    await guard.observeResult({ status: 'unknown', recovery: 'observe', summary: 'PostMessage delivery not verified.' });
+    await expect(guard.before(enter, true)).rejects.toThrow('revoked');
+    f.consume.mockClear();
+    await guard.before({ toolId: 'cua.get_accessibility_tree', operation: 'get_accessibility_tree', kind: 'observe', input: {} } as ResolvedToolInvocation, true);
+    expect(f.consume).toHaveBeenCalledWith('observation');
+    expect(f.consume).not.toHaveBeenCalledWith('action');
+    await guard.observeResult({ status: 'confirmed', summary: 'Application chooser', observation: f.observation });
+    expect(guard.uncertain()).toBe(true);
+    f.inspectMaterial.mockResolvedValueOnce({ ready: false, observation: f.observation, error: new LessonBlockedError('surface_unverified', 'Chooser is still visible.') });
+    expect((await f.call('observe', {})).status).toBe('not_executed');
+    expect(guard.uncertain()).toBe(true);
+    expect((await f.call('observe', {})).status).toBe('confirmed');
+    expect(guard.uncertain()).toBe(false);
+    await expect(guard.before(f.control({ kind: 'scroll', ref: null, direction: 'down', amount: 1 }), false)).resolves.toBeUndefined();
+  });
+  it.each(['lost-dispatch', 'unknown-opening', 'stopped'] as const)('does not clear %s through material observation', async (scenario) => {
+    const f = fixture();
+    await f.call('observe', {});
+    const guard = f.tools.guard(f.taskId);
+    await guard.before(f.control({ kind: 'press_key', ref: null, key: 'Enter', modifiers: [] }), true);
+    await guard.observeResult({ status: 'unknown', summary: 'Uncertain', ...(scenario === 'lost-dispatch' ? {} : { recovery: 'observe' as const }) });
+    if (scenario === 'unknown-opening') f.resourceOperation.mockResolvedValue({ version: 1, id: randomUUID(), status: 'unknown', startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    if (scenario === 'stopped') f.authorize.mockRejectedValue(new Error('Lesson stopped.'));
+    await f.call('observe', {});
+    expect(guard.uncertain()).toBe(true);
+  });
+});

@@ -104,26 +104,32 @@ export const DesktopObservationSchema = z.object({
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
 });
 
+const SurfaceDeliveryMode = z.enum(['foreground', 'background']).optional();
+
 export const SurfaceCommandSchema = z.discriminatedUnion('kind', [
   z.object({
+    deliveryMode: SurfaceDeliveryMode,
     kind: z.literal('click_element'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u),
     button: z.enum(['left', 'right']).default('left'),
     count: z.number().int().min(1).max(2).default(1),
   }),
   z.object({
+    deliveryMode: SurfaceDeliveryMode,
     kind: z.literal('type_text'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u),
     text: z.string().max(100_000),
     replace: z.boolean().default(false),
   }),
   z.object({
+    deliveryMode: SurfaceDeliveryMode,
     kind: z.literal('press_key'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u).nullable(),
     key: z.string().trim().min(1).max(40),
     modifiers: z.array(z.string().trim().min(1).max(40)).max(8).default([]),
   }),
   z.object({
+    deliveryMode: SurfaceDeliveryMode,
     kind: z.literal('scroll'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u).nullable(),
     direction: z.enum(['up', 'down', 'left', 'right']),
@@ -134,6 +140,7 @@ export const SurfaceCommandSchema = z.discriminatedUnion('kind', [
 export const SurfaceActionOutcomeSchema = z.object({
   status: z.enum(['confirmed', 'unknown', 'failed', 'not_executed']),
   summary: z.string().min(1).max(2_000),
+  recovery: z.literal('observe').optional(),
   observation: z.lazy(() => DesktopObservationSchema).optional(),
 });
 

@@ -41,7 +41,6 @@ const SECRET_ROLE_PATTERN = /(?:password|secure)/iu;
 const STALE_OR_REFUSED_PATTERN =
   /(?:stale|not[_ -]?found|invalid[_ -]?(?:ref|token)|owner_pid_mismatch|permission_required|refus)/iu;
 
-
 export type CuaToolCaller = (
   name: string,
   argumentsValue: Record<string, unknown>,
@@ -321,6 +320,7 @@ export class CuaSurfaceRouter {
     }
 
     const effect = normalizedCuaActionEffect(result);
+    const recovery = effect === 'unverifiable' || effect === 'suspected_noop' ? 'observe' as const : undefined;
     let fresh: SurfaceSnapshot | undefined;
     try {
       fresh = await this.observeBoundSurface(taskId, binding, {}, signal);
@@ -332,7 +332,7 @@ export class CuaSurfaceRouter {
       // facts. Closing dialogs occur in any workflow, not only lesson opening.
       this.referenceStore.clearTask(taskId);
       return SurfaceActionOutcomeSchema.parse({
-        status: effect === 'confirmed' ? 'confirmed' : 'unknown',
+        status: effect === 'confirmed' ? 'confirmed' : 'unknown', recovery,
         summary: effect === 'confirmed' ? 'CUA confirmed the action. The previous surface is unavailable; observe the destination before continuing. This does not verify task completion.' : 'CUA may have delivered the action, but Tro could not refresh the exact surface.',
       });
     }
@@ -347,7 +347,7 @@ export class CuaSurfaceRouter {
       });
     }
     return SurfaceActionOutcomeSchema.parse({
-      status: 'unknown',
+      status: 'unknown', recovery,
       summary:
         result.text || 'CUA could not confirm whether the semantic action changed the surface.',
       observation: fresh.observation,
@@ -794,7 +794,7 @@ export class CuaSurfaceRouter {
             ...windowReference,
             button: command.button,
             count: command.count,
-            delivery_mode: 'background',
+            delivery_mode: command.deliveryMode ?? 'foreground',
           },
           signal,
         );
@@ -817,7 +817,7 @@ export class CuaSurfaceRouter {
             ...commonWindow,
             ...windowReference,
             text: command.text,
-            delivery_mode: 'background',
+            delivery_mode: command.deliveryMode ?? 'foreground',
           },
           signal,
         );
@@ -829,7 +829,7 @@ export class CuaSurfaceRouter {
             ...windowReference,
             key: command.key,
             modifiers: command.modifiers,
-            delivery_mode: 'background',
+            delivery_mode: command.deliveryMode ?? 'foreground',
           },
           signal,
         );
@@ -863,7 +863,7 @@ export class CuaSurfaceRouter {
             ...windowReference,
             direction: command.direction,
             amount: command.amount,
-            delivery_mode: 'background',
+            delivery_mode: command.deliveryMode ?? 'foreground',
           },
           signal,
         );

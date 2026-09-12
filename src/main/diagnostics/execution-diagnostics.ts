@@ -62,6 +62,7 @@ export function toolResultDiagnostic(result: ToolExecutionResult): void {
   const opening = operation && typeof operation === 'object' ? operation as Record<string, unknown> : undefined;
   executionDiagnostic('tool.result', {
     status: result.status,
+    recovery: result.recovery,
     error: result.status === 'confirmed' ? undefined : diagnosticText(result.summary),
     observationId: result.observation?.observationId,
     observationRoute: result.observation?.route,

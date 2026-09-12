@@ -229,3 +229,13 @@ describe('CUA semantic agent tools', () => {
     expect(invocation.action).not.toHaveProperty('effect');
   });
 });
+
+
+it.each(['foreground', 'background', null] as const)('preserves native %s delivery through normalization and action review', (deliveryMode) => {
+  const invocation = registry().resolve({ callId: 'delivery-mode', name: 'control_surface', arguments: JSON.stringify({
+    observationId: observation.observationId, description: 'Choose the observed app.', target: null,
+    command: { kind: 'press_key', ref: null, key: 'Enter', modifiers: [], deliveryMode },
+  }) }, { taskId: observation.taskId, latestObservation: observation });
+  expect(invocation.input).toMatchObject({ command: { kind: 'press_key', deliveryMode: deliveryMode ?? undefined } });
+  expect(invocation.action?.parameters).toMatchObject({ deliveryMode: deliveryMode ?? 'foreground' });
+});

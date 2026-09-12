@@ -35,6 +35,8 @@ export interface AgentToolOutput {
 export interface ToolExecutionResult {
   status: 'confirmed' | 'unknown' | 'failed' | 'denied' | 'not_executed';
   summary: string;
+  /** A returned native input needs observation; this never permits replay. */
+  recovery?: 'observe';
   data?: Record<string, unknown>;
   observation?: DesktopObservation;
   imageDataUrl?: string;

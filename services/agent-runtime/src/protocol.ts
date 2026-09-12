@@ -52,6 +52,7 @@ export const RequiredInitialToolCallSchema = z.object({
 
 export const LocalToolExecutionResultSchema = z.object({
   status: z.enum(['completed', 'failed', 'unknown', 'cancelled']),
+  recovery: z.literal('observe').optional(),
   summary: z.string().trim().min(1).max(1_000),
   data: JsonObjectSchema.nullable().default(null),
   imageDataUrl: z.string().max(40_000_000).nullable().default(null),

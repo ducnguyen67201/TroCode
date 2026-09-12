@@ -94,14 +94,17 @@ function runtimeWith(process: FakeUtilityProcess, overrides: Partial<LocalAgentR
 }
 
 describe('LocalAgentRuntime process supervision', () => {
-  it('logs the failed tool before the generic unknown terminal and never repeats dispatch', async () => {
+  it.each(['exception', 'unverified'] as const)('journals %s without repeating dispatch and preserves recovery eligibility', async (outcome) => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: randomUUID() }), { status: 200 })));
     const log = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const process = new FakeUtilityProcess('ready');
     const taskId = randomUUID();
     const callId = randomUUID();
     const lessonId = randomUUID();
-    const dispatchTool = vi.fn(async () => { throw new Error('Native window activation failed'); });
+    const dispatchTool = vi.fn(async (): Promise<ToolExecutionResult> => {
+      if (outcome === 'exception') throw new Error('Native window activation failed');
+      return { status: 'unknown', recovery: 'observe', summary: 'Enter delivery unverified.' };
+    });
     const onTerminal = vi.fn();
     let stored: { status: string; result: unknown } = { status: 'checkpointed', result: null };
     const runtime = runtimeWith(process, { onTerminal, beforeTool: async () => undefined,
@@ -131,12 +134,13 @@ describe('LocalAgentRuntime process supervision', () => {
       process.emit('message', { ...invocation, sequence: 2, requestId: randomUUID() });
       await vi.waitFor(() => expect(process.messages.filter((message) => message.kind === 'tool.execute.result')).toHaveLength(2));
       expect(dispatchTool).toHaveBeenCalledOnce();
+      expect(stored).toMatchObject({ status: 'unknown', result: { status: 'unknown', ...(outcome === 'unverified' ? { recovery: 'observe' } : {}) } });
       process.emit('message', { ...identity, sequence: 3, requestId: randomUUID(), kind: 'turn.terminal', status: 'unknown', finalOutput: null, errorCode: 'tool_outcome_unknown', message: 'The tool outcome is unknown and cannot be retried.' });
       await vi.waitFor(() => expect(onTerminal).toHaveBeenCalledOnce());
       const entries = log.mock.calls.filter(([prefix]) => prefix === '[execution]').map(([, line]) => JSON.parse(String(line)));
-      expect(entries.find((entry) => entry.event === 'tool.dispatch_exception')).toMatchObject({ taskId, callId, lessonId, toolId: 'computer.control', error: 'Error: Native window activation failed' });
+      if (outcome === 'exception') expect(entries.find((entry) => entry.event === 'tool.dispatch_exception')).toMatchObject({ taskId, callId, lessonId, toolId: 'computer.control', error: 'Error: Native window activation failed' });
       expect(entries.find((entry) => entry.event === 'turn.terminal')).toMatchObject({ taskId, turnId: start.turnId, status: 'unknown', errorCode: 'tool_outcome_unknown' });
-      expect(entries.findIndex((entry) => entry.event === 'tool.dispatch_exception')).toBeLessThan(entries.findIndex((entry) => entry.event === 'turn.terminal'));
+      if (outcome === 'exception') expect(entries.findIndex((entry) => entry.event === 'tool.dispatch_exception')).toBeLessThan(entries.findIndex((entry) => entry.event === 'turn.terminal'));
       expect(JSON.stringify(entries)).not.toContain('private tool input');
     } finally { await runtime.shutdown(); }
   });
