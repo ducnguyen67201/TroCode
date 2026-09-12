@@ -152,13 +152,16 @@ export class ToolSurfaceFactory {
 }
 
 function modelToolResult(result: LocalToolExecutionResult, callId: string): unknown {
-  if (result.status === 'unknown') throw new ToolOutcomeUnknownError(callId);
+  if (result.status === 'unknown' && result.recovery !== 'observe') throw new ToolOutcomeUnknownError(callId);
   if (result.status === 'cancelled') {
     const error = new Error(result.summary);
     error.name = 'AbortError';
     throw error;
   }
-  const text = JSON.stringify({ status: result.status, summary: result.summary, data: result.data });
+  const text = JSON.stringify({
+    status: result.status, summary: result.summary, data: result.data,
+    ...(result.recovery ? { recovery: 'Observe the current screen. Do not replay this action. Use lesson_observe to verify the requested material before continuing.' } : {}),
+  });
   if (!result.imageDataUrl) return text;
   return [{ type: 'text', text }, { type: 'image', image: result.imageDataUrl, detail: 'high' }];
 }

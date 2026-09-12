@@ -1,10 +1,7 @@
 import { z } from 'zod';
 
 import { objectSchema } from '../../shared/agent-tool-contracts';
-import {
-  ProposedActionSchema,
-  type ProposedAction,
-} from '../../shared/contracts';
+import { ProposedActionSchema } from '../../shared/contracts';
 
 import type {
   AgentToolCall,
@@ -24,24 +21,32 @@ import type {
 
 const ModelSurfaceCommandSchema = z.discriminatedUnion('kind', [
   z.object({
+    deliveryMode: z.enum(['foreground', 'background']).nullish(),
+    verification: z.literal('material_visible').nullish(),
     kind: z.literal('click_element'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u),
     button: z.enum(['left', 'right']),
     count: z.number().int().min(1).max(2),
   }),
   z.object({
+    deliveryMode: z.enum(['foreground', 'background']).nullish(),
+    verification: z.literal('material_visible').nullish(),
     kind: z.literal('type_text'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u),
     text: z.string().max(100_000),
     replace: z.boolean(),
   }),
   z.object({
+    deliveryMode: z.enum(['foreground', 'background']).nullish(),
+    verification: z.literal('material_visible').nullish(),
     kind: z.literal('press_key'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u).nullable(),
     key: z.string().trim().min(1).max(40),
     modifiers: z.array(z.string().trim().min(1).max(40)).max(8),
   }),
   z.object({
+    deliveryMode: z.enum(['foreground', 'background']).nullish(),
+    verification: z.literal('material_visible').nullish(),
     kind: z.literal('scroll'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u).nullable(),
     direction: z.enum(['up', 'down', 'left', 'right']),
@@ -142,6 +147,11 @@ export interface CuaSemanticToolOptions {
   semanticAvailable: () => boolean;
 }
 
+const deliveryModeParameter = {
+  anyOf: [{ type: 'string', enum: ['foreground', 'background'] }, { type: 'null' }],
+  description: 'Native window input delivery. Null uses foreground. Observe an unverified result before deciding any next action; never blindly repeat it.',
+};
+
 const nullableRef = {
   anyOf: [
     { type: 'string', pattern: '^e[1-9][0-9]{0,3}$' },
@@ -151,24 +161,30 @@ const nullableRef = {
 
 const clickModelSchema = objectSchema(
   {
+    deliveryMode: deliveryModeParameter,
+    verification: { anyOf: [{ type: 'string', const: 'material_visible' }, { type: 'null' }], description: 'Use material_visible only for an action to finish opening the lesson material after lesson_observe reports it is not visible. Null for all other actions.' },
     kind: { type: 'string', const: 'click_element' },
     ref: { type: 'string', pattern: '^e[1-9][0-9]{0,3}$' },
     button: { type: 'string', enum: ['left', 'right'] },
     count: { type: 'integer', minimum: 1, maximum: 2 },
   },
-  ['kind', 'ref', 'button', 'count'],
+  ['deliveryMode', 'verification', 'kind', 'ref', 'button', 'count'],
 );
 const typeModelSchema = objectSchema(
   {
+    deliveryMode: deliveryModeParameter,
+    verification: { anyOf: [{ type: 'string', const: 'material_visible' }, { type: 'null' }], description: 'Use material_visible only for an action to finish opening the lesson material after lesson_observe reports it is not visible. Null for all other actions.' },
     kind: { type: 'string', const: 'type_text' },
     ref: { type: 'string', pattern: '^e[1-9][0-9]{0,3}$' },
     text: { type: 'string', maxLength: 100_000 },
     replace: { type: 'boolean' },
   },
-  ['kind', 'ref', 'text', 'replace'],
+  ['deliveryMode', 'verification', 'kind', 'ref', 'text', 'replace'],
 );
 const keyModelSchema = objectSchema(
   {
+    deliveryMode: deliveryModeParameter,
+    verification: { anyOf: [{ type: 'string', const: 'material_visible' }, { type: 'null' }], description: 'Use material_visible only for an action to finish opening the lesson material after lesson_observe reports it is not visible. Null for all other actions.' },
     kind: { type: 'string', const: 'press_key' },
     ref: nullableRef,
     key: { type: 'string', minLength: 1, maxLength: 40 },
@@ -178,16 +194,18 @@ const keyModelSchema = objectSchema(
       items: { type: 'string', minLength: 1, maxLength: 40 },
     },
   },
-  ['kind', 'ref', 'key', 'modifiers'],
+  ['deliveryMode', 'verification', 'kind', 'ref', 'key', 'modifiers'],
 );
 const scrollModelSchema = objectSchema(
   {
+    deliveryMode: deliveryModeParameter,
+    verification: { anyOf: [{ type: 'string', const: 'material_visible' }, { type: 'null' }], description: 'Use material_visible only for an action to finish opening the lesson material after lesson_observe reports it is not visible. Null for all other actions.' },
     kind: { type: 'string', const: 'scroll' },
     ref: nullableRef,
     direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
     amount: { type: 'integer', minimum: 1, maximum: 20 },
   },
-  ['kind', 'ref', 'direction', 'amount'],
+  ['deliveryMode', 'verification', 'kind', 'ref', 'direction', 'amount'],
 );
 
 function controlParameters(): StrictJsonObjectSchema {
@@ -246,43 +264,10 @@ function elementFor(
   return element;
 }
 
-function trustedActionForCommand(command: SurfaceCommand): ProposedAction['action'] {
-  return command.kind;
-}
-
 function normalizeCommand(
   command: z.infer<typeof ModelSurfaceCommandSchema>,
 ): SurfaceCommand {
-  switch (command.kind) {
-    case 'click_element':
-      return SurfaceCommandSchema.parse({
-        kind: command.kind,
-        ref: command.ref,
-        button: command.button,
-        count: command.count,
-      });
-    case 'type_text':
-      return SurfaceCommandSchema.parse({
-        kind: command.kind,
-        ref: command.ref,
-        text: command.text,
-        replace: command.replace,
-      });
-    case 'press_key':
-      return SurfaceCommandSchema.parse({
-        kind: command.kind,
-        ref: command.ref,
-        key: command.key,
-        modifiers: command.modifiers,
-      });
-    case 'scroll':
-      return SurfaceCommandSchema.parse({
-        kind: command.kind,
-        ref: command.ref,
-        direction: command.direction,
-        amount: command.amount,
-      });
-  }
+  return SurfaceCommandSchema.parse({ ...command, deliveryMode: command.deliveryMode ?? undefined, verification: command.verification ?? undefined });
 }
 
 function actionParameters(
@@ -292,6 +277,8 @@ function actionParameters(
 ): Record<string, string | string[]> {
   const parameters: Record<string, string | string[]> = {
     command: command.kind,
+    deliveryMode: command.deliveryMode ?? 'foreground',
+    ...(command.verification ? { verification: command.verification } : {}),
     application: observation.surface?.application ?? 'Unknown application',
     observationFingerprint: observation.fingerprint,
     observationId: observation.observationId,
@@ -404,7 +391,7 @@ export function createCuaSemanticToolDefinitions(
         const publicRef = 'ref' in command && command.ref ? command.ref : undefined;
         const element = elementFor(observation, publicRef);
         const action = ProposedActionSchema.parse({
-          action: trustedActionForCommand(command),
+          action: command.kind,
           toolId: 'computer.control',
           operation: command.kind,
           description: input.description,

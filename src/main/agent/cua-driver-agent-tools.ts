@@ -4,6 +4,7 @@ import {
   assertStrictFunctionSchema,
   jsonSchemaHasType,
 } from '../../shared/agent-tool-contracts';
+import { isCuaObservationTool } from '../cua/cua-observation-tools';
 import type { CuaDriverCatalog } from '../cua/cua-semantic-contracts';
 
 import type { RuntimeToolDefinition } from './runtime-tool-registry';
@@ -37,7 +38,7 @@ export function createCuaDriverToolDefinitions(
         callId: call.callId,
         driverCatalogDigest: catalog.driverCatalogDigest,
         input,
-        kind: 'direct',
+        kind: isCuaObservationTool(tool.name, input) ? 'observe' : 'direct',
         modelName: call.name,
         operation: tool.name,
         toolId,

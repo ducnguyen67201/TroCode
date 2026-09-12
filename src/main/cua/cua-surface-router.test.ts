@@ -253,3 +253,21 @@ it('supports screenshot-only lesson windows without widening the general semanti
   expect(lesson?.observation).toMatchObject({ route: 'window_vision', elements: [], screenshot: { mimeType: 'image/png' } });
   expect(lesson?.identity).toEqual({ processId: windowRecord.pid, windowId: windowRecord.window_id });
 });
+
+
+it.each([undefined, 'foreground', 'background'] as const)('delivers Enter once using %s and preserves unverified evidence', async (deliveryMode) => {
+  const callTool = vi.fn(async (name: string) => {
+    if (name === 'list_windows') return result({ windows: [windowRecord] });
+    if (name === 'get_window_state') return result({ snapshot_id: 's12345678', tree_markdown: 'Choose an app', elements: [{ element_index: 1, element_token: 'app-choice', role: 'button', label: 'Just once' }] });
+    if (name === 'press_key') return result({ effect: 'unverifiable', route: 'background' }, { text: 'Sent enter via PostMessage (not verified).' });
+    throw new Error(`Unexpected ${name}`);
+  });
+  const service = router(callTool);
+  const taskId = randomUUID();
+  const observation = (await service.observeCurrentSurface(taskId))!;
+  const outcome = await service.execute(taskId, observation.observationId,
+    { kind: 'press_key', ref: null, key: 'Enter', modifiers: [], ...(deliveryMode ? { deliveryMode } : {}) });
+  expect(outcome).toMatchObject({ status: 'unknown', recovery: 'observe', observation: { fingerprint: observation.fingerprint } });
+  expect(callTool).toHaveBeenCalledWith('press_key', expect.objectContaining({ pid: 42, delivery_mode: deliveryMode ?? 'foreground' }), undefined);
+  expect(callTool.mock.calls.filter(([name]) => name === 'press_key')).toHaveLength(1);
+});

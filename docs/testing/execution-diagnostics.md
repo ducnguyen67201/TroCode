@@ -61,3 +61,43 @@ exception capture, the original tool error preceding a generic unknown terminal,
 no redispatch of a journaled unknown call, redaction, file rotation across
 restarts, and console/disk failures. CI owns execution of these checks.
 No backend API, IPC, database migration, or staging service deployment is needed.
+
+
+## Windows input verification recovery
+
+The September 12 Windows trace reports OS acceptance of the material opening,
+then an Enter delivered through background PostMessage without verification.
+That receipt does not establish whether Enter landed. Previously semantic input
+always requested background delivery, and the classroom guard treated native
+accessibility reads as actions after an unknown result.
+
+Native semantic controls now default to foreground delivery and accept an
+explicit `deliveryMode` of `foreground` or `background`. Browser semantic actions
+keep their browser route. No fallback replays an input automatically.
+
+An input receipt with native effect `unverifiable` or `suspected_noop` remains
+`unknown` in the invocation journal. Inside a guarded desktop lesson, it carries
+`recovery: observe` through the SDK so observation can continue. Shared native
+observation registration covers accessibility/window/browser state and window
+listing; unknown capabilities and optional file exports remain actions.
+`lesson.input_verification_pending` records that transition.
+
+Fresh generic observations do not prove delivery or authorize another mutation.
+Only a semantic control explicitly requesting `verification: material_visible`,
+using the fresh observation from a failed `lesson_observe` while an OS opening
+is completed and the material has not yet been verified, can use this recovery.
+Ordinary edits and raw driver actions cannot be resolved by resource identity.
+`lesson_observe` must verify the requested material before the lesson can resume;
+`lesson.material_verified_after_input` records that evidence. If the chooser is
+still visible, control remains blocked. A partial native effect, thrown dispatch,
+unknown opening, stopped lesson, or revoked authority cannot be cleared by this
+recovery path. Revocation or persistence errors during recovery restore the unknown
+effect. The original call is never dispatched again, including after a
+restart or repeated runtime message.
+
+For Windows acceptance, run the revised student build against staging and repeat
+the material-opening flow. Confirm `cua.started` requests foreground for native
+semantic Enter. If delivery remains unverified, confirm native accessibility
+reads are allowed, the material is verified before explanation, and there is
+only one dispatch for the original call. CI and this Windows run are required;
+mocked native tests cannot prove OS delivery or window activation.

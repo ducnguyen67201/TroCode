@@ -719,7 +719,7 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
         active.executionContext,
         toolResult,
       );
-      result = normalizeLocalToolResult(toolResult);
+      result = normalizeLocalToolResult(toolResult, active.executionContext.lesson?.kind === 'desktop');
     } catch (error) {
       executionDiagnostic('tool.dispatch_exception', { error: diagnosticText(error) });
       result = { status: 'unknown', summary: safeError(error), data: null, imageDataUrl: null };
