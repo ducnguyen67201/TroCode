@@ -204,6 +204,7 @@ export const DesktopCommandSchema = z.discriminatedUnion('kind', [
 ]);
 
 export const DesktopActionOutcomeSchema = z.object({
+  recovery: z.literal('observe').optional(),
   status: z.enum(['confirmed', 'unknown', 'failed', 'not_executed']),
   summary: z.string().min(1).max(2_000),
 });

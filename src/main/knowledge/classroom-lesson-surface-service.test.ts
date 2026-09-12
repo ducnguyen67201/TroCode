@@ -124,3 +124,12 @@ it('exposes one-use opaque choices tied to owner, revision and expiry', async ()
   now += 60_001;
   expect(() => service.select(f.state, expired.token)).toThrow('expired');
 });
+
+it('returns desktop evidence without inventing a verified window binding', async () => {
+  const f = desktopLessonFixture();
+  const cleanup = vi.fn(async () => undefined);
+  const observation = { ...f.observation, route: 'desktop_vision' as const };
+  const service = new ClassroomLessonSurfaceService({ cua: { externalLessonWindows: vi.fn(async () => []), observeLessonWindow: vi.fn(async () => ({ observation, identity: undefined })) }, prepareObservation: async () => cleanup });
+  await expect(service.inspectMaterial(f.state, f.state.clientStartId, new AbortController().signal)).resolves.toMatchObject({ ready: false, observation });
+  expect(cleanup).toHaveBeenCalledOnce();
+});

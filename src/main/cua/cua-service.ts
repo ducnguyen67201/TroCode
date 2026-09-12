@@ -47,6 +47,7 @@ import {
   type ObserveSurfaceOptions,
   type SurfaceRevalidationResult,
 } from './cua-surface-router';
+import { desktopActionOutcome } from './desktop-action-outcome';
 
 const DesktopStateMetadataSchema = z.object({
   screen_height: z.number().int().positive(),
@@ -392,6 +393,9 @@ export class CuaService {
   async observeLessonWindow(taskId: string, identity: { processId: number; windowId: number } | undefined,
     signal?: AbortSignal) {
     this.assertActiveSession(taskId);
+    if (this.desktopScopeSessions.has(taskId)) {
+      return { observation: await this.observe(taskId, signal), identity: undefined };
+    }
     const result = await this.surfaceRouter?.observeExternalWindow(taskId, identity, signal);
     return result ? { ...result, observation: this.imageEvidencePolicy?.prepare(taskId, result.observation) ?? result.observation } : undefined;
   }
@@ -1035,37 +1039,7 @@ export class CuaService {
       }
     })();
 
-    let outcome: DesktopActionOutcome;
-    if (result.isError) {
-      outcome = DesktopActionOutcomeSchema.parse({
-        status: 'failed',
-        summary:
-          result.text || result.errorCode || 'The desktop action was refused.',
-      });
-    } else if (result.action?.effect === cua.ActionEffect.Confirmed) {
-      outcome = DesktopActionOutcomeSchema.parse({
-        status: 'confirmed',
-        summary: result.text || 'CUA confirmed the desktop action.',
-      });
-    } else if (result.action?.effect === cua.ActionEffect.Refused) {
-      outcome = DesktopActionOutcomeSchema.parse({
-        status: 'failed',
-        summary: result.text || 'CUA refused the desktop action.',
-      });
-    } else if (command.kind === 'point') {
-      outcome = DesktopActionOutcomeSchema.parse({
-        status: 'confirmed',
-        summary:
-          result.text || 'CUA delivered the non-clicking pointer guidance.',
-      });
-    } else {
-      outcome = DesktopActionOutcomeSchema.parse({
-        status: 'unknown',
-        summary:
-          result.text ||
-          'CUA could not confirm whether the desktop action changed the screen.',
-      });
-    }
+    const outcome = desktopActionOutcome(command.kind, result);
     this.recordPerformance({
       durationMs: Math.max(0, this.performanceNow() - startedAt),
       fallbackReason: 'semantic_unavailable',

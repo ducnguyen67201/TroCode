@@ -63,6 +63,8 @@ interface Round {
   materialVerified?: boolean;
   openingObservationId?: string;
   dispatching?: boolean;
+  desktopInput?: boolean;
+  recoverableDesktopInput?: boolean;
   failure?: LessonReason;
   result?: z.infer<typeof TeachingFinishSchema>;
 }
@@ -95,13 +97,39 @@ export class ClassroomDesktopTeachingTools {
         if (!round) return;
         if (round.dispatching) {
           round.uncertain = result.status === 'unknown';
+          round.recoverableDesktopInput = round.uncertain && round.desktopInput === true && result.recovery === 'observe';
+          round.desktopInput = false;
           round.recoverableInput = round.uncertain && round.pendingMaterialOpening === true && result.recovery === 'observe';
           round.pendingMaterialOpening = false;
           if (round.recoverableInput) executionDiagnostic('lesson.input_verification_pending', { taskId, lessonId: round.state.envelope.lessonId });
           round.dispatching = false;
           await this.options.markEffect(result.status === 'unknown' ? 'unknown' : result.status === 'confirmed' ? 'confirmed' : 'none');
         } else if (result.status === 'unknown') { round.uncertain = true; round.recoverableInput = false; }
-        if (result.observation) round.observation = result.observation;
+        if (result.observation) {
+          if (round.recoverableDesktopInput && result.status === 'confirmed' &&
+              result.observation.screenshot && Date.now() - Date.parse(result.observation.capturedAt) <= 10_000 && result.observation.observationId !== round.observation?.observationId) {
+            await this.options.authorize();
+            if (this.rounds.get(taskId) === round && (await this.options.resourceOperation?.(round.state))?.status !== 'unknown') {
+              // The old invocation stays unknown in its journal. Fresh evidence
+              // permits a new decision, never an automatic replay.
+              try {
+                await this.options.markEffect('none');
+                await this.options.authorize();
+                if (this.rounds.get(taskId) !== round || (await this.options.resourceOperation?.(round.state))?.status === 'unknown')
+                  throw new Error('Lesson recovery authority changed.');
+              } catch (error) {
+                round.state.effect = 'unknown';
+                await this.options.markEffect('unknown');
+                throw error;
+              }
+              if (this.rounds.get(taskId) === round) {
+                round.uncertain = false;
+                round.recoverableDesktopInput = false;
+              }
+            }
+          }
+          round.observation = result.observation;
+        }
       },
       uncertain: () => this.uncertain(taskId),
       complete: () => Boolean(this.result(taskId)),
@@ -133,6 +161,7 @@ export class ClassroomDesktopTeachingTools {
         throw new LessonBlockedError('surface_unverified', 'Coordinate actions require a fresh screenshot.');
     }
     if (dispatch) {
+      round.desktopInput = invocation.toolId === 'desktop.control';
       const command = invocation.toolId === 'computer.control' ? (invocation.input as SurfaceControlToolInput).command : undefined;
       round.pendingMaterialOpening = command?.verification === 'material_visible' && !round.materialVerified &&
         Boolean(round.observation && round.openingObservationId === round.observation.observationId) &&
