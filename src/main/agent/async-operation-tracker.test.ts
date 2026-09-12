@@ -60,7 +60,8 @@ describe('durable asynchronous operations', () => {
       const dispatch = vi.fn(async () => { throw error; });
       await f.tracker.start('resource', f.storage, f.authorize, dispatch);
       await vi.waitFor(async () => expect((await f.tracker.read('resource', f.storage))?.status).toBe('unknown'));
-      expect(log).toHaveBeenCalledWith('[async-operation]', expect.objectContaining({ event: 'unknown', error: { name: error.name, message: error.message, stack: error.stack } }));
+      const entry = log.mock.calls.find(([prefix, line]) => prefix === '[execution]' && JSON.parse(String(line)).event === 'opening.unknown');
+      expect(JSON.parse(String(entry?.[1]))).toMatchObject({ event: 'opening.unknown', error: 'Error: Native opening rejected' });
       await f.tracker.start('resource', f.storage, f.authorize, dispatch);
       expect(dispatch).toHaveBeenCalledOnce();
     } finally { log.mockRestore(); }

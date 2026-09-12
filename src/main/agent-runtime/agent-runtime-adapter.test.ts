@@ -23,7 +23,7 @@ vi.mock('electron', () => ({
   utilityProcess: { fork: vi.fn() },
 }));
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 class FakeUtilityProcess extends EventEmitter {
   readonly messages: LocalAgentHostMessage[] = [];
@@ -94,6 +94,53 @@ function runtimeWith(process: FakeUtilityProcess, overrides: Partial<LocalAgentR
 }
 
 describe('LocalAgentRuntime process supervision', () => {
+  it('logs the failed tool before the generic unknown terminal and never repeats dispatch', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: randomUUID() }), { status: 200 })));
+    const log = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const process = new FakeUtilityProcess('ready');
+    const taskId = randomUUID();
+    const callId = randomUUID();
+    const lessonId = randomUUID();
+    const dispatchTool = vi.fn(async () => { throw new Error('Native window activation failed'); });
+    const onTerminal = vi.fn();
+    let stored: { status: string; result: unknown } = { status: 'checkpointed', result: null };
+    const runtime = runtimeWith(process, { onTerminal, beforeTool: async () => undefined,
+      coordinator: { dispatchTool, endTask: async () => undefined },
+      tools: {
+        endTask: vi.fn(), freeze: () => ({ digest: 'a'.repeat(64), tools: [] }),
+        preview: () => ({ toolId: 'computer.control' }),
+        resolve: () => ({ toolId: 'computer.control', operation: 'click_element', callId, modelName: 'control_surface', kind: 'surface', input: {} }),
+      } as never,
+      state: {
+        readThread: async () => ({ checkpoint: { pendingCallId: callId } }),
+        addInvocation: async () => stored,
+        transitionInvocation: async (_thread: string, _call: string, _from: string, status: string, result?: unknown) => {
+          stored = { status, result: result ?? null };
+          return stored;
+        },
+      } as never,
+    });
+    try {
+      await runtime.start({ threadId: taskId, executionContext: { taskId, activity: null, workspace: null, executionProfile: 'everyday', lesson: { kind: 'desktop', lessonId, stepId: randomUUID() } }, maxTurns: 8, request: 'Open material' });
+      const start = process.messages.find((message) => message.kind === 'turn.start')!;
+      if (start.kind !== 'turn.start') throw new Error('Missing turn start');
+      const identity = { threadId: start.threadId, turnId: start.turnId, agentId: start.agentId, parentAgentId: start.parentAgentId, delegationId: start.delegationId, graphVersion: start.graphVersion };
+      const invocation = { ...identity, kind: 'tool.execute', callId, toolId: 'computer.control', modelName: 'control_surface', operation: 'click_element', arguments: { text: 'private tool input' }, catalogDigest: 'a'.repeat(64), driverCatalogDigest: null, idempotencyDigest: 'b'.repeat(64) };
+      process.emit('message', { ...invocation, sequence: 1, requestId: randomUUID() });
+      await vi.waitFor(() => expect(process.messages.filter((message) => message.kind === 'tool.execute.result')).toHaveLength(1));
+      process.emit('message', { ...invocation, sequence: 2, requestId: randomUUID() });
+      await vi.waitFor(() => expect(process.messages.filter((message) => message.kind === 'tool.execute.result')).toHaveLength(2));
+      expect(dispatchTool).toHaveBeenCalledOnce();
+      process.emit('message', { ...identity, sequence: 3, requestId: randomUUID(), kind: 'turn.terminal', status: 'unknown', finalOutput: null, errorCode: 'tool_outcome_unknown', message: 'The tool outcome is unknown and cannot be retried.' });
+      await vi.waitFor(() => expect(onTerminal).toHaveBeenCalledOnce());
+      const entries = log.mock.calls.filter(([prefix]) => prefix === '[execution]').map(([, line]) => JSON.parse(String(line)));
+      expect(entries.find((entry) => entry.event === 'tool.dispatch_exception')).toMatchObject({ taskId, callId, lessonId, toolId: 'computer.control', error: 'Error: Native window activation failed' });
+      expect(entries.find((entry) => entry.event === 'turn.terminal')).toMatchObject({ taskId, turnId: start.turnId, status: 'unknown', errorCode: 'tool_outcome_unknown' });
+      expect(entries.findIndex((entry) => entry.event === 'tool.dispatch_exception')).toBeLessThan(entries.findIndex((entry) => entry.event === 'turn.terminal'));
+      expect(JSON.stringify(entries)).not.toContain('private tool input');
+    } finally { await runtime.shutdown(); }
+  });
+
   it('reports actual unique model requests on a completed fresh turn', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: randomUUID() }), { status: 200 })));
     const process = new FakeUtilityProcess('ready');

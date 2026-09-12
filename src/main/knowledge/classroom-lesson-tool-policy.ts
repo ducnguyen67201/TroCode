@@ -1,6 +1,7 @@
 import type { LessonReason } from '../../shared/classroom-lesson-contracts';
 import type { ResolvedToolInvocation, ToolExecutionResult } from '../agent/agent-contracts';
 import type { TaskExecutionCoordinator } from '../agent/execution-coordinator';
+import { diagnosticText, executionDiagnostic } from '../diagnostics/execution-diagnostics';
 
 export type LessonExecutionScope = { kind: 'desktop'; lessonId: string; stepId: string };
 export interface DesktopLessonExecutionGuard {
@@ -43,11 +44,16 @@ export class ClassroomLessonToolPolicy {
   private readonly revoked = new Set<string>();
   has(taskId: string): boolean { return this.desktop.has(taskId); }
   async before(taskId: string, invocation: ResolvedToolInvocation, dispatch = false): Promise<void> {
-    if (this.revoked.has(taskId)) throw new Error('lesson_access_changed');
-    const guard = this.desktop.get(taskId);
-    if (!guard) return;
-    await guard.before(invocation, dispatch);
-    if (this.desktop.get(taskId) !== guard || this.revoked.has(taskId)) throw new Error('lesson_access_changed');
+    try {
+      if (this.revoked.has(taskId)) throw new Error('lesson_access_changed');
+      const guard = this.desktop.get(taskId);
+      if (!guard) return;
+      await guard.before(invocation, dispatch);
+      if (this.desktop.get(taskId) !== guard || this.revoked.has(taskId)) throw new Error('lesson_access_changed');
+    } catch (error) {
+      executionDiagnostic('lesson.guard_denied', { taskId, callId: invocation.callId, toolId: invocation.toolId, phase: dispatch ? 'dispatch' : 'preview', error: diagnosticText(error) });
+      throw error;
+    }
   }
   async observeResult(taskId: string, result: ToolExecutionResult): Promise<void> {
     await this.desktop.get(taskId)?.observeResult(result);

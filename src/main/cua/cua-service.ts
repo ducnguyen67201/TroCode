@@ -24,6 +24,7 @@ import {
 import type { ImageEvidencePolicy } from '../inference/image-evidence-policy';
 
 import { CuaCapabilityBroker } from './cua-capability-broker';
+import { logNativeResult, traceNativeCall } from './cua-execution-diagnostics';
 import {
   type CuaDriverCatalog,
   type CuaDriverCatalogReport,
@@ -235,41 +236,8 @@ function coordinateSpaceFromDesktopState(
   }
 }
 
-interface CuaResultDiagnostic {
-  action?: {
-    delivery?: { mode: number };
-    effect: number;
-    route: number;
-  };
-  degraded: boolean;
-  errorCode?: string;
-  isError: boolean;
-}
-
-function logCuaResult(
-  event: string,
-  taskId: string,
-  command: DesktopCommand,
-  result: CuaResultDiagnostic,
-): void {
-  console.info(
-    `[cua] ${event}`,
-    JSON.stringify({
-      taskId,
-      command: command.kind,
-      ...(command.kind === 'click' ||
-      command.kind === 'point' ||
-      command.kind === 'scroll'
-        ? { x: command.x, y: command.y, inputCoordinates: 'screenshot_pixels' }
-        : {}),
-      isError: result.isError,
-      errorCode: result.errorCode ?? null,
-      degraded: result.degraded,
-      effect: result.action?.effect ?? null,
-      route: result.action?.route ?? null,
-      deliveryMode: result.action?.delivery?.mode ?? null,
-    }),
-  );
+function logCuaResult(event: string, taskId: string, command: DesktopCommand, result: CuaOpenToolResult): void {
+  logNativeResult(command.kind, result, { taskId, nativePhase: event });
 }
 
 export function shouldAutoConnect(status: CuaStatus): boolean {
@@ -936,7 +904,7 @@ export class CuaService {
       );
     }
 
-    const result = await (async () => {
+    const result = await traceNativeCall(command.kind, { session: taskId }, async () => {
       switch (command.kind) {
         case 'open_url':
           throw new Error('URL navigation is handled outside the CUA driver.');
@@ -1075,8 +1043,7 @@ export class CuaService {
           );
         }
       }
-    })();
-    logCuaResult('command.result', taskId, command, result);
+    });
 
     let outcome: DesktopActionOutcome;
     if (result.isError) {
@@ -1471,11 +1438,9 @@ export class CuaService {
   ): Promise<CuaOpenToolResult> {
     const startedAt = this.performanceNow();
     try {
-      const result = await this.requireDriver().callTool(
-        name,
-        JSON.stringify(argumentsValue),
-        signal ? { signal } : undefined,
-      );
+      const result = await traceNativeCall(name, argumentsValue, () => this.requireDriver().callTool(
+        name, JSON.stringify(argumentsValue), signal ? { signal } : undefined,
+      ));
       this.recordPerformance({
         durationMs: Math.max(0, this.performanceNow() - startedAt),
         fallbackReason:

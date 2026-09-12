@@ -87,6 +87,7 @@ import { TaskPetService } from './main/companion/task-pet-service';
 import { ConnectorClient } from './main/connectors/connector-client';
 import { ComputerPermissionCoordinator } from './main/cua/computer-permission-coordinator';
 import { CuaService } from './main/cua/cua-service';
+import { initializeExecutionDiagnostics } from './main/diagnostics/execution-diagnostics';
 import { createRustDesktopEngineClient } from './main/engine/rust-desktop-engine-client';
 import { CompositeTaskHistoryStore } from './main/history/composite-task-history-store';
 import { LegacyHostedTaskHistoryStore } from './main/history/legacy-hosted-task-history-store';
@@ -3169,11 +3170,10 @@ const createGuidanceWindow = (): void => {
   void guidanceWindow.loadURL(guidanceUrl.toString());
 };
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
+// Initialize services after Electron is ready.
 if (hasSingleInstanceLock) {
   void app.whenReady().then(async () => {
+    if (TROCODE_IS_TEST_APP) initializeExecutionDiagnostics(app.getPath('userData'), `${app.getVersion()}:${process.env.TROCODE_BUILD_COMMIT ?? 'repository'}`);
     await configureMacOSDock(app, process.platform, runtimeAppIconPath());
     registerCompanionAudioProtocol();
     registerCompanionImageProtocol();
