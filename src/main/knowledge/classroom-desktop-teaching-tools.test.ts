@@ -394,3 +394,21 @@ it.each(['revoked', 'opening-unknown', 'write-failed'] as const)('restores unkno
   expect(f.markEffect).toHaveBeenLastCalledWith('unknown');
   expect(guard.uncertain()).toBe(true);
 });
+
+it('allows a new desktop decision after fresh evidence without confirming or replaying the old click', async () => {
+  const f = fixture();
+  f.observation.screenshot = { mimeType: 'image/png', dataBase64: 'AA==' };
+  await f.call('observe', {});
+  const guard = f.tools.guard(f.taskId);
+  const click = { ...f.control({ kind: 'click', x: 100, y: 100, button: 'left', count: 1 }), toolId: 'desktop.control' };
+  await guard.before(click, true);
+  await guard.observeResult({ status: 'unknown', recovery: 'observe', summary: 'Input sent but unverified.' });
+  await expect(guard.before(click, true)).rejects.toThrow('revoked');
+  const fresh = { ...f.observation, observationId: randomUUID(), capturedAt: new Date().toISOString() };
+  await guard.observeResult({ status: 'confirmed', summary: 'Fresh desktop.', observation: fresh });
+  expect(guard.uncertain()).toBe(false);
+  expect(f.markEffect).toHaveBeenLastCalledWith('none');
+  await expect(guard.before(click, false)).rejects.toMatchObject({ reason: 'surface_unverified' });
+  const next = { ...click, callId: randomUUID(), input: { observationId: fresh.observationId, observationFingerprint: fresh.fingerprint, command: { kind: 'click', x: 200, y: 200, button: 'left', count: 1 } } };
+  await expect(guard.before(next, false)).resolves.toBeUndefined();
+});

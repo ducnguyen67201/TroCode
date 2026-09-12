@@ -87,6 +87,11 @@ export class ClassroomLessonSurfaceService {
       // Preserve the shared router's identity: its dispatch binding owns this
       // fingerprint. Presentation compares additional visual evidence separately.
       const observation = result.observation;
+      if (!result.identity) {
+        this.bindings.delete(state.envelope.lessonId);
+        return { ready: false, observation, error: new LessonBlockedError('surface_unverified',
+          'Desktop capture is active. Inspect this fresh screen and continue opening the material; this capture alone does not verify the document.') };
+      }
       try {
         const title = observation.surface?.title ?? '';
         if (bound && ((bound.title && bound.title !== title) || bound.url !== undefined && bound.url !== observation.surface?.url)) {

@@ -1080,3 +1080,16 @@ describe('CUA task sessions', () => {
     expect(actionOrder).toEqual(['move', 'scroll']);
   });
 });
+
+it('uses desktop capture for lesson observation after escalation without calling window tools', async () => {
+  const service = new CuaService();
+  const taskId = randomUUID();
+  Reflect.set(service, 'activeSessions', new Set([taskId]));
+  Reflect.set(service, 'desktopScopeSessions', new Set([taskId]));
+  const observe = vi.spyOn(service, 'observe').mockResolvedValue({ observationId: randomUUID(), taskId, capturedAt: new Date().toISOString(), fingerprint: 'a'.repeat(64), text: 'Desktop', degraded: false, route: 'desktop_vision' });
+  const window = vi.fn();
+  Reflect.set(service, 'surfaceRouter', { observeExternalWindow: window });
+  await expect(service.observeLessonWindow(taskId, { processId: 1, windowId: 2 })).resolves.toMatchObject({ identity: undefined, observation: { route: 'desktop_vision' } });
+  expect(observe).toHaveBeenCalledWith(taskId, undefined);
+  expect(window).not.toHaveBeenCalled();
+});
