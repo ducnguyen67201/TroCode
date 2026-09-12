@@ -1365,7 +1365,7 @@ export class CuaService {
     }
     const startedAt = this.performanceNow();
     try {
-      const result = await traceNativeCall(name, argumentsValue, () => this.requireDriver().callTool(
+      const result = await traceNativeCall(name, { ...argumentsValue, session }, () => this.requireDriver().callTool(
         name, JSON.stringify(argumentsValue), signal ? { signal } : undefined,
       ));
       this.recordPerformance({

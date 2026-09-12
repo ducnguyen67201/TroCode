@@ -1096,6 +1096,11 @@ it('rediscovers the material window after desktop input instead of permanently r
 });
 
 it('isolates window calls after raw desktop capture and closes both native sessions', async () => {
+  const records: Array<{ event: string; taskId?: string; nativeTool?: string }> = [];
+  const log = vi.spyOn(console, 'info').mockImplementation((prefix, line) => {
+    if (prefix === '[execution]') records.push(JSON.parse(String(line)));
+  });
+  try {
   const taskId = randomUUID();
   const sessions = new Map<string, boolean>();
   const receipt = { text: 'Current screen', images: [{ mimeType: 'image/png', dataBase64: 'AA==' }], isError: false, degraded: false, rawJson: '{}' };
@@ -1122,4 +1127,8 @@ it('isolates window calls after raw desktop capture and closes both native sessi
   expect(driver.callTool).toHaveBeenCalledOnce();
   await service.endTaskSession(taskId);
   expect(sessions.size).toBe(0);
+  expect(records.filter((record) => record.event === 'cua.result' && record.nativeTool === 'get_window_state')).toEqual([
+    expect.objectContaining({ taskId }),
+  ]);
+  } finally { log.mockRestore(); }
 });
