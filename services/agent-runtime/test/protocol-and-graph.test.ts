@@ -58,6 +58,26 @@ describe('local agent protocol and graph', () => {
     );
   });
 
+  it('preserves graph identity across the host-to-worker schema boundary', () => {
+    // The host appends completion metadata; Zod emits it in schema order.
+    const finish = { ...tool('lesson.finish', 'lesson_finish'), completionRequired: true };
+    const version = graphVersion([finish], 'gpt-test');
+    const parsed = LocalAgentHostMessageSchema.parse(JSON.parse(JSON.stringify({
+      kind: 'turn.start', requestId: randomUUID(), threadId: randomUUID(),
+      turnId: randomUUID(), agentId: LOCAL_AGENT_ROOT_ID, sequence: 1,
+      graphVersion: version, agentTurnId: randomUUID(), request: 'Explain the lesson.',
+      requiredInitialTool: null, model: 'gpt-test', maxTurns: 10,
+      toolCatalogDigest: digest, tools: [finish],
+    })));
+
+    if (parsed.kind !== 'turn.start') throw new Error('missing turn start');
+    expect(graphVersion(parsed.tools, parsed.model)).toBe(parsed.graphVersion);
+    expect(graphVersion([{ ...finish, completionRequired: false }], parsed.model))
+      .not.toBe(version);
+    expect(graphVersion([{ ...finish, inputSchema: { type: 'string' } }], parsed.model))
+      .not.toBe(version);
+  });
+
   it('publishes the requested initial context tool choice', () => {
     expect(modelSettings('observe_context')).toMatchObject({
       toolChoice: 'observe_context',

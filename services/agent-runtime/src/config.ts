@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import type {
   ModelSettings,
   ModelSettingsToolChoice,
@@ -32,16 +30,15 @@ export function graphVersion(
   tools: readonly LocalRuntimeToolSpec[],
   model: string,
 ): string {
-  return createHash('sha256')
-    .update(JSON.stringify({
-      agents: [ROOT_AGENT_DEFINITION],
-      model,
-      modelSettings: modelSettings(),
-      protocolDigest: LOCAL_AGENT_PROTOCOL_DIGEST,
-      sdkVersion: LOCAL_AGENT_SDK_VERSION,
-      tools: [...tools].sort((left, right) => left.toolId.localeCompare(right.toolId)),
-    }))
-    .digest('hex');
+  // Protocol parsing can reorder object keys without changing the graph.
+  return digest({
+    agents: [ROOT_AGENT_DEFINITION],
+    model,
+    modelSettings: modelSettings(),
+    protocolDigest: LOCAL_AGENT_PROTOCOL_DIGEST,
+    sdkVersion: LOCAL_AGENT_SDK_VERSION,
+    tools: [...tools].sort((left, right) => left.toolId.localeCompare(right.toolId)),
+  });
 }
 
 export function modelSettings(
