@@ -164,7 +164,7 @@ function modelToolResult(result: LocalToolExecutionResult, callId: string): unkn
   }
   const text = JSON.stringify({
     status: result.status, summary: result.summary, data: result.data,
-    ...(result.recovery ? { recovery: 'Observe the current screen. Do not replay this action. Use fresh evidence to decide the next action; intermediate UI progress is not final task completion.' } : {}),
+    ...(result.recovery ? { recovery: 'Use observe_context to capture fresh screen evidence before choosing another action. Do not replay this action. Intermediate UI progress is not final task completion.' } : {}),
   });
   if (!result.imageDataUrl) return text;
   return [{ type: 'text', text }, { type: 'image', image: result.imageDataUrl, detail: 'high' }];

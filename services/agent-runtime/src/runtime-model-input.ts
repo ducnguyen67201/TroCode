@@ -47,4 +47,3 @@ export function injectRuntimeInstructions(
   }));
   return { ...modelData, input: [...boundedInput, ...steering] };
 }
-

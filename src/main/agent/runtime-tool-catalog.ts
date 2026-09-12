@@ -13,4 +13,3 @@ export interface FrozenRuntimeToolCatalog {
     driverCatalogDigest: string | null;
   }>;
 }
-

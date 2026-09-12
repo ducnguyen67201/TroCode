@@ -36,7 +36,6 @@ import {
   type DesktopCommand,
   type DesktopObservation,
 } from './execution-contracts';
-
 import type { FrozenRuntimeToolCatalog } from './runtime-tool-catalog';
 
 export type { FrozenRuntimeToolCatalog } from './runtime-tool-catalog';
