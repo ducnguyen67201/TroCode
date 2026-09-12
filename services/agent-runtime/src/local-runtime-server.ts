@@ -202,6 +202,9 @@ export class LocalRuntimeServer {
     };
     const context: LocalAgentRunContext = { bridge: this.bridge, identity, signal: controller.signal };
     let checkpointRevision = message.kind === 'turn.resume' ? message.checkpointRevision : 0;
+    let completedRunTurns = 0;
+    let runBudget = message.maxTurns;
+    let continuations = 0;
     try {
       const factory = this.requireGraphFactory();
       const graph = await factory.create(
@@ -277,7 +280,7 @@ export class LocalRuntimeServer {
           callModelInputFilter: async ({ modelData }) =>
             injectRuntimeInstructions(modelData, active.steering.splice(0)),
           context,
-          maxTurns: message.maxTurns,
+          maxTurns: runBudget,
           session: graph.session,
           signal: controller.signal,
           stream: true,
@@ -300,6 +303,24 @@ export class LocalRuntimeServer {
             result.state.toString(),
             null,
           );
+          const pendingCompletion = graph.toolSurface.pendingCompletion();
+          if (pendingCompletion.length > 0) {
+            // Includes turns restored from a durable checkpoint, not just model
+            // requests emitted by this process since it started.
+            completedRunTurns += result.state.toJSON().currentTurn;
+            if (continuations >= 2 || completedRunTurns >= message.maxTurns) {
+              this.terminal(identity, 'failed', output, 'task_completion_unverified',
+                `The task ended without confirmed completion from ${pendingCompletion.join(', ')}.`);
+              return;
+            }
+            continuations++;
+            runBudget = message.maxTurns - completedRunTurns;
+            // A terminal RunState cannot accept addInput. The SDK session owns
+            // the existing history; send only the new continuation instruction.
+            nextInput = `The task is not complete: ${pendingCompletion.join(', ')} has not confirmed completion. Inspect the latest tool results and current screen, correct the target or handle intermediate UI, and continue toward the goal. Do not repeat an uncertain operation. Use the required completion tool only after its postconditions are satisfied.`;
+            this.event(identity, 'lifecycle', 'The task postcondition is still unverified; continuing from existing tool history.');
+            continue;
+          }
           this.terminal(identity, 'completed', output, null, 'The local agent completed the turn.');
           return;
         }

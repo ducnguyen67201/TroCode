@@ -393,11 +393,9 @@ export class CuaService {
   async observeLessonWindow(taskId: string, identity: { processId: number; windowId: number } | undefined,
     signal?: AbortSignal) {
     this.assertActiveSession(taskId);
-    if (this.desktopScopeSessions.has(taskId)) {
-      return { observation: await this.observe(taskId, signal), identity: undefined };
-    }
     const result = await this.surfaceRouter?.observeExternalWindow(taskId, identity, signal);
-    return result ? { ...result, observation: this.imageEvidencePolicy?.prepare(taskId, result.observation) ?? result.observation } : undefined;
+    return result ? { ...result, observation: this.imageEvidencePolicy?.prepare(taskId, result.observation) ?? result.observation }
+      : { observation: await this.observe(taskId, signal), identity: undefined };
   }
 
   async queryVisibleApplicationSurfaces(
@@ -1078,6 +1076,15 @@ export class CuaService {
         summary: 'The requested CUA tool is not in the installed driver catalog.',
       };
     }
+    // Keep raw catalog observation on the same host path as observe_context:
+    // it prepares legacy desktop scope and returns actionable observation evidence.
+    if (tool.name === 'get_desktop_state') {
+      return { status: 'confirmed', summary: 'Captured the current desktop. Inspect it before choosing the next action.',
+        observation: await this.observe(taskId, signal) };
+    }
+    if (input.pid === process.pid) {
+      return { status: 'not_executed', summary: 'This PID belongs to the Cua host, not an external application. Use observe_context or list_windows to locate the intended external window and its exact PID/window_id.' };
+    }
     const argumentsValue = {
       ...input,
       ...(tool.injectSession ? { session: taskId } : {}),
@@ -1093,7 +1100,8 @@ export class CuaService {
     this.latestCoordinateSpaces.delete(taskId);
     this.windowsBottomEdgeAwaitingObservation.delete(taskId);
     this.windowsBottomEdgeReadyUntil.delete(taskId);
-    await this.endSession(taskId, signal);
+    try { await this.endSession(`${taskId}:window`, signal); }
+    finally { await this.endSession(taskId, signal); }
   }
 
   async endDictationSession(
@@ -1364,6 +1372,21 @@ export class CuaService {
     argumentsValue: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<CuaOpenToolResult> {
+    const session = argumentsValue.session;
+    if (typeof session === 'string' && this.activeSessions.has(session)) {
+      if (argumentsValue.scope === 'desktop') {
+        const cua = await this.loadModule();
+        await this.ensureDesktopScope(session, cua.EscalationReason.Other, 'native_desktop_action', signal);
+      } else if (this.desktopScopeSessions.has(session) &&
+          (typeof argumentsValue.pid === 'number' || typeof argumentsValue.window_id === 'number' || argumentsValue.scope === 'window')) {
+        // Driver 0.19.x permanently escalates a session. Isolate window work in
+        // a task-owned native session so desktop input cannot disable subsequent
+        // window discovery, material verification, or element actions.
+        const windowSession = `${session}:window`;
+        await this.startSession(windowSession, signal);
+        argumentsValue = { ...argumentsValue, session: windowSession };
+      }
+    }
     const startedAt = this.performanceNow();
     try {
       const result = await traceNativeCall(name, argumentsValue, () => this.requireDriver().callTool(

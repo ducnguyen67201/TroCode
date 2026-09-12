@@ -20,6 +20,7 @@ import {
   type LocalAgentChildMessage,
   type LocalAgentHostMessage,
 } from '../src/protocol.js';
+import type { ModelRequestDiagnosticSink } from '../src/user-openai-client.js';
 
 class FakeBridge extends EventEmitter {
   readonly sent: LocalAgentChildMessage[] = [];
@@ -28,6 +29,39 @@ class FakeBridge extends EventEmitter {
     this.sent.push(message);
   }
 }
+
+it.each([
+  { finishOn: 2, budget: 5, expectedRuns: 2, status: 'completed' },
+  { finishOn: 99, budget: 5, expectedRuns: 3, status: 'failed' },
+  { finishOn: 99, budget: 1, expectedRuns: 1, status: 'failed' },
+])('continues incomplete runs with shared history and bounded budget: $status/$budget', async ({ finishOn, budget, expectedRuns, status }) => {
+  const bridge = new FakeBridge();
+  let sequence = 0;
+  Reflect.set(bridge, 'nextSequence', () => ++sequence);
+  Reflect.set(bridge, 'request', async () => ({ kind: 'checkpoint.commit.result', checkpointRevision: sequence }));
+  const server = new LocalRuntimeServer(bridge as unknown as HostBridge);
+  let requests = 0;
+  let diagnostic!: ModelRequestDiagnosticSink;
+  const session = {};
+  const run = vi.fn(async (...args: unknown[]) => {
+    expect(args).toHaveLength(3);
+    requests++;
+    diagnostic({ event: 'model_request_started', agentTurnId: 'turn', taskId: 'task', clientRequestId: `request-${requests}`, serverRequestId: null, durationMs: null, inputItemCount: null, model: null, status: null, toolChoice: null, toolCount: null });
+    return { async *[Symbol.asyncIterator]() { yield { type: 'ignored' }; }, completed: Promise.resolve(), interruptions: [], finalOutput: 'Narrative response', state: { toString: () => 'checkpoint', toJSON: () => ({ currentTurn: 1 }) } };
+  });
+  Reflect.set(server, 'graphFactory', { runner: { run }, create: async (_input: unknown, _context: unknown, sink: ModelRequestDiagnosticSink) => {
+    diagnostic = sink;
+    return { agent: {}, session, toolSurface: { pendingCompletion: () => requests >= finishOn ? [] : ['finish_task'] } };
+  } });
+  await Reflect.get(server, 'runTurn').call(server, { kind: 'turn.start', agentId: LOCAL_AGENT_ROOT_ID, parentAgentId: null, delegationId: null,
+    threadId: randomUUID(), turnId: randomUUID(), graphVersion: graphVersion([], DEFAULT_AGENT_MODEL), tools: [], model: DEFAULT_AGENT_MODEL, maxTurns: budget, request: 'Open and explain.' });
+  expect(run).toHaveBeenCalledTimes(expectedRuns);
+  for (let index = 0; index < expectedRuns; index++) {
+    expect(run.mock.calls[index]?.[2]).toMatchObject({ session, maxTurns: budget - index });
+    if (index > 0) expect(run.mock.calls[index]?.[1]).toContain('Do not repeat an uncertain operation');
+  }
+  expect(bridge.sent.find((message) => message.kind === 'turn.terminal')).toMatchObject({ status });
+});
 
 describe('LocalRuntimeServer', () => {
   it('rejects a checkpointed tool that never ran so the model re-checks current state', () => {

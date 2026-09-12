@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 /** Local-only protocol between Electron main and the bundled SDK process. */
-export const LOCAL_AGENT_PROTOCOL_VERSION = 6 as const;
+export const LOCAL_AGENT_PROTOCOL_VERSION = 7 as const;
 export const LOCAL_AGENT_SDK_VERSION = '0.17.0' as const;
 export const LOCAL_AGENT_ROOT_ID = 'tro.root' as const;
 
@@ -36,6 +36,7 @@ const BoundedMessageSchema = z.string().trim().min(1).max(8_000);
 
 export const LocalRuntimeToolSpecSchema = z
   .object({
+    completionRequired: z.boolean().optional(),
     toolId: z.string().regex(/^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$/u),
     modelName: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/u),
     description: z.string().trim().min(1).max(20_000),

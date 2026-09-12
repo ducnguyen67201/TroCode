@@ -52,6 +52,7 @@ export interface ToolResolutionContext extends Partial<TrustedToolExecutionConte
 }
 
 export interface RuntimeToolDefinition<TInput = unknown> {
+  completionRequired?: boolean;
   available?: (context?: ToolResolutionContext) => boolean;
   description: string;
   driverCatalogDigest?: string | null;
@@ -70,6 +71,7 @@ export interface RuntimeToolDefinition<TInput = unknown> {
 export interface FrozenRuntimeToolCatalog {
   digest: string;
   tools: Array<{
+    completionRequired?: boolean;
     toolId: RuntimeToolId;
     modelName: string;
     description: string;
@@ -985,6 +987,7 @@ export class RuntimeToolRegistry {
         inputSchema: definition.parameters,
         operations: [...definition.operations],
         driverCatalogDigest: definition.driverCatalogDigest ?? null,
+        ...(definition.completionRequired ? { completionRequired: true } : {}),
       }))
       .sort((left, right) => left.toolId.localeCompare(right.toolId));
     return {
