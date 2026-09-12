@@ -414,6 +414,40 @@ function escalatedDesktopSession() {
 }
 
 describe('CUA task sessions', () => {
+  it.each([
+    { command: { kind: 'click', x: 14, y: 27, button: 'left', count: 1 } as const, firstMethod: 'moveCursor', secondMethod: 'click', firstName: 'move_cursor', secondName: 'click' },
+    { command: { kind: 'scroll', x: 14, y: 27, direction: 'down', amount: 1 } as const, firstMethod: 'moveCursor', secondMethod: 'scroll', firstName: 'move_cursor', secondName: 'scroll' },
+    { command: { kind: 'paste_table', rows: [['private content']] } as const, firstMethod: 'clipboardWrite', secondMethod: 'hotkey', firstName: 'clipboard_write', secondName: 'hotkey' },
+  ])('identifies the pending second native call in $command.kind', async ({ command, firstMethod, secondMethod, firstName, secondName }) => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const taskId = randomUUID();
+    const confirmed = { text: 'Delivered', images: [], isError: false, degraded: false, rawJson: '{}', action: { effect: 0, route: 0 } };
+    let complete!: (value: typeof confirmed) => void;
+    const first = vi.fn(async () => confirmed);
+    const second = vi.fn(() => new Promise<typeof confirmed>((resolve) => { complete = resolve; }));
+    const driver = { isAvailable: () => true, startSession: async () => startedWindowSession(), escalateSession: async () => escalatedDesktopSession(), [firstMethod]: first, [secondMethod]: second };
+    const service = new CuaService();
+    Reflect.set(service, 'cuaModule', fakeCuaModule());
+    Reflect.set(service, 'driver', driver);
+    try {
+      await service.startTaskSession(taskId);
+      const pending = service.executeCommand(taskId, command.kind === 'paste_table' ? { ...command, rows: command.rows.map((row) => [...row]) } : command);
+      await vi.waitFor(() => expect(second).toHaveBeenCalledOnce());
+      const records = log.mock.calls.filter(([prefix]) => prefix === '[execution]').map(([, line]) => JSON.parse(String(line)));
+      const starts = records.filter((record) => record.event === 'cua.started');
+      expect(starts.map((record) => record.nativeTool)).toEqual([firstName, secondName]);
+      expect(starts[0].nativeCallId).not.toBe(starts[1].nativeCallId);
+      expect(records.filter((record) => record.event === 'cua.result')).toMatchObject([{ nativeCallId: starts[0].nativeCallId, nativeTool: firstName }]);
+      expect(JSON.stringify(records)).not.toContain('private content');
+      complete(confirmed);
+      await expect(pending).resolves.toMatchObject({ status: 'confirmed' });
+      expect(first).toHaveBeenCalledOnce();
+      expect(second).toHaveBeenCalledOnce();
+      const results = log.mock.calls.filter(([prefix]) => prefix === '[execution]').map(([, line]) => JSON.parse(String(line))).filter((record) => record.event === 'cua.result');
+      expect(results.map((record) => record.nativeCallId)).toEqual(starts.map((record) => record.nativeCallId));
+    } finally { log.mockRestore(); }
+  });
+
   it('uses the native platform paste shortcut', () => {
     expect(pasteShortcutForPlatform('darwin')).toEqual(['cmd', 'v']);
     expect(pasteShortcutForPlatform('win32')).toEqual(['ctrl', 'v']);

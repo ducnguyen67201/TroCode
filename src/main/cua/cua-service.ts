@@ -24,7 +24,7 @@ import {
 import type { ImageEvidencePolicy } from '../inference/image-evidence-policy';
 
 import { CuaCapabilityBroker } from './cua-capability-broker';
-import { logNativeResult, traceNativeCall } from './cua-execution-diagnostics';
+import { traceNativeCall } from './cua-execution-diagnostics';
 import {
   type CuaDriverCatalog,
   type CuaDriverCatalogReport,
@@ -234,10 +234,6 @@ function coordinateSpaceFromDesktopState(
   } catch {
     return undefined;
   }
-}
-
-function logCuaResult(event: string, taskId: string, command: DesktopCommand, result: CuaOpenToolResult): void {
-  logNativeResult(command.kind, result, { taskId, nativePhase: event });
 }
 
 export function shouldAutoConnect(status: CuaStatus): boolean {
@@ -820,7 +816,7 @@ export class CuaService {
     const driver = this.requireDriver();
     const asyncOptions = signal ? { signal } : undefined;
     const movePointer = async (x: number, y: number) => {
-      const movement = await driver.moveCursor(
+      const movement = await traceNativeCall('move_cursor', { session: taskId }, () => driver.moveCursor(
         cua.MoveCursorInput.new({
           session: taskId,
           scope: cua.DesktopScope.Desktop,
@@ -828,8 +824,7 @@ export class CuaService {
           y,
         }),
         asyncOptions,
-      );
-      logCuaResult('pointer.move-result', taskId, command, movement);
+      ));
       return movement;
     };
 
@@ -904,7 +899,7 @@ export class CuaService {
       );
     }
 
-    const result = await traceNativeCall(command.kind, { session: taskId }, async () => {
+    const result = await (async () => {
       switch (command.kind) {
         case 'open_url':
           throw new Error('URL navigation is handled outside the CUA driver.');
@@ -924,7 +919,7 @@ export class CuaService {
             middle: cua.ClickButton.Middle,
             right: cua.ClickButton.Right,
           }[command.button];
-          return driver.click(
+          return traceNativeCall('click', { session: taskId }, () => driver.click(
             cua.ClickInput.new({
               session: taskId,
               scope: cua.DesktopScope.Desktop,
@@ -934,7 +929,7 @@ export class CuaService {
               count: command.count,
             }),
             asyncOptions,
-          );
+          ));
         }
         case 'point':
           return movePointer(command.x, command.y);
@@ -944,7 +939,7 @@ export class CuaService {
             middle: cua.ClickButton.Middle,
             right: cua.ClickButton.Right,
           }[command.button];
-          return driver.drag(
+          return traceNativeCall('drag', { session: taskId }, () => driver.drag(
             cua.DragInput.new({
               session: taskId,
               scope: cua.DesktopScope.Desktop,
@@ -956,65 +951,59 @@ export class CuaService {
               button,
             }),
             asyncOptions,
-          );
+          ));
         }
         case 'type_text':
-          return driver.typeText(
+          return traceNativeCall('type_text', { session: taskId }, () => driver.typeText(
             cua.TypeTextInput.new({
               session: taskId,
               scope: cua.DesktopScope.Desktop,
               text: command.text,
             }),
             asyncOptions,
-          );
+          ));
         case 'paste_table': {
-          const clipboardResult = await driver.clipboardWrite(
+          const clipboardResult = await traceNativeCall('clipboard_write', { session: taskId }, () => driver.clipboardWrite(
             cua.ClipboardWriteInput.new({
               session: taskId,
               text: tableRowsToTsv(command.rows),
             }),
             asyncOptions,
-          );
-          logCuaResult(
-            'clipboard.table-write-result',
-            taskId,
-            command,
-            clipboardResult,
-          );
+          ));
           if (
             clipboardResult.isError ||
             clipboardResult.action?.effect === cua.ActionEffect.Refused
           ) {
             return clipboardResult;
           }
-          return driver.hotkey(
+          return traceNativeCall('hotkey', { session: taskId }, () => driver.hotkey(
             cua.HotkeyInput.new({
               session: taskId,
               scope: cua.DesktopScope.Desktop,
               keys: pasteShortcutForPlatform(process.platform),
             }),
             asyncOptions,
-          );
+          ));
         }
         case 'keypress':
           if (command.keys.length === 1) {
-            return driver.pressKey(
+            return traceNativeCall('press_key', { session: taskId }, () => driver.pressKey(
               cua.PressKeyInput.new({
                 session: taskId,
                 scope: cua.DesktopScope.Desktop,
                 key: command.keys[0]!,
               }),
               asyncOptions,
-            );
+            ));
           }
-          return driver.hotkey(
+          return traceNativeCall('hotkey', { session: taskId }, () => driver.hotkey(
             cua.HotkeyInput.new({
               session: taskId,
               scope: cua.DesktopScope.Desktop,
               keys: command.keys,
             }),
             asyncOptions,
-          );
+          ));
         case 'scroll': {
           const movement = await movePointer(command.x, command.y);
           if (
@@ -1030,7 +1019,7 @@ export class CuaService {
             right: cua.ScrollDirection.Right,
             up: cua.ScrollDirection.Up,
           }[command.direction];
-          return driver.scroll(
+          return traceNativeCall('scroll', { session: taskId }, () => driver.scroll(
             cua.ScrollInput.new({
               session: taskId,
               scope: cua.DesktopScope.Desktop,
@@ -1040,10 +1029,10 @@ export class CuaService {
               amount: BigInt(command.amount),
             }),
             asyncOptions,
-          );
+          ));
         }
       }
-    });
+    })();
 
     let outcome: DesktopActionOutcome;
     if (result.isError) {
