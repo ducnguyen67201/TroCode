@@ -13,6 +13,7 @@ import {
   type LessonView,
 } from '../../shared/classroom-lesson-contracts';
 import { lessonExecutionRoute, lessonUsesExternalMaterial } from '../../shared/lesson-execution-policy';
+import { diagnosticText, executionDiagnostic } from '../diagnostics/execution-diagnostics';
 
 import { claimLessonChild } from './classroom-lesson-child';
 import type { ClassroomLessonClient } from './classroom-lesson-client';
@@ -218,6 +219,7 @@ export class ClassroomLessonController {
       .catch(async (error: unknown) => {
         if (generation !== this.generation || controller.signal.aborted) return;
         this.error = error instanceof Error ? error.message.slice(0, 500) : 'Lesson could not continue.';
+        executionDiagnostic('lesson.failure', { lessonId: envelope.lessonId, taskId: this.active?.child?.taskId, effect: this.active?.effect, error: diagnosticText(error) });
         // A typed refusal describes this failure, not the outcome of an earlier
         // dispatched action. Durable uncertainty always takes precedence.
         const unknown = this.active?.effect === 'dispatching' || this.active?.effect === 'unknown';
@@ -438,6 +440,7 @@ export class ClassroomLessonController {
   async transition(status: LessonStatus, reason: LessonReason | null = null) {
     if (!this.active) return;
     assertLessonTransition(this.active.status, status);
+    executionDiagnostic('lesson.transition', { lessonId: this.active.envelope.lessonId, taskId: this.active.child?.taskId, stepId: this.active.envelope.plan.steps[this.active.stepIndex]?.id, from: this.active.status, to: status, reason, effect: this.active.effect, actions: this.active.actionCount, observations: this.active.observationCount });
     this.active.status = status;
     this.active.reasonCode = reason;
     await this.persist();

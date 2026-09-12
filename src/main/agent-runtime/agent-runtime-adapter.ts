@@ -37,6 +37,7 @@ import type {
   ToolResolutionContext,
   TrustedToolExecutionContext,
 } from '../agent/runtime-tool-registry';
+import { diagnosticText, executionDiagnostic, toolResultDiagnostic, withExecutionDiagnostics } from '../diagnostics/execution-diagnostics';
 
 import type { EncryptedAgentStateStore } from './encrypted-agent-state-store';
 import type { LocalInvocation } from './local-agent-state';
@@ -44,18 +45,6 @@ import { normalizeLocalToolResult } from './local-tool-result';
 import { withTimeout } from './runtime-timeout';
 
 export { normalizeLocalToolResult } from './local-tool-result';
-
-
-
-
-
-
-
-
-
-
-
-
 
 const AgentTurnResponseSchema = z.object({ id: z.string().uuid() }).passthrough();
 const RUNTIME_READY_TIMEOUT_MS = 15_000;
@@ -312,6 +301,7 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
     toolId: string,
     operation: string,
   ): void {
+    executionDiagnostic(event, { taskId: threadId, turnId: active.turnId, callId, toolId, operation, error: event === 'tool_failed' ? diagnosticText(summary) : undefined });
     this.options.onEvent?.({
       ...this.turnIdentity(threadId, active),
       kind: 'turn.event',
@@ -561,9 +551,10 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
         await this.checkpointCommit(message);
         return;
       case 'tool.execute':
-        await this.toolExecute(message);
+        await withExecutionDiagnostics({ taskId: message.threadId, turnId: message.turnId, callId: message.callId, toolId: message.toolId, modelTool: message.modelName, operation: message.operation, lessonId: this.requireActive(message.threadId).executionContext.lesson?.lessonId }, () => this.toolExecute(message));
         return;
       case 'turn.terminal': {
+        executionDiagnostic('turn.terminal', { taskId: message.threadId, turnId: message.turnId, status: message.status, errorCode: message.errorCode, error: message.status === 'completed' ? undefined : diagnosticText(message.message) });
         this.flushAssistantDelta(message.threadId);
         const active = this.requireActive(message.threadId);
         active.controller.abort(new Error('turn_terminal'));
@@ -701,6 +692,7 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
         await this.options.beforeTool(message.threadId, preview);
       } catch (error) {
         const denied: LocalToolExecutionResult = { status: 'failed', summary: safeError(error), data: null, imageDataUrl: null };
+        executionDiagnostic('tool.policy_denied', { error: diagnosticText(error) });
         await this.options.state.transitionInvocation(message.threadId, message.callId, 'checkpointed', 'failed', denied);
         this.respond(message, { kind: 'tool.execute.result', responseTo: message.requestId, result: denied });
         return;
@@ -722,12 +714,14 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
         signal: active.controller.signal,
         taskId: message.threadId,
       });
+      toolResultDiagnostic(toolResult);
       active.executionContext = executionContextAfterToolResult(
         active.executionContext,
         toolResult,
       );
       result = normalizeLocalToolResult(toolResult);
     } catch (error) {
+      executionDiagnostic('tool.dispatch_exception', { error: diagnosticText(error) });
       result = { status: 'unknown', summary: safeError(error), data: null, imageDataUrl: null };
     }
     const journalStatus = result.status === 'completed'
@@ -757,6 +751,7 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
     event: 'tool_started' | 'tool_completed' | 'tool_failed' | 'tool_unknown',
     summary: string,
   ): void {
+    executionDiagnostic(event, { taskId: message.threadId, turnId: message.turnId, callId: message.callId, toolId: message.toolId, operation: message.operation, error: event === 'tool_failed' || event === 'tool_unknown' ? diagnosticText(summary) : undefined });
     this.options.onEvent?.({
       kind: 'turn.event',
       requestId: randomUUID(),
@@ -853,6 +848,7 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
   }
 
   private failClosed(error: Error): void {
+    executionDiagnostic('runtime.fatal', { error: diagnosticText(error), activeTurns: this.active.size });
     this.readyReject?.(error);
     this.readyResolve = null;
     this.readyReject = null;
@@ -862,6 +858,7 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
 
   private async handleExit(exitedChild: UtilityProcess, code: number): Promise<void> {
     if (this.child && this.child !== exitedChild) return;
+    executionDiagnostic('runtime.exited', { exitCode: code, activeTurns: this.active.size });
     this.readyReject?.(
       new Error(`The local agent runtime exited before it was ready (${code}).`),
     );
@@ -876,6 +873,7 @@ export class LocalAgentRuntime implements AgentRuntimeAdapter {
     const active = [...this.active.entries()];
     this.active.clear();
     for (const [threadId, turn] of active) {
+      executionDiagnostic('turn.runtime_exited', { taskId: threadId, turnId: turn.turnId, exitCode: code });
       this.flushAssistantDelta(threadId);
       turn.controller.abort(new Error('runtime_process_exited'));
       const checkpoint = (await this.options.state.readThread(threadId)).checkpoint;

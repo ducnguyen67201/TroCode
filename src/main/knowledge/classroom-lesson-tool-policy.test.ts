@@ -18,6 +18,18 @@ function fixture() {
 }
 
 describe('shared lesson dispatch policy', () => {
+  it('identifies a guard failure before dispatch without executing or swallowing it', async () => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      const f = fixture();
+      const error = new Error('Observe the current screen before acting.');
+      f.guard.before.mockRejectedValueOnce(error);
+      await expect(f.policy.dispatch(f.taskId, f.call, f.execute)).rejects.toBe(error);
+      expect(f.execute).not.toHaveBeenCalled();
+      const entry = log.mock.calls.find(([prefix, line]) => prefix === '[execution]' && JSON.parse(String(line)).event === 'lesson.guard_denied');
+      expect(JSON.parse(String(entry?.[1]))).toMatchObject({ taskId: f.taskId, callId: f.call.callId, phase: 'dispatch', error: 'Error: Observe the current screen before acting.' });
+    } finally { log.mockRestore(); }
+  });
   it('advertises one student tool path and removes the old browser completion tool', () => {
     expect(lessonToolDefinitions().some((tool) => tool.modelName === 'complete_lesson_step')).toBe(false);
   });

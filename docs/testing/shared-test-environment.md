@@ -35,6 +35,10 @@ Doppler login is needed once per computer. Subsequent launches use only:
 npm run start:test
 ```
 
+For a failed file opening or computer action, collect the student’s local
+[execution diagnostics](execution-diagnostics.md). Tro Test prints the file path
+on startup and retains the trace across restarts.
+
 The command reads `tro-app/stg` explicitly, checks the exact test API URL and
 Google OAuth configuration, verifies `/readyz`, builds the local Agents SDK
 runtime, and starts Electron. It does not start Postgres or kill other app

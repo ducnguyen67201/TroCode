@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import { z } from 'zod';
 
+import { diagnosticText, executionDiagnostic } from '../diagnostics/execution-diagnostics';
+
 export const AsyncOperationSchema = z.object({
   version: z.literal(1), id: z.uuid(),
   status: z.enum(['pending', 'completed', 'failed', 'unknown']),
@@ -86,11 +88,9 @@ export class AsyncOperationTracker {
   }
 
   private log(event: string, record: AsyncOperation, error?: unknown) {
-    console.info('[async-operation]', {
-      event, operationId: record.id, timestamp: new Date().toISOString(),
-      elapsedMs: Date.now() - Date.parse(record.startedAt), status: record.status,
-      ...(error === undefined ? {} : { error: error instanceof Error
-        ? { name: error.name, message: error.message, stack: error.stack } : String(error) }),
+    executionDiagnostic(`opening.${event}`, {
+      operationId: record.id, elapsedMs: Date.now() - Date.parse(record.startedAt), status: record.status,
+      error: error === undefined ? undefined : diagnosticText(error),
     });
   }
 }
