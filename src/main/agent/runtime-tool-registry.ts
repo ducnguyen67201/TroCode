@@ -37,6 +37,10 @@ import {
   type DesktopObservation,
 } from './execution-contracts';
 
+import type { FrozenRuntimeToolCatalog } from './runtime-tool-catalog';
+
+export type { FrozenRuntimeToolCatalog } from './runtime-tool-catalog';
+
 export interface TrustedToolExecutionContext {
   lesson?: LessonExecutionScope;
   teacherClassroom?: TeacherClassroomBinding | null;
@@ -66,19 +70,6 @@ export interface RuntimeToolDefinition<TInput = unknown> {
   operations: readonly string[];
   parameters: StrictJsonObjectSchema;
   parse(argumentsJson: string): TInput;
-}
-
-export interface FrozenRuntimeToolCatalog {
-  digest: string;
-  tools: Array<{
-    completionRequired?: boolean;
-    toolId: RuntimeToolId;
-    modelName: string;
-    description: string;
-    inputSchema: StrictJsonObjectSchema;
-    operations: string[];
-    driverCatalogDigest: string | null;
-  }>;
 }
 
 export interface RuntimeToolRegistrationRejection {

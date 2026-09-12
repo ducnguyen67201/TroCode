@@ -2,7 +2,6 @@ import {
   RunContext,
   RunState,
   type AgentInputItem,
-  type ModelInputData,
   type RunToolApprovalItem,
 } from '@openai/agents';
 
@@ -24,12 +23,15 @@ import {
   type LocalTurnEventKind,
   type PendingToolResumeDisposition,
 } from './protocol.js';
+import { injectRuntimeInstructions, prefetchedInitialTurnInput } from './runtime-model-input.js';
 import { ToolOutcomeUnknownError, ToolSurfaceFactory } from './tool-adapter.js';
 import {
   EphemeralCredentialStore,
   type ModelRequestDiagnostic,
   UserOpenAIClientFactory,
 } from './user-openai-client.js';
+
+export { prefetchedInitialTurnInput } from './runtime-model-input.js';
 
 interface ActiveTurn {
   readonly controller: AbortController;
@@ -454,52 +456,6 @@ export class LocalRuntimeServer {
     if (!this.graphFactory) throw new Error('runtime_not_initialized');
     return this.graphFactory;
   }
-}
-
-export function prefetchedInitialTurnInput(
-  request: string,
-  result: NonNullable<
-    Extract<LocalAgentHostMessage, { kind: 'turn.start' }>['prefetchedInitialToolResult']
-  >,
-): AgentInputItem[] {
-  const content: Array<
-    | { type: 'input_text'; text: string }
-    | { type: 'input_image'; image: string; detail: 'high' }
-  > = [
-    { type: 'input_text', text: request },
-    {
-      type: 'input_text',
-      text: [
-        'Trusted host initial observation:',
-        JSON.stringify({
-          status: result.status,
-          summary: result.summary,
-          data: result.data,
-        }),
-      ].join('\n'),
-    },
-  ];
-  if (result.imageDataUrl) {
-    content.push({
-      type: 'input_image',
-      image: result.imageDataUrl,
-      detail: 'high',
-    });
-  }
-  return [{ role: 'user', content }];
-}
-
-function injectRuntimeInstructions(
-  modelData: ModelInputData,
-  instructions: readonly string[],
-): ModelInputData {
-  const boundedInput = modelData.input as AgentInputItem[];
-  if (instructions.length === 0) return modelData;
-  const steering: AgentInputItem[] = instructions.map((instruction) => ({
-    role: 'user',
-    content: [{ type: 'input_text', text: instruction }],
-  }));
-  return { ...modelData, input: [...boundedInput, ...steering] };
 }
 
 function boundedFinalOutput(value: unknown): string {
