@@ -2,7 +2,6 @@ import { RunContext, type FunctionTool } from '@openai/agents';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { LocalAgentRunContext } from '../src/host-backed-session.js';
-
 import type { LocalRuntimeToolSpec } from '../src/protocol.js';
 import { ToolSurfaceFactory } from '../src/tool-adapter.js';
 
