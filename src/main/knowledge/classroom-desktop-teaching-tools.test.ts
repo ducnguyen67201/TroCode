@@ -24,11 +24,12 @@ function fixture() {
   const readResource = vi.fn(async () => f.state.material!);
   const resourceOperation = vi.fn<() => Promise<AsyncOperation | null>>(async () => null);
   const consume = vi.fn(async () => undefined);
-  const tools = new ClassroomDesktopTeachingTools({ resourceOperation, surfaces: { observe, inspectMaterial } as unknown as ClassroomLessonSurfaceService, presenter: { presentSequence, cancelGuidance: vi.fn() }, authorize, consume, markEffect: vi.fn(), openResource, readResource });
+  const markEffect = vi.fn(async (effect: typeof f.state.effect) => { f.state.effect = effect; });
+  const tools = new ClassroomDesktopTeachingTools({ resourceOperation, surfaces: { observe, inspectMaterial } as unknown as ClassroomLessonSurfaceService, presenter: { presentSequence, cancelGuidance: vi.fn() }, authorize, consume, markEffect, openResource, readResource });
   tools.register(taskId, f.state);
   const call = (name: string, input: unknown) => tools.adapters().find((adapter) => adapter.id === `classroom.teaching-${name}`)!.execute({ toolId: `classroom.teaching-${name}`, operation: name, callId: randomUUID(), kind: 'direct', modelName: `lesson_${name}`, input }, { taskId, signal: new AbortController().signal });
   const control = (command: unknown): ResolvedToolInvocation => ({ toolId: 'computer.control', modelName: 'control_surface', operation: 'control', kind: 'surface', callId: randomUUID(), input: { observationId: f.observation.observationId, observationFingerprint: f.observation.fingerprint, command } });
-  return { ...f, tools, call, control, taskId, observe, inspectMaterial, openResource, readResource, resourceOperation, consume, presentSequence, authorize, evidence: { observationId: f.observation.observationId, fingerprint: f.observation.fingerprint } };
+  return { ...f, tools, call, control, taskId, observe, inspectMaterial, openResource, readResource, resourceOperation, consume, markEffect, presentSequence, authorize, evidence: { observationId: f.observation.observationId, fingerprint: f.observation.fingerprint } };
 }
 describe('scoped desktop teaching tools', () => {
   it('allows observation of an unknown opening but blocks mutation and explanation', async () => {
@@ -319,12 +320,18 @@ it('returns refreshed evidence after presentation so the SDK can finish without 
 });
 
 
+async function prepareOpening(f: ReturnType<typeof fixture>) {
+  f.resourceOperation.mockResolvedValue({ version: 1, id: randomUUID(), status: 'completed', startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  f.inspectMaterial.mockResolvedValueOnce({ ready: false, observation: f.observation, error: new LessonBlockedError('surface_unverified', 'Choose the application to open the material.') });
+  await f.call('observe', {});
+}
+
 describe('verification after unverified native input', () => {
   it('permits native observation but resumes only after verifying the requested material', async () => {
     const f = fixture();
-    await f.call('observe', {});
+    await prepareOpening(f);
     const guard = f.tools.guard(f.taskId);
-    const enter = f.control({ kind: 'press_key', ref: null, key: 'Enter', modifiers: [] });
+    const enter = f.control({ kind: 'press_key', ref: null, key: 'Enter', modifiers: [], verification: 'material_visible' });
     await guard.before(enter, true);
     await guard.observeResult({ status: 'unknown', recovery: 'observe', summary: 'PostMessage delivery not verified.' });
     await expect(guard.before(enter, true)).rejects.toThrow('revoked');
@@ -343,13 +350,47 @@ describe('verification after unverified native input', () => {
   });
   it.each(['lost-dispatch', 'unknown-opening', 'stopped'] as const)('does not clear %s through material observation', async (scenario) => {
     const f = fixture();
-    await f.call('observe', {});
+    await prepareOpening(f);
     const guard = f.tools.guard(f.taskId);
-    await guard.before(f.control({ kind: 'press_key', ref: null, key: 'Enter', modifiers: [] }), true);
+    await guard.before(f.control({ kind: 'press_key', ref: null, key: 'Enter', modifiers: [], verification: 'material_visible' }), true);
     await guard.observeResult({ status: 'unknown', summary: 'Uncertain', ...(scenario === 'lost-dispatch' ? {} : { recovery: 'observe' as const }) });
     if (scenario === 'unknown-opening') f.resourceOperation.mockResolvedValue({ version: 1, id: randomUUID(), status: 'unknown', startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     if (scenario === 'stopped') f.authorize.mockRejectedValue(new Error('Lesson stopped.'));
     await f.call('observe', {});
     expect(guard.uncertain()).toBe(true);
   });
+});
+
+
+it.each(['already-visible', 'no-opening-purpose'] as const)('does not resolve an unrelated edit when %s', async (scenario) => {
+  const f = fixture();
+  if (scenario === 'already-visible') {
+    await prepareOpening(f);
+    await f.call('observe', {});
+  } else await prepareOpening(f);
+  const guard = f.tools.guard(f.taskId);
+  await guard.before(f.control({ kind: 'type_text', ref: 'e1', text: 'changed code', replace: true,
+    ...(scenario === 'already-visible' ? { verification: 'material_visible' } : {}) }), true);
+  await guard.observeResult({ status: 'unknown', recovery: 'observe', summary: 'Edit unverified.' });
+  await f.call('observe', {});
+  expect(guard.uncertain()).toBe(true);
+  expect(f.state.effect).toBe('unknown');
+});
+
+it.each(['revoked', 'opening-unknown', 'write-failed'] as const)('restores unknown if recovery is interrupted by %s', async (scenario) => {
+  const f = fixture();
+  await prepareOpening(f);
+  const guard = f.tools.guard(f.taskId);
+  await guard.before(f.control({ kind: 'press_key', ref: null, key: 'Enter', modifiers: [], verification: 'material_visible' }), true);
+  await guard.observeResult({ status: 'unknown', recovery: 'observe', summary: 'Enter unverified.' });
+  f.markEffect.mockImplementationOnce(async (effect) => {
+    f.state.effect = effect;
+    if (scenario === 'revoked') f.authorize.mockRejectedValue(new Error('Lesson access revoked.'));
+    if (scenario === 'opening-unknown') f.resourceOperation.mockResolvedValue({ version: 1, id: randomUUID(), status: 'unknown', startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    if (scenario === 'write-failed') throw new Error('Persistence failed after updating the effect.');
+  });
+  expect((await f.call('observe', {})).status).toBe('unknown');
+  expect(f.state.effect).toBe('unknown');
+  expect(f.markEffect).toHaveBeenLastCalledWith('unknown');
+  expect(guard.uncertain()).toBe(true);
 });

@@ -22,6 +22,7 @@ import type {
 const ModelSurfaceCommandSchema = z.discriminatedUnion('kind', [
   z.object({
     deliveryMode: z.enum(['foreground', 'background']).nullish(),
+    verification: z.literal('material_visible').nullish(),
     kind: z.literal('click_element'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u),
     button: z.enum(['left', 'right']),
@@ -29,6 +30,7 @@ const ModelSurfaceCommandSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     deliveryMode: z.enum(['foreground', 'background']).nullish(),
+    verification: z.literal('material_visible').nullish(),
     kind: z.literal('type_text'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u),
     text: z.string().max(100_000),
@@ -36,6 +38,7 @@ const ModelSurfaceCommandSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     deliveryMode: z.enum(['foreground', 'background']).nullish(),
+    verification: z.literal('material_visible').nullish(),
     kind: z.literal('press_key'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u).nullable(),
     key: z.string().trim().min(1).max(40),
@@ -43,6 +46,7 @@ const ModelSurfaceCommandSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     deliveryMode: z.enum(['foreground', 'background']).nullish(),
+    verification: z.literal('material_visible').nullish(),
     kind: z.literal('scroll'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u).nullable(),
     direction: z.enum(['up', 'down', 'left', 'right']),
@@ -158,26 +162,29 @@ const nullableRef = {
 const clickModelSchema = objectSchema(
   {
     deliveryMode: deliveryModeParameter,
+    verification: { anyOf: [{ type: 'string', const: 'material_visible' }, { type: 'null' }], description: 'Use material_visible only for an action to finish opening the lesson material after lesson_observe reports it is not visible. Null for all other actions.' },
     kind: { type: 'string', const: 'click_element' },
     ref: { type: 'string', pattern: '^e[1-9][0-9]{0,3}$' },
     button: { type: 'string', enum: ['left', 'right'] },
     count: { type: 'integer', minimum: 1, maximum: 2 },
   },
-  ['deliveryMode', 'kind', 'ref', 'button', 'count'],
+  ['deliveryMode', 'verification', 'kind', 'ref', 'button', 'count'],
 );
 const typeModelSchema = objectSchema(
   {
     deliveryMode: deliveryModeParameter,
+    verification: { anyOf: [{ type: 'string', const: 'material_visible' }, { type: 'null' }], description: 'Use material_visible only for an action to finish opening the lesson material after lesson_observe reports it is not visible. Null for all other actions.' },
     kind: { type: 'string', const: 'type_text' },
     ref: { type: 'string', pattern: '^e[1-9][0-9]{0,3}$' },
     text: { type: 'string', maxLength: 100_000 },
     replace: { type: 'boolean' },
   },
-  ['deliveryMode', 'kind', 'ref', 'text', 'replace'],
+  ['deliveryMode', 'verification', 'kind', 'ref', 'text', 'replace'],
 );
 const keyModelSchema = objectSchema(
   {
     deliveryMode: deliveryModeParameter,
+    verification: { anyOf: [{ type: 'string', const: 'material_visible' }, { type: 'null' }], description: 'Use material_visible only for an action to finish opening the lesson material after lesson_observe reports it is not visible. Null for all other actions.' },
     kind: { type: 'string', const: 'press_key' },
     ref: nullableRef,
     key: { type: 'string', minLength: 1, maxLength: 40 },
@@ -187,17 +194,18 @@ const keyModelSchema = objectSchema(
       items: { type: 'string', minLength: 1, maxLength: 40 },
     },
   },
-  ['deliveryMode', 'kind', 'ref', 'key', 'modifiers'],
+  ['deliveryMode', 'verification', 'kind', 'ref', 'key', 'modifiers'],
 );
 const scrollModelSchema = objectSchema(
   {
     deliveryMode: deliveryModeParameter,
+    verification: { anyOf: [{ type: 'string', const: 'material_visible' }, { type: 'null' }], description: 'Use material_visible only for an action to finish opening the lesson material after lesson_observe reports it is not visible. Null for all other actions.' },
     kind: { type: 'string', const: 'scroll' },
     ref: nullableRef,
     direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
     amount: { type: 'integer', minimum: 1, maximum: 20 },
   },
-  ['deliveryMode', 'kind', 'ref', 'direction', 'amount'],
+  ['deliveryMode', 'verification', 'kind', 'ref', 'direction', 'amount'],
 );
 
 function controlParameters(): StrictJsonObjectSchema {
@@ -259,7 +267,7 @@ function elementFor(
 function normalizeCommand(
   command: z.infer<typeof ModelSurfaceCommandSchema>,
 ): SurfaceCommand {
-  return SurfaceCommandSchema.parse({ ...command, deliveryMode: command.deliveryMode ?? undefined });
+  return SurfaceCommandSchema.parse({ ...command, deliveryMode: command.deliveryMode ?? undefined, verification: command.verification ?? undefined });
 }
 
 function actionParameters(
@@ -270,6 +278,7 @@ function actionParameters(
   const parameters: Record<string, string | string[]> = {
     command: command.kind,
     deliveryMode: command.deliveryMode ?? 'foreground',
+    ...(command.verification ? { verification: command.verification } : {}),
     application: observation.surface?.application ?? 'Unknown application',
     observationFingerprint: observation.fingerprint,
     observationId: observation.observationId,

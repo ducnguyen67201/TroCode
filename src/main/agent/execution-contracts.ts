@@ -109,6 +109,7 @@ const SurfaceDeliveryMode = z.enum(['foreground', 'background']).optional();
 export const SurfaceCommandSchema = z.discriminatedUnion('kind', [
   z.object({
     deliveryMode: SurfaceDeliveryMode,
+    verification: z.literal('material_visible').optional(),
     kind: z.literal('click_element'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u),
     button: z.enum(['left', 'right']).default('left'),
@@ -116,6 +117,7 @@ export const SurfaceCommandSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     deliveryMode: SurfaceDeliveryMode,
+    verification: z.literal('material_visible').optional(),
     kind: z.literal('type_text'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u),
     text: z.string().max(100_000),
@@ -123,6 +125,7 @@ export const SurfaceCommandSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     deliveryMode: SurfaceDeliveryMode,
+    verification: z.literal('material_visible').optional(),
     kind: z.literal('press_key'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u).nullable(),
     key: z.string().trim().min(1).max(40),
@@ -130,6 +133,7 @@ export const SurfaceCommandSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     deliveryMode: SurfaceDeliveryMode,
+    verification: z.literal('material_visible').optional(),
     kind: z.literal('scroll'),
     ref: z.string().regex(/^e[1-9][0-9]{0,3}$/u).nullable(),
     direction: z.enum(['up', 'down', 'left', 'right']),

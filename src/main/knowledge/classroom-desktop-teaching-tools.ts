@@ -59,6 +59,9 @@ interface Round {
   presented: boolean;
   uncertain: boolean;
   recoverableInput?: boolean;
+  pendingMaterialOpening?: boolean;
+  materialVerified?: boolean;
+  openingObservationId?: string;
   dispatching?: boolean;
   failure?: LessonReason;
   result?: z.infer<typeof TeachingFinishSchema>;
@@ -92,7 +95,8 @@ export class ClassroomDesktopTeachingTools {
         if (!round) return;
         if (round.dispatching) {
           round.uncertain = result.status === 'unknown';
-          round.recoverableInput = round.uncertain && result.recovery === 'observe';
+          round.recoverableInput = round.uncertain && round.pendingMaterialOpening === true && result.recovery === 'observe';
+          round.pendingMaterialOpening = false;
           if (round.recoverableInput) executionDiagnostic('lesson.input_verification_pending', { taskId, lessonId: round.state.envelope.lessonId });
           round.dispatching = false;
           await this.options.markEffect(result.status === 'unknown' ? 'unknown' : result.status === 'confirmed' ? 'confirmed' : 'none');
@@ -129,6 +133,10 @@ export class ClassroomDesktopTeachingTools {
         throw new LessonBlockedError('surface_unverified', 'Coordinate actions require a fresh screenshot.');
     }
     if (dispatch) {
+      const command = invocation.toolId === 'computer.control' ? (invocation.input as SurfaceControlToolInput).command : undefined;
+      round.pendingMaterialOpening = command?.verification === 'material_visible' && !round.materialVerified &&
+        Boolean(round.observation && round.openingObservationId === round.observation.observationId) &&
+        (await this.options.resourceOperation?.(round.state))?.status === 'completed';
       await this.options.consume('action');
       await this.options.markEffect('dispatching');
       if ((await this.options.resourceOperation?.(round.state))?.status === 'unknown') {
@@ -206,18 +214,26 @@ export class ClassroomDesktopTeachingTools {
       await this.authorize(taskId, round, signal, true);
       round.observation = inspected.observation;
       if (!inspected.ready) {
+        round.openingObservationId = inspected.observation?.observationId;
         round.failure = inspected.error.reason;
         return { status: 'not_executed', summary: inspected.error.message, observation: inspected.observation };
       }
+      round.materialVerified = true;
+      round.openingObservationId = undefined;
       if (round.uncertain && round.recoverableInput &&
           (await this.options.resourceOperation?.(round.state))?.status !== 'unknown') {
         // This verifies the requested material, not delivery of the earlier key.
         // The invocation journal retains its unknown outcome and prevents replay.
-        await this.options.markEffect('confirmed');
-        await this.authorize(taskId, round, signal, true);
-        if (!round.recoverableInput) {
-          await this.options.markEffect('unknown');
-          return { status: 'not_executed', summary: 'The opening outcome became unknown during verification.', observation: inspected.observation };
+        try {
+          await this.options.markEffect('confirmed');
+          await this.authorize(taskId, round, signal, true);
+          if (!round.recoverableInput) throw new Error('The opening outcome became unknown during verification.');
+        } catch (error) {
+          // A revoked or failed verification must not leave a confirmed durable effect.
+          round.state.effect = 'unknown';
+          try { await this.options.markEffect('unknown'); }
+          catch { executionDiagnostic('lesson.recovery_persistence_failed', { taskId, lessonId: round.state.envelope.lessonId }); }
+          throw error;
         }
         round.uncertain = false;
         round.recoverableInput = false;

@@ -83,11 +83,16 @@ listing; unknown capabilities and optional file exports remain actions.
 `lesson.input_verification_pending` records that transition.
 
 Fresh generic observations do not prove delivery or authorize another mutation.
+Only a semantic control explicitly requesting `verification: material_visible`,
+using the fresh observation from a failed `lesson_observe` while an OS opening
+is completed and the material has not yet been verified, can use this recovery.
+Ordinary edits and raw driver actions cannot be resolved by resource identity.
 `lesson_observe` must verify the requested material before the lesson can resume;
 `lesson.material_verified_after_input` records that evidence. If the chooser is
 still visible, control remains blocked. A partial native effect, thrown dispatch,
 unknown opening, stopped lesson, or revoked authority cannot be cleared by this
-recovery path. The original call is never dispatched again, including after a
+recovery path. Revocation or persistence errors during recovery restore the unknown
+effect. The original call is never dispatched again, including after a
 restart or repeated runtime message.
 
 For Windows acceptance, run the revised student build against staging and repeat
