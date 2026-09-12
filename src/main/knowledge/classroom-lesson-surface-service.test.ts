@@ -45,9 +45,9 @@ describe('lesson material window binding', () => {
     const f = desktopLessonFixture();
     const first = { processId: 123, windowId: 45 };
     const next = { processId: 123, windowId: 46 };
-    const observeLessonWindow = vi.fn<() => Promise<{ observation: typeof f.observation; identity: typeof first } | undefined>>()
+    const observeLessonWindow = vi.fn<() => Promise<{ observation: typeof f.observation; identity: typeof first | undefined }>>()
       .mockResolvedValueOnce({ observation: f.observation, identity: first })
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ observation: f.observation, identity: undefined })
       .mockResolvedValueOnce({ observation: f.observation, identity: next })
       .mockResolvedValueOnce({ observation: f.observation, identity: next });
     const service = new ClassroomLessonSurfaceService({ cua: { observeLessonWindow, externalLessonWindows: vi.fn(async () => []) }, prepareObservation: async () => async () => undefined });

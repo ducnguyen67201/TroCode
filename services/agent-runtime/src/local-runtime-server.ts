@@ -2,7 +2,6 @@ import {
   RunContext,
   RunState,
   type AgentInputItem,
-  type ModelInputData,
   type RunToolApprovalItem,
 } from '@openai/agents';
 
@@ -24,12 +23,15 @@ import {
   type LocalTurnEventKind,
   type PendingToolResumeDisposition,
 } from './protocol.js';
+import { injectRuntimeInstructions, prefetchedInitialTurnInput } from './runtime-model-input.js';
 import { ToolOutcomeUnknownError, ToolSurfaceFactory } from './tool-adapter.js';
 import {
   EphemeralCredentialStore,
   type ModelRequestDiagnostic,
   UserOpenAIClientFactory,
 } from './user-openai-client.js';
+
+export { prefetchedInitialTurnInput } from './runtime-model-input.js';
 
 interface ActiveTurn {
   readonly controller: AbortController;
@@ -202,6 +204,9 @@ export class LocalRuntimeServer {
     };
     const context: LocalAgentRunContext = { bridge: this.bridge, identity, signal: controller.signal };
     let checkpointRevision = message.kind === 'turn.resume' ? message.checkpointRevision : 0;
+    let completedRunTurns = 0;
+    let runBudget = message.maxTurns;
+    let continuations = 0;
     try {
       const factory = this.requireGraphFactory();
       const graph = await factory.create(
@@ -277,7 +282,7 @@ export class LocalRuntimeServer {
           callModelInputFilter: async ({ modelData }) =>
             injectRuntimeInstructions(modelData, active.steering.splice(0)),
           context,
-          maxTurns: message.maxTurns,
+          maxTurns: runBudget,
           session: graph.session,
           signal: controller.signal,
           stream: true,
@@ -300,6 +305,24 @@ export class LocalRuntimeServer {
             result.state.toString(),
             null,
           );
+          const pendingCompletion = graph.toolSurface.pendingCompletion();
+          if (pendingCompletion.length > 0) {
+            // Includes turns restored from a durable checkpoint, not just model
+            // requests emitted by this process since it started.
+            completedRunTurns += result.state.toJSON().currentTurn;
+            if (continuations >= 2 || completedRunTurns >= message.maxTurns) {
+              this.terminal(identity, 'failed', output, 'task_completion_unverified',
+                `The task ended without confirmed completion from ${pendingCompletion.join(', ')}.`);
+              return;
+            }
+            continuations++;
+            runBudget = message.maxTurns - completedRunTurns;
+            // A terminal RunState cannot accept addInput. The SDK session owns
+            // the existing history; send only the new continuation instruction.
+            nextInput = `The task is not complete: ${pendingCompletion.join(', ')} has not confirmed completion. Inspect the latest tool results and current screen, correct the target or handle intermediate UI, and continue toward the goal. Do not repeat an uncertain operation. Use the required completion tool only after its postconditions are satisfied.`;
+            this.event(identity, 'lifecycle', 'The task postcondition is still unverified; continuing from existing tool history.');
+            continue;
+          }
           this.terminal(identity, 'completed', output, null, 'The local agent completed the turn.');
           return;
         }
@@ -433,52 +456,6 @@ export class LocalRuntimeServer {
     if (!this.graphFactory) throw new Error('runtime_not_initialized');
     return this.graphFactory;
   }
-}
-
-export function prefetchedInitialTurnInput(
-  request: string,
-  result: NonNullable<
-    Extract<LocalAgentHostMessage, { kind: 'turn.start' }>['prefetchedInitialToolResult']
-  >,
-): AgentInputItem[] {
-  const content: Array<
-    | { type: 'input_text'; text: string }
-    | { type: 'input_image'; image: string; detail: 'high' }
-  > = [
-    { type: 'input_text', text: request },
-    {
-      type: 'input_text',
-      text: [
-        'Trusted host initial observation:',
-        JSON.stringify({
-          status: result.status,
-          summary: result.summary,
-          data: result.data,
-        }),
-      ].join('\n'),
-    },
-  ];
-  if (result.imageDataUrl) {
-    content.push({
-      type: 'input_image',
-      image: result.imageDataUrl,
-      detail: 'high',
-    });
-  }
-  return [{ role: 'user', content }];
-}
-
-function injectRuntimeInstructions(
-  modelData: ModelInputData,
-  instructions: readonly string[],
-): ModelInputData {
-  const boundedInput = modelData.input as AgentInputItem[];
-  if (instructions.length === 0) return modelData;
-  const steering: AgentInputItem[] = instructions.map((instruction) => ({
-    role: 'user',
-    content: [{ type: 'input_text', text: instruction }],
-  }));
-  return { ...modelData, input: [...boundedInput, ...steering] };
 }
 
 function boundedFinalOutput(value: unknown): string {

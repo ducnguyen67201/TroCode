@@ -1081,15 +1081,54 @@ describe('CUA task sessions', () => {
   });
 });
 
-it('uses desktop capture for lesson observation after escalation without calling window tools', async () => {
+it('rediscovers the material window after desktop input instead of permanently returning identity-less evidence', async () => {
   const service = new CuaService();
   const taskId = randomUUID();
   Reflect.set(service, 'activeSessions', new Set([taskId]));
   Reflect.set(service, 'desktopScopeSessions', new Set([taskId]));
   const observe = vi.spyOn(service, 'observe').mockResolvedValue({ observationId: randomUUID(), taskId, capturedAt: new Date().toISOString(), fingerprint: 'a'.repeat(64), text: 'Desktop', degraded: false, route: 'desktop_vision' });
-  const window = vi.fn();
+  const observation = { observationId: randomUUID(), taskId, capturedAt: new Date().toISOString(), fingerprint: 'b'.repeat(64), text: 'Lesson', degraded: false, route: 'window_vision' as const };
+  const window = vi.fn(async () => ({ observation, identity: { processId: 1, windowId: 2 } }));
   Reflect.set(service, 'surfaceRouter', { observeExternalWindow: window });
-  await expect(service.observeLessonWindow(taskId, { processId: 1, windowId: 2 })).resolves.toMatchObject({ identity: undefined, observation: { route: 'desktop_vision' } });
-  expect(observe).toHaveBeenCalledWith(taskId, undefined);
-  expect(window).not.toHaveBeenCalled();
+  await expect(service.observeLessonWindow(taskId, { processId: 1, windowId: 2 })).resolves.toMatchObject({ identity: { processId: 1, windowId: 2 }, observation });
+  expect(observe).not.toHaveBeenCalled();
+  expect(window).toHaveBeenCalledWith(taskId, { processId: 1, windowId: 2 }, undefined);
+});
+
+it('isolates window calls after raw desktop capture and closes both native sessions', async () => {
+  const records: Array<{ event: string; taskId?: string; nativeTool?: string }> = [];
+  const log = vi.spyOn(console, 'info').mockImplementation((prefix, line) => {
+    if (prefix === '[execution]') records.push(JSON.parse(String(line)));
+  });
+  try {
+  const taskId = randomUUID();
+  const sessions = new Map<string, boolean>();
+  const receipt = { text: 'Current screen', images: [{ mimeType: 'image/png', dataBase64: 'AA==' }], isError: false, degraded: false, rawJson: '{}' };
+  const driver = {
+    isAvailable: () => true,
+    startSession: vi.fn(async ({ session }: { session: string }) => { sessions.set(session, false); return startedWindowSession(); }),
+    escalateSession: vi.fn(async ({ session }: { session: string }) => { sessions.set(session, true); return escalatedDesktopSession(); }),
+    getDesktopState: vi.fn(async ({ session }: { session: string }) => { expect(sessions.get(session)).toBe(true); return receipt; }),
+    callTool: vi.fn(async (_name: string, args: string) => { expect(sessions.get(JSON.parse(args).session)).toBe(false); return receipt; }),
+    endSession: vi.fn(async ({ session }: { session: string }) => { sessions.delete(session); }),
+  };
+  const catalog = createCuaDriverCatalog({ driverVersion: '0.19.3', contractVersion: '0.6.0', toolsListSchemaVersion: '1', capabilityVersion: '1' }, {
+    capability_version: '1', schema_version: '1', tools: ['get_desktop_state', 'get_window_state'].map((name) => ({ name, description: name, capabilities: [], inputSchema: { type: 'object', properties: { session: { type: 'string' }, pid: { type: 'number' }, window_id: { type: 'number' } }, required: ['session'] } })),
+  });
+  const service = new CuaService();
+  Reflect.set(service, 'cuaModule', fakeCuaModule());
+  Reflect.set(service, 'driver', driver);
+  Reflect.set(service, 'driverCatalog', catalog);
+  const desktop = await service.executeCuaTool(taskId, 'get_desktop_state', {}, catalog.driverCatalogDigest);
+  expect(desktop).toMatchObject({ status: 'confirmed', observation: { taskId, route: 'desktop_vision' } });
+  await service.executeCuaTool(taskId, 'get_window_state', { pid: 123, window_id: 45 }, catalog.driverCatalogDigest);
+  expect(driver.callTool).toHaveBeenCalledWith('get_window_state', JSON.stringify({ pid: 123, window_id: 45, session: `${taskId}:window` }), undefined);
+  expect((await service.executeCuaTool(taskId, 'get_window_state', { pid: process.pid, window_id: 45 }, catalog.driverCatalogDigest)).status).toBe('not_executed');
+  expect(driver.callTool).toHaveBeenCalledOnce();
+  await service.endTaskSession(taskId);
+  expect(sessions.size).toBe(0);
+  expect(records.filter((record) => record.event === 'cua.result' && record.nativeTool === 'get_window_state')).toEqual([
+    expect.objectContaining({ taskId }),
+  ]);
+  } finally { log.mockRestore(); }
 });

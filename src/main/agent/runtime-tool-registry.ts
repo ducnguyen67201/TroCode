@@ -36,6 +36,9 @@ import {
   type DesktopCommand,
   type DesktopObservation,
 } from './execution-contracts';
+import type { FrozenRuntimeToolCatalog } from './runtime-tool-catalog';
+
+export type { FrozenRuntimeToolCatalog } from './runtime-tool-catalog';
 
 export interface TrustedToolExecutionContext {
   lesson?: LessonExecutionScope;
@@ -52,6 +55,7 @@ export interface ToolResolutionContext extends Partial<TrustedToolExecutionConte
 }
 
 export interface RuntimeToolDefinition<TInput = unknown> {
+  completionRequired?: boolean;
   available?: (context?: ToolResolutionContext) => boolean;
   description: string;
   driverCatalogDigest?: string | null;
@@ -65,18 +69,6 @@ export interface RuntimeToolDefinition<TInput = unknown> {
   operations: readonly string[];
   parameters: StrictJsonObjectSchema;
   parse(argumentsJson: string): TInput;
-}
-
-export interface FrozenRuntimeToolCatalog {
-  digest: string;
-  tools: Array<{
-    toolId: RuntimeToolId;
-    modelName: string;
-    description: string;
-    inputSchema: StrictJsonObjectSchema;
-    operations: string[];
-    driverCatalogDigest: string | null;
-  }>;
 }
 
 export interface RuntimeToolRegistrationRejection {
@@ -985,6 +977,7 @@ export class RuntimeToolRegistry {
         inputSchema: definition.parameters,
         operations: [...definition.operations],
         driverCatalogDigest: definition.driverCatalogDigest ?? null,
+        ...(definition.completionRequired ? { completionRequired: true } : {}),
       }))
       .sort((left, right) => left.toolId.localeCompare(right.toolId));
     return {

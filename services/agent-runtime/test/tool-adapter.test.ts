@@ -274,3 +274,16 @@ it('returns a host-authorized observation recovery instruction without executing
   expect(JSON.parse(String(output))).toMatchObject({ status: 'unknown', recovery: expect.stringContaining('Do not replay') });
   expect(request).toHaveBeenCalledOnce();
 });
+
+it.each(['completed', 'failed'])('requires a confirmed completion receipt, not merely a requested tool (%s)', async (status) => {
+  const spec = { ...toolSpec('finish_task', { type: 'object', properties: {}, required: [], additionalProperties: false }), completionRequired: true };
+  const surface = new ToolSurfaceFactory().create([spec], digest);
+  const call = surface.resolve({ rawItem: { type: 'function_call', callId: 'finish-1', name: spec.modelName, arguments: '{}' } } as never);
+  surface.markCheckpointed(call);
+  expect(surface.pendingCompletion()).toEqual(['finish_task']);
+  const context = new RunContext<LocalAgentRunContext>({ bridge: { request: async () => ({ kind: 'tool.execute.result', result: { status, summary: 'Completion result', data: null, imageDataUrl: null } }), nextSequence: () => 1 } as never,
+    identity: { threadId: 'thread', turnId: 'turn', agentId: 'agent', graphVersion: digest, parentAgentId: null, delegationId: null }, signal: new AbortController().signal });
+  const sdkTool = surface.tools[0] as FunctionTool<LocalAgentRunContext, never, unknown>;
+  await sdkTool.invoke(context, '{}', { toolCall: { callId: call.callId } } as never);
+  expect(surface.pendingCompletion()).toEqual(status === 'completed' ? [] : ['finish_task']);
+});

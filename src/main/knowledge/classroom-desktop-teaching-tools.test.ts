@@ -412,3 +412,22 @@ it('allows a new desktop decision after fresh evidence without confirming or rep
   const next = { ...click, callId: randomUUID(), input: { observationId: fresh.observationId, observationFingerprint: fresh.fingerprint, command: { kind: 'click', x: 200, y: 200, button: 'left', count: 1 } } };
   await expect(guard.before(next, false)).resolves.toBeUndefined();
 });
+
+it.each(['computer.control', 'cua.click'])('uses intermediate chooser evidence to recover %s without declaring material visible', async (toolId) => {
+  const f = fixture();
+  f.observation.screenshot = { mimeType: 'image/png', dataBase64: 'AA==' };
+  await prepareOpening(f);
+  const guard = f.tools.guard(f.taskId);
+  const click = { ...f.control({ kind: 'click_element', ref: 'e1', button: 'left', count: 1 }), toolId } as ResolvedToolInvocation;
+  await guard.before(click, true);
+  await guard.observeResult({ status: 'unknown', recovery: 'observe', summary: 'Selection input unverified.' });
+  const fresh = { ...f.observation, observationId: randomUUID(), text: 'Viewer selected; confirmation enabled.' };
+  f.inspectMaterial.mockResolvedValueOnce({ ready: false, observation: fresh, error: new LessonBlockedError('surface_unverified', 'File is not visible yet.') });
+  const observed = await f.call('observe', {});
+  await guard.observeResult(observed);
+  expect(guard.uncertain()).toBe(false);
+  expect(f.markEffect).toHaveBeenLastCalledWith('none');
+  expect(f.tools.result(f.taskId)).toBeUndefined();
+  const next = { ...f.control({ kind: 'click_element', ref: 'e2', button: 'left', count: 1 }), input: { observationId: fresh.observationId, observationFingerprint: fresh.fingerprint, command: { kind: 'click_element', ref: 'e2', button: 'left', count: 1 } } };
+  await expect(guard.before(next, false)).resolves.toBeUndefined();
+});

@@ -29,6 +29,7 @@ export interface PendingToolCall {
 
 export interface ToolSurface {
   readonly tools: readonly unknown[];
+  pendingCompletion(): string[];
   markCheckpointed(call: PendingToolCall): void;
   resolve(interruption: RunToolApprovalItem): PendingToolCall;
 }
@@ -74,6 +75,7 @@ export class ToolSurfaceFactory {
   ): ToolSurface {
     const byName = new Map<string, LocalRuntimeToolSpec>();
     const checkpointed = new Map<string, PendingToolCall>();
+    const pendingCompletion = new Set(specs.filter((spec) => spec.completionRequired).map((spec) => spec.modelName));
     let pendingRequiredInitialTool = requiredInitialTool;
     const tools = specs.map((spec) => {
       if (byName.has(spec.modelName)) throw new Error('duplicate_model_tool_name');
@@ -106,6 +108,7 @@ export class ToolSurfaceFactory {
             idempotencyDigest: pending.idempotencyDigest,
           }, { signal: runtime.signal, timeoutMs: 180_000 });
           if (response.kind !== 'tool.execute.result') throw new Error('unexpected_tool_execute_response');
+          if (response.result.status === 'completed') pendingCompletion.delete(pending.modelName);
           return modelToolResult(response.result, pending.callId);
         },
       }) as FunctionTool<LocalAgentRunContext, never, unknown>;
@@ -119,6 +122,7 @@ export class ToolSurfaceFactory {
 
     return {
       tools,
+      pendingCompletion: () => [...pendingCompletion],
       markCheckpointed: (call) => checkpointed.set(call.callId, call),
       resolve: (interruption) => {
         const raw = interruption.rawItem;
@@ -160,7 +164,7 @@ function modelToolResult(result: LocalToolExecutionResult, callId: string): unkn
   }
   const text = JSON.stringify({
     status: result.status, summary: result.summary, data: result.data,
-    ...(result.recovery ? { recovery: 'Observe the current screen. Do not replay this action. Use lesson_observe to verify the requested material before continuing.' } : {}),
+    ...(result.recovery ? { recovery: 'Use observe_context to capture fresh screen evidence before choosing another action. Do not replay this action. Intermediate UI progress is not final task completion.' } : {}),
   });
   if (!result.imageDataUrl) return text;
   return [{ type: 'text', text }, { type: 'image', image: result.imageDataUrl, detail: 'high' }];

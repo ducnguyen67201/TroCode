@@ -24,8 +24,8 @@ import {
 import type { ImageEvidencePolicy } from '../inference/image-evidence-policy';
 
 import { CuaCapabilityBroker } from './cua-capability-broker';
+import { executeCatalogCuaTool } from './cua-catalog-execution';
 import { traceNativeCall } from './cua-execution-diagnostics';
-import { cuaOpenToolOutcome } from './cua-open-tool-outcome';
 import {
   type CuaDriverCatalog,
   type CuaDriverCatalogReport,
@@ -393,11 +393,9 @@ export class CuaService {
   async observeLessonWindow(taskId: string, identity: { processId: number; windowId: number } | undefined,
     signal?: AbortSignal) {
     this.assertActiveSession(taskId);
-    if (this.desktopScopeSessions.has(taskId)) {
-      return { observation: await this.observe(taskId, signal), identity: undefined };
-    }
     const result = await this.surfaceRouter?.observeExternalWindow(taskId, identity, signal);
-    return result ? { ...result, observation: this.imageEvidencePolicy?.prepare(taskId, result.observation) ?? result.observation } : undefined;
+    return result ? { ...result, observation: this.imageEvidencePolicy?.prepare(taskId, result.observation) ?? result.observation }
+      : { observation: await this.observe(taskId, signal), identity: undefined };
   }
 
   async queryVisibleApplicationSurfaces(
@@ -1064,26 +1062,11 @@ export class CuaService {
     signal?: AbortSignal,
   ): Promise<ToolExecutionResult> {
     await this.startTaskSession(taskId, signal);
-    const catalog = this.driverCatalog;
-    if (!catalog || catalog.driverCatalogDigest !== driverCatalogDigest) {
-      return {
-        status: 'not_executed',
-        summary: 'The installed CUA tool catalog changed before execution.',
-      };
-    }
-    const tool = catalog.tools.find((candidate) => candidate.name === toolName);
-    if (!tool) {
-      return {
-        status: 'not_executed',
-        summary: 'The requested CUA tool is not in the installed driver catalog.',
-      };
-    }
-    const argumentsValue = {
-      ...input,
-      ...(tool.injectSession ? { session: taskId } : {}),
-    };
-    const result = await this.callOpenTool(tool.name, argumentsValue, signal);
-    return cuaOpenToolOutcome(tool.name, result);
+    return executeCatalogCuaTool(taskId, toolName, input, driverCatalogDigest, {
+      catalog: this.driverCatalog, hostProcessId: process.pid,
+      observe: (id, abort) => this.observe(id, abort),
+      callTool: (name, args, abort) => this.callOpenTool(name, args, abort),
+    }, signal);
   }
 
   async endTaskSession(taskId: string, signal?: AbortSignal): Promise<void> {
@@ -1093,7 +1076,8 @@ export class CuaService {
     this.latestCoordinateSpaces.delete(taskId);
     this.windowsBottomEdgeAwaitingObservation.delete(taskId);
     this.windowsBottomEdgeReadyUntil.delete(taskId);
-    await this.endSession(taskId, signal);
+    try { await this.endSession(`${taskId}:window`, signal); }
+    finally { await this.endSession(taskId, signal); }
   }
 
   async endDictationSession(
@@ -1364,9 +1348,24 @@ export class CuaService {
     argumentsValue: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<CuaOpenToolResult> {
+    const session = argumentsValue.session;
+    if (typeof session === 'string' && this.activeSessions.has(session)) {
+      if (argumentsValue.scope === 'desktop') {
+        const cua = await this.loadModule();
+        await this.ensureDesktopScope(session, cua.EscalationReason.Other, 'native_desktop_action', signal);
+      } else if (this.desktopScopeSessions.has(session) &&
+          (typeof argumentsValue.pid === 'number' || typeof argumentsValue.window_id === 'number' || argumentsValue.scope === 'window')) {
+        // Driver 0.19.x permanently escalates a session. Isolate window work in
+        // a task-owned native session so desktop input cannot disable subsequent
+        // window discovery, material verification, or element actions.
+        const windowSession = `${session}:window`;
+        await this.startSession(windowSession, signal);
+        argumentsValue = { ...argumentsValue, session: windowSession };
+      }
+    }
     const startedAt = this.performanceNow();
     try {
-      const result = await traceNativeCall(name, argumentsValue, () => this.requireDriver().callTool(
+      const result = await traceNativeCall(name, { ...argumentsValue, session }, () => this.requireDriver().callTool(
         name, JSON.stringify(argumentsValue), signal ? { signal } : undefined,
       ));
       this.recordPerformance({
