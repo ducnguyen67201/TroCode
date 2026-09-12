@@ -23,7 +23,6 @@ import {
 } from '../agent/execution-contracts';
 import type { ImageEvidencePolicy } from '../inference/image-evidence-policy';
 
-import { desktopActionOutcome } from './desktop-action-outcome';
 import { CuaCapabilityBroker } from './cua-capability-broker';
 import { traceNativeCall } from './cua-execution-diagnostics';
 import { cuaOpenToolOutcome } from './cua-open-tool-outcome';
@@ -48,6 +47,7 @@ import {
   type ObserveSurfaceOptions,
   type SurfaceRevalidationResult,
 } from './cua-surface-router';
+import { desktopActionOutcome } from './desktop-action-outcome';
 
 const DesktopStateMetadataSchema = z.object({
   screen_height: z.number().int().positive(),

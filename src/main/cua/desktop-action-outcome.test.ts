@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { desktopActionOutcome } from './desktop-action-outcome';
 
 describe('desktop action recovery receipts', () => {
